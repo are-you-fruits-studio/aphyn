@@ -15,4 +15,6 @@ wgpu = "27"
 gilrs = "0.11.0"
 fruits_ecs = { path = "../fruits_ecs" }
 fruits_render_core = { path = "../fruits_render_core" }
+fruits_render = { path = "../fruits_render" }
+fruits_transform = { path = "../fruits_transform" }
 fruits_ffi = { path = "../fruits_ffi" }

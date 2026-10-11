@@ -177,7 +177,7 @@ impl Default for StandardMaterialAssetMetadata {
         Self {
             is_lit: false,
             space: RenderSpace::World,
-            color: Vec4::splat(0.5),
+            color: Vec4::splat(1.0),
             emission_color: Vec4::splat(0.0),
             metallic: 0.0,
             roughness: 0.5,

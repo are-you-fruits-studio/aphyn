@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use fruits_ecs::{ResourcesHolderMut, Schedule, World, WorldBuilder, WorldDataMut};
-use fruits_render_core::RenderApiResource;
+use fruits_render::CameraComponent;
+use fruits_render_core::{CurrentRenderingResource, RenderApiResource};
+use fruits_transform::GlobalTransform;
 use gilrs::Gilrs;
 use winit::{
     application::ApplicationHandler,
@@ -11,7 +13,7 @@ use winit::{
     window::{Window, WindowAttributes, WindowId},
 };
 
-use crate::{GamepadInputStorage, InputResource, TextInputEvent, WindowResource, WindowState};
+use crate::{GamepadInputStorage, InputResource, TextInputEvent, WindowResource, WindowState, render_target::RenderTarget};
 
 enum EventLoopHandlerState {
     Created(WorldBuilder),
@@ -20,6 +22,7 @@ enum EventLoopHandlerState {
         world: World,
         window: Arc<Window>,
         gamepad_host: Option<Gilrs>,
+        render_target: RenderTarget,
     },
 }
 
@@ -55,6 +58,8 @@ impl ApplicationHandler for EventLoopHandler {
 
         let state = RenderApiResource::new(Arc::clone(&window));
 
+        let render_target = RenderTarget::new(&*unsafe { state.raw() });
+
         let window_state = WindowState::from_window(&window);
 
         world.data_mut().resources_mut().insert(state);
@@ -73,6 +78,7 @@ impl ApplicationHandler for EventLoopHandler {
             world,
             window,
             gamepad_host: gamepad_host.ok(),
+            render_target,
         };
     }
 
@@ -98,6 +104,7 @@ impl ApplicationHandler for EventLoopHandler {
             world,
             window,
             gamepad_host,
+            render_target,
         } = &mut self.0
         else {
             return;
@@ -155,6 +162,8 @@ impl ApplicationHandler for EventLoopHandler {
 
                 world.execute_iteration(Schedule::Update);
 
+                core_system_render(world, render_target);
+
                 core_system_clear_events_and_input(world.data_mut());
                 core_system_update_window(world.data_mut(), window);
 
@@ -196,6 +205,41 @@ fn core_system_gamepad(mut res: ResourcesHolderMut, gamepad_host: &mut Option<Gi
             }
         }
     }
+}
+
+fn core_system_render(world: &mut World, render_target: &mut RenderTarget) {
+    let render_state = unsafe { world.data_mut().as_ref().resources().get::<RenderApiResource>().unwrap().raw() };
+
+    if render_target.size() != render_state.size() {
+        *render_target = RenderTarget::new(&render_state);
+    }
+
+    render_target.clear(&render_state);
+
+    let camera = world
+        .data_mut()
+        .as_ref()
+        .entities()
+        .query::<(&GlobalTransform, &CameraComponent)>()
+        .iter()
+        .next()
+        .map(|(transform, camera)| (*transform, camera.0));
+
+    if let Some((camera_transform, camera)) = camera {
+        world.data_mut().resources_mut().insert(CurrentRenderingResource {
+            camera_position: camera_transform.position,
+            camera_scale_rotation: camera_transform.scale_rotation,
+            camera,
+            target_texture: render_target.texture.clone(),
+            target_view: render_target.texture_view.clone(),
+        });
+
+        world.execute_iteration(Schedule::RenderCamera);
+
+        world.data_mut().resources_mut().remove::<CurrentRenderingResource>();
+    }
+
+    render_target.render_to_surface(&render_state);
 }
 
 fn core_system_clear_events_and_input(mut world: WorldDataMut) {

@@ -7,17 +7,6 @@ use wgpu::{BindGroup, BindGroupLayout, Buffer, PipelineLayout, RenderPipeline, S
 
 use super::GizmoLine;
 
-// todo: support ffi
-#[derive(Resource)]
-pub struct MainRenderTargetResource {
-    pub texture: Texture,
-    pub texture_view: TextureView,
-    pub sampler: Sampler,
-    pub bind_group_layout: BindGroupLayout,
-    pub bind_group: BindGroup,
-    pub render_pipeline: RenderPipeline,
-}
-
 #[repr(C)]
 #[derive(Resource)]
 pub struct GizmosResource {
@@ -54,6 +43,7 @@ pub struct GizmosRenderResource {
     pub bind_group: BindGroup,
     pub vertices_cpu_buffer: Box<[[Vec4<f32>; 2]]>,
     pub colors_cpu_buffer: Box<[Vec4<f32>]>,
+    pub frame_lines: Vec<(RenderSpace, Vec<GizmoLine>)>,
 }
 
 // todo: support ffi
@@ -70,7 +60,6 @@ pub struct TransparentTargetTextureResource {
     pub texture: Texture,
     pub texture_view: TextureView,
     pub sampler: Sampler,
-    pub bind_group_layout: BindGroupLayout,
     pub bind_group: BindGroup,
 }
 
@@ -93,6 +82,7 @@ impl Default for ExposureResource {
 // todo: support ffi
 #[derive(Resource)]
 pub struct ExposureRenderResource {
+    pub target_texture: Texture,
     pub buffer_uniform: Buffer,
     pub texture: Texture,
     pub texture_view: TextureView,
@@ -147,6 +137,7 @@ unsafe impl AllBitsInit for BloomStorageLayer {}
 // todo: support ffi
 #[derive(Resource)]
 pub struct BloomRenderResource {
+    pub target_texture: Texture,
     pub buffer_storage_layers: Buffer,
     pub buffer_uniform: Buffer,
     pub textures: [Texture; 3],
@@ -187,6 +178,7 @@ impl Default for ColorGradingResource {
 // todo: support ffi
 #[derive(Resource)]
 pub struct ColorGradingRenderResource {
+    pub target_texture: Texture,
     pub texture: Texture,
     pub texture_view: TextureView,
     pub sampler: Sampler,
@@ -213,6 +205,7 @@ pub struct StandardRenderResource {
     pub render_pipeline_transparent_lit: RenderPipeline,
     pub render_pipeline_transparent_unlit: RenderPipeline,
     pub render_pipeline_transparent_final: RenderPipeline,
+    pub bind_group_layout_transparent_final: BindGroupLayout,
 }
 
 // todo: support ffi

@@ -77,24 +77,24 @@ fn init(mut world: WorldDataMut) {
     let render_api = world.as_ref().resources().get::<RenderApiResource>().unwrap();
 
     let material = render_api.create_material(Default::default(), StandardMaterialAssetMetadata {
-        is_lit: true,
+        is_lit: false,
         ..Default::default()
     });
 
     let mut vertices = [
         StandardVertex {
             position: [0.0, 0.0, 0.0],
-            color: [0.0, 0.0, 0.0, 0.0],
+            color: [0.0, 0.0, 0.0, 1.0],
             ..Default::default()
         },
         StandardVertex {
             position: [0.5, 1.0, 0.0],
-            color: [0.2, 0.5, 1.0, 0.0],
+            color: [0.2, 0.5, 1.0, 1.0],
             ..Default::default()
         },
         StandardVertex {
             position: [1.0, 0.0, 0.0],
-            color: [0.0, 0.0, 0.0, 0.0],
+            color: [0.0, 0.0, 0.0, 1.0],
             ..Default::default()
         },
     ];
@@ -183,11 +183,11 @@ fn init(mut world: WorldDataMut) {
         .unwrap();
         ec.add_component(
             camera_entity,
-            CameraComponent {
+            CameraComponent(Camera {
                 near: 0.1_f32,
                 far: 1_000_f32,
                 fov: 90_f32.to_radians(),
-            },
+            }),
         )
         .ok()
         .unwrap();

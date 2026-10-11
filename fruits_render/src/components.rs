@@ -2,7 +2,7 @@ use fruits_asset_storage::AssetHandle;
 use fruits_ecs::Component;
 use fruits_ffi::FfiVec;
 use fruits_math::Vec3;
-use fruits_render_core::{StandardMaterial, StandardMesh, StandardVertex};
+use fruits_render_core::{Camera, StandardMaterial, StandardMesh, StandardVertex};
 use fruits_serialization::*;
 
 #[repr(C)]
@@ -49,10 +49,5 @@ pub enum StandardLightComponent {
 }
 
 #[repr(C)]
-#[derive(Component)]
-pub struct CameraComponent {
-    // todo: orthographic projection
-    pub fov: f32,
-    pub near: f32,
-    pub far: f32,
-}
+#[derive(Component, Clone, Copy)]
+pub struct CameraComponent(pub Camera);

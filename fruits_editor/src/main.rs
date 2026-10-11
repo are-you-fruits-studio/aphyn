@@ -118,6 +118,24 @@ fn run_editor_app(project_path: &str) {
 
     world.as_mut().data_mut().resources_mut().insert(OpenProjectResource { dir_path: project_path.to_string() });
 
+    {
+        let mut world_data = world.data_mut();
+        let mut ec = world_data.entities_mut();
+
+        let camera = ec.create_entity();
+        ec.add_component(camera, GlobalTransform::default()).ok().unwrap();
+        ec.add_component(
+            camera,
+            CameraComponent(Camera {
+                near: 0.1,
+                far: 1_000.0,
+                fov: 90_f32.to_radians(),
+            }),
+        )
+        .ok()
+        .unwrap();
+    }
+
     app.run();
 }
 

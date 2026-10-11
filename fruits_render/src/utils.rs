@@ -1,5 +1,6 @@
 use fruits_math::Mat4;
 use fruits_math::Vec3;
+use fruits_math::Vec4;
 use fruits_render_core::RenderSpace;
 use fruits_render_core::StandardLight;
 use fruits_render_core::StandardUniformMaterial;
@@ -16,6 +17,9 @@ pub const GIZMO_LINES_PER_DRAW_MAX: usize = 1024 * 16;
 pub const INSTANCES_PER_DRAW_MAX: usize = 1024 * 8;
 pub const TRIANGLES_PER_BATCHED_DRAW_MAX: usize = 1024 * 32;
 pub const LIGHTS_COUNT_MAX: usize = 1024;
+
+pub const DEPTH_TEXTURE_FORMAT: TextureFormat = TextureFormat::Depth32Float;
+pub const TRANSPARENT_TARGET_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 
 pub fn create_window_to_clip_matrix(width: f32, height: f32, near: f32, far: f32) -> Mat4<f32> {
     let z_near_to_far_inv = 1.0 / (far - near);
@@ -46,8 +50,8 @@ pub(crate) fn get_render_data<'a, 'b>(
     };
 
     let uniform = StandardUniformMaterial {
-        color: material.color.map(|x| x.powf(2.2)),
-        emission_color: material.emission_color.map(|x| x.powf(2.2)),
+        color: srgb_to_linear(material.color),
+        emission_color: srgb_to_linear(material.emission_color),
         metallic: material.metallic,
         roughness: material.roughness,
         alpha_threshold: material.alpha_threshold.into_option().unwrap_or(0.0),
@@ -69,6 +73,10 @@ pub(crate) fn get_render_data<'a, 'b>(
     };
 
     (&render_pipeline, &material_native.bind_group)
+}
+
+fn srgb_to_linear(color: Vec4<f32>) -> Vec4<f32> {
+    Vec4::new(color.x.powf(2.2), color.y.powf(2.2), color.z.powf(2.2), color.w)
 }
 
 pub fn light_from_components(light: &StandardLightComponent, transform: &GlobalTransform) -> StandardLight {

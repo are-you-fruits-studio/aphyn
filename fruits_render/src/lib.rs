@@ -10,8 +10,8 @@
 //! Rendering is enabled by registering the module, which the engine's default-modules setup
 //! (`fruits_modules::add_defult_modules_to`) already does. Once registered, an entity is drawn
 //! by giving it the right components; the systems in this crate pick them up automatically each
-//! frame. World-space content is projected through the single entity carrying a
-//! [`CameraComponent`]; without one the world-space projection stays the identity. UI text and
+//! frame. Nothing is drawn unless an entity carries a [`CameraComponent`]: the frame is rendered
+//! through the first camera found, and any further cameras are ignored for now. UI text and
 //! images are drawn by `fruits_ui`, which produces [`BatchedMeshComponent`]s for this crate.
 //!
 //! #### Drawing a mesh
@@ -31,8 +31,9 @@
 //!
 //! #### Placing the camera
 //!
-//! Give one entity a [`CameraComponent`] and a transform. The camera's transform is the eye
-//! position and orientation; its `fov` is in radians:
+//! Give one entity a [`CameraComponent`] and a transform. The component wraps the
+//! [`Camera`](fruits_render_core::Camera) parameters from `fruits_render_core`. The camera's
+//! transform is the eye position and orientation; its `fov` is in radians:
 //!
 //! ```ignore
 //! use fruits_engine::*;
@@ -43,11 +44,11 @@
 //!     position: Vec3::new(0.0, 0.0, -5.0),
 //!     ..Default::default()
 //! }).ok().unwrap();
-//! ec.add_component(camera, CameraComponent {
+//! ec.add_component(camera, CameraComponent(Camera {
 //!     near: 0.1,
 //!     far: 1_000.0,
 //!     fov: 90_f32.to_radians(),
-//! }).ok().unwrap();
+//! })).ok().unwrap();
 //! ```
 //!
 //! #### Lighting the scene
@@ -141,27 +142,35 @@
 //! [`add_render_module_to`] inserts the asset storages for materials, meshes, and textures and
 //! the user-facing resources ([`GizmosResource`], [`ScreenSpaceResource`], [`BloomResource`],
 //! [`ExposureResource`], [`ColorGradingResource`]), and registers its systems under the
-//! [`SYSTEM_GROUP_RENDER`] group. [`Schedule::Start`] builds the
-//! render targets, the post-processing resources, the gizmo resources, and finally
-//! [`create_standard_render_resource`]. Each [`Schedule::Update`]
-//! runs the inner [`SYSTEM_GROUP_RENDER_INTERNAL`] group and then
-//! [`render_main_target_to_surface_system`]. Inside that group the explicit order is: recreate
-//! any render target whose size no longer matches the surface (main, depth, transparent,
-//! exposure, bloom, color grading), clear the main, depth, and transparent targets, update the
-//! camera matrix, the lights buffer, and the global uniform, draw opaque geometry (instanced
-//! then batched), draw transparent geometry (instanced then batched), composite the transparent
-//! target, apply exposure, bloom, and color grading, and finally draw gizmos. Every pass records
-//! its own command encoder and submits it immediately.
+//! [`SYSTEM_GROUP_RENDER`] group in three schedules. [`Schedule::Start`] builds the
+//! [`StandardRenderResource`] and the gizmo resources; pipelines are created against the fixed
+//! [`RENDER_TARGET_FORMAT`](fruits_render_core::RENDER_TARGET_FORMAT), [`DEPTH_TEXTURE_FORMAT`],
+//! and [`TRANSPARENT_TARGET_FORMAT`] since no render target exists yet. [`Schedule::Update`] only
+//! runs the per-frame work that does not depend on the camera: [`update_lights_buffer`] and
+//! [`prepare_gizmos`]. Keeping the group in `Update` lets other modules and games keep ordering
+//! their systems `before_group(SYSTEM_GROUP_RENDER)`.
+//!
+//! Everything else runs in [`Schedule::RenderCamera`], which `fruits_app` executes after `Update`
+//! with a [`CurrentRenderingResource`](fruits_render_core::CurrentRenderingResource) present. The
+//! explicit order is: recreate any intermediate target that no longer matches the current render
+//! target (depth, transparent, exposure, bloom, color grading), clear the depth and transparent
+//! targets, update the camera matrix and the global uniform, draw opaque geometry (instanced then
+//! batched), draw transparent geometry (instanced then batched), composite the transparent target,
+//! apply exposure, bloom, and color grading, and finally draw gizmos. Every pass records its own
+//! command encoder and submits it immediately.
 //!
 //! #### Render targets and presentation
 //!
-//! Everything is drawn into [`MainRenderTargetResource`], an offscreen `Rgba16Float` HDR texture
-//! the size of the surface, with a `Depth32Float` [`DepthTextureResource`].
-//! [`render_main_target_to_surface_system`] acquires the surface texture, copies the main target
-//! onto it with a fullscreen triangle (`shader_render_surface.wgsl`, nearest sampling, `REPLACE`
-//! blend), and presents it; if the surface texture cannot be acquired the frame is skipped. The
-//! `recreate_*` systems compare each target against the current surface size and only rebuild
-//! when it changed, replacing the resource in place.
+//! This crate does not own the color target or present the surface. `fruits_app` owns one
+//! `Rgba16Float` HDR target the size of the surface, clears it every frame, and hands it to the
+//! `RenderCamera` systems through `CurrentRenderingResource::target_texture` / `target_view`;
+//! after the schedule it copies the target onto the surface and presents it. Everything here
+//! draws into that target, with a `Depth32Float` [`DepthTextureResource`]. Window-space matrices,
+//! the camera aspect, and the bloom viewports use the target size, not the window size. The
+//! `recreate_*` systems compare each intermediate texture against the target size and only
+//! rebuild when it changed, replacing the resource in place; the exposure, bloom, and color
+//! grading resources bind the target view, so they also keep a clone of the target texture and
+//! rebuild when a different target is passed.
 //!
 //! #### Two geometry paths: instanced and batched
 //!
@@ -182,11 +191,11 @@
 //! #### Opaque vs. transparent compositing
 //!
 //! A material's `alpha_threshold` splits the two: `Some` materials are drawn opaque into the
-//! main target (depth-write on, `REPLACE` blend, alpha-tested with `discard` in the shader);
+//! render target (depth-write on, `REPLACE` blend, alpha-tested with `discard` in the shader);
 //! `None` materials are transparent. Transparent draws target an offscreen `Rgba16Float`
 //! [`TransparentTargetTextureResource`] with additive blending and depth-test but no
 //! depth-write, and [`render_transparent_final_system`] then composites that target over the
-//! main target with a fullscreen triangle (`shader_transparent_final.wgsl`) using alpha
+//! render target with a fullscreen triangle (`shader_transparent_final.wgsl`) using alpha
 //! blending.
 //!
 //! #### Shaders, materials, and lights
@@ -198,7 +207,8 @@
 //! `StandardUniformGlobal` with the camera position and light count, plus the lights storage
 //! buffer); bind group 1 is the material's. `get_render_data` picks the pipeline from
 //! `is_lit` / `alpha_threshold` and rewrites the material uniform before every draw: color and
-//! emission color are raised to the power 2.2 (sRGB to linear), and the world-to-clip matrix
+//! emission color RGB are raised to the power 2.2 (sRGB to linear, alpha kept as is so the alpha
+//! test sees the authored value), and the world-to-clip matrix
 //! comes from the material's `RenderSpace` — `World` uses the camera matrix, `Window` uses
 //! [`create_window_to_clip_matrix`] (pixel coordinates with the near/far from
 //! [`ScreenSpaceResource`]), and `Clip` uses the identity. The lit path samples the normal map
@@ -209,17 +219,20 @@
 //! [`update_lights_buffer`] converts every [`StandardLightComponent`] with its transform (a
 //! missing transform is the identity) into a `StandardGenericLight` via
 //! [`light_from_components`] and uploads up to [`LIGHTS_COUNT_MAX`] of them.
-//! [`update_camera_uniform`] builds the camera matrix from the sole [`CameraComponent`]; it
-//! does nothing when there is no camera and **panics if more than one camera exists**.
+//! [`update_camera_uniform`] copies the camera matrix
+//! ([`CurrentRenderingResource::world_to_clip`](fruits_render_core::CurrentRenderingResource::world_to_clip))
+//! and position from the current rendering into [`StandardRenderResource`]; the systems never
+//! query [`CameraComponent`] themselves.
 //!
 //! #### Post-processing
 //!
-//! Each effect is skipped unless enabled in its resource, and each works on the main target.
+//! Each effect is skipped unless enabled in its resource, and each works on the current render
+//! target.
 //! [`render_exposure_system`] multiplies the image by `2^exposure` into its own texture and
 //! copies the result back. [`render_bloom_system`] gathers the pixels above
 //! `threshold` (softened over `threshold_softening` with a `smoothstep` on luminance), then for
 //! each of [`BLUR_LAYERS_COUNT`] progressively halved layers downscales, blurs horizontally and
-//! vertically, and additively applies the layer back onto the main target scaled by
+//! vertically, and additively applies the layer back onto the render target scaled by
 //! `intensity`, ping-ponging between three textures in [`BloomRenderResource`].
 //! [`render_color_grading_system`] applies the ACES filmic curve
 //! (`shader_color_grading_aces.wgsl`) into its own texture and copies it back. Without color
@@ -227,11 +240,12 @@
 //!
 //! #### Gizmos
 //!
-//! [`GizmosResource`] keeps a line list per `RenderSpace`; [`render_gizmos`] runs after
-//! post-processing, so gizmos are not affected by it. It pops lines from each list in chunks of
-//! [`GIZMO_LINES_PER_DRAW_MAX`] through a line-list pipeline backed by storage buffers — which is
-//! why gizmos must be re-pushed every frame. World-space gizmos are skipped when there is no
-//! camera.
+//! [`GizmosResource`] keeps a line list per `RenderSpace`. At the end of `Update`,
+//! [`prepare_gizmos`] moves those lines into the frame list of [`GizmosRenderResource`] and
+//! empties the user lists, which is why gizmos must be re-pushed every frame (and why lines do not
+//! pile up when no camera renders). [`render_gizmos`] runs after post-processing, so gizmos are
+//! not affected by it, and draws the frame list in chunks of [`GIZMO_LINES_PER_DRAW_MAX`] through
+//! a line-list pipeline backed by storage buffers without consuming it.
 //!
 //! #### FFI
 //!
@@ -251,7 +265,6 @@ use fruits_ecs::{Schedule, WorldBuilderMut};
 use fruits_render_core::{StandardMesh, StandardTexture, StandardMaterial};
 
 pub const SYSTEM_GROUP_RENDER: &'static str = "fruits_render";
-pub const SYSTEM_GROUP_RENDER_INTERNAL: &'static str = "fruits_render_internal";
 
 pub fn add_render_module_to(mut world: WorldBuilderMut) {
     let mut res = world.data_mut().into_resources_mut();
@@ -271,44 +284,27 @@ pub fn add_render_module_to(mut world: WorldBuilderMut) {
     start
         .group(SYSTEM_GROUP_RENDER)
         .insert_child_system(create_standard_render_resource)
-        .insert_child_system(recreate_main_render_target_resource)
-        .insert_child_system(recreate_depth_texture_resource)
-        .insert_child_system(recreate_transparent_target_resource)
-        .insert_child_system(recreate_exposure_render_resource)
-        .insert_child_system(recreate_bloom_render_resource)
-        .insert_child_system(recreate_color_grading_render_resource)
         .insert_child_system(create_gizmos_render_resource);
-
-    start
-        .order_system(recreate_main_render_target_resource)
-        .before_system(recreate_depth_texture_resource)
-        .before_system(recreate_transparent_target_resource)
-        .before_system(recreate_exposure_render_resource)
-        .before_system(recreate_bloom_render_resource)
-        .before_system(recreate_color_grading_render_resource)
-        .before_system(create_gizmos_render_resource)
-        .before_system(create_standard_render_resource);
 
     let mut update = world_behavior.get_mut(Schedule::Update);
 
     update
         .group(SYSTEM_GROUP_RENDER)
-        .insert_child_group(SYSTEM_GROUP_RENDER_INTERNAL)
-        .insert_child_system(render_main_target_to_surface_system);
+        .insert_child_system(update_lights_buffer)
+        .insert_child_system(prepare_gizmos);
 
-    update
-        .group(SYSTEM_GROUP_RENDER_INTERNAL)
+    let mut render_camera = world_behavior.get_mut(Schedule::RenderCamera);
+
+    render_camera
+        .group(SYSTEM_GROUP_RENDER)
         .insert_child_system(update_camera_uniform)
-        .insert_child_system(recreate_main_render_target_resource)
         .insert_child_system(recreate_depth_texture_resource)
         .insert_child_system(recreate_transparent_target_resource)
         .insert_child_system(recreate_exposure_render_resource)
         .insert_child_system(recreate_bloom_render_resource)
         .insert_child_system(recreate_color_grading_render_resource)
-        .insert_child_system(clear_main_render_target)
         .insert_child_system(clear_depth)
         .insert_child_system(clear_transparent_target)
-        .insert_child_system(update_lights_buffer)
         .insert_child_system(update_global_uniforms)
         .insert_child_system(render_opaque_instanced)
         .insert_child_system(render_opaque_batched)
@@ -320,18 +316,15 @@ pub fn add_render_module_to(mut world: WorldBuilderMut) {
         .insert_child_system(render_color_grading_system)
         .insert_child_system(render_gizmos);
 
-    update
-        .order_system(recreate_main_render_target_resource)
-        .before_system(recreate_depth_texture_resource)
+    render_camera
+        .order_system(recreate_depth_texture_resource)
         .before_system(recreate_transparent_target_resource)
         .before_system(recreate_exposure_render_resource)
         .before_system(recreate_bloom_render_resource)
         .before_system(recreate_color_grading_render_resource)
-        .before_system(clear_main_render_target)
         .before_system(clear_depth)
         .before_system(clear_transparent_target)
         .before_system(update_camera_uniform)
-        .before_system(update_lights_buffer)
         .before_system(update_global_uniforms)
         .before_system(render_opaque_instanced)
         .before_system(render_opaque_batched)
@@ -342,6 +335,4 @@ pub fn add_render_module_to(mut world: WorldBuilderMut) {
         .before_system(render_bloom_system)
         .before_system(render_color_grading_system)
         .before_system(render_gizmos);
-
-    update.order_group(SYSTEM_GROUP_RENDER_INTERNAL).before_system(render_main_target_to_surface_system);
 }

@@ -94,7 +94,37 @@
 //! assert_eq!(instance_layout.step_mode, wgpu::VertexStepMode::Instance);
 //! ```
 //!
+//! #### Reading the camera being rendered
+//!
+//! Systems in the [`RenderCamera`](fruits_ecs::Schedule::RenderCamera) schedule read the camera and
+//! the color target they draw into from [`CurrentRenderingResource`]. It exists only while that
+//! schedule runs:
+//!
+//! ```ignore
+//! use fruits_engine::*;
+//!
+//! fn draw_something(current_rendering: Res<CurrentRenderingResource>) {
+//!     let world_to_clip = current_rendering.world_to_clip();
+//!     let [width, height] = current_rendering.target_size();
+//!     let view = &current_rendering.target_view;
+//!     let _ = (world_to_clip, width, height, view);
+//! }
+//! ```
+//!
 //! # How to maintain
+//!
+//! #### Camera and current rendering
+//!
+//! [`Camera`] holds the plain projection parameters (`fov` in radians, `near`, `far`); the ECS
+//! component that wraps it is `fruits_render::CameraComponent`. [`CurrentRenderingResource`] is
+//! inserted by `fruits_app` right before it executes `RenderCamera` and removed right after. It
+//! stores the camera transform as plain math (`camera_position`, `camera_scale_rotation`) because
+//! `fruits_transform` depends on this crate, so `GlobalTransform` cannot be named here.
+//! [`world_to_clip`](CurrentRenderingResource::world_to_clip) is the perspective projection, using
+//! the target's aspect, times the inverse of the camera transform. The target is created by
+//! `fruits_app` in [`RENDER_TARGET_FORMAT`], which `fruits_render` also uses for its pipelines, so
+//! both sides must keep agreeing on it. Like the other wgpu-holding resources it is not FFI-safe
+//! yet (`todo: support ffi`).
 //!
 //! #### The FFI-stable resource
 //!
@@ -180,6 +210,9 @@ pub use render_api::*;
 
 mod utils;
 pub use utils::*;
+
+mod rendering;
+pub use rendering::*;
 
 mod render_graph;
 // todo

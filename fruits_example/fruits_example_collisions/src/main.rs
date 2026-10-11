@@ -59,11 +59,11 @@ fn init(mut world: WorldDataMut) {
     ec.add_component(camera, LocalTransform::IDENTITY).ok().unwrap();
     ec.add_component(
         camera,
-        CameraComponent {
+        CameraComponent(Camera {
             near: 0.1_f32,
             far: 1_000_f32,
             fov: 90_f32.to_radians(),
-        },
+        }),
     )
     .ok()
     .unwrap();

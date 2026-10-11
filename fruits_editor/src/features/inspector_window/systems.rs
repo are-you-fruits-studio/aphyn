@@ -171,33 +171,78 @@ pub fn update_add_component_variants_system(
 pub fn adjust_hierarchy_entries_system(
     button_click_evt: Evt<ButtonClickEvent>,
     mut inspected_entity: ResMut<InspectedEntityResource>,
+    inspected_asset: Res<InspectedAssetResource>,
     mut simulated_world: ResMut<SimulatedWorldResource>,
     button_add_q: WorldQuery<&HierarchyButtonAddComponent>,
     button_remove_q: WorldQuery<&HierarchyButtonRemoveComponent>,
+    mut inspected_asset_edited_evt: EvtMut<InspectedAssetEditedEvent>,
 ) {
-    let Some(simulated_world) = &mut simulated_world.0 else {
-        return;
-    };
+    return_if_not!(Some(simulated_world) = &mut simulated_world.0);
+
+    return_if!(
+        get_asset_type(simulated_world.world.data().resources(), inspected_asset.asset_key.as_str()) != Some(AssetType::Prefab)
+    );
+
+    let (_, mut sim_ent, _) = simulated_world.world.data_mut().into_tuple_mut();
 
     for click_evt in button_click_evt.iter() {
-        if button_remove_q.get(click_evt.entity).is_some() {
-            let removed_entity = inspected_entity.selected_entity;
-            simulated_world.world.data_mut().entities_mut().destroy_entity(removed_entity);
-            
-            if let Some(removed_id) = inspected_entity.ent_to_id.remove(&removed_entity) {
-                inspected_entity.id_to_ent.remove(&removed_id);
-                inspected_entity.selected_entity = EntityId::EMPTY;
+        let ent_selected = inspected_entity.selected_entity;
+
+        if button_remove_q.get(click_evt.entity).is_some()
+            && ent_selected != inspected_asset.spawned_prefab
+            && sim_ent.contains_entity(ent_selected)
+        {
+            if let Some(&ChildComponent { parent }) = sim_ent.get_component::<ChildComponent>(ent_selected)
+                && let Some(parent_c) = sim_ent.get_component_mut::<ParentComponent>(parent)
+            {
+                parent_c.children = parent_c.children.iter().copied().filter(|&e| e != ent_selected).collect();
             }
+
+            let mut subtree = vec![ent_selected];
+            let mut i = 0;
+            while let Some(&e) = subtree.get(i) {
+                if let Some(parent_c) = sim_ent.get_component::<ParentComponent>(e) {
+                    subtree.extend(parent_c.children.iter().copied());
+                }
+                i += 1;
+            }
+
+            for e in subtree {
+                sim_ent.destroy_entity(e);
+
+                if let Some(removed_id) = inspected_entity.ent_to_id.remove(&e) {
+                    inspected_entity.id_to_ent.remove(&removed_id);
+                }
+            }
+
+            inspected_entity.selected_entity = EntityId::EMPTY;
+            inspected_asset_edited_evt.push(InspectedAssetEditedEvent);
         }
+
         if button_add_q.get(click_evt.entity).is_some() {
-            let entity = simulated_world.world.data_mut().entities_mut().create_entity();
-            
+            let parent = sim_ent
+                .get_component::<ChildComponent>(ent_selected)
+                .map(|c| c.parent)
+                .filter(|&p| sim_ent.contains_entity(p));
+
+            let entity = sim_ent.create_entity();
+
+            if let Some(parent) = parent {
+                sim_ent.set_component(entity, ChildComponent { parent });
+
+                match sim_ent.get_component_mut::<ParentComponent>(parent) {
+                    Some(parent_c) => parent_c.children.push(entity),
+                    None => _ = sim_ent.set_component(parent, ParentComponent { children: vec![entity].into() }),
+                }
+            }
+
             let new_id = (1..=(inspected_entity.id_to_ent.len() as u64 + 1)).filter(|i| !inspected_entity.id_to_ent.contains_key(i)).next().unwrap();
 
             inspected_entity.ent_to_id.insert(entity, new_id);
             inspected_entity.id_to_ent.insert(new_id, entity);
 
             inspected_entity.selected_entity = entity;
+            inspected_asset_edited_evt.push(InspectedAssetEditedEvent);
         }
     }
 }
@@ -696,7 +741,8 @@ pub fn update_hierarchy_window_system(
 
         hierarchy_win_c.is_init = true;
 
-        let content = entities.get_component::<WindowComponent>(ent_window).unwrap().content_container;
+        let ent_scroll_content = entities.get_component::<WindowComponent>(ent_window).unwrap().content_container;
+        continue_if_not!(Some(&HierarchyWindowContentComponent { entries_container: content }) = entities.get_component::<HierarchyWindowContentComponent>(ent_scroll_content));
 
         destroy_entity_children(entities.as_mut(), content);
 

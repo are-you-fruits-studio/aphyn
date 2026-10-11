@@ -270,9 +270,10 @@
 //!
 //! #### Schedules
 //!
-//! [`Schedule`] is a fixed set of passes ([`Start`](Schedule::Start), [`Update`](Schedule::Update)).
-//! The world holds one independent system set per schedule, and the driving application chooses when
-//! each pass runs — typically `Start` once and `Update` every frame.
+//! [`Schedule`] is a fixed set of passes ([`Start`](Schedule::Start), [`Update`](Schedule::Update),
+//! [`RenderCamera`](Schedule::RenderCamera)). The world holds one independent system set per schedule,
+//! and the driving application chooses when each pass runs — typically `Start` once, `Update` every
+//! frame, and `RenderCamera` once per rendered camera after `Update`.
 
 mod behavior;
 mod data;

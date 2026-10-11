@@ -20,6 +20,11 @@ fn main() {
         .order_group(SYSTEM_GROUP_RENDER)
         .before_system(init);
 
+    world_behavior
+        .get_mut(Schedule::Start)
+        .order_group(SYSTEM_GROUP_UI)
+        .before_system(init);
+
     let mut world_data = world.data_mut();
 
     let mut ec = world_data.entities_mut();
@@ -30,11 +35,11 @@ fn main() {
             scale_rotation: Mat::IDENTITY,
             position: Vec3::new(0.0_f32, 0.0_f32, -1.0f32),
         },
-        CameraComponent {
+        CameraComponent(Camera {
             near: 0.1_f32,
             far: 1_000_f32,
             fov: 90_f32.to_radians(),
-        },
+        }),
     ));
 
     println!("start");

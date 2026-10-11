@@ -17,6 +17,11 @@ pub struct HierarchyWindowComponent {
     pub is_init: bool,
 }
 
+#[derive(Component, Default, Copy, Clone)]
+pub struct HierarchyWindowContentComponent {
+    pub entries_container: EntityId,
+}
+
 #[derive(Component)]
 pub struct HierarchyButtonAddComponent;
 

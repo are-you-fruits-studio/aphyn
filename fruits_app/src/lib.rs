@@ -122,10 +122,23 @@
 //! reports gets an entry in [`InputResource`], then pending `gilrs` events are drained into
 //! it: connect/disconnect maintain the per-id gamepad map, and
 //! button/axis events update the matching [`GamepadInputStorage`]. The
-//! [`Schedule::Update`](fruits_ecs::Schedule) pass then runs, after which the handler clears the
-//! frame's events, calls `clear_frame` on the input storages, reconciles the window state, and
-//! requests the next redraw. Mouse, keyboard, and resize events arrive as their own `winit`
-//! callbacks and write directly into the resources between frames.
+//! [`Schedule::Update`](fruits_ecs::Schedule) pass then runs, followed by the render core system,
+//! after which the handler clears the frame's events, calls `clear_frame` on the input storages,
+//! reconciles the window state, and requests the next redraw. Mouse, keyboard, and resize events
+//! arrive as their own `winit` callbacks and write directly into the resources between frames.
+//!
+//! #### Rendering
+//!
+//! The handler owns the frame's color target outside the world: an `Rgba16Float` texture
+//! (`RENDER_TARGET_FORMAT` from `fruits_render_core`) the size of the surface, rebuilt whenever the
+//! `RenderApiResource` size changes, plus the pipeline that copies it onto the surface
+//! (`assets/copy_texture.wgsl`, nearest sampling, `REPLACE` blend). Each frame the render
+//! core system clears the target, takes the first entity with a `GlobalTransform` and a
+//! `CameraComponent`, inserts a `CurrentRenderingResource` describing that camera and the target,
+//! runs the [`Schedule::RenderCamera`](fruits_ecs::Schedule) pass, and removes the resource again.
+//! Further cameras are ignored for now, and with no camera the pass does not run. Finally the
+//! target is copied onto the surface texture and presented; if the surface texture cannot be
+//! acquired the presentation is skipped for that frame.
 //!
 //! #### Frame-scoped input
 //!
@@ -148,6 +161,7 @@
 
 mod app;
 mod event_loop_handler;
+mod render_target;
 mod input_resource;
 mod window_resources;
 mod window_events;
