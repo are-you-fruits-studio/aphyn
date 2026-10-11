@@ -5,10 +5,11 @@ use crate::*;
 pub enum Schedule {
     Start = 0,
     Update = 1,
+    RenderCamera = 2,
 }
 
 impl Schedule {
-    pub const COUNT: usize = 2;
+    pub const COUNT: usize = 3;
     pub const fn index(self) -> usize {
         self as usize
     }

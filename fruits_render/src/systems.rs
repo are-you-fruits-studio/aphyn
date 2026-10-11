@@ -2333,9 +2333,7 @@ pub fn render_main_target_to_surface_system(
     render_api: Res<RenderApiResource>,
     main_render_target: Res<MainRenderTargetResource>
 ) {
-    let surface_texture = unsafe { render_api.raw().surface().get_current_texture().ok() };
-
-    let Some(surface_texture) = surface_texture else {
+    let Some(surface_texture) = (unsafe { render_api.raw().surface().get_current_texture().ok() }) else {
         return;
     };
 
@@ -2354,7 +2352,7 @@ pub fn render_main_target_to_surface_system(
                 view: view,
                 resolve_target: None,
                 ops: Operations {
-                    load: LoadOp::Load,
+                    load: LoadOp::Clear(Color::TRANSPARENT),
                     store: StoreOp::Store,
                 },
                 depth_slice: None,

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use fruits_ecs::{Schedule, World, WorldBuilder};
+use fruits_ecs::{ResourcesHolderMut, Schedule, World, WorldBuilder, WorldDataMut};
 use fruits_render_core::RenderApiResource;
 use gilrs::Gilrs;
 use winit::{
@@ -151,52 +151,14 @@ impl ApplicationHandler for EventLoopHandler {
                 render_state.resize([new_size.width, new_size.height]);
             }
             WindowEvent::RedrawRequested => {
-                let input = res.get_mut::<InputResource>().unwrap();
+                core_system_gamepad(res, gamepad_host);
 
-                if let Some(gamepad_host) = gamepad_host {
-                    fn get_or_create_gamepad(input: &mut InputResource, gamepad_id: usize) -> &mut GamepadInputStorage {
-                        input.gamepads.entry(gamepad_id).or_insert_with(|| GamepadInputStorage::new())
-                    }
-                    
-                    for (gamepad_id, _) in gamepad_host.gamepads() {
-                        get_or_create_gamepad(input, gamepad_id.into());
-                    }
-
-                    while let Some(gamepad_evt) = gamepad_host.next_event() {
-                        let gamepad_id: usize = gamepad_evt.id.into();
-                       
-                        match gamepad_evt.event {
-                            gilrs::EventType::Connected => _ = get_or_create_gamepad(input, gamepad_id),
-                            gilrs::EventType::Disconnected => _ = input.gamepads.remove(&gamepad_id),
-                            gilrs::EventType::ButtonPressed(button, _) => get_or_create_gamepad(input, gamepad_id).press(button),
-                            gilrs::EventType::ButtonReleased(button, _) => get_or_create_gamepad(input, gamepad_id).release(button),
-                            gilrs::EventType::AxisChanged(axis, axis_value, _) => get_or_create_gamepad(input, gamepad_id).write_axis(axis, axis_value),
-                            // todo: handle other gamepad events
-                            _ => (),
-                        }
-                    }
-                }
-
-                // println!("ayf: redraw start");
                 world.execute_iteration(Schedule::Update);
 
-                world.data_mut().events_mut().clear();
-
-                let mut world_data = world.data_mut();
-                let mut res = world_data.resources_mut();
-
-                let input = res.get_mut::<InputResource>().unwrap();
-                input.clear_frame();
-
-                let window_res = res.get_mut::<WindowResource>().unwrap();
-
-                let window_state_next = window_res.next_state().clone();
-                let window_state_prev = std::mem::replace(window_res.prev_state_mut(), window_state_next.clone());
-
-                WindowState::apply_difference(&window_state_prev, &window_state_next, &window);
+                core_system_clear_events_and_input(world.data_mut());
+                core_system_update_window(world.data_mut(), window);
 
                 window.request_redraw();
-                // println!("ayf: redraw end");
             }
             WindowEvent::Destroyed => {
                 // todo
@@ -204,4 +166,52 @@ impl ApplicationHandler for EventLoopHandler {
             _ => {}
         }
     }
+}
+
+//
+
+fn core_system_gamepad(mut res: ResourcesHolderMut, gamepad_host: &mut Option<Gilrs>) {
+    let input = res.get_mut::<InputResource>().unwrap();
+
+    if let Some(gamepad_host) = gamepad_host {
+        fn get_or_create_gamepad(input: &mut InputResource, gamepad_id: usize) -> &mut GamepadInputStorage {
+            input.gamepads.entry(gamepad_id).or_insert_with(|| GamepadInputStorage::new())
+        }
+        
+        for (gamepad_id, _) in gamepad_host.gamepads() {
+            get_or_create_gamepad(input, gamepad_id.into());
+        }
+
+        while let Some(gamepad_evt) = gamepad_host.next_event() {
+            let gamepad_id: usize = gamepad_evt.id.into();
+           
+            match gamepad_evt.event {
+                gilrs::EventType::Connected => _ = get_or_create_gamepad(input, gamepad_id),
+                gilrs::EventType::Disconnected => _ = input.gamepads.remove_swap(&gamepad_id),
+                gilrs::EventType::ButtonPressed(button, _) => get_or_create_gamepad(input, gamepad_id).press(button),
+                gilrs::EventType::ButtonReleased(button, _) => get_or_create_gamepad(input, gamepad_id).release(button),
+                gilrs::EventType::AxisChanged(axis, axis_value, _) => get_or_create_gamepad(input, gamepad_id).write_axis(axis, axis_value),
+                // todo: handle other gamepad events
+                _ => (),
+            }
+        }
+    }
+}
+
+fn core_system_clear_events_and_input(mut world: WorldDataMut) {
+    world.events_mut().clear();
+
+    let mut res = world.into_resources_mut();
+
+    let input = res.get_mut::<InputResource>().unwrap();
+    input.clear_frame();
+}
+
+fn core_system_update_window(world: WorldDataMut, window: &Window) {
+    let window_res = world.into_resources_mut().into_get_mut::<WindowResource>().unwrap();
+
+    let window_state_next = window_res.next_state().clone();
+    let window_state_prev = std::mem::replace(window_res.prev_state_mut(), window_state_next.clone());
+
+    WindowState::apply_difference(&window_state_prev, &window_state_next, &window);
 }

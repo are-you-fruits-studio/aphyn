@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, ffi::c_void, fmt::Debug, hash::{BuildHasher, Hash, Hasher}};
+use std::{borrow::Borrow, ffi::c_void, fmt::{self, Debug}, hash::{BuildHasher, Hash, Hasher}};
 
 use crate::{FfiDroppable, FfiFnRef, FfiOption, FfiSliceRef, FfiVec};
 
@@ -159,7 +159,7 @@ impl FfiHashTable {
         }
     }
    
-    pub fn insert_unique<K, V>(&mut self, hash: u64, value: u64, values: &FfiVec<FfiIndexMapEntry<K, V>>) {
+    pub fn insert_unique<K, V>(&mut self, hash: u64, value: u64, values: &FfiVec<FfiIndexMapElement<K, V>>) {
         unsafe {
             let hasher = |x: u64| values[x].hash;
             let hasher = FfiFnRef::new(&hasher);
@@ -167,7 +167,7 @@ impl FfiHashTable {
         }
     }
    
-    pub fn remove<K: Borrow<Q>, V, Q: ?Sized + Eq>(&mut self, hash: u64, key: &Q, values: &FfiVec<FfiIndexMapEntry<K, V>>) -> Option<u64> {
+    pub fn remove<K: Borrow<Q>, V, Q: ?Sized + Eq>(&mut self, hash: u64, key: &Q, values: &FfiVec<FfiIndexMapElement<K, V>>) -> Option<u64> {
         unsafe {
             let key_eq = |i: u64| key == values[i].key.borrow();
             let key_eq = FfiFnRef::new(&key_eq);
@@ -175,7 +175,7 @@ impl FfiHashTable {
         }
     }
    
-    pub fn get<K: Borrow<Q>, V, Q: ?Sized + Eq>(&self, hash: u64, key: &Q, values: &FfiVec<FfiIndexMapEntry<K, V>>) -> Option<u64> {
+    pub fn get<K: Borrow<Q>, V, Q: ?Sized + Eq>(&self, hash: u64, key: &Q, values: &FfiVec<FfiIndexMapElement<K, V>>) -> Option<u64> {
         unsafe {
             let key_eq = |i: u64| key == values[i].key.borrow();
             let key_eq = FfiFnRef::new(&key_eq);
@@ -183,7 +183,7 @@ impl FfiHashTable {
         }
     }
    
-    pub fn set<K: Borrow<Q>, V, Q: ?Sized + Eq>(&mut self, hash: u64, key: &Q, value: u64, values: &FfiVec<FfiIndexMapEntry<K, V>>) {
+    pub fn set<K: Borrow<Q>, V, Q: ?Sized + Eq>(&mut self, hash: u64, key: &Q, value: u64, values: &FfiVec<FfiIndexMapElement<K, V>>) {
         unsafe {
             let key_eq = |i: u64| key == values[i].key.borrow();
             let key_eq = FfiFnRef::new(&key_eq);
@@ -199,7 +199,7 @@ impl FfiHashTable {
 }
 
 #[repr(C)]
-struct FfiIndexMapEntry<K, V> {
+struct FfiIndexMapElement<K, V> {
     key: K,
     value: V,
     hash: u64,
@@ -208,7 +208,7 @@ struct FfiIndexMapEntry<K, V> {
 #[repr(C)]
 pub struct FfiIndexMap<K, V> {
     indices: FfiHashTable,
-    values: FfiVec<FfiIndexMapEntry<K, V>>,
+    values: FfiVec<FfiIndexMapElement<K, V>>,
     state: FfiHashState,
 }
 
@@ -222,7 +222,7 @@ impl<K, V> FfiIndexMap<K, V> {
     }
 }
 
-impl<K: Hash + Eq, V> FfiIndexMap<K, V> {
+impl<K, V> FfiIndexMap<K, V> {
     pub fn contains_key<Q: ?Sized + Eq + Hash>(&self, key: &Q) -> bool
         where K: Borrow<Q>
     {
@@ -244,7 +244,18 @@ impl<K: Hash + Eq, V> FfiIndexMap<K, V> {
     {
         self.index_of(key).map(|i| &mut self.values[i].value)
     }
-    pub fn insert(&mut self, key: K, value: V) -> Option<V> {
+    pub fn entry<'a>(&'a mut self, key: K) -> FfiIndexMapEntry<'a, K, V>
+        where K: Eq + Hash
+    {
+        if let Some(idx) = self.index_of(&key) {
+            FfiIndexMapEntry::Occupied(FfiIndexMapOccupiedEntry { map: self, idx })
+        } else {
+            FfiIndexMapEntry::Vacant(FfiIndexMapVacantEntry { map: self, key })
+        }
+    }
+    pub fn insert(&mut self, key: K, value: V) -> Option<V>
+        where K: Hash + Eq
+    {
         let hash = self.state.hash(&key);
 
         if let Some(idx) = self.index_of_prehashed(&key, hash) {
@@ -252,7 +263,7 @@ impl<K: Hash + Eq, V> FfiIndexMap<K, V> {
         }
 
         let idx = self.values.len();
-        self.values.push(FfiIndexMapEntry {
+        self.values.push(FfiIndexMapElement {
             key,
             value,
             hash,
@@ -261,8 +272,48 @@ impl<K: Hash + Eq, V> FfiIndexMap<K, V> {
 
         None
     }
+    fn insert_and_idx(&mut self, key: K, value: V) -> (Option<V>, u64)
+        where K: Hash + Eq
+    {
+        let hash = self.state.hash(&key);
+
+        if let Some(idx) = self.index_of_prehashed(&key, hash) {
+            return (Some(std::mem::replace(&mut self.values[idx].value, value)), idx);
+        }
+
+        let idx = self.values.len();
+        self.values.push(FfiIndexMapElement {
+            key,
+            value,
+            hash,
+        });
+        self.indices.insert_unique(hash, idx, &self.values);
+
+        (None, idx)
+    }
+    pub fn insert_mut(&mut self, key: K, value: V) -> &mut V
+        where K: Hash + Eq
+    {
+        let hash = self.state.hash(&key);
+
+        if let Some(idx) = self.index_of_prehashed(&key, hash) {
+            let value_mut = &mut self.values[idx].value;
+            *value_mut = value;
+            return value_mut;
+        }
+
+        let idx = self.values.len();
+        self.values.push(FfiIndexMapElement {
+            key,
+            value,
+            hash,
+        });
+        self.indices.insert_unique(hash, idx, &self.values);
+
+        &mut self.values[idx].value
+    }
     pub fn remove_shift<Q: ?Sized + Eq + Hash>(&mut self, key: &Q) -> Option<V>
-        where K: Borrow<Q>
+        where K: Borrow<Q> + Eq
     {
         let hash = self.state.hash(&key);
 
@@ -270,8 +321,24 @@ impl<K: Hash + Eq, V> FfiIndexMap<K, V> {
             return None;
         };
 
+        Some(self.remove_shift_existing(idx).value)
+    }
+    pub fn remove_swap<Q: ?Sized + Eq + Hash>(&mut self, key: &Q) -> Option<V>
+        where K: Borrow<Q> + Eq
+    {
+        let hash = self.state.hash(key);
+
+        let Some(idx) = self.indices.remove(hash, key, &self.values) else {
+            return None;
+        };
+
+        Some(self.remove_swap_existing(idx).value)
+    }
+    fn remove_shift_existing(&mut self, idx: u64) -> FfiIndexMapElement<K, V>
+        where K: Eq
+    {
         if idx == self.values.len() - 1 {
-            return Some(self.values.pop().unwrap().value)
+            return self.values.pop().unwrap()
         }
 
         // todo: as usize
@@ -282,19 +349,13 @@ impl<K: Hash + Eq, V> FfiIndexMap<K, V> {
 
         let removed_element = self.values.remove(idx).unwrap();
 
-        Some(removed_element.value)
+        removed_element
     }
-    pub fn remove_swap<Q: ?Sized + Eq + Hash>(&mut self, key: &Q) -> Option<V>
-        where K: Borrow<Q>
+    fn remove_swap_existing(&mut self, idx: u64) -> FfiIndexMapElement<K, V>
+        where K: Eq
     {
-        let hash = self.state.hash(key);
-
-        let Some(idx) = self.indices.remove(hash, key, &self.values) else {
-            return None;
-        };
-
         if idx == self.values.len() - 1 {
-            return Some(self.values.pop().unwrap().value)
+            return self.values.pop().unwrap()
         }
 
         let moved_element = &self.values[self.values.len() - 1];
@@ -303,7 +364,7 @@ impl<K: Hash + Eq, V> FfiIndexMap<K, V> {
 
         let removed_element = self.values.swap_remove(idx).unwrap();
        
-        Some(removed_element.value)
+        removed_element
     }
     pub fn len(&self) -> u64 {
         self.values.len()
@@ -417,59 +478,247 @@ unsafe impl<K: Send, V: Send> Send for FfiIndexMap<K, V> { }
 unsafe impl<K: Sync, V: Sync> Sync for FfiIndexMap<K, V> { }
 
 // todo: ffi for all iters?
-pub struct FfiIndexMapKeysIter<'a, K, V>(<&'a [FfiIndexMapEntry<K, V>] as IntoIterator>::IntoIter);
+
+pub struct FfiIndexMapKeysIter<'a, K, V>(<&'a [FfiIndexMapElement<K, V>] as IntoIterator>::IntoIter);
 impl<'a, K, V> Iterator for FfiIndexMapKeysIter<'a, K, V> {
     type Item = &'a K;
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next().map(|p| &p.key)
     }
 }
-pub struct FfiIndexMapPairsIter<'a, K, V>(<&'a [FfiIndexMapEntry<K, V>] as IntoIterator>::IntoIter);
+pub struct FfiIndexMapPairsIter<'a, K, V>(<&'a [FfiIndexMapElement<K, V>] as IntoIterator>::IntoIter);
 impl<'a, K, V> Iterator for FfiIndexMapPairsIter<'a, K, V> {
     type Item = (&'a K, &'a V);
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next().map(|p| (&p.key, &p.value))
     }
 }
-pub struct FfiIndexMapPairsMutIter<'a, K, V>(<&'a mut [FfiIndexMapEntry<K, V>] as IntoIterator>::IntoIter);
+pub struct FfiIndexMapPairsMutIter<'a, K, V>(<&'a mut [FfiIndexMapElement<K, V>] as IntoIterator>::IntoIter);
 impl<'a, K, V> Iterator for FfiIndexMapPairsMutIter<'a, K, V> {
     type Item = (&'a K, &'a mut V);
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next().map(|p| (&p.key, &mut p.value))
     }
 }
-pub struct FfiIndexMapValuesIter<'a, K, V>(<&'a [FfiIndexMapEntry<K, V>] as IntoIterator>::IntoIter);
+pub struct FfiIndexMapValuesIter<'a, K, V>(<&'a [FfiIndexMapElement<K, V>] as IntoIterator>::IntoIter);
 impl<'a, K, V> Iterator for FfiIndexMapValuesIter<'a, K, V> {
     type Item = &'a V;
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next().map(|p| &p.value)
     }
 }
-pub struct FfiIndexMapValuesMutIter<'a, K, V>(<&'a mut [FfiIndexMapEntry<K, V>] as IntoIterator>::IntoIter);
+pub struct FfiIndexMapValuesMutIter<'a, K, V>(<&'a mut [FfiIndexMapElement<K, V>] as IntoIterator>::IntoIter);
 impl<'a, K, V> Iterator for FfiIndexMapValuesMutIter<'a, K, V> {
     type Item = &'a mut V;
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next().map(|p| &mut p.value)
     }
 }
-pub struct FfiIndexMapIntoIter<K, V>(<FfiVec<FfiIndexMapEntry<K, V>> as IntoIterator>::IntoIter);
+pub struct FfiIndexMapIntoIter<K, V>(<FfiVec<FfiIndexMapElement<K, V>> as IntoIterator>::IntoIter);
 impl<K, V> Iterator for FfiIndexMapIntoIter<K, V> {
     type Item = (K, V);
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next().map(|p| (p.key, p.value))
     }
 }
-pub struct FfiIndexMapIntoKeysIter<K, V>(<FfiVec<FfiIndexMapEntry<K, V>> as IntoIterator>::IntoIter);
+pub struct FfiIndexMapIntoKeysIter<K, V>(<FfiVec<FfiIndexMapElement<K, V>> as IntoIterator>::IntoIter);
 impl<K, V> Iterator for FfiIndexMapIntoKeysIter<K, V> {
     type Item = K;
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next().map(|p| p.key)
     }
 }
-pub struct FfiIndexMapIntoValuesIter<K, V>(<FfiVec<FfiIndexMapEntry<K, V>> as IntoIterator>::IntoIter);
+pub struct FfiIndexMapIntoValuesIter<K, V>(<FfiVec<FfiIndexMapElement<K, V>> as IntoIterator>::IntoIter);
 impl<K, V> Iterator for FfiIndexMapIntoValuesIter<K, V> {
     type Item = V;
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next().map(|p| p.value)
     }
 }
+
+#[repr(C)]
+pub struct FfiIndexMapOccupiedEntry<'a, K: 'a, V: 'a> {
+    map: &'a mut FfiIndexMap<K, V>,
+    idx: u64,
+}
+
+impl<K: Debug, V: Debug> Debug for FfiIndexMapOccupiedEntry<'_, K, V> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OccupiedEntry")
+            .field("key", self.key())
+            .field("value", self.get())
+            .finish_non_exhaustive()
+    }
+}
+
+#[repr(C)]
+pub struct FfiIndexMapVacantEntry<'a, K: 'a, V: 'a> {
+    map: &'a mut FfiIndexMap<K, V>,
+    key: K,
+}
+
+impl<K: Debug, V> Debug for FfiIndexMapVacantEntry<'_, K, V> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("VacantEntry").field(self.key()).finish()
+    }
+}
+
+#[repr(C)]
+pub enum FfiIndexMapEntry<'a, K: 'a, V: 'a> {
+    Occupied(FfiIndexMapOccupiedEntry<'a, K, V>),
+    Vacant(FfiIndexMapVacantEntry<'a, K, V>),
+}
+
+
+impl<'a, K, V> FfiIndexMapEntry<'a, K, V> {
+    pub fn or_insert(self, default: V) -> &'a mut V
+        where K: Eq + Hash
+    {
+        match self {
+            Self::Occupied(entry) => entry.into_mut(),
+            Self::Vacant(entry) => entry.insert(default),
+        }
+    }
+
+    pub fn or_insert_with<F: FnOnce() -> V>(self, default: F) -> &'a mut V
+        where K: Eq + Hash
+    {
+        match self {
+            Self::Occupied(entry) => entry.into_mut(),
+            Self::Vacant(entry) => entry.insert(default()),
+        }
+    }
+
+    pub fn or_insert_with_key<F: FnOnce(&K) -> V>(self, default: F) -> &'a mut V
+        where K: Eq + Hash
+    {
+        match self {
+            Self::Occupied(entry) => entry.into_mut(),
+            Self::Vacant(entry) => {
+                let value = default(entry.key());
+                entry.insert(value)
+            }
+        }
+    }
+
+    pub fn key(&self) -> &K {
+        match *self {
+            Self::Occupied(ref entry) => entry.key(),
+            Self::Vacant(ref entry) => entry.key(),
+        }
+    }
+
+    pub fn and_modify<F>(self, f: F) -> Self
+    where
+        K: Eq + Hash,
+        F: FnOnce(&mut V),
+    {
+        match self {
+            Self::Occupied(mut entry) => {
+                f(entry.get_mut());
+                Self::Occupied(entry)
+            }
+            Self::Vacant(entry) => Self::Vacant(entry),
+        }
+    }
+
+    pub fn insert_entry(self, value: V) -> FfiIndexMapOccupiedEntry<'a, K, V>
+        // todo: remove Clone
+        where K: Eq + Hash + Clone
+    {
+        match self {
+            Self::Occupied(mut entry) => {
+                entry.insert(value);
+                entry
+            }
+            Self::Vacant(entry) => entry.insert_entry(value),
+        }
+    }
+}
+
+impl<'a, K, V: Default> FfiIndexMapEntry<'a, K, V> {
+    pub fn or_default(self) -> &'a mut V
+        where K: Eq + Hash
+    {
+        match self {
+            Self::Occupied(entry) => entry.into_mut(),
+            Self::Vacant(entry) => entry.insert(Default::default()),
+        }
+    }
+}
+
+impl<'a, K, V> FfiIndexMapOccupiedEntry<'a, K, V> {
+    pub fn key(&self) -> &K {
+        &self.map.values[self.idx].key
+    }
+
+    pub fn remove_entry_swap(self) -> (K, V)
+        where K: Eq
+    {
+        let pair = self.map.remove_swap_existing(self.idx);
+        (pair.key, pair.value)
+    }
+
+    pub fn remove_entry_shift(self) -> (K, V)
+        where K: Eq
+    {
+        let pair = self.map.remove_shift_existing(self.idx);
+        (pair.key, pair.value)
+    }
+
+    pub fn get(&self) -> &V {
+        &self.map.values[self.idx].value
+    }
+
+    pub fn get_mut(&mut self) -> &mut V {
+        &mut self.map.values[self.idx].value
+    }
+
+    pub fn into_mut(self) -> &'a mut V {
+        &mut self.map.values[self.idx].value
+    }
+
+    pub fn insert(&mut self, value: V) -> V {
+        std::mem::replace(&mut self.map.values[self.idx].value, value)
+    }
+
+    pub fn remove_swap(self) -> V
+        where K: Eq
+    {
+        self.map.remove_swap_existing(self.idx).value
+    }
+
+    pub fn remove_shift(self) -> V
+        where K: Eq
+    {
+        self.map.remove_shift_existing(self.idx).value
+    }
+}
+
+impl<'a, K: 'a, V: 'a> FfiIndexMapVacantEntry<'a, K, V> {
+    pub fn key(&self) -> &K {
+        &self.key
+    }
+
+    pub fn into_key(self) -> K {
+        self.key
+    }
+
+    pub fn insert(self, value: V) -> &'a mut V
+        where K: Eq + Hash
+    {
+        self.map.insert_mut(self.key, value)
+    }
+
+    pub fn insert_entry(self, value: V) -> FfiIndexMapOccupiedEntry<'a, K, V>
+        where K: Eq + Hash
+    {
+        let (_, idx) = self.map.insert_and_idx(self.key, value);
+
+        FfiIndexMapOccupiedEntry {
+            idx,
+            map: self.map,
+        }
+    }
+}
+

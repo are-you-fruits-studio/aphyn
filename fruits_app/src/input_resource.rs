@@ -2,7 +2,6 @@ use fruits_ecs::Resource;
 use fruits_ffi::FfiIndexMap;
 use fruits_ffi::FfiIndexSet;
 use gilrs::Axis;
-use std::collections::HashMap;
 
 pub use gilrs::Axis as GamepadAxis;
 pub use gilrs::Button as GamepadButton;
@@ -14,7 +13,7 @@ pub use winit::keyboard::KeyCode;
 pub struct InputResource {
     pub keyboard: KeyboardInputStorage,
     pub mouse: MouseInputStorage,
-    pub gamepads: HashMap<usize, GamepadInputStorage>,
+    pub gamepads: FfiIndexMap<usize, GamepadInputStorage>,
 }
 
 impl InputResource {
@@ -22,7 +21,7 @@ impl InputResource {
         Self {
             keyboard: KeyboardInputStorage::new(),
             mouse: MouseInputStorage::new(),
-            gamepads: HashMap::new(),
+            gamepads: FfiIndexMap::new(),
         }
     }
 
