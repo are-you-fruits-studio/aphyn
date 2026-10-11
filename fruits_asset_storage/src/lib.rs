@@ -28,9 +28,9 @@
 //! #### Looking an asset up by a string key
 //!
 //! Register a handle under a string key (typically the asset's source path) so the
-//! same asset can be found again without re-inserting it. Asset loaders use this to
-//! deduplicate: check [`get_registered`](AssetStorageResource::get_registered)
-//! first, and only insert when the key is absent.
+//! same asset can be found again without re-inserting it. The engine's asset loader
+//! registers every asset it loads under its asset key, so this is also how loaded
+//! assets are looked up.
 //!
 //! ```
 //! use fruits_asset_storage::AssetStorageResource;
@@ -87,16 +87,23 @@
 //!
 //! #### Per-type storage layout
 //!
-//! [`AssetStorageResource<T>`] holds two structures: the `VersionCollection<T>` of
-//! the assets themselves, and an
-//! [`FfiHashMap`]`<FfiString, AssetHandle<T>>` mapping string
-//! keys to handles. The key map is independent of the asset store — unregistering a
-//! key does not remove the asset, and removing an asset does not unregister its key
-//! (a later [`get_registered`](AssetStorageResource::get_registered) then yields a
-//! handle that no longer resolves). Both `#[repr(C)]` types and `FfiHashMap` exist
-//! because storages cross the engine's FFI boundary. The `Send`/`Sync` impls for
-//! `AssetStorageResource<T>` are written manually and conditioned on `T`, since
-//! `FfiHashMap` does not derive them automatically.
+//! [`AssetStorageResource<T>`] is `#[repr(C)]` and holds two structures: a
+//! `VersionCollection<(T, FfiOption<FfiString>)>` of the assets, each paired with the
+//! key it is registered under (if any), and an
+//! [`FfiIndexMap`]`<FfiString, AssetHandle<T>>` mapping keys to handles. The two are
+//! kept in sync both ways, so a key maps to at most one asset and an asset has at most
+//! one key: [`register`](AssetStorageResource::register) stores the key on the asset
+//! and, if the key already pointed at another asset, clears that asset's key (it
+//! returns `false` when the handle does not resolve);
+//! [`unregister`](AssetStorageResource::unregister) clears the asset's key but keeps
+//! the asset; and [`remove`](AssetStorageResource::remove) also removes the asset's
+//! key. [`insert_and_register`](AssetStorageResource::insert_and_register) does both
+//! steps at once, and [`get_registration`](AssetStorageResource::get_registration) /
+//! [`get_all`](AssetStorageResource::get_all) read the keys back, which is how assets
+//! are saved by key. The FFI types exist because storages cross the engine's FFI
+//! boundary; the `Send`/`Sync` impls for `AssetStorageResource<T>` are written
+//! manually and conditioned on `T`. [`AssetHandle::EMPTY`] (also the `Default`) is a
+//! handle that never resolves.
 //!
 //! #### The type-erased container
 //!

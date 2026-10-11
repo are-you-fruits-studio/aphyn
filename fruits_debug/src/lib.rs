@@ -82,17 +82,23 @@
 //!
 //! Only one connection is tracked at a time. In server mode [`host_debug_server`] lazily binds a
 //! [`std::net::TcpListener`] on `127.0.0.1:55643`, sets it non-blocking, and accepts a single
-//! stream into [`DebugConnectionResource::active_stream`]. All socket IO is non-blocking:
-//! `WouldBlock` and `TimedOut` are ignored, while any other error calls
-//! [`DebugConnectionResource::reset`] to drop the stream and clear the buffers and queues.
-//! [`debug_connection_ping_system`] enqueues an empty type-`0` message whenever more than one
-//! second has passed since the last message, so an idle connection still produces traffic.
+//! stream into [`DebugConnectionResource::active_stream`]. While no stream is connected it calls
+//! [`DebugConnectionResource::reset`] every frame, so anything queued in the meantime is
+//! dropped. All socket IO is non-blocking: a read error other than `WouldBlock` / `TimedOut`,
+//! or any write error, calls [`DebugConnectionResource::reset`] to drop the stream and clear
+//! the buffers and queues. Each frame the receive system reads at most 1024 bytes and
+//! completes at most one message, and the send system writes at most one queued message.
+//! [`debug_connection_ping_system`] enqueues an empty type-`0` message when no message has
+//! been sent or received yet, or at least one second has passed since the last one, so an
+//! idle connection still produces traffic.
 //!
 //! #### Responses
 //!
-//! [`generate_response_system`] consumes [`DebugConnectionResource::recv_msg_queue`]. For a
-//! [`msg_types::HIERARCHY`] request it queries every [`fruits_ecs::Entity`] and replies with one
-//! pair of little-endian `u32`s per entity — the entity's version-index `index` then `version`.
+//! [`generate_response_system`] pops one message per frame from the back of
+//! [`DebugConnectionResource::recv_msg_queue`]. For a [`msg_types::HIERARCHY`] request it
+//! queries every [`EntityId`] and replies with one pair of little-endian
+//! `u32`s per entity — the entity's version-index `index` then `version`. Other message types
+//! are dropped.
 //!
 //! #### System ordering
 //!
@@ -106,8 +112,8 @@
 //! #### Caveats
 //!
 //! The resources are not yet exposed across the FFI boundary (see the `// todo: support ffi`
-//! notes), and binding, accepting, and flushing use `unwrap`, so socket failures panic rather than
-//! surface as errors. The crate's `fruits_debug` binary target (`src/main.rs`) is a manual harness
+//! notes), and binding, switching sockets to non-blocking mode, and flushing use `unwrap`, so
+//! those socket failures panic rather than surface as errors. The crate's `fruits_debug` binary target (`src/main.rs`) is a manual harness
 //! that hosts the server over a world seeded with 100 entities.
 
 use std::{

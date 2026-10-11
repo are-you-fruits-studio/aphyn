@@ -219,8 +219,9 @@
 //!
 //! Vectors and quaternions derive [`Serialize`](serde::Serialize)/[`Deserialize`](serde::Deserialize),
 //! but [`Mat`] has hand-written impls that encode the matrix as a sequence of
-//! column sequences, deserializing through a `StackVec`-backed visitor. All of
-//! these types also derive `TransSerializable` from `fruits_serialization`.
+//! column sequences, deserializing through a `StackVec`-backed visitor. This crate
+//! does not depend on `fruits_serialization`; the engine's own `Serializable`
+//! impls for these types live in that crate instead.
 
 mod colors;
 mod equations;

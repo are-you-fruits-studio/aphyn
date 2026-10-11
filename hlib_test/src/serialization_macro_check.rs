@@ -1,23 +1,35 @@
 use fruits_engine::*;
 
-#[derive(TransSerializable)]
+#[derive(Serializable)]
 pub struct SomeStruct<'a, 'b, T>
     where T : Copy
 {
-    name: &'b String,
+    name: &'b str,
     age: &'a u32,
     data: T,
     unit: SomeUnit,
 }
 
-#[derive(TransSerializable)]
+impl<'a, 'b, T: Copy + Default> Default for SomeStruct<'a, 'b, T> {
+    fn default() -> Self {
+        Self {
+            name: Default::default(),
+            age: &0,
+            data: Default::default(),
+            unit: Default::default(),
+        }
+    }
+}
+
+#[derive(Serializable, Default)]
 pub struct SomeTuple(String, u32);
 
-#[derive(TransSerializable)]
+#[derive(Serializable, Default)]
 pub struct SomeUnit;
 
-#[derive(TransSerializable)]
+#[derive(Serializable, Default)]
 pub enum SomeEnum {
+    #[default]
     A,
     B(u32),
     C { name: String },

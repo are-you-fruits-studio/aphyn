@@ -1,7 +1,7 @@
 use fruits_asset_storage::AssetStorageResource;
 use fruits_ecs::{ResourcesHolderMut, ResourcesHolderRef};
 use fruits_render_core::{RenderApiResource, StandardMaterial, StandardMaterialAssetMetadata, StandardMaterialAssets, StandardTexture};
-use fruits_serialization::{SerializedValue, SerializerCtx};
+use fruits_serialization::{SerializedValue, SerializerCtx, SerializerCtxState};
 
 pub struct MaterialHandleLoader<'a> {
     pub render_api: &'a RenderApiResource,
@@ -30,13 +30,13 @@ impl<'a> MaterialLoader<'a> {
         })
     }
 
-    pub fn load_from_serialized(
+    pub fn load_from_serialized<S: Copy + SerializerCtxState<StandardMaterialAssetMetadata>>(
         &mut self,
-        mut ctx: SerializerCtx,
+        mut ctx: SerializerCtx<S>,
         value: &SerializedValue,
         textures: &AssetStorageResource<StandardTexture>,
     ) -> Option<StandardMaterial> {
-        let asset_metadata = ctx.deserialize::<StandardMaterialAssetMetadata>(value)?;
+        let asset_metadata = ctx.deserialize_default::<StandardMaterialAssetMetadata>("", value);
 
         self.load_from_deserialized(asset_metadata, textures)
     }

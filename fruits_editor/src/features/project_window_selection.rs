@@ -16,7 +16,7 @@ pub fn register_feature(mut world: WorldBuilderMut) {
         .insert_child_system(update_project_entry_selection_system);
 
     update
-        .order_system(check_button_system)
+        .order_system(check_ui_interaction_system)
         .before_system(select_file_system)
         .before_system(update_project_entry_selection_system);
 }
@@ -31,17 +31,12 @@ pub struct SelectedFileResource {
 pub struct FileSelectedEvent;
 
 pub fn select_file_system(
-    button_click_evt: Evt<ButtonClickEvent>,
-    entry_q: WorldQuery<&ProjectWindowEntryComponent>,
+    entry_q: WorldQuery<(&ProjectWindowEntryComponent, &ButtonComponent)>,
     open_project: Res<OpenProjectResource>,
     mut selected_file_res: ResMut<SelectedFileResource>,
     mut select_evt: EvtMut<FileSelectedEvent>,
 ) {
-    let Some(button_click_evt) = button_click_evt.last() else {
-        return;
-    };
-
-    let Some(entry_c) = entry_q.get(button_click_evt.entity) else {
+    let Some(entry_c) = entry_q.iter().filter(|(e, b)| b.was_clicked_this_frame).map(|(e, b)| e).next() else {
         return;
     };
 

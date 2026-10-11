@@ -1,7 +1,8 @@
 //! # fruits_ffi
 //!
-//! FFI-safe replacements for common standard-library types — vectors, strings, hash
-//! maps, boxes, options, slices, and type-erased values — so engine data can be
+//! FFI-safe replacements for common standard-library types — vectors, deques, strings,
+//! hash maps, index maps and sets, boxes, options, slices, closures, and type-erased
+//! values — so engine data can be
 //! passed across a stable binary boundary between the engine and the modules it
 //! links against. Where `std` types have an unspecified, compiler-chosen layout,
 //! the `Ffi*` counterparts here have a fixed one.
@@ -111,6 +112,62 @@
 //! assert_eq!(map.get_by_str("missing"), None);
 //! ```
 //!
+//! #### Keeping insertion order in a map or set
+//!
+//! [`FfiIndexMap<K, V>`] is an insertion-ordered hash map (like `indexmap::IndexMap`) and
+//! [`FfiIndexSet<T>`] the matching set; the engine uses them wherever iteration order
+//! matters. Lookups accept any borrowed form of the key, and entries can be removed by
+//! swapping in the last one ([`remove_swap`](FfiIndexMap::remove_swap)) or by shifting the
+//! rest down ([`remove_shift`](FfiIndexMap::remove_shift)).
+//!
+//! ```
+//! use fruits_ffi::{FfiIndexMap, FfiString};
+//!
+//! let mut map: FfiIndexMap<FfiString, i32> = FfiIndexMap::new();
+//! map.insert("b".into(), 2);
+//! map.insert("a".into(), 1);
+//!
+//! assert_eq!(map.get("a"), Some(&1));
+//! assert_eq!(map.keys().map(|k| k.as_str()).collect::<Vec<_>>(), ["b", "a"]);
+//!
+//! map.remove_shift("b");
+//! assert_eq!(map.len(), 1);
+//! ```
+//!
+//! #### Storing a short string inline
+//!
+//! [`FfiSmallString`] keeps up to 23 bytes of UTF-8 inline, with no heap allocation, so it
+//! is `Copy`. Pushes report whether the text fit; [`push_str_cut`](FfiSmallString::push_str_cut)
+//! stores as much as fits.
+//!
+//! ```
+//! use fruits_ffi::FfiSmallString;
+//!
+//! let mut name = FfiSmallString::from("player");
+//! assert!(name.push('1'));
+//! assert_eq!(name.as_str(), "player1");
+//! ```
+//!
+//! #### Passing a closure across the boundary
+//!
+//! [`FfiFnRef`] and [`FfiFnMutMut`] borrow an `Fn` / `FnMut` closure as a data pointer plus
+//! an `extern "C-unwind"` trampoline, so a callback can be handed to code that cannot name
+//! the closure type.
+//!
+//! ```
+//! use fruits_ffi::FfiFnMutMut;
+//!
+//! let mut total = 0;
+//! let mut add = |x: i32| total += x;
+//!
+//! let mut callback = FfiFnMutMut::new(&mut add);
+//! callback.execute(2);
+//! callback.execute(3);
+//! drop(callback);
+//!
+//! assert_eq!(total, 5);
+//! ```
+//!
 //! #### Passing an optional reference as a nullable pointer
 //!
 //! [`ref_into_nullable_ptr`] / [`mut_into_nullable_ptr`] turn an `Option<&T>` into a
@@ -146,7 +203,8 @@
 //!   own — a slice view is a pointer plus a [`u64`] length, an option is a tagged
 //!   union — so a fixed layout is all they need.
 //! - **Owning types that carry their behavior as embedded `extern "C-unwind"` function
-//!   pointers.** [`FfiAny`], [`FfiDroppable`], [`FfiHashMap`], and [`FfiAllocator`]
+//!   pointers.** [`FfiAny`], [`FfiBox`], [`FfiDroppable`], [`FfiHashMap`],
+//!   [`FfiIndexMap`], and [`FfiAllocator`]
 //!   store the operations they need (drop, deallocate, insert, look up) as function
 //!   pointers alongside the data, because the consuming side cannot monomorphize
 //!   those operations itself. The data travels with a small table of pointers that
@@ -154,13 +212,20 @@
 //!
 //! #### Function-pointer tables
 //!
-//! [`FfiAny`] is a type-erased owned value: a raw pointer plus a `&'static`
-//! [`FfiAnyMetadata`] holding the value's size, align, type name, `drop_in_place`,
-//! and `dealloc`. The metadata is built in a `const` block per `T`, so each type
-//! gets one promoted-`'static` table. [`FfiBox<T>`] is `#[repr(transparent)]` over
-//! `FfiAny` and adds the type back as a `PhantomData`; [`into_inner`](FfiBox::into_inner)
+//! [`FfiBox<T>`] is a raw pointer plus a `&'static` [`FfiBoxVtable`] holding the
+//! `drop_in_place` and `dealloc` functions for `T`; [`into_inner`](FfiBox::into_inner)
 //! reads the value out and then deallocates the storage *without* running its
-//! destructor, so the value is moved rather than dropped.
+//! destructor, so the value is moved rather than dropped. [`FfiAny`] is the type-erased
+//! owned value: a raw pointer plus a `&'static` metadata table combining the value's
+//! [`FfiExtendedTypeInfo`] (size, align, type name, drop and conversion functions) with
+//! its `FfiBoxVtable`. Both tables are built in a `const` block per `T`, so each type gets
+//! one promoted-`'static` table, and [`downcast`](FfiAny::downcast) hands the same pointer
+//! and vtable over to an `FfiBox<T>`. The borrowed views [`FfiAnyRef`], [`FfiAnyMut`], and
+//! [`FfiAnyPtr`] pair a pointer with a `&'static FfiExtendedTypeInfo`; downcasts check
+//! size, align, and `std::any::type_name` through
+//! [`FfiShortTypeInfo::does_match`] rather than `TypeId`, because the type name is what
+//! both sides of the boundary can agree on. [`FfiOpaqueRef`] / [`FfiOpaqueMut`] are bare
+//! lifetime-carrying pointers with no type information at all.
 //!
 //! [`FfiDroppable`] boxes a value behind a single opaque pointer whose allocation
 //! begins with a metadata header (an `extern "C-unwind"` drop function and a pointer to the
@@ -177,6 +242,19 @@
 //! [`FfiStrSliceRef`] so a borrowed `&str` can probe the map without building an
 //! owned key.
 //!
+//! [`FfiIndexMap<K, V>`] is built differently: the entries (key, value, cached hash) live
+//! in an `FfiVec` in insertion order, and a `hashbrown` hash table of `u64` entry indices,
+//! held behind an `FfiDroppable` with its own `extern "C-unwind"` vtable, maps hashes to
+//! positions. Key hashing goes through a `RandomState` that is likewise held behind an
+//! `FfiDroppable` and fed through a virtual hasher, and key comparison is passed into the
+//! table as an [`FfiFnRef`] closure, so the generic `K` never has to cross the boundary.
+//! [`FfiIndexSet<T>`] is an `FfiIndexMap<T, ()>`.
+//!
+//! [`FfiFnRef`] / [`FfiFnMutMut`] store the closure's address plus a monomorphized
+//! `extern "C-unwind"` trampoline and only borrow the closure, tracked by their lifetime;
+//! [`FfiReturnHandle`] is the matching way to let the other side write a return value into
+//! an `Option<T>`, checked against an [`FfiShortTypeInfo`].
+//!
 //! #### Allocation across the boundary
 //!
 //! [`FfiAllocator`] is a `#[repr(C)]`, [`Copy`] pair of `extern "C-unwind"` alloc/dealloc
@@ -189,14 +267,15 @@
 //!
 //! #### FfiVec internals
 //!
-//! All vector layouts share a private `FfiRawVec` (pointer, capacity, length,
-//! allocator). [`FfiVec<T>`] is `#[repr(transparent)]` over it plus `PhantomData`,
-//! while [`FfiOpaqueVec`] is the type-erased twin that records element size, element
-//! align, and an optional `drop_fn` instead of a generic parameter; because
-//! `FfiRawVec` is its first `#[repr(C)]` field, the two transmute into one another.
-//! Capacity doubles on growth (starting at 4). Zero-sized types store no buffer and
-//! pin capacity to `ZERO_SIZED_CAP`, tracking only the length. The `Send`/`Sync`
-//! impls are written by hand and conditioned on `T`.
+//! All vector layouts share [`FfiRawVecInner`] (pointer, capacity, length,
+//! allocator). [`FfiRawVec<T>`] is `#[repr(transparent)]` over it plus `PhantomData`
+//! and [`FfiVec<T>`] is `#[repr(transparent)]` over that, while [`FfiOpaqueVec`] is the
+//! type-erased twin that records element size, element align, and an optional `drop_fn`
+//! instead of a generic parameter; because `FfiRawVecInner` is its first `#[repr(C)]`
+//! field, the two transmute into one another. [`FfiVecDeque<T>`] is a ring buffer over
+//! the same `FfiRawVec<T>` plus a head index. Capacity doubles on growth (starting at
+//! 4). Zero-sized types store no buffer and pin capacity to `ZERO_SIZED_CAP`, tracking
+//! only the length. The `Send`/`Sync` impls are written by hand and conditioned on `T`.
 //!
 //! #### Invariants and caveats
 //!

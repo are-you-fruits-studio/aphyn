@@ -5,6 +5,7 @@ use winit::window::{Fullscreen, Window};
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FullscreenState {
     Windowed,
+    WindowedMaximized,
     Borderless,
     Exclusive,
 }
@@ -21,7 +22,10 @@ impl WindowState {
             fullscreen: match window.fullscreen() {
                 Some(Fullscreen::Borderless { .. }) => FullscreenState::Borderless,
                 Some(Fullscreen::Exclusive { .. }) => FullscreenState::Exclusive,
-                None => FullscreenState::Windowed,
+                None => match window.is_maximized() {
+                    true => FullscreenState::WindowedMaximized,
+                    false => FullscreenState::Windowed,
+                },
             },
         }
     }
@@ -29,11 +33,24 @@ impl WindowState {
     pub(crate) fn apply_difference(prev: &WindowState, next: &WindowState, window: &Window) {
         if prev.fullscreen != next.fullscreen {
             if let Some(monitor) = window.current_monitor() && let Some(video_mode) = monitor.video_modes().next() {
-                window.set_fullscreen(match next.fullscreen {
-                    FullscreenState::Windowed => None,
-                    FullscreenState::Borderless => Some(Fullscreen::Borderless(None)),
-                    FullscreenState::Exclusive => Some(Fullscreen::Exclusive(video_mode)),
-                });
+                match next.fullscreen {
+                    FullscreenState::Windowed => {
+                        window.set_maximized(false);
+                        window.set_fullscreen(None);
+                    },
+                    FullscreenState::WindowedMaximized => {
+                        window.set_maximized(true);
+                        window.set_fullscreen(None);
+                    },
+                    FullscreenState::Borderless => {
+                        window.set_maximized(false);
+                        window.set_fullscreen(Some(Fullscreen::Borderless(None)));
+                    },
+                    FullscreenState::Exclusive => {
+                        window.set_maximized(false);
+                        window.set_fullscreen(Some(Fullscreen::Exclusive(video_mode)));
+                    },
+                };
             }
         }
     }

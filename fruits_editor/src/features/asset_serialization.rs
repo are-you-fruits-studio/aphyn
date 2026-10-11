@@ -8,14 +8,14 @@ pub struct InspectedAsset {
 }
 
 impl InspectedAsset {
-    pub(crate) fn to_serialized(&self, mut ctx: SerializerCtx) -> SerializedValue {
+    pub(crate) fn to_serialized(&self, mut ctx: SerializerCtx<TransSerializerCtxState>) -> SerializedValue {
         let mut serialized = match self.asset_type {
-            AssetType::Texture => ctx.serialize(&DirectSerializableAsset::<StandardTexture>::Key(self.asset_key.clone())),
-            AssetType::Material => ctx.serialize(&DirectSerializableAsset::<StandardMaterial>::Key(self.asset_key.clone())),
-            AssetType::Mesh => ctx.serialize(&DirectSerializableAsset::<StandardMesh>::Key(self.asset_key.clone())),
-            AssetType::AudioClip => ctx.serialize(&DirectSerializableAsset::<AudioClip>::Key(self.asset_key.clone())),
-            AssetType::Font => ctx.serialize(&DirectSerializableAsset::<Font>::Key(self.asset_key.clone())),
-            AssetType::Prefab => ctx.serialize(&DirectSerializableAsset::<Prefab>::Key(self.asset_key.clone())),
+            AssetType::Texture => ctx.serialize(&DirectSerializableAsset::<StandardTexture>::Key(self.asset_key.clone()), ""),
+            AssetType::Material => ctx.serialize(&DirectSerializableAsset::<StandardMaterial>::Key(self.asset_key.clone()), ""),
+            AssetType::Mesh => ctx.serialize(&DirectSerializableAsset::<StandardMesh>::Key(self.asset_key.clone()), ""),
+            AssetType::AudioClip => ctx.serialize(&DirectSerializableAsset::<AudioClip>::Key(self.asset_key.clone()), ""),
+            AssetType::Font => ctx.serialize(&DirectSerializableAsset::<Font>::Key(self.asset_key.clone()), ""),
+            AssetType::Prefab => ctx.serialize(&DirectSerializableAsset::<Prefab>::Key(self.asset_key.clone()), ""),
         };
 
         if let SerializedValue::Composite(serialized_composite) = &mut serialized {

@@ -1,127 +1,179 @@
 //! # fruits_asset_loading
 //!
-//! Loads engine assets — materials, textures, meshes, audio clips, and prefabs — from disk on
-//! demand and hands back cached handles so the rest of the engine can reference them by name.
+//! Loads engine assets — textures, materials, meshes, audio clips, and prefabs — from asset
+//! files on disk into the world's asset storages, registered under a key so the rest of the
+//! engine can reference them by name, and instantiates or records prefabs.
 //!
 //! # How to use
 //!
-//! Every asset is identified by a **key**: a path, relative to the `assets/` directory, of a small
-//! JSON *asset file* that declares an `asset_type` and points at the raw payload (image, `.obj`,
-//! `.wav`). The loaders are the `get_or_load_*` family; each has a convenient `*_from_world`
-//! variant that pulls the resources it needs straight out of the world. The asset storages they
-//! cache into are registered by the engine's modules — `add_render_module_to` (part of
-//! `add_defult_modules_to`) for materials, meshes, and textures, and `add_audio_module_to` for
-//! audio — so enable those before loading.
+//! Every asset is identified by a **key**: the `/`-separated path, relative to the `assets/`
+//! directory, of a small JSON *asset file* with the `.asset` extension. The file declares an
+//! `asset_type` (`"texture"`, `"material"`, `"mesh"`, `"audio_clip"`, `"prefab"`, or `"font"`)
+//! and the asset's settings, and usually points at a raw payload (image, `.obj`, `.wav`) by a
+//! further `assets/`-relative path. The module is part of the engine's default modules
+//! (`add_defult_modules_to`), which also registers the texture, material, mesh, and audio-clip
+//! storages it fills.
 //!
-//! #### Loading a texture, material, or mesh
+//! #### Using a loaded asset
 //!
-//! Resolve a render asset to an [`AssetHandle`](fruits_asset_storage::AssetHandle) from inside the world. The handle can then be
-//! stored on a component and rendered:
+//! During the [`Start`](fruits_ecs::Schedule::Start) pass the module loads every `.asset` file
+//! under `assets/`. Order your setup system after [`SYSTEM_GROUP_ASSETS`], then look the asset
+//! up by key in its storage:
 //!
 //! ```ignore
 //! use fruits_engine::*;
 //!
-//! let texture = get_or_load_texture_from_world(
-//!     app.ecs_mut().data_mut().resources_mut().as_mut(),
-//!     "sprites/player.asset",
-//! ).unwrap();
+//! fn main() {
+//!     let mut app = App::new();
+//!     add_defult_modules_to(app.ecs_mut().as_mut());
 //!
-//! let material = get_or_load_material_from_world(
-//!     app.ecs_mut().data_mut().resources_mut().as_mut(),
-//!     "materials/player.asset",
-//! ).unwrap();
+//!     let mut behavior = app.ecs_mut().behavior_mut();
+//!     let mut start = behavior.get_mut(Schedule::Start);
+//!     start.insert_system(setup_scene);
+//!     start.order_group(SYSTEM_GROUP_ASSETS).before_system(setup_scene);
 //!
-//! let mesh = get_or_load_mesh_from_world(
-//!     app.ecs_mut().data_mut().resources_mut().as_mut(),
-//!     "meshes/player.asset",
-//! ).unwrap();
+//!     app.run();
+//! }
+//!
+//! fn setup_scene(mut world: WorldDataMut) {
+//!     let (res, mut ent, _evt) = world.as_tuple_mut();
+//!
+//!     let meshes = res.get::<AssetStorageResource<StandardMesh>>().unwrap();
+//!     let cube_mesh = meshes.get_registered("meshes/cube.asset").unwrap().clone();
+//!     // store `cube_mesh` on a component ...
+//! }
 //! ```
 //!
-//! Loading the same key twice returns the same cached handle rather than re-reading the file.
+//! #### Writing an asset file
 //!
-//! #### Loading an audio clip
+//! The fields besides `asset_type` are the serialized form of the matching metadata type
+//! (`StandardTextureAssetMetadata`, `StandardMaterialAssetMetadata`,
+//! `StandardMeshAssetMetadata`, `AudioClipAssetMetadata`); fields left out keep their defaults.
+//! An asset handle inside an asset file is written as the referenced asset's key and is loaded
+//! along with it:
 //!
-//! Resolve an [`AssetHandle`](fruits_asset_storage::AssetHandle) for an audio clip so it can be attached to an `AudioSource`:
+//! ```text
+//! // assets/textures/player.asset
+//! { "asset_type": "texture", "raw_texture": "textures/player.png" }
 //!
-//! ```ignore
-//! use fruits_engine::*;
-//!
-//! let clip = get_or_load_audio_clip_from_world(
-//!     app.ecs_mut().data_mut().resources_mut().as_mut(),
-//!     "Through space.asset",
-//! ).unwrap();
+//! // assets/materials/player.asset
+//! { "asset_type": "material", "is_lit": true, "color_tex": "textures/player.asset" }
 //! ```
 //!
 //! #### Instantiating a prefab
 //!
-//! [`get_or_load_prefab_from_world`] loads a prefab and its referenced assets; [`instantiate_prefab`]
-//! then spawns the prefab's entities and components into the world, returning the root entity:
+//! [`instantiate_prefab`] spawns a loaded prefab's entities and components into the world and
+//! returns the root entity:
 //!
 //! ```ignore
 //! use fruits_engine::*;
 //!
-//! let prefab = get_or_load_prefab_from_world(
-//!     app.ecs_mut().data_mut().resources_mut().as_mut(),
-//!     "prefabs/enemy.asset",
-//! ).unwrap();
+//! fn spawn_enemy(mut world: WorldDataMut) {
+//!     let (res, mut ent, _evt) = world.as_tuple_mut();
 //!
-//! let root = instantiate_prefab(app.ecs_mut().data_mut(), prefab).unwrap();
+//!     let prefab = res.get::<AssetStorageResource<Prefab>>().unwrap()
+//!         .get_registered("prefabs/enemy.asset").unwrap().clone();
+//!
+//!     let root = instantiate_prefab(res.as_ref(), ent.as_mut(), prefab).unwrap();
+//! }
+//! ```
+//!
+//! #### Recording an entity hierarchy into a prefab
+//!
+//! [`record_into_prefab`] captures an entity and all of its descendants (through
+//! `ParentComponent`) as a [`Prefab`]:
+//!
+//! ```ignore
+//! use fruits_engine::*;
+//!
+//! let prefab = record_into_prefab(res.as_ref(), ent.as_ref(), root).unwrap();
 //! ```
 //!
 //! # How to maintain
 //!
-//! Every loader follows the same shape. `get_or_load_<asset>` first consults the asset's
-//! [`AssetStorageResource`](fruits_asset_storage::AssetStorageResource) via `get_registered(key)`: if the key is registered *and* the handle
-//! still resolves it returns the cached handle; if the key is registered but the handle was evicted
-//! it unregisters the stale key and reloads. On a miss it reads `assets/<key>` from disk,
-//! deserializes it, inserts the result into the storage, and registers the key against the new
-//! handle. A failed read or parse returns `None` rather than panicking. The `<asset>_from_world`
-//! wrappers exist only to fetch the required resources out of [`fruits_ecs::ResourcesHolderMut`]
-//! through raw pointers and forward to the borrow-explicit `get_or_load_<asset>`.
+//! #### Startup loading
 //!
-//! Asset files are JSON. Materials, textures, meshes, and audio clips are parsed with the
-//! engine's own [`fruits_json`] parser; prefabs are parsed with `serde_json`. Each file carries an
-//! `asset_type` discriminator that must match the loader (`"material"`, `"texture"`, `"mesh"`,
-//! `"audio_clip"`, `"prefab"`), and most reference a raw payload by a further `assets/`-relative
-//! path:
+//! [`add_asset_module_to`] inserts the `AssetStorageResource<Prefab>` and registers
+//! [`load_all_assets_system`] in the `Start` schedule under [`SYSTEM_GROUP_ASSETS`]. It calls
+//! [`load_all_assets`] with the `assets` directory relative to the working directory, which
+//! walks it recursively and, for every `.asset` file, reads the JSON, validates `asset_type`
+//! ([`AssetType`]), builds the key from the path, and deserializes that key *as an
+//! `AssetHandle<T>`* of the matching type. Failures are printed and the file is skipped; a
+//! `"font"` asset hits a `todo!()` and panics.
 //!
-//! - **Texture** — `raw_texture` names an image decoded by the `image` crate; the bytes are
-//!   uploaded through `RenderApiResource::create_texture` with `FilterMode::Nearest`.
-//! - **Material** — optional `is_lit`, `color`/`emission_color` (hex strings parsed by
-//!   `parse_color_rgba_f32`), `space` (`"world"`/`"clip"`/`"window"`), `metallic`, `roughness`,
-//!   and a `color_tex` key that is itself loaded as a texture. `alpha_threshold` defaults to `0.5`;
-//!   when `is_transparent` is set the material's `alpha_threshold` is cleared to `None` instead.
-//! - **Mesh** — `raw_mesh` names a Wavefront `.obj` parsed by [`fruits_wavefront`]. Faces are
-//!   flattened into a non-indexed vertex list, then fixed up per the `coordinate_space`
-//!   (`"right_hand_z_up"`/`"right_hand_z_back"`, otherwise left-hand Z-forward),
-//!   `has_clockwise_winding`, `has_inverted_u`, and `has_inverted_v` flags before being uploaded
-//!   with `RenderApiResource::create_mesh`.
-//! - **Audio clip** — `raw_audio` names a `.wav` read by `hound`. Integer samples are normalized to
-//!   `f32`, the buffer is forced to stereo, and it is resampled to the engine's sample rate when the
-//!   file's rate differs.
+//! #### Loading is driven by the serializers
 //!
-//! Prefabs are richer. `deserialize_prefab` turns the JSON into a [`fruits_prefab::Prefab`] of
-//! entity ids mapped to component blobs. `load_prefab_dependencies` then walks every component and
-//! eagerly loads the assets they reference: it builds a local [`fruits_serialization::SerializerRegistry`]
-//! of *trans-serializers* — [`TextureLoadTransSerializer`], [`MaterialLoadTransSerializer`],
-//! [`MeshLoadTransSerializer`], and [`PrefabLoadTransSerializer`] — each of which resolves an asset
-//! key by calling the matching `get_or_load_*` loader. Because that registry runs across borrows of
-//! all four storages at once, the storages are wrapped in [`std::sync::Mutex`] for the duration.
-//! [`instantiate_prefab`] runs a *second* pass with a different registry — [`EntityTransSerializer`]
-//! remaps stored entity ids onto freshly created entities and [`AssetGetTransSerializer`] looks up
-//! the already-loaded handles — then spawns each component onto its entity and returns the first
-//! (root) entity created.
+//! The deserialization above runs through a context made of the world's `SerializersResource`
+//! wrapped with a local registry built by [`load_asset_transitively`]. That registry holds an
+//! [`EntityTransSerializer`] and a [`TransitiveLoadTransSerializer`] per asset type. Its
+//! `deserialize` turns a key into a handle: an empty key yields an empty handle; a key that is
+//! registered and still resolves returns the cached handle; a registered key whose asset was
+//! removed is unregistered; otherwise it reads `assets/<key>`, converts the JSON to a
+//! `SerializedValue`, runs the type's loader, and stores the result with `insert_and_register`.
+//! Because the loaders deserialize the asset file's metadata through the same context, any
+//! `AssetHandle` field inside it (for example a material's textures) is loaded transitively,
+//! and loading the same key again returns the same handle. The asset storages are wrapped in
+//! [`std::sync::Mutex`] because several serializers borrow them at once.
 //!
-//! Loaders are intentionally side-effecting on the filesystem and never copy assets into the build
-//! directory; see the `todo` notes in the source about wiring that into the build process and about
-//! the asset formats still to be supported (font import, and `.fbx`/`.obj` import details).
+//! [`save_with_asset_serializers`] builds the counterpart registry for saving:
+//! [`AssetHandleLinkTransSerializer`] writes a handle as its registered key, and
+//! [`DirectAssetSaveTransSerializer`] writes a [`DirectSerializableAsset`] as the asset's own
+//! metadata (or the prefab's entities); its `deserialize` is a `todo!()`.
+//! [`load_asset_single`] loads one asset's content under a given key
+//! ([`SingleDirectLoadTransSerializer`]) while resolving other handles only from what is already
+//! registered ([`SingleLoadTransSerializer`]). Each of these has a `*_from_world` variant that
+//! fetches the resources out of [`fruits_ecs::ResourcesHolderMut`] through raw pointers.
+//!
+//! #### Loaders
+//!
+//! - **Texture** — [`TextureLoader`] decodes `raw_texture` with the `image` crate into RGBA8
+//!   and creates it through `RenderApiResource::create_texture` with `FilterMode::Nearest`,
+//!   passing the metadata along.
+//! - **Material** — [`MaterialLoader`] creates the material from its metadata, looking the
+//!   color, roughness, metallic, normal, and emission texture handles up in the texture storage.
+//! - **Mesh** — [`MeshLoader`] parses `raw_mesh` as Wavefront `.obj` with `fruits_wavefront`.
+//!   Faces are flattened into a non-indexed vertex list (a face missing a position, normal, or
+//!   UV fails the load), each face gets a tangent with handedness, and the vertices are fixed
+//!   up per `coordinate_space` (`RightHandZBack` negates Z, `RightHandZUp` swaps Y and Z).
+//!   `has_clockwise_winding` swaps triangle order only for the right-handed spaces, and
+//!   `has_inverted_u` / `has_inverted_v` flip the UVs. Indices are `u16`.
+//! - **Audio clip** — [`AudioClipLoader`] reads the `raw_audio` `.wav` with `hound`. Integer
+//!   samples are normalized to `f32`, the buffer is forced to stereo, and it is resampled to
+//!   the engine's sample rate when the file's rate differs.
+//! - **Prefab** — [`PrefabLoader`] deserializes the file (an `entities` list of `entity_id` +
+//!   `components`) with a pure context, then deserializes every component through the loading
+//!   context so the assets it references get loaded.
+//!
+//! The `*HandleLoader` types and the [`AssetLoader`] trait wrap these loaders with a
+//! cache-or-load-from-key path ([`AssetLoader::get_or_load_from_key`]) that is not used by the
+//! startup loading.
+//!
+//! #### Prefab instantiation and recording
+//!
+//! [`instantiate_prefab`] creates one entity per prefab-local id (the first id is the root),
+//! then deserializes every component through a context that layers a local registry over the
+//! world's `SerializersResource`: [`EntityTransSerializer`] maps stored ids to the new entities
+//! (`0` is the empty entity), and [`PrefabAssetInstantiateTransSerializer`] resolves asset
+//! keys from the prefab's `dependencies`. The prefab loader does not fill those dependencies
+//! yet (`load_prefab_dependencies` returns an empty set), so asset handles inside an
+//! instantiated prefab currently fail to resolve and report an error.
+//! [`record_into_prefab`] walks the hierarchy breadth-first through `ParentComponent`, gives
+//! each entity the id `index + 1`, and serializes its components with entity references
+//! mapped to those ids; [`override_entity_components_from_prefab`] removes all components of
+//! an entity and deserializes the given ones onto it.
+//! [`deserialize_entity_component_from_prefab`] writes one component at a path with the same
+//! id mapping, adding the component when the entity doesn't have it yet.
+//!
+//! The crate root keeps `todo` notes on the asset formats still to be supported (font import,
+//! and `.obj`/`.fbx` import details), and the `_*_FILE_EXAMPLE` constants are older format
+//! sketches that do not match the current metadata fields.
 
 mod material;
 mod mesh;
 mod texture;
 mod prefab;
 mod audio_clip;
-mod serializers_load;
+mod serializers;
 
 use std::{ffi::OsStr, path::{Path, PathBuf}};
 
@@ -135,7 +187,7 @@ pub use mesh::*;
 pub use texture::*;
 pub use prefab::*;
 pub use audio_clip::*;
-pub use serializers_load::*;
+pub use serializers::*;
 
 use fruits_ecs::{ResourcesHolderMut, Schedule, WorldBuilderMut};
 
@@ -161,6 +213,7 @@ pub fn add_asset_module_to(mut world: WorldBuilderMut) {
 }
 
 pub fn load_all_assets_system(res: ResourcesHolderMut) {
+    // todo: use fruits_file_storage::assets_path() instead of cwd-relative "assets"
     let mut assets_dir_path = PathBuf::new();
     assets_dir_path.push("assets");
 
@@ -203,16 +256,16 @@ impl AssetType {
     }
 }
 
-pub trait AssetLoader {
+pub trait AssetLoader<S: Copy> {
     type Asset: 'static + Send + Sync;
-    type SelfWithAnotherLifetime<'r>: 'r + AssetLoader<Asset = Self::Asset>;
+    type SelfWithAnotherLifetime<'r>: 'r + AssetLoader<S, Asset = Self::Asset>;
 
     fn create_loader<'r>(res: ResourcesHolderMut<'r>) -> Option<Self::SelfWithAnotherLifetime<'r>>;
 
-    fn load_from_serialized(&mut self, ctx: SerializerCtx, value: &SerializedValue, assets_dir_path: impl AsRef<Path>) -> Option<Self::Asset>;
+    fn load_from_serialized(&mut self, ctx: SerializerCtx<S>, value: &SerializedValue, assets_dir_path: impl AsRef<Path>) -> Option<Self::Asset>;
     fn get_related_asset_storage(&mut self) -> &mut AssetStorageResource<Self::Asset>;
 
-    fn get_or_load_from_key(&mut self, ctx: SerializerCtx, key: &str, assets_dir_path: impl AsRef<Path>) -> Option<AssetHandle<Self::Asset>> {
+    fn get_or_load_from_key(&mut self, ctx: SerializerCtx<S>, key: &str, assets_dir_path: impl AsRef<Path>) -> Option<AssetHandle<Self::Asset>> {
         let storage = self.get_related_asset_storage();
 
         if let Some(stored_asset) = storage.get_registered(key) {
@@ -250,10 +303,11 @@ pub fn load_all_assets(mut res: ResourcesHolderMut, assets_dir_path: impl AsRef<
         res.as_mut(),
         assets_dir_path.as_ref(),
         None, 
-        |local_serializer, serializer| {
+        |serializers_local, serializers_global| {
             let mut err_handler = |err| println!("[{}:{}] {err}", file!(), line!());
-            let mut serializer_ctx = serializer.to_ctx(Some(&local_serializer), &mut err_handler);
-
+            let serializer_ctx_state = serializers_global.to_ctx_state();
+            let mut serializer_ctx = serializer_ctx_state.wrap_with_local(&serializers_local).into_ctx(&mut err_handler);
+            
             traverse_files_in_dir_deep(&assets_dir_path, &mut |file_path| {
                 if file_path.extension() != Some(OsStr::new("asset")) {
                     return;
@@ -300,13 +354,13 @@ pub fn load_all_assets(mut res: ResourcesHolderMut, assets_dir_path: impl AsRef<
                 let serialized_value = SerializedPrimitive::String(asset_key.into()).into();
 
                 match asset_type {
-                    AssetType::Texture => _ = serializer_ctx.deserialize::<AssetHandle<StandardTexture>>(&serialized_value),
-                    AssetType::Material => _ = serializer_ctx.deserialize::<AssetHandle<StandardMaterial>>(&serialized_value),
-                    AssetType::Mesh => _ = serializer_ctx.deserialize::<AssetHandle<StandardMesh>>(&serialized_value),
-                    AssetType::AudioClip => _ = serializer_ctx.deserialize::<AssetHandle<AudioClip>>(&serialized_value),
+                    AssetType::Texture => _ = serializer_ctx.deserialize_default::<AssetHandle<StandardTexture>>("", &serialized_value),
+                    AssetType::Material => _ = serializer_ctx.deserialize_default::<AssetHandle<StandardMaterial>>("", &serialized_value),
+                    AssetType::Mesh => _ = serializer_ctx.deserialize_default::<AssetHandle<StandardMesh>>("", &serialized_value),
+                    AssetType::AudioClip => _ = serializer_ctx.deserialize_default::<AssetHandle<AudioClip>>("", &serialized_value),
                     // todo: font
                     AssetType::Font => todo!(),
-                    AssetType::Prefab => _ = serializer_ctx.deserialize::<AssetHandle<Prefab>>(&serialized_value),
+                    AssetType::Prefab => _ = serializer_ctx.deserialize_default::<AssetHandle<Prefab>>("", &serialized_value),
                 };
             });
         },

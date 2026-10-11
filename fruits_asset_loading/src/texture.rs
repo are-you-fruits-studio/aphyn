@@ -5,8 +5,8 @@ use fruits_ecs::{ResourcesHolderMut, ResourcesHolderRef};
 use fruits_ffi::FfiFnMutMut;
 use fruits_render_core::{FilterMode, RenderApiResource, StandardTexture, StandardTextureAssetMetadata};
 
-use fruits_serialization::{PureSerializerCtx, Serializable, SerializedValue, SerializerCtx};
-use image::{EncodableLayout, GenericImageView};
+use fruits_serialization::{PureSerializerCtxState, SerializedValue, SerializerCtx, SerializerCtxState};
+use image::EncodableLayout;
 
 use crate::AssetLoader;
 
@@ -24,7 +24,7 @@ impl<'a> TextureHandleLoader<'a> {
     }
 }
 
-impl<'a> AssetLoader for TextureHandleLoader<'a> {
+impl<'a, S: Copy + SerializerCtxState<StandardTextureAssetMetadata>> AssetLoader<S> for TextureHandleLoader<'a> {
     type Asset = StandardTexture;
     type SelfWithAnotherLifetime<'r> = TextureHandleLoader<'r>;
 
@@ -36,10 +36,10 @@ impl<'a> AssetLoader for TextureHandleLoader<'a> {
         self.textures
     }
     
-    fn load_from_serialized(&mut self, mut ctx: SerializerCtx, value: &SerializedValue, assets_dir_path: impl AsRef<Path>) -> Option<Self::Asset> {
+    fn load_from_serialized(&mut self, mut ctx: SerializerCtx<S>, value: &SerializedValue, assets_dir_path: impl AsRef<Path>) -> Option<Self::Asset> {
         TextureLoader {
             render_api: self.render_api,
-        }.load_from_deserialized(ctx.deserialize(value)?, assets_dir_path)
+        }.load_from_deserialized(ctx.deserialize_default("", value), assets_dir_path)
     }
 }
 
@@ -58,7 +58,8 @@ impl<'a> TextureLoader<'a> {
 
     pub fn load_from_serialized(&mut self, value: &SerializedValue, assets_dir_path: impl AsRef<Path>) -> Option<StandardTexture> {
         let mut err_handler = |err| println!("[{}:{}] {err}", file!(), line!());
-        let deserialized = StandardTextureAssetMetadata::deserialize(PureSerializerCtx::new(FfiFnMutMut::new(&mut err_handler)), value)?;
+        let mut ctx = SerializerCtx::new(PureSerializerCtxState, &mut err_handler);
+        let deserialized = ctx.deserialize_default::<StandardTextureAssetMetadata>("", value);
 
         self.load_from_deserialized(
             deserialized,

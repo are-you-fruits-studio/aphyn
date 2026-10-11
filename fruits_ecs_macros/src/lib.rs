@@ -39,20 +39,6 @@
 //! }
 //! ```
 //!
-//! #### Declaring per-system state
-//!
-//! Use `SystemResource` for state owned by a single system. The trait requires
-//! `Default`, so derive `Default` alongside it.
-//!
-//! ```ignore
-//! use fruits_ecs::SystemResource;
-//!
-//! #[derive(SystemResource, Default)]
-//! struct Accumulator {
-//!     elapsed: f32,
-//! }
-//! ```
-//!
 //! #### Declaring an event type
 //!
 //! Use `Event` for messages written and read through the world's event channels.
@@ -68,15 +54,14 @@
 //!
 //! # How to maintain
 //!
-//! Each derive ([`derive_component`], [`derive_resource`],
-//! [`derive_system_resource`], [`derive_event`]) emits the same shape of output:
-//! an empty `impl <Trait> for <Name> { }`. The corresponding traits in
-//! `fruits_ecs` are markers with no methods, so no body is generated; the derive
-//! only opts a type into the trait. Any extra bound the trait carries
-//! (`Component: Send + Sync`, `Resource: Send + Sync`, `SystemResource: Default`,
-//! `Event: 'static`) is enforced by the compiler against the user's type, not by
-//! the macro — which is why the examples above derive `Default` where the trait
-//! demands it.
+//! Each derive ([`derive_component`], [`derive_resource`], [`derive_event`])
+//! emits the same shape of output: an empty `impl <Trait> for <Name> { }`. The
+//! corresponding traits in `fruits_ecs` are markers with no methods, so no body
+//! is generated; the derive only opts a type into the trait. Any extra bound the
+//! trait carries (`Component: 'static + Send + Sync`,
+//! `Resource: 'static + Send + Sync`, `Event: 'static`) is enforced by the
+//! compiler against the user's type, not by the macro. Per-system state
+//! (`fruits_ecs::Local`) needs no marker trait, so there is no derive for it.
 //!
 //! The type name is recovered by `get_struct_name`, a hand-rolled scan over the
 //! input [`proc_macro::TokenStream`] rather than a `syn`-based parse (the crate

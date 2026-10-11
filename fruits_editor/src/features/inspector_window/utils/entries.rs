@@ -49,7 +49,7 @@ pub fn spawn_hierarchy_window_entry(
         ParentComponent { children: vec![].into() },
         BatchedMeshComponent::default(),
         HierarchyWindowEntryComponent { simulated_entity: simulated_ent },
-        ButtonComponent,
+        ButtonComponent::default(),
         StandardMaterialComponent { material: material_panel.clone() },
         ImageComponent {
             color: Vec4::splat(0.0),
@@ -85,8 +85,8 @@ pub fn parse_serialized(ent: EntitiesHolderRef, ent_target: EntityId) -> Seriali
         return SerializedValue::Null;
     };
 
-    match serialized_value_component {
-        SerializedValueComponent::Primitive { text, ty } => {
+    match &serialized_value_component.ty {
+        SerializedValueComponentTy::Primitive { text, ty } => {
             let default_result = match ty {
                 SerializedValuePrimitiveType::Null => SerializedValue::Null,
                 SerializedValuePrimitiveType::Bool => SerializedValue::Primitive(SerializedPrimitive::Bool(false)),
@@ -119,7 +119,7 @@ pub fn parse_serialized(ent: EntitiesHolderRef, ent_target: EntityId) -> Seriali
                 }
             }
         }
-        SerializedValueComponent::Container {
+        SerializedValueComponentTy::Container {
             ty,
             container_enum_metadata: ent_enum_meta_container,
             container_fields: container,
@@ -219,6 +219,7 @@ pub fn spawn_serialized(
     ent_last: EntityId,
     ent_parent: EntityId,
     ent_selected_input: EntityId,
+    serializer_path: FfiString,
     serialized: &SerializedValue,
     material_panel: AssetHandle<StandardMaterial>,
     material_text: AssetHandle<StandardMaterial>,
@@ -231,6 +232,7 @@ pub fn spawn_serialized(
             ent_last,
             ent_parent,
             ent_selected_input,
+            serializer_path,
             serialized,
             material_panel,
             material_text,
@@ -241,6 +243,7 @@ pub fn spawn_serialized(
             ent_last,
             ent_parent,
             ent_selected_input,
+            serializer_path,
             serialized,
             material_panel,
             material_text,
@@ -254,6 +257,7 @@ fn spawn_serialized_primitive(
     ent_last: EntityId,
     ent_parent: EntityId,
     ent_selected_input: EntityId,
+    serializer_path: FfiString,
     serialized: &SerializedPrimitive,
     material_panel: AssetHandle<StandardMaterial>,
     material_text: AssetHandle<StandardMaterial>,
@@ -266,17 +270,18 @@ fn spawn_serialized_primitive(
         SerializedPrimitive::String(serialized) => (serialized.to_string().into(), SerializedValuePrimitiveType::String),
     };
 
-    if let Some(SerializedValueComponent::Primitive { text: ent_text, .. }) = ent.get_component::<SerializedValueComponent>(ent_last)
+    if let Some(SerializedValueComponent { path, ty: SerializedValueComponentTy::Primitive { text: ent_text, .. } }) = ent.get_component::<SerializedValueComponent>(ent_last)
         && let ent_text = *ent_text
         && let Some(input_c) = ent.get_component::<InputFieldComponent>(ent_text)
         && let Some(text_c) = ent.get_component_mut::<TextComponent>(input_c.text)
     {
         if ent_text != ent_selected_input {
             text_c.text = text;
-            if let Some(SerializedValueComponent::Primitive { ty: ent_ty, .. }) =
+            if let Some(SerializedValueComponent { path, ty: SerializedValueComponentTy::Primitive { ty: ent_ty, .. }}) =
                 ent.get_component_mut::<SerializedValueComponent>(ent_last)
             {
                 *ent_ty = ty;
+                *path = serializer_path;
             }
         }
         return ent_last;
@@ -291,7 +296,8 @@ fn spawn_serialized_primitive(
         material_text.clone(),
         font.clone(),
     );
-    ent.add_component(ent_text, SerializedValueComponent::Primitive { text: ent_text, ty })
+
+    ent.add_component(ent_text, SerializedValueComponent { path: serializer_path, ty: SerializedValueComponentTy::Primitive { text: ent_text, ty }})
         .ok()
         .unwrap();
     ent_text
@@ -302,6 +308,7 @@ fn spawn_serialized_composite(
     ent_last: EntityId,
     ent_parent: EntityId,
     ent_selected_input: EntityId,
+    serializer_path: FfiString,
     serialized_composite: &SerializedComposite,
     material_panel: AssetHandle<StandardMaterial>,
     material_text: AssetHandle<StandardMaterial>,
@@ -313,18 +320,18 @@ fn spawn_serialized_composite(
     };
 
     let (ent_root, ent_enum_meta_container, ent_fields_container, ent_container_buttons) =
-        if let Some(SerializedValueComponent::Container {
+        if let Some(SerializedValueComponent { path, ty: SerializedValueComponentTy::Container {
             ty,
             container_enum_metadata: ent_enum_meta_container,
             container_fields: ent_fields_container,
             container_buttons: ent_container_buttons,
-        }) = ent.get_component::<SerializedValueComponent>(ent_last).copied()
-            && ent.get_component::<ParentComponent>(ent_fields_container).is_some()
-            && ent.get_component::<ParentComponent>(ent_enum_meta_container).is_some()
-            && ent.get_component::<ParentComponent>(ent_container_buttons).is_some()
-            && ty == expected_ty
+        }}) = ent.get_component::<SerializedValueComponent>(ent_last)
+            && ent.get_component::<ParentComponent>(*ent_fields_container).is_some()
+            && ent.get_component::<ParentComponent>(*ent_enum_meta_container).is_some()
+            && ent.get_component::<ParentComponent>(*ent_container_buttons).is_some()
+            && *ty == expected_ty
         {
-            (ent_last, ent_enum_meta_container, ent_fields_container, ent_container_buttons)
+            (ent_last, *ent_enum_meta_container, *ent_fields_container, *ent_container_buttons)
         } else {
             destroy_entity_and_children(ent.as_mut(), ent_last);
 
@@ -339,11 +346,14 @@ fn spawn_serialized_composite(
 
             ent.add_component(
                 ent_root,
-                SerializedValueComponent::Container {
-                    container_fields: ent_fields_container,
-                    ty: expected_ty,
-                    container_enum_metadata: ent_enum_meta_container,
-                    container_buttons: ent_container_buttons,
+                SerializedValueComponent {
+                    ty: SerializedValueComponentTy::Container {
+                        container_fields: ent_fields_container,
+                        ty: expected_ty,
+                        container_enum_metadata: ent_enum_meta_container,
+                        container_buttons: ent_container_buttons,
+                    },
+                    path: serializer_path.clone(),
                 },
             )
             .ok()
@@ -381,7 +391,7 @@ fn spawn_serialized_composite(
                 rect_c.scale = Vec2::new(UiVal::pw(0.5).into(), FIELD_HEIGHT.into());
             }
             ent.add_component(ent_button, BatchedMeshComponent::default()).ok().unwrap();
-            ent.add_component(ent_button, ButtonComponent).ok().unwrap();
+            ent.add_component(ent_button, ButtonComponent::default()).ok().unwrap();
             ent.add_component(
                 ent_button,
                 StandardMaterialComponent {
@@ -469,11 +479,14 @@ fn spawn_serialized_composite(
             SerializedCompositeValues::List(serialized_list) => (FfiString::from(i.to_string()), &serialized_list[i]),
         };
 
+        let field_path = format!("{serializer_path}/{serialized_key}").into();
+
         spawn_serialized_field(
             ent.as_mut(),
             i,
             serialized_key,
             ent_fields_container,
+            field_path,
             serialized_val,
             ent_selected_input,
             material_panel.clone(),
@@ -547,6 +560,7 @@ pub fn spawn_serialized_field(
     i: u64,
     serialized_key: FfiString,
     ent_fields_container: EntityId,
+    serializer_path: FfiString,
     serialized_val: &SerializedValue,
     ent_selected_input: EntityId,
     material_panel: AssetHandle<StandardMaterial>,
@@ -588,6 +602,7 @@ pub fn spawn_serialized_field(
             ent_child,
             field_c.value_container,
             ent_selected_input,
+            serializer_path,
             serialized_val,
             material_panel.clone(),
             material_text.clone(),
@@ -635,6 +650,7 @@ pub fn spawn_serialized_field(
         EntityId::EMPTY,
         ent_value_container,
         ent_selected_input,
+        serializer_path,
         serialized_val,
         material_panel.clone(),
         material_text.clone(),
@@ -795,7 +811,7 @@ fn spawn_dropdown_ent(
         .ok()
         .unwrap();
     ent.add_component(ent_root, ParentComponent::default()).ok().unwrap();
-    ent.add_component(ent_root, ButtonComponent).ok().unwrap();
+    ent.add_component(ent_root, ButtonComponent::default()).ok().unwrap();
     ent.add_component(ent_root, BatchedMeshComponent::default()).ok().unwrap();
     ent.add_component(
         ent_root,
@@ -968,7 +984,7 @@ fn spawn_dropdown_ent(
         ent.add_component(ent_variant, LocalDisableableComponent::default())
             .ok()
             .unwrap();
-        ent.add_component(ent_variant, ButtonComponent).ok().unwrap();
+        ent.add_component(ent_variant, ButtonComponent::default()).ok().unwrap();
         // ent.add_component(ent_variant, BatchedMeshComponent::default()).ok().unwrap();
         // ent.add_component(ent_variant, StandardMaterialComponent { material: material_panel.clone() }).ok().unwrap();
         // ent.add_component(ent_variant, ImageComponent {
@@ -1090,7 +1106,7 @@ pub fn spawn_input_area_ent(
     .ok()
     .unwrap();
     ent.add_component(ent_root, BatchedMeshComponent::default()).ok().unwrap();
-    ent.add_component(ent_root, ButtonComponent).ok().unwrap();
+    ent.add_component(ent_root, ButtonComponent::default()).ok().unwrap();
     ent.add_component(
         ent_root,
         ImageComponent {

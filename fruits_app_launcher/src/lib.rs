@@ -64,20 +64,23 @@
 //! [`launch_app_statically`] is the simple path: the caller's closure is invoked
 //! directly with a [`WorldBuilderMut`] borrowed from the in-process [`App`].
 //!
-//! [`launch_app_dynamically`] crosses an FFI boundary. It loads a shared library
-//! named `app_lib` from the process working directory via `libloading`, resolves the
-//! `fruits_entry_point` C symbol (an `unsafe extern "C-unwind" fn(AppInitCtxFfi)` that the
-//! game library exports through the `fruits_entry_point!` macro), and exposes the
-//! freshly built world to it. `App::ecs_mut().into_raw_parts()` yields a raw world
-//! pointer plus the type registry; both are packed as raw pointers into an
-//! [`AppInitCtxFfi`] and passed to the symbol, which reconstructs a safe
-//! `WorldBuilderMut` on the other side and runs the game's setup. The library is
-//! closed only after [`App::run`] returns, because the world holds types and
-//! function pointers that live inside it for the whole run.
+//! [`launch_app_dynamically`] crosses an FFI boundary. It looks for a shared library
+//! named `lib_app` plus the platform's library suffix (`lib_app.dll`, `lib_app.so`, …)
+//! next to the current executable and hands it to [`init_app_dynamically`]. That function
+//! loads the library via `libloading`, resolves the `fruits_entry_point` C symbol (an
+//! `unsafe extern "C-unwind" fn(AppInitCtxFfi)` that the game library exports through the
+//! `fruits_entry_point!` macro), and exposes the world to it:
+//! `WorldBuilderMut::into_raw_parts()` yields the raw world builder plus the type registry
+//! cache, whose registry is taken; both are packed as raw pointers into an [`AppInitCtxFfi`]
+//! and passed to the symbol, which reconstructs a safe `WorldBuilderMut` on the other side
+//! and runs the game's setup. [`init_app_dynamically`] returns the loaded [`Library`] (or the
+//! `libloading` error), and the library is closed only after [`App::run`] returns, because
+//! the world holds types and function pointers that live inside it for the whole run.
 //!
-//! Caveats for maintainers: every fallible step (loading `app_lib`, resolving the
-//! symbol, closing the library) currently uses `unwrap`, so a missing or mismatched
-//! library aborts the process rather than reporting an error. The default-module
+//! Caveats for maintainers: [`launch_app_dynamically`] `unwrap`s every fallible step
+//! (locating the executable, loading `lib_app`, resolving the symbol, closing the
+//! library), so a missing or mismatched library aborts the process rather than reporting
+//! an error. The default-module
 //! helper name `add_defult_modules_to` carries an upstream spelling and must match
 //! `fruits_modules`.
 

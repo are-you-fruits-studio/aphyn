@@ -20,7 +20,7 @@ impl<'a> AudioClipHandleLoader<'a> {
         }})
     }
 }
-impl<'a> AssetLoader for AudioClipHandleLoader<'a> {
+impl<'a, S: Copy + SerializerCtxState<AudioClipAssetMetadata>> AssetLoader<S> for AudioClipHandleLoader<'a> {
     type Asset = AudioClip;
     type SelfWithAnotherLifetime<'r> = AudioClipHandleLoader<'r>;
 
@@ -32,10 +32,10 @@ impl<'a> AssetLoader for AudioClipHandleLoader<'a> {
         self.audio_clips
     }
     
-    fn load_from_serialized(&mut self, mut ctx: fruits_serialization::SerializerCtx, value: &SerializedValue, assets_dir_path: impl AsRef<Path>) -> Option<Self::Asset> {
+    fn load_from_serialized(&mut self, mut ctx: SerializerCtx<S>, value: &SerializedValue, assets_dir_path: impl AsRef<Path>) -> Option<Self::Asset> {
         AudioClipLoader {
             audio_state: self.audio_state,
-        }.load_from_deserialized(ctx.deserialize(value)?, assets_dir_path)
+        }.load_from_deserialized(ctx.deserialize_default("", value), assets_dir_path)
     }
     
 }

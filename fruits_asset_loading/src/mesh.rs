@@ -22,7 +22,7 @@ impl<'a> MeshHandleLoader<'a> {
         }})
     }
 }
-impl<'a> AssetLoader for MeshHandleLoader<'a> {
+impl<'a, S: Copy + SerializerCtxState<StandardMeshAssetMetadata>> AssetLoader<S> for MeshHandleLoader<'a> {
     type Asset = StandardMesh;
     type SelfWithAnotherLifetime<'r> = MeshHandleLoader<'r>;
 
@@ -34,10 +34,10 @@ impl<'a> AssetLoader for MeshHandleLoader<'a> {
         self.meshes
     }
     
-    fn load_from_serialized(&mut self, mut ctx: SerializerCtx, value: &SerializedValue, assets_dir_path: impl AsRef<Path>) -> Option<Self::Asset> {
+    fn load_from_serialized(&mut self, mut ctx: SerializerCtx<S>, value: &SerializedValue, assets_dir_path: impl AsRef<Path>) -> Option<Self::Asset> {
         MeshLoader {
             render_api: self.render_api,
-        }.load_from_deserialized(ctx.deserialize(value)?, assets_dir_path)
+        }.load_from_deserialized(ctx.deserialize_default("", value), assets_dir_path)
     }
 }
 
@@ -56,7 +56,8 @@ impl<'a> MeshLoader<'a> {
     
     pub fn load_from_serialized(&mut self, value: &SerializedValue, assets_dir_path: impl AsRef<Path>) -> Option<StandardMesh> {
         let mut err_handler = |err| println!("[{}:{}] {err}", file!(), line!());
-        let value = <StandardMeshAssetMetadata as Serializable>::deserialize(PureSerializerCtx::new(FfiFnMutMut::new(&mut err_handler)), value)?;
+        let mut ctx = SerializerCtx::new(PureSerializerCtxState, &mut err_handler);
+        let value = ctx.deserialize_default::<StandardMeshAssetMetadata>("", value);
 
         self.load_from_deserialized(value, assets_dir_path)
     }

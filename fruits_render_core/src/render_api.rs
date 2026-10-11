@@ -28,11 +28,8 @@ impl RenderApi {
         let size = [size.width, size.height];
 
         // todo: move wgpu initialization into ecs Start handle?
-        // Keep this platform-agnostic: restricting the backends to a single API makes surface
-        // creation fail outright everywhere else. `with_env` still allows picking a specific
-        // backend at runtime through the `WGPU_BACKEND` environment variable.
         let instance = Instance::new(&InstanceDescriptor {
-            backends: Backends::PRIMARY.with_env(),
+            backends: Backends::DX12,
             ..Default::default()
         });
 

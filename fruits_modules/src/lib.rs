@@ -1,8 +1,8 @@
 //! # fruits_modules
 //!
 //! Bundles the engine's built-in subsystems into a single registration step, so an
-//! app starts from a world that already has collision, transforms, rendering, and
-//! prefab support wired together.
+//! app starts from a world that already has collision, transforms, UI, rendering, audio,
+//! asset loading, and serialization wired together.
 //!
 //! # How to use
 //!
@@ -34,30 +34,56 @@
 //! app.run();
 //! ```
 //!
+//! #### Making the common types serializable
+//!
+//! The default modules fill the world's [`SerializersResource`] with the engine's common
+//! types (see below). To serialize your own type through it, register it the same way;
+//! [`register_self_and_related_common_transserializers`] also registers its vector, matrix,
+//! quaternion, `Vec`/`FfiVec`, and `Option`/`FfiOption` wrappers:
+//!
+//! ```ignore
+//! use fruits_engine::*;
+//!
+//! #[derive(Component, Serializable, Default)]
+//! struct Health(f32);
+//!
+//! fn register_serializers(mut world: WorldBuilderMut) {
+//!     let mut data = world.data_mut();
+//!     let mut res = data.resources_mut();
+//!     let serializers = res.get_mut::<SerializersResource>().unwrap();
+//!
+//!     register_self_and_related_common_transserializers::<Health>(&mut **serializers);
+//! }
+//! ```
+//!
 //! # How to maintain
 //!
 //! #### Default module set and ordering
 //!
 //! [`add_defult_modules_to`] is the assembly point. It registers the collision,
-//! transform, and render subsystems through their own `add_*_module_to` helpers,
-//! inserts the resources the prefab pipeline depends on
-//! ([`AssetStorageResource<Prefab>`](fruits_asset_storage::AssetStorageResource),
-//! [`PrefabComponentsDeserializerResource`], and [`SerializersResource`]), then constrains the [`Update`](fruits_ecs::Schedule::Update)
-//! schedule so the [`SYSTEM_GROUP_COLLISION`](fruits_collision::SYSTEM_GROUP_COLLISION)
-//! group runs before [`SYSTEM_GROUP_TRANSFORM`](fruits_transform::SYSTEM_GROUP_TRANSFORM),
-//! which runs before [`SYSTEM_GROUP_RENDER`](fruits_render::SYSTEM_GROUP_RENDER): colliders
-//! settle, transforms propagate, the frame renders. The name carries an upstream
-//! misspelling (`defult`); callers must match it exactly.
+//! transform, UI, render, audio, and asset subsystems through their own `add_*_module_to`
+//! helpers, inserts a [`SerializersResource`] filled by [`register_common_transserializers`],
+//! then constrains the [`Update`](fruits_ecs::Schedule::Update) schedule so the
+//! [`SYSTEM_GROUP_COLLISION`](fruits_collision::SYSTEM_GROUP_COLLISION) group runs before
+//! [`SYSTEM_GROUP_TRANSFORM`](fruits_transform::SYSTEM_GROUP_TRANSFORM), which runs before
+//! [`SYSTEM_GROUP_RENDER`](fruits_render::SYSTEM_GROUP_RENDER): colliders settle, transforms
+//! propagate, the frame renders. The name carries an upstream misspelling (`defult`);
+//! callers must match it exactly.
 //!
 //! #### Shared serializer registry
 //!
-//! [`SerializersResource`] is a newtype over [`GlobalSerializer`]
-//! that derefs through to it, so a system holding the resource can call the serializer's
-//! own methods directly. It is inserted here, with the world, rather than in
-//! `fruits_serialization`, because it is the world-level home for the engine's component
-//! serializers. The prefab loading path in `fruits_asset_loading` reads it and combines
-//! its [`registry`](fruits_serialization::GlobalSerializer::registry) with per-load
-//! transient serializers to deserialize prefab components.
+//! [`SerializersResource`] (defined in `fruits_serialization`) is a newtype over a `'static`
+//! [`TransSerializerRegistry`] that derefs to it. It is filled here, with the world, because
+//! this crate is the one that depends on every subsystem whose types it registers.
+//! [`register_common_transserializers`] registers a [`StandardSerializer`] for the primitive
+//! and string types, render-space and coordinate-space enums, the texture/mesh/material/audio
+//! asset metadata types, [`DebugNameComponent`], and the transform hierarchy components, each
+//! together with its related wrappers. For `AssetHandle<T>` it registers only the wrappers: the
+//! handle itself is (de)serialized by the per-operation local serializers in
+//! `fruits_asset_loading`, which layer over this registry. The related wrappers include
+//! `Mat<0..=8, T>`, whose `Serializable` impl is still a `todo!()` in `fruits_serialization`.
+//!
+//! [`DebugNameComponent`] is a serializable component wrapping an `FfiSmallString` name.
 //!
 //! #### FPS counter
 //!
@@ -103,7 +129,7 @@ pub fn add_defult_modules_to(mut world: WorldBuilderMut) {
         .before_group(fruits_render::SYSTEM_GROUP_RENDER);
 }
 
-pub fn register_common_transserializers(serializer: &mut GlobalSerializer) {
+pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry) {
     register_self_and_related_common_transserializers::<i8>(serializer);
     register_self_and_related_common_transserializers::<u8>(serializer);
     register_self_and_related_common_transserializers::<i16>(serializer);
@@ -137,30 +163,30 @@ pub fn register_common_transserializers(serializer: &mut GlobalSerializer) {
     register_related_common_transserializers::<AssetHandle<Prefab>>(serializer);
 }
 
-pub fn register_self_and_related_common_transserializers<T: 'static + TransSerializable>(serializer: &mut GlobalSerializer) {
-    serializer.register(StandardTransSerializer::<T>::default());
+pub fn register_self_and_related_common_transserializers<T: 'static + Default + for<'a> Serializable<TransSerializerCtxState<'a>>>(serializer: &mut TransSerializerRegistry) {
+    serializer.register(StandardSerializer::<T>::default());
     register_related_common_transserializers::<T>(serializer)
 }
-pub fn register_related_common_transserializers<T: 'static>(serializer: &mut GlobalSerializer) {
-    serializer.register(StandardTransSerializer::<Vec2<T>>::default());
-    serializer.register(StandardTransSerializer::<Vec3<T>>::default());
-    serializer.register(StandardTransSerializer::<Vec4<T>>::default());
-    serializer.register(StandardTransSerializer::<Quat<T>>::default());
-    serializer.register(StandardTransSerializer::<Mat<0, T>>::default());
-    serializer.register(StandardTransSerializer::<Mat<1, T>>::default());
-    serializer.register(StandardTransSerializer::<Mat<2, T>>::default());
-    serializer.register(StandardTransSerializer::<Mat<3, T>>::default());
-    serializer.register(StandardTransSerializer::<Mat<4, T>>::default());
-    serializer.register(StandardTransSerializer::<Mat<5, T>>::default());
-    serializer.register(StandardTransSerializer::<Mat<6, T>>::default());
-    serializer.register(StandardTransSerializer::<Mat<7, T>>::default());
-    serializer.register(StandardTransSerializer::<Mat<8, T>>::default());
-    serializer.register(StandardTransSerializer::<Vec<T>>::default());
-    serializer.register(StandardTransSerializer::<FfiVec<T>>::default());
-    serializer.register(StandardTransSerializer::<Option<T>>::default());
-    serializer.register(StandardTransSerializer::<FfiOption<T>>::default());
+pub fn register_related_common_transserializers<T: 'static + Default>(serializer: &mut TransSerializerRegistry) {
+    serializer.register(StandardSerializer::<Vec2<T>>::default());
+    serializer.register(StandardSerializer::<Vec3<T>>::default());
+    serializer.register(StandardSerializer::<Vec4<T>>::default());
+    serializer.register(StandardSerializer::<Quat<T>>::default());
+    serializer.register(StandardSerializer::<Mat<0, T>>::default());
+    serializer.register(StandardSerializer::<Mat<1, T>>::default());
+    serializer.register(StandardSerializer::<Mat<2, T>>::default());
+    serializer.register(StandardSerializer::<Mat<3, T>>::default());
+    serializer.register(StandardSerializer::<Mat<4, T>>::default());
+    serializer.register(StandardSerializer::<Mat<5, T>>::default());
+    serializer.register(StandardSerializer::<Mat<6, T>>::default());
+    serializer.register(StandardSerializer::<Mat<7, T>>::default());
+    serializer.register(StandardSerializer::<Mat<8, T>>::default());
+    serializer.register(StandardSerializer::<Vec<T>>::default());
+    serializer.register(StandardSerializer::<FfiVec<T>>::default());
+    serializer.register(StandardSerializer::<Option<T>>::default());
+    serializer.register(StandardSerializer::<FfiOption<T>>::default());
 }
 
 #[repr(transparent)]
-#[derive(Component, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Default, Serializable, TransSerializable)]
+#[derive(Component, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Default, Serializable)]
 pub struct DebugNameComponent(pub FfiSmallString);

@@ -7,8 +7,8 @@
 //!
 //! #### Enabling audio in a world
 //!
-//! Audio is registered on its own — it is *not* part of the engine's default modules. Call
-//! [`add_audio_module_to`] with the world builder to enable audio playback in the world:
+//! Audio is part of the engine's default modules (`add_defult_modules_to`). To enable it on its
+//! own, call [`add_audio_module_to`] with the world builder:
 //!
 //! ```ignore
 //! use fruits_engine::*;
@@ -19,33 +19,36 @@
 //!
 //! #### Playing a sound
 //!
-//! Load an [`AudioClip`] and attach an [`AudioSource`] to an entity. Clips are loaded by their
-//! asset key through the asset layer (`fruits_asset_loading`):
+//! Attach an [`AudioSource`] referencing an [`AudioClip`] to an entity. Clips are loaded from
+//! `.asset` files by the asset layer (`fruits_asset_loading`) at startup and looked up by their
+//! asset key in the `AssetStorageResource<AudioClip>`:
 //!
 //! ```ignore
 //! use fruits_engine::*;
 //!
-//! let clip = get_or_load_audio_clip_from_world(
-//!     ecs.data_mut().resources_mut().as_mut(),
-//!     "Through space.asset",
-//! ).unwrap();
+//! fn start_music(mut world: WorldDataMut) {
+//!     let (res, mut ent, _evt) = world.as_tuple_mut();
 //!
-//! let mut data = ecs.data_mut();
-//! let mut ent = data.entities_mut();
-//! let entity = ent.create_entity();
-//! ent.add_component(entity, AudioSource {
-//!     clip: clip.clone(),
-//!     playback_time: 0.0,
-//!     should_force_playback_time: true,
-//!     is_playing: true,
-//!     is_looped: true,
-//! }).ok().unwrap();
+//!     let clips = res.get::<AssetStorageResource<AudioClip>>().unwrap();
+//!     let clip = clips.get_registered("Through space.asset").unwrap().clone();
+//!
+//!     let entity = ent.create_entity();
+//!     ent.add_component(entity, AudioSource {
+//!         clip,
+//!         playback_time: 0.0,
+//!         volume: 1.0,
+//!         should_force_playback_time: true,
+//!         is_playing: true,
+//!         is_looped: true,
+//!     }).ok().unwrap();
+//! }
 //! ```
 //!
 //! The [`AudioSource`] fields drive playback every [`Schedule::Update`]: flip `is_playing` to
-//! start or pause, set `is_looped` to repeat, and write `playback_time` (in seconds) together
-//! with `should_force_playback_time = true` to seek. Once a non-looped clip reaches its end the
-//! system clears `is_playing`.
+//! start or pause, set `is_looped` to repeat, scale the output with `volume`, and write
+//! `playback_time` (in seconds) together with `should_force_playback_time = true` to seek.
+//! Once a non-looped clip reaches its end the system clears `is_playing`. A source whose clip
+//! handle does not resolve is stopped and its `playback_time` reset to `0.0`.
 //!
 //! #### Reading the played samples
 //!
@@ -81,10 +84,13 @@
 //!
 //! Everything is fixed to interleaved stereo float samples at 48&nbsp;kHz: [`AUDIO_SAMPLE_RATE`] and
 //! [`AUDIO_CHANNELS_COUNT`] encode those assumptions, and an [`AudioClip`] stores its samples in
-//! exactly that layout inside an [`FfiVec`]. [`AudioClip::new`] rejects buffers whose length is not
-//! a multiple of [`AUDIO_CHANNELS_COUNT`] and stamps each clip with a unique `id` drawn from the
-//! [`AudioStateResource`]'s `next_audio_clip_id` counter; the `id` is how the update system detects
-//! that a source's clip changed and needs re-copying.
+//! exactly that layout inside an [`FfiVec`], together with its optional
+//! [`AudioClipAssetMetadata`] (the serializable asset-file settings, kept so the clip can be
+//! saved back). [`AudioClip::new`] returns `None` for buffers whose length is not a multiple of
+//! [`AUDIO_CHANNELS_COUNT`] and stamps each clip with a unique `id` drawn from the
+//! [`AudioStateResource`]'s `next_audio_clip_id` counter (starting at `1`; `0` marks the empty
+//! placeholder clip of a new playback); the `id` is how the update system detects that a
+//! source's clip changed and needs re-copying.
 //!
 //! #### Shared state across two threads
 //!
@@ -103,18 +109,22 @@
 //! with a hard-coded [`StreamConfig`] of 2 channels at 48&nbsp;kHz and the default buffer size. The
 //! mixing closure runs per callback: it zeroes the output buffer, then for every playing
 //! `AudioActivePlayback` walks `sample_index` forward one multisample at a time. When the index
-//! runs past the clip it wraps (looping) or stops the playback; a mono device averages the stereo
-//! pair into one channel, a stereo device copies the channels through. After mixing it stores the
+//! runs past the clip it wraps (looping) or stops the playback. Each sample is scaled by the
+//! playback's `volume` and added to the output; the closure averages the stereo pair for a mono
+//! output and copies the channels through otherwise, although the hard-coded config always
+//! requests stereo. After mixing it stores the
 //! buffer into `last_played_samples`. The closure currently clones each clip's samples into its
 //! playback (see the `// todo:` about reusing the asset buffer via an FFI-capable `Arc`).
 //!
 //! #### The update system
 //!
-//! [`add_audio_module_to`] schedules `audio_system` into the [`SYSTEM_GROUP_AUDIO`] group on
-//! [`Schedule::Update`]. Each tick it locks the `AudioState` and: copies `last_played_samples`
-//! out into the resource's `last_samples` (the public mirror), drops playbacks whose entity no
-//! longer matches a queried [`AudioSource`], then creates or syncs a playback for each live source —
-//! pushing `is_playing`/`is_looped` down, replacing the playback's clip when the `id` differs, and
+//! [`add_audio_module_to`] opens the stream, inserts the [`AudioStateResource`] and an empty
+//! `AssetStorageResource<AudioClip>`, and schedules `audio_system` into the
+//! [`SYSTEM_GROUP_AUDIO`] group on [`Schedule::Update`]. Each tick it locks the `AudioState`
+//! and: copies `last_played_samples` out into the resource's `last_samples` (the public
+//! mirror), drops playbacks whose entity no longer matches a queried [`AudioSource`], then
+//! creates or syncs a playback for each live source — pushing `is_playing`/`is_looped`/`volume`
+//! down, replacing the playback's clip when the `id` differs, and
 //! either forcing `sample_index` from `playback_time` (on `should_force_playback_time`) or writing
 //! `playback_time` back from `sample_index`. The position read back into `playback_time` is clamped
 //! to `0.0..=1.0` seconds, so a source playing a clip longer than one second reports a saturated
@@ -176,7 +186,7 @@ pub fn add_audio_module_to(mut world: WorldBuilderMut) {
 
 
 #[repr(C)]
-#[derive(TransSerializable, Clone)]
+#[derive(Serializable, Clone, Default)]
 pub struct AudioClipAssetMetadata {
     pub raw_audio: FfiString,
 }

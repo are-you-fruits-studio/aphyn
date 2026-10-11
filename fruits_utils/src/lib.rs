@@ -1,9 +1,9 @@
 //! # fruits_utils
 //!
 //! Foundational data structures and low-level helpers shared across the engine.
-//! It is the dependency-free toolbox the other crates reach for: slot maps with
+//! It is the low-level toolbox the other crates reach for: slot maps with
 //! stable handles, fixed-capacity containers, a thread pool, a type-keyed store,
-//! and a handful of memory utilities.
+//! graph and tree helpers, and a handful of memory utilities.
 //!
 //! # How to use
 //!
@@ -144,6 +144,25 @@
 //! assert_eq!(map.get(101), None);
 //! ```
 //!
+//! #### Building a forest from parent-child pairs
+//!
+//! [`tree::TreeBuilder`] collects parent-child pairs (and standalone nodes) in any
+//! order and [`build`](tree::TreeBuilder::build)s them into one
+//! [`TreeNode`](tree::TreeNode) per root.
+//!
+//! ```
+//! use fruits_utils::tree::TreeBuilder;
+//!
+//! let mut builder = TreeBuilder::new();
+//! builder.insert_pair("root", "child");
+//! builder.insert_pair("child", "grandchild");
+//!
+//! let roots = builder.build();
+//! assert_eq!(roots.len(), 1);
+//! assert_eq!(roots[0].value, "root");
+//! assert_eq!(roots[0].children[0].children[0].value, "grandchild");
+//! ```
+//!
 //! #### Reinterpreting a buffer's element type
 //!
 //! [`morph_vec::MorphVec`] is a growable vector whose backing allocation can be
@@ -182,7 +201,10 @@
 //!
 //! # How to maintain
 //!
-//! The crate has no third-party dependencies — only `std` — and is a flat
+//! The crate's only dependency is the workspace crate `fruits_ffi`, whose
+//! stable-layout containers back the `#[repr(C)]`
+//! [`VersionCollection`](index_version_collection::VersionCollection) and
+//! [`CloseIntMap`](close_int_map::CloseIntMap); otherwise it is a flat
 //! collection of independent modules. Adding a utility means adding a module;
 //! the modules do not depend on each other except where noted below. Almost
 //! every public method is a thin, self-evident accessor, which is why the
@@ -230,9 +252,19 @@
 //! can walk dependencies in either direction; `to_vec` topologically sorts by
 //! repeatedly extracting a node with no remaining predecessors and returns the
 //! visited set as the `Err` cycle witness when none exists.
+//! [`IntGraph`](graph::IntGraph) is a copy of the same algorithm specialized to
+//! `u64` nodes; it is not used in the workspace yet and still contains a `dbg!`
+//! in its sort loop that prints to stderr.
 //!
-//! [`CloseIntMap`](close_int_map::CloseIntMap) stores `Vec<Option<Box<T>>>` plus a
-//! base `offset`; inserting a key below the current offset re-bases the whole
+//! [`TreeBuilder`](tree::TreeBuilder) keeps a root set plus a child list per node.
+//! [`insert_pair`](tree::TreeBuilder::insert_pair) only accepts a pair that extends
+//! the forest — a new parent above an existing root, a new child under an existing
+//! node, or two new nodes — and returns `false` otherwise (for example when both
+//! nodes already exist); a pair of equal nodes is inserted as a single node.
+//!
+//! [`CloseIntMap`](close_int_map::CloseIntMap) stores an
+//! `FfiVec<FfiOption<FfiBox<T>>>` plus a `u64` base `offset`; inserting a key below
+//! the current offset re-bases the whole
 //! vector (an O(n) prepend), so it pays off only when keys stay clustered. The
 //! re-base and gap-filling paths are flagged `// todo: optimize`.
 //!

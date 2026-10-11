@@ -3,15 +3,16 @@ use fruits_ffi::{FfiDroppable, FfiOption};
 use fruits_math::{Mat4, Vec3, Vec4};
 use fruits_serialization::*;
 use fruits_utils::mem::{AllBitVariationsValid, AllBitsInit};
-use wgpu::{BindGroup, BindGroupDescriptor, BindGroupEntry, Buffer, BufferUsages, Sampler, TextureView, util::{BufferInitDescriptor, DeviceExt}};
+use wgpu::{BindGroup, Buffer, BufferUsages, Sampler, TextureView, util::{BufferInitDescriptor, DeviceExt}};
 
 use crate::{CreateBindGroupEntry, RenderState, StandardTexture};
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, TransSerializable)]
+#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serializable)]
 pub enum RenderSpace {
     Clip,
     Window,
+    #[default]
     World,
 }
 
@@ -119,7 +120,7 @@ impl From<StandardLight> for StandardGenericLight {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, TransSerializable)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Serializable)]
 pub enum StandardLight {
     Point {
         color: Vec3<f32>,
@@ -139,13 +140,23 @@ pub enum StandardLight {
     },
 }
 
+impl Default for StandardLight {
+    fn default() -> Self {
+        Self::Point {
+            color: Vec3::splat(0.0),
+            center: Vec3::splat(0.0),
+            range: 0.0,
+        }
+    }
+}
+
 pub struct StandardMaterialNative {
     pub buffer_uniform: Buffer,
     pub bind_group: BindGroup,
 }
 
 #[repr(C)]
-#[derive(Clone, Debug, PartialEq, PartialOrd, TransSerializable)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Serializable)]
 pub struct StandardMaterialAssetMetadata {
     pub is_lit: bool,
     pub space: RenderSpace,

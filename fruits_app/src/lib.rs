@@ -17,7 +17,7 @@
 //! fn main() {
 //!     let mut app = App::new();
 //!
-//!     // Pull in collision, transform, and rendering.
+//!     // Pull in the engine's default subsystems (collision, transform, rendering, ...).
 //!     add_defult_modules_to(app.ecs_mut().as_mut());
 //!
 //!     app.ecs_mut()
@@ -70,9 +70,9 @@
 //!
 //! #### Reacting to typed text
 //!
-//! Character input (with key repeat and IME composition resolved by the platform) is emitted as
-//! a [`TextInputEvent`] each frame. Read it with `Evt<TextInputEvent>` — useful for text fields,
-//! where raw key codes are not enough:
+//! The text a key press produces (as resolved by the platform's keyboard layout) is emitted as
+//! a [`TextInputEvent`]. Read it with `Evt<TextInputEvent>` — useful for text fields, where raw
+//! key codes are not enough. Key repeats and IME composition are not delivered:
 //!
 //! ```ignore
 //! use fruits_engine::*;
@@ -118,8 +118,9 @@
 //!
 //! #### The frame
 //!
-//! Each `RedrawRequested` is one frame. Before the world runs, pending `gilrs` events are
-//! drained into [`InputResource`]: connect/disconnect maintain the per-id gamepad map, and
+//! Each `RedrawRequested` is one frame. Before the world runs, every gamepad `gilrs` currently
+//! reports gets an entry in [`InputResource`], then pending `gilrs` events are drained into
+//! it: connect/disconnect maintain the per-id gamepad map, and
 //! button/axis events update the matching [`GamepadInputStorage`]. The
 //! [`Schedule::Update`](fruits_ecs::Schedule) pass then runs, after which the handler clears the
 //! frame's events, calls `clear_frame` on the input storages, reconciles the window state, and
@@ -131,17 +132,19 @@
 //! Each input storage keeps a persistent `pressed` set plus `frame_pressed` / `frame_released`
 //! sets. `press`/`release` update both; `clear_frame` (called once per frame after `Update`)
 //! empties only the two frame sets, which is what makes `is_just_pressed` / `is_just_released`
-//! true for exactly one frame while `is_pressed` stays sticky. Key repeats are filtered out at
-//! the event source, so a held key does not re-trigger `is_just_pressed`.
+//! true for exactly one frame while `is_pressed` stays sticky. Repeated key events are dropped
+//! in the window-event handler before anything else, so a held key neither re-triggers
+//! `is_just_pressed` nor emits another [`TextInputEvent`].
 //!
 //! #### Double-buffered window state
 //!
 //! [`WindowResource`] holds a `prev` and a `next` [`WindowState`]. Systems write the desired
 //! configuration into `next`; at frame end `WindowState::apply_difference` compares the two and
 //! only touches the real window where they differ (currently the fullscreen mode), then copies
-//! `next` into `prev`. This keeps redundant OS calls out of the steady state. Switching to
-//! exclusive fullscreen picks the first available video mode of the current monitor, so it is a
-//! no-op when no monitor or mode is reported.
+//! `next` into `prev`. This keeps redundant OS calls out of the steady state. The change is
+//! applied only when the window reports a current monitor with at least one video mode
+//! (exclusive fullscreen uses the first one), so without them any fullscreen switch —
+//! including back to windowed — is a no-op, while `prev` is still updated.
 
 mod app;
 mod event_loop_handler;

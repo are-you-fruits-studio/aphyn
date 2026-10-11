@@ -2,16 +2,20 @@ use std::ffi::OsString;
 
 use fruits_engine::*;
 
-#[derive(Component)]
-pub struct ProjectWindowContentComponent;
+#[derive(Component, Default, Debug)]
+pub struct ProjectWindowComponent {
+    pub is_init: bool,
+}
 
 #[derive(Component, Debug, Clone)]
 pub struct ProjectWindowEntryComponent {
     pub path: OsString,
 }
 
-#[derive(Component)]
-pub struct HierarchyWindowContentComponent;
+#[derive(Component, Default, Debug)]
+pub struct HierarchyWindowComponent {
+    pub is_init: bool,
+}
 
 #[derive(Component)]
 pub struct HierarchyButtonAddComponent;
@@ -19,10 +23,16 @@ pub struct HierarchyButtonAddComponent;
 #[derive(Component)]
 pub struct HierarchyButtonRemoveComponent;
 
-#[derive(Component, Copy, Clone)]
-pub enum SerializedValueComponent {
+#[derive(Debug, Copy, Clone)]
+pub enum SerializedValueComponentTy {
     Container { ty: SerializedValueContainerType, container_enum_metadata: EntityId, container_fields: EntityId, container_buttons: EntityId },
     Primitive { text: EntityId, ty: SerializedValuePrimitiveType },
+}
+
+#[derive(Component, Clone)]
+pub struct SerializedValueComponent {
+    pub ty: SerializedValueComponentTy,
+    pub path: FfiString,
 }
 
 #[derive(Debug, Copy, Clone)]

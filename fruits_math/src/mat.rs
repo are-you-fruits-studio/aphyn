@@ -12,6 +12,14 @@ pub struct Mat<const N: usize, T> {
     data: [[T; N]; N],
 }
 
+impl<const N: usize, T> Default for Mat<N, T>
+    where [[T; N]; N]: Default
+{
+    fn default() -> Self {
+        Self { data: Default::default() }
+    }
+}
+
 impl<const N: usize, T> Mat<N, T> {
     pub const fn from_array(data: [[T; N]; N]) -> Self {
         Self { data }

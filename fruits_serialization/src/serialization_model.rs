@@ -1,11 +1,20 @@
 use fruits_ffi::{FfiIndexMap, FfiOption, FfiString, FfiVec};
 
+use crate::decompose_serialization_path;
+
 #[repr(C)]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub enum SerializedValue {
+    #[default]
     Null,
     Primitive(SerializedPrimitive),
     Composite(SerializedComposite),
+}
+
+impl Default for &SerializedValue {
+    fn default() -> Self {
+        &SerializedValue::Null
+    }
 }
 
 impl SerializedValue {
@@ -23,6 +32,49 @@ impl SerializedValue {
             (None, None) => true,
             (Some(lhs), Some(rhs)) => lhs.similar(rhs),
             _ => false,
+        }
+    }
+
+    pub fn get_by_path(&self, path: &str) -> Option<&SerializedValue> {
+        let Some((field_name, field_path)) = decompose_serialization_path(path) else {
+            return Some(self);
+        };
+
+        match self {
+            SerializedValue::Null => None,
+            SerializedValue::Primitive(_) => None,
+            SerializedValue::Composite(value) => match &value.values {
+                SerializedCompositeValues::Map(value_map) => value_map.values.get(field_name)?.get_by_path(field_path),
+                SerializedCompositeValues::List(value_list) => value_list.get(field_name.parse::<u64>().ok()?)?.get_by_path(field_path),
+            },
+        }
+    }
+
+    pub fn get_or_insert_by_path(&mut self, path: &str) -> Option<&mut SerializedValue> {
+        let Some((field_name, field_path)) = decompose_serialization_path(path) else {
+            return Some(self);
+        };
+
+        match self {
+            SerializedValue::Null => None,
+            SerializedValue::Primitive(_) => None,
+            SerializedValue::Composite(value) => match &mut value.values {
+                SerializedCompositeValues::Map(value_map) => {
+                    // todo: optimize
+                    if value_map.values.get(field_name).is_none() {
+                        value_map.values.insert(field_name.into(), Default::default());
+                    }
+
+                    value_map.values.get_mut(field_name).unwrap().get_or_insert_by_path(field_path)
+                },
+                SerializedCompositeValues::List(value_list) => {
+                    let idx = field_name.parse::<u64>().ok()?;
+                    while value_list.len() <= idx {
+                        value_list.push(Default::default());
+                    }
+                    value_list.get_mut(idx).unwrap().get_or_insert_by_path(field_path)
+                },
+            },
         }
     }
 }

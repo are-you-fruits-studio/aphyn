@@ -13,7 +13,7 @@ pub struct StandardRenderComponent {
 }
 
 #[repr(C)]
-#[derive(Component, Clone, TransSerializable)]
+#[derive(Default, Component, Clone, Serializable)]
 pub struct StandardMeshComponent {
     pub mesh: AssetHandle<StandardMesh>,
 }
@@ -26,7 +26,7 @@ pub struct BatchedMeshComponent {
 }
 
 #[repr(C)]
-#[derive(Component, Clone, TransSerializable)]
+#[derive(Default, Component, Clone, Serializable)]
 pub struct StandardMaterialComponent {
     pub material: AssetHandle<StandardMaterial>,
 }

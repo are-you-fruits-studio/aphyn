@@ -64,34 +64,33 @@ fn preload_assets_into_simulated_world_system(
     let mut res = world.data_mut().into_resources_mut();
 
     if res.as_ref().get::<SerializersResource>().is_none() {
-        res.insert(SerializersResource(GlobalSerializer::new()));
+        res.insert(SerializersResource(TransSerializerRegistry::new()));
     }
 
     let serializer = res.get_mut::<SerializersResource>().unwrap();
     let serializer = &mut serializer.0;
 
-    serializer.register(StandardTransSerializer::<SerializedValue>::default());
-    serializer.register(StandardTransSerializer::<RenderSpace>::default());
-    serializer.register(StandardTransSerializer::<f32>::default());
-    serializer.register(StandardTransSerializer::<bool>::default());
-    serializer.register(StandardTransSerializer::<FfiString>::default());
-    serializer.register(StandardTransSerializer::<FfiSmallString>::default());
-    serializer.register(StandardTransSerializer::<CoordinateSpaceType>::default());
-    serializer.register(StandardTransSerializer::<Vec4<f32>>::default());
-    serializer.register(StandardTransSerializer::<FfiOption<f32>>::default());
-    serializer.register(StandardTransSerializer::<Option<f32>>::default());
-    serializer.register(StandardTransSerializer::<StandardTextureAssetMetadata>::default());
-    serializer.register(StandardTransSerializer::<StandardMaterialAssetMetadata>::default());
-    serializer.register(StandardTransSerializer::<StandardMeshAssetMetadata>::default());
-    serializer.register(StandardTransSerializer::<AudioClipAssetMetadata>::default());
+    serializer.register(StandardSerializer::<SerializedValue>::default());
+    serializer.register(StandardSerializer::<RenderSpace>::default());
+    serializer.register(StandardSerializer::<f32>::default());
+    serializer.register(StandardSerializer::<bool>::default());
+    serializer.register(StandardSerializer::<FfiString>::default());
+    serializer.register(StandardSerializer::<FfiSmallString>::default());
+    serializer.register(StandardSerializer::<CoordinateSpaceType>::default());
+    serializer.register(StandardSerializer::<Vec4<f32>>::default());
+    serializer.register(StandardSerializer::<FfiOption<f32>>::default());
+    serializer.register(StandardSerializer::<Option<f32>>::default());
+    serializer.register(StandardSerializer::<StandardTextureAssetMetadata>::default());
+    serializer.register(StandardSerializer::<StandardMaterialAssetMetadata>::default());
+    serializer.register(StandardSerializer::<StandardMeshAssetMetadata>::default());
+    serializer.register(StandardSerializer::<AudioClipAssetMetadata>::default());
     // todo
     // serializer.register(StandardTransSerializer::<Prefab>::default());
-    serializer.register(StandardTransSerializer::<FfiOption<StandardTexture>>::default());
-    serializer.register(StandardTransSerializer::<FfiOption<AssetHandle<StandardTexture>>>::default());
-    serializer.register(StandardTransSerializer::<DebugNameComponent>::default());
-    serializer.register(StandardTransSerializer::<ChildComponent>::default());
-    serializer.register(StandardTransSerializer::<ParentComponent>::default());
-    serializer.register(StandardTransSerializer::<FfiVec<EntityId>>::default());
+    serializer.register(StandardSerializer::<FfiOption<AssetHandle<StandardTexture>>>::default());
+    serializer.register(StandardSerializer::<DebugNameComponent>::default());
+    serializer.register(StandardSerializer::<ChildComponent>::default());
+    serializer.register(StandardSerializer::<ParentComponent>::default());
+    serializer.register(StandardSerializer::<FfiVec<EntityId>>::default());
 
     res.insert(render_api.clone());
     res.insert(AudioStateResource::new(FfiDroppable::new(()), WrappedAudioStateHandle::new(Arc::new(Mutex::new(AudioState::new())))));

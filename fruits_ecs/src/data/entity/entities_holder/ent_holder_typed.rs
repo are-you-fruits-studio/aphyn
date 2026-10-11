@@ -272,6 +272,13 @@ impl<'e> EntitiesHolderMut<'e> {
         unsafe { entities_holder_get_all_components(&*self.entities, entity, handler) }
     }
 
+    pub fn get_all_components_mut<'r>(&'r mut self, entity: EntityId, handler: impl FnMut(FfiAnyMut<'r>))
+    where
+        'e: 'r,
+    {
+        unsafe { entities_holder_get_all_components_mut(&mut *self.entities, entity, handler) }
+    }
+
     pub fn as_mut<'r>(&'r mut self) -> EntitiesHolderMut<'r>
     where
         'e: 'r,

@@ -22,19 +22,19 @@ fn check_all_assets_deserialization() {
 //
 
 fn check_prefab_serialization() {
-    let mut global_serializer = GlobalSerializer::new();
+    let mut serializers_global = TransSerializerRegistry::new();
 
-    global_serializer.register(StandardTransSerializer::<String>::default());
-    global_serializer.register(StandardTransSerializer::<u32>::default());
-    global_serializer.register(StandardTransSerializer::<u8>::default());
-    global_serializer.register(StandardTransSerializer::<bool>::default());
-    global_serializer.register(StandardTransSerializer::<i32>::default());
-    global_serializer.register(StandardTransSerializer::<IntComponent>::default());
-    global_serializer.register(StandardTransSerializer::<Vec<ExampleUser>>::default());
-    global_serializer.register(StandardTransSerializer::<ExampleStruct>::default());
-    global_serializer.register(StandardTransSerializer::<ExampleUser>::default());
-    global_serializer.register(StandardTransSerializer::<UserInfo>::default());
-    global_serializer.register(StandardTransSerializer::<SomeComponent>::default());
+    serializers_global.register(StandardSerializer::<String>::default());
+    serializers_global.register(StandardSerializer::<u32>::default());
+    serializers_global.register(StandardSerializer::<u8>::default());
+    serializers_global.register(StandardSerializer::<bool>::default());
+    serializers_global.register(StandardSerializer::<i32>::default());
+    serializers_global.register(StandardSerializer::<IntComponent>::default());
+    serializers_global.register(StandardSerializer::<Vec<ExampleUser>>::default());
+    serializers_global.register(StandardSerializer::<ExampleStruct>::default());
+    serializers_global.register(StandardSerializer::<ExampleUser>::default());
+    serializers_global.register(StandardSerializer::<UserInfo>::default());
+    serializers_global.register(StandardSerializer::<SomeComponent>::default());
 
     //
 
@@ -70,9 +70,9 @@ fn check_prefab_serialization() {
         (EntityId::from_version_index(VersionIndex { index: 1, version: 5 }), 25),
     ].into_iter().collect();
    
-    let mut local_serializer = SerializerRegistry::new();
+    let mut serializers_local = TransSerializerRegistry::new();
 
-    local_serializer.register(EntityTransSerializer::new(
+    serializers_local.register(EntityTransSerializer::new(
         &entities_deserialized,
         &entities_serialized,
     ));
@@ -97,10 +97,13 @@ fn check_prefab_serialization() {
     let entity = world.data().entities().query::<EntityId>().iter().next().unwrap();
 
     let mut err_handler = |err| println!("{err}");
+    let serializer_ctx_state = serializers_global.to_ctx_state();
+    let mut serializer_ctx = serializer_ctx_state.wrap_with_local(&serializers_local)
+        .into_ctx(&mut err_handler);
 
     let prefab = serialize_prefab_single_entity(
         entity,
-        global_serializer.to_ctx(Some(&local_serializer), &mut err_handler),
+        serializer_ctx,
         world.data().entities(),
     );
 
@@ -141,16 +144,16 @@ fn check_prefab_serialization() {
 
 //
 
-#[derive(TransSerializable, Debug, Component)]
+#[derive(Serializable, Default, Debug, Component)]
 pub struct SomeComponent {
     pub entity: EntityId,
     pub user_info: UserInfo,
 }
 
-#[derive(TransSerializable, Debug, Component)]
+#[derive(Serializable, Default, Debug, Component)]
 pub struct IntComponent(i32);
 
-#[derive(TransSerializable, Debug)]
+#[derive(Serializable, Default, Debug)]
 pub struct UserInfo {
     pub name: String,
     pub age: u32,
@@ -158,15 +161,24 @@ pub struct UserInfo {
 
 //
 
-#[derive(TransSerializable, Debug, Component)]
+#[derive(Serializable, Default, Debug, Component)]
 pub struct ExampleStruct {
     is_verified: bool,
     user: ExampleUser,
     friends: Vec<ExampleUser>,
 }
 
-#[derive(TransSerializable, Debug)]
+#[derive(Serializable, Debug)]
 pub enum ExampleUser {
     Default { name: String, age: u8 },
     Token(String),
+}
+
+impl Default for ExampleUser {
+    fn default() -> Self {
+        Self::Default {
+            name: Default::default(),
+            age: Default::default()
+        }
+    }
 }

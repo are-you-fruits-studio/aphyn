@@ -17,7 +17,7 @@ pub struct StandardTextureNative {
 }
 
 #[repr(C)]
-#[derive(TransSerializable, Serializable, Clone)]
+#[derive(Serializable, Clone)]
 pub struct StandardTextureAssetMetadata {
     pub raw_texture: FfiString,
     pub is_linear: bool,

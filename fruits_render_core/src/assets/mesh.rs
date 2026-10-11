@@ -41,15 +41,16 @@ pub struct StandardMeshNative {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, TransSerializable, Serializable)]
+#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serializable)]
 pub enum CoordinateSpaceType {
+    #[default]
     LeftHandZForward,
     RightHandZBack,
     RightHandZUp,
 }
 
 #[repr(C)]
-#[derive(TransSerializable, Serializable, Clone, Debug)]
+#[derive(Serializable, Clone, Debug, Default)]
 pub struct StandardMeshAssetMetadata {
     pub raw_mesh: FfiString,
     pub coordinate_space: CoordinateSpaceType,

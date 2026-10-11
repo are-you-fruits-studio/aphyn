@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::{features::inspector_window::utils::entries::spawn_hierarchy_entry, *};
+use crate::{features::inspector_window::utils::entries::spawn_hierarchy_entry, prefabs::WindowComponent, *};
 
 pub fn register_feature(mut world: WorldBuilderMut) {
     world
@@ -32,8 +32,8 @@ pub fn update_project_window_content_system(mut world: WorldDataMut) {
 
     let font = assets.font.clone();
 
-    let contents = ent
-        .query_filtered::<EntityId, WithFilter<ProjectWindowContentComponent>>()
+    let windows = ent
+        .query_filtered::<EntityId, WithFilter<ProjectWindowComponent>>()
         .iter()
         .collect::<Vec<_>>();
 
@@ -43,13 +43,23 @@ pub fn update_project_window_content_system(mut world: WorldDataMut) {
 
     let entry = ProjectWindowDataEntry::scan(&current_dir);
 
-    if cache.dir_entry == entry {
-        return;
+    let is_cache_old = cache.dir_entry != entry;
+
+    if is_cache_old {
+        cache.dir_entry = entry.clone();
     }
 
-    cache.dir_entry = entry.clone();
+    for ent_window in windows {
+        let project_win_c = ent.get_component_mut::<ProjectWindowComponent>(ent_window).unwrap();
 
-    for content in contents {
+        if !is_cache_old && project_win_c.is_init {
+            continue;
+        }
+
+        project_win_c.is_init = true;
+
+        let content = ent.get_component::<WindowComponent>(ent_window).unwrap().content_container;
+
         destroy_entity_children(ent.as_mut(), content);
 
         for entry in &entry.children {
@@ -86,7 +96,7 @@ fn spawn_project_window_entries(
         ProjectWindowEntryComponent {
             path: entry.path.clone(),
         },
-        ButtonComponent,
+        ButtonComponent::default(),
     ));
 
     for entry in &entry.children {

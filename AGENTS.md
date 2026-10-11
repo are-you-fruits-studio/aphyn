@@ -76,15 +76,13 @@ Do not:
 - generate vague filler text
 
 ## Rust Doc Comment Rules
-For public API items:
-- add `///` doc comments
+Documentation lives only in the crate-root `//!` block (`src/lib.rs`):
+- add it when missing
 - explain purpose first
 - document important invariants and constraints
-- document parameters and return behavior when useful
 - add short examples when practical
 
-For modules and crates:
-- add `//!` top-level docs when missing
+Do not add `///` doc comments on functions, types, or other items. Outside the crate root, comments are limited to `// todo` markers and rare one-line notes on a small non-obvious detail.
 
 Prefer concise docs. Avoid repetitive wording.
 

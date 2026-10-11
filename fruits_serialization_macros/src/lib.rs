@@ -1,8 +1,8 @@
 //! # fruits_serialization_macros
 //!
-//! Provides the `#[derive(TransSerializable)]` macro that writes the boilerplate
-//! `TransSerializable` impl for a struct or enum, so types opt into the engine's
-//! serialization framework without hand-writing field-by-field (de)serialization.
+//! Provides the `#[derive(Serializable)]` macro that writes the boilerplate `Serializable`
+//! impl for a struct or enum, so types opt into the engine's serialization framework without
+//! hand-writing field-by-field (de)serialization.
 //!
 //! This crate is the procedural-macro half of `fruits_serialization`; the macro is
 //! re-exported from there, so users derive it through `fruits_serialization` rather than
@@ -10,11 +10,11 @@
 //!
 //! # How to use
 //!
-//! Annotate a type with `#[derive(TransSerializable)]`. The derive generates code that names
-//! `TransSerializable`, `SerializerCtx`, `SerializedValue`, and `SerializationResult`
-//! unqualified, so those names must be in scope at the derive site — `use
-//! fruits_serialization::*;` brings them in. After deriving, register the type (and every type
-//! it contains) on a serializer and round-trip it; that workflow lives in `fruits_serialization`.
+//! Annotate a type with `#[derive(Serializable)]`. The type must also implement `Default`
+//! (deserialization starts from it) and be `'static`. The derive generates code that names
+//! `Serializable`, `SerializerCtx`, `SerializerCtxState`, and `SerializedValue` unqualified,
+//! so those names must be in scope at the derive site — `use fruits_serialization::*;` brings
+//! them in. Registering the type and round-tripping it is covered in `fruits_serialization`.
 //!
 //! #### Derive on a struct
 //!
@@ -23,7 +23,7 @@
 //! ```ignore
 //! use fruits_serialization::*;
 //!
-//! #[derive(TransSerializable)]
+//! #[derive(Serializable, Default)]
 //! struct Player {
 //!     name: String,
 //!     score: u32,
@@ -36,13 +36,15 @@
 //! #### Derive on an enum
 //!
 //! Every variant is supported (unit, tuple, and struct variants). The serialized value records
-//! which variant is active along with the full list of variant names:
+//! which variant is active along with the full list of variant names. Because the type needs a
+//! `Default`, mark a default variant:
 //!
 //! ```ignore
 //! use fruits_serialization::*;
 //!
-//! #[derive(TransSerializable)]
+//! #[derive(Serializable, Default)]
 //! enum Shape {
+//!     #[default]
 //!     Empty,
 //!     Circle(f32),
 //!     Rect { w: f32, h: f32 },
@@ -57,7 +59,7 @@
 //! ```ignore
 //! use fruits_serialization::*;
 //!
-//! #[derive(TransSerializable)]
+//! #[derive(Serializable, Default)]
 //! struct Wrapper<T> {
 //!     value: T,
 //! }
@@ -67,55 +69,55 @@
 //!
 //! #### Code generation by string-building
 //!
-//! Unlike most derives, this one does not emit a token stream with `quote!`. It appends Rust
-//! *source text* to a `String` and parses it back with `result.parse().unwrap()` at the end of
-//! `derive_json_serializable`. The two halves of the impl are produced separately by
+//! The entry point [`derive_serializable`] forwards to `impl_serializable::derive`. Unlike most
+//! derives, it does not emit a token stream with `quote!`. It appends Rust *source text* to a
+//! `String` and parses it back at the end. The two methods are produced separately by
 //! `serialize_impl` and `deserialize_impl`, which each `match` on `input.data` and write the
 //! method body for the struct/enum shape at hand. When changing the generated code, remember
 //! you are writing strings: every brace in a `write!` format string that should reach the
-//! output must be escaped (`{{` / `}}`).
+//! output must be escaped (`{{` / `}}`). If the generated text fails to parse, the macro emits
+//! it as a `const fail: &str = r##"…"##;` item instead (so the source can be inspected) and
+//! panics only if even that fails to parse.
 //!
 //! #### Generics and the emitted header
 //!
-//! The impl header is assembled from `input.generics`: `impl_generics` is the verbatim generic
-//! list, while `type_generics` is rebuilt by iterating the params and emitting the lifetime,
-//! type, or const ident for each (trailing comma included). The header is
-//! `impl{impl_generics} TransSerializable for {type_name}<{type_generics}> where Self: 'static`,
-//! with the type's own `where` predicates appended after a comma when present. The
-//! `Self: 'static` bound matches `TransSerializable`'s `'static` requirement in
-//! `fruits_serialization`.
+//! The impl is generic over an extra context-state parameter, `SerializerCtxStateTy`, bounded
+//! by `Copy` plus `SerializerCtxState<FieldTy>` for every distinct field type (collected as
+//! token strings from all struct fields or all enum-variant fields). The type's own generic
+//! params are prepended to it, and `type_generics` is rebuilt by iterating the params and
+//! emitting the lifetime, type, or const ident for each (trailing comma included). The header
+//! is `impl<{params}, SerializerCtxStateTy: …> Serializable<SerializerCtxStateTy> for
+//! {type_name}<{type_generics}> where Self: 'static + Default`, with the type's own `where`
+//! predicates appended after a comma when present.
 //!
 //! #### How each shape maps to a `SerializedValue`
 //!
-//! Serialization always builds a *rigid* composite (`finish_as_map(true)` /
-//! `finish_as_enum(true, …)`), marking the value as coming from a fixed shape. Named struct
-//! fields are keyed by field name; tuple fields are keyed by their index rendered as a string;
-//! unit structs produce an empty map. Enums emit a map tagged via `finish_as_enum` with the
-//! active variant name and a `variants` vector of every variant name (built once, before the
-//! `match`). Deserialization mirrors this: structs go through `ctx.deserialize_map(value, …)`
-//! reading each field with `ctx.get_field("…")`, and enums go through
-//! `ctx.deserialize_enum().variant("Name", …)….finish(value)`.
+//! Serialization always builds a *rigid* composite through `ctx.serialize_map(path)` and
+//! `finish_as_map(true)` / `finish_as_enum(true, …)`, so the path handling of the map builder
+//! applies. Named struct fields are keyed by field name; tuple fields are keyed by their index
+//! rendered as a string; unit structs produce an empty map. Enums emit a map tagged via
+//! `finish_as_enum` with the active variant name and a `variants` vector of every variant name
+//! (built once, before the `match`). Deserialization is in place: structs go through
+//! `ctx.deserialize_map(self, path, value)` followed by `.with_field("…", &mut self.…)` for each
+//! field, and enums go through `ctx.deserialize_enum(path, value)` with one
+//! `.with_variant("Name", || Self::Name { …: Default::default() })` per variant, then
+//! `.finish(self, …)` whose closure feeds the chosen variant's fields to `with_field`.
 //!
 //! #### Variant binding names
 //!
-//! When generating the `match` arm for an enum variant, struct-variant fields are bound to
-//! `f_<field>` and tuple-variant fields to `arg_<index>`, keeping the generated bindings from
+//! When generating the `match` arm for an enum variant, fields are bound to `f_<field>` for
+//! struct variants and `f_<index>` for tuple variants, keeping the generated bindings from
 //! colliding with the field/index names used as map keys.
 //!
 //! #### Unions are rejected
 //!
-//! `syn::Data::Union` is unsupported; both `serialize_impl` and `deserialize_impl` panic on it,
-//! surfacing as a compile error at the derive site.
+//! `syn::Data::Union` is unsupported: collecting field types hits a `todo!()` for it, and both
+//! `serialize_impl` and `deserialize_impl` also panic on it, surfacing as a compile error at
+//! the derive site.
 
 use proc_macro::TokenStream;
 
-mod impl_trans_serializable;
 mod impl_serializable;
-
-#[proc_macro_derive(TransSerializable)]
-pub fn derive_trans_serializable(stream: TokenStream) -> TokenStream {
-    impl_trans_serializable::derive(stream)
-}
 
 #[proc_macro_derive(Serializable)]
 pub fn derive_serializable(stream: TokenStream) -> TokenStream {

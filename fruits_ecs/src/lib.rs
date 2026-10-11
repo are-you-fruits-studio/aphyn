@@ -7,8 +7,8 @@
 //! # How to use
 //!
 //! Data types opt into the ECS with the re-exported derive macros — `Component` for data attached
-//! to entities, `Resource` for world-global state, `SystemResource` for per-system state, and
-//! `Event` for transient messages. Systems are plain functions whose parameters declare what they
+//! to entities, `Resource` for world-global state, and `Event` for transient messages; per-system
+//! state needs no derive. Systems are plain functions whose parameters declare what they
 //! touch; the world infers each system's data usage from those parameters and runs independent
 //! systems in parallel.
 //!
@@ -99,7 +99,7 @@
 //! }
 //!
 //! let mut builder = WorldBuilder::new();
-//! builder.data_mut().resources_mut().insert(Score(0)).ok().unwrap();
+//! builder.data_mut().resources_mut().insert(Score(0));
 //! builder.behavior_mut().get_mut(Schedule::Update).insert_system(add_point);
 //! builder.behavior_mut().get_mut(Schedule::Update).insert_system(announce);
 //! ```
@@ -129,13 +129,14 @@
 //!
 //! #### Keeping per-system state with `Local`
 //!
-//! A [`SystemResource`](trait@SystemResource) is private to one system and created from `Default` the
-//! first time the system runs. Access it with [`Local`].
+//! A [`Local`] parameter holds state private to one system. Any `'static + Default` type works —
+//! no derive is needed; the value is created from `Default` the first time the system runs. A
+//! system may take each `Local` type only once.
 //!
 //! ```rust,no_run
 //! use fruits_ecs::*;
 //!
-//! #[derive(SystemResource, Default)]
+//! #[derive(Default)]
 //! struct Ticks(u64);
 //!
 //! fn count_ticks(mut ticks: Local<Ticks>) {
@@ -143,11 +144,14 @@
 //! }
 //! ```
 //!
-//! #### Making structural changes with `ExclusiveWorldAccess`
+//! #### Making structural changes with whole-world access
 //!
 //! Creating or destroying entities and adding or removing components is a structural change that
-//! cannot run alongside other systems. A system that takes [`ExclusiveWorldAccess`] receives the
-//! whole world and runs alone, with no other system in the same pass executing concurrently.
+//! cannot run alongside systems touching the same data. A system can take a whole part of the
+//! world instead of individual types: [`EntitiesHolderMut`], [`ResourcesHolderMut`], and
+//! [`EventsHolderMut`] claim all entities, resources, or events mutably, and [`WorldDataMut`]
+//! claims all three. The `*Ref` counterparts ([`EntitiesHolderRef`], [`WorldDataRef`], …) claim
+//! them read-only. Such a system never runs concurrently with a system using the same part.
 //!
 //! ```rust,no_run
 //! use fruits_ecs::*;
@@ -155,11 +159,14 @@
 //! #[derive(Component)]
 //! struct Spawned;
 //!
-//! fn spawn_one(mut world: ExclusiveWorldAccess) {
-//!     let mut entities = world.entities_mut();
-//!
+//! fn spawn_one(mut entities: EntitiesHolderMut) {
 //!     let e = entities.create_entity();
 //!     entities.add_component(e, Spawned).ok().unwrap();
+//! }
+//!
+//! fn spawn_with_resources(mut world: WorldDataMut) {
+//!     let (_res, mut entities, _evt) = world.as_tuple_mut();
+//!     entities.create_entity();
 //! }
 //! ```
 //!
@@ -168,7 +175,12 @@
 //! By default systems in a pass run in any order that respects their data dependencies. Pin a
 //! relative order explicitly with [`order_system`](SystemsHolderBuilderMut::order_system) /
 //! `before_system`, and bundle several systems under a named handle with
-//! [`group`](SystemsHolderBuilderMut::group) so they can be ordered together.
+//! [`group`](SystemsHolderBuilderMut::group) so they can be ordered together. Each
+//! `before_system` / `before_group` call orders the *previous* entry before the new one, so a call
+//! sequence builds a chain, not a fan-out from the first system: to put several systems after the
+//! same one, start a separate `order_system` per edge. Chains from different call sites are merged
+//! into one graph, and conflicting ones panic with a circular-dependency error when the schedule is
+//! built.
 //!
 //! ```rust,no_run
 //! use fruits_ecs::*;
@@ -207,13 +219,14 @@
 //! #### Runtime type identity
 //!
 //! Types are not identified by [`std::any::TypeId`] across the boundary. Instead the shared
-//! [`TypesRegistryAccessFfi`] assigns each registered type a `u64` id derived from its
-//! [`std::any::type_name`], stored alongside its size, alignment, and drop function in
-//! [`TypeData`]. [`TypesRegistryCache`] memoizes the `TypeId -> u64` mapping per process so the
-//! lookup is paid once per type. Components, resources, events, and system resources are all
-//! registered lazily through `get_or_register` the first time they are used. Untyped storage
-//! (`ResourcesHolderNative`, `EventsHolderNative`, archetype memory) allocates and drops values
-//! purely from this `TypeData`.
+//! [`TypesRegistryAccessFfi`] assigns each registered type a sequential `u64` id, keyed by its
+//! [`std::any::type_name`] so the same type gets the same id on both sides of the boundary, and
+//! stores its `FfiExtendedTypeInfo` (size, alignment, name, and drop/conversion functions).
+//! [`TypesRegistryCache`] memoizes the `TypeId -> u64` mapping per process so the lookup is
+//! paid once per type. Components, resources, events, and system resources are all registered
+//! lazily through `get_or_register` the first time they are used. Untyped storage (resources
+//! kept as `FfiAny` values in [`ResourcesHolderUnsafeFfi`], `EventsHolderNative`, archetype
+//! memory) allocates and drops values purely from this type info.
 //!
 //! #### Archetype storage
 //!
@@ -227,17 +240,22 @@
 //!
 //! #### Data usage drives parallel scheduling
 //!
-//! Each [`SystemParam`] reports what it touches into a [`DataUsageBuilder`]: a per-type read or write
-//! ([`Res`]/[`ResMut`], [`Evt`]/[`EvtMut`], the components in a [`WorldQuery`]), a private system
-//! resource ([`Local`]), or "everything, mutably" ([`ExclusiveWorldAccess`], via
-//! `add_all_mutable_to_world`). The resulting [`DataUsage`] is analyzed when a schedule is built:
-//! `create_ordering_graph` adds an edge between two systems whenever their accesses conflict
-//! (write-after-read, read-after-write, write-after-write, or any system against a global-mutable
-//! one), and any explicit ordering is layered on top. At run time `SystemsHolderNative` walks the
+//! Each [`SystemParam`] reports what it touches into a [`DataUsageBuilder`], separately for the
+//! three world parts (resources, entities, events): a per-type read or write
+//! ([`Res`]/[`ResMut`], [`Evt`]/[`EvtMut`], the components in a [`WorldQuery`], the `EntityId`
+//! read of [`EntitiesInfo`]), a private system resource ([`Local`]), or a whole part at once
+//! (`add_global`, used by the holder parameters such as [`ResourcesHolderMut`] and by
+//! [`WorldDataMut`] / [`WorldDataRef`] for all three parts). Each part builds into a
+//! [`WorldPartDataUsage`] that is either `ByType` or `Global { is_mut }`. The resulting
+//! [`DataUsage`] is analyzed when a schedule is built: `create_ordering_graph` walks the parts
+//! one by one and adds an edge between two systems whenever their accesses conflict
+//! (write-after-read, read-after-write, write-after-write, or any access against a
+//! global-mutable claim on the same part), and any explicit ordering is layered on top. At run time `SystemsHolderNative` walks the
 //! resulting [`OrderGraph`] on a [`fruits_utils::thread_pool::ThreadPool`], starting each system once
-//! its predecessors finish, so non-conflicting systems execute concurrently. A conflicting or invalid
-//! usage (for example two mutable claims on the same type) panics while the system is being
-//! registered.
+//! its predecessors finish, so non-conflicting systems execute concurrently. A conflicting or
+//! invalid usage within one system (for example two mutable claims on the same type, or a
+//! global-mutable claim mixed with any other access to that part) makes
+//! [`DataUsageBuilder::build`] return `None`, and the system panics while being registered.
 //!
 //! #### System parameters and their safety contract
 //!

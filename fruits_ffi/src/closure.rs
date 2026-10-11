@@ -1,5 +1,42 @@
 use std::{ffi::c_void, marker::PhantomData};
 
+// todo
+unsafe trait HasFfiSafeAlt {
+    type FfiSafeAlt;
+
+    fn into_ffi(self) -> Self::FfiSafeAlt;
+    fn from_ffi(alt: Self::FfiSafeAlt) -> Self;
+}
+#[repr(C)]
+struct FfiSafeFn<I: HasFfiSafeAlt, O: HasFfiSafeAlt> {
+    data: *const c_void,
+    caller: unsafe extern "C-unwind" fn(*const c_void, I::FfiSafeAlt) -> O::FfiSafeAlt,
+}
+impl<I: HasFfiSafeAlt, O: HasFfiSafeAlt> FfiSafeFn<I, O> {
+    pub const fn new<F: 'static + Fn(I) -> O>(f: &'static F) -> Self {
+        unsafe extern "C-unwind" fn fn_ffi_alt<I: HasFfiSafeAlt, O: HasFfiSafeAlt, F: 'static + Fn(I) -> O>(ptr: *const c_void, i: I::FfiSafeAlt) -> O::FfiSafeAlt {
+            let real_fn = unsafe { &*(ptr as *const F) };
+
+            let o = real_fn(I::from_ffi(i));
+
+            o.into_ffi()
+        }
+
+        Self {
+            data: f as *const F as *const c_void,
+            caller: fn_ffi_alt::<I, O, F>,
+        }
+    }
+
+    pub fn call(&self, i: I) -> O {
+        let i = i.into_ffi();
+        let o = unsafe { (self.caller)(self.data, i) };
+        O::from_ffi(o)
+    }
+}
+
+//
+
 #[repr(C)]
 pub struct FfiFnRef<'a, I, O> {
     data: *const c_void,
@@ -67,5 +104,11 @@ impl<'a, I, O> FfiFnMutMut<'a, I, O> {
         unsafe {
             (self.fn_execute)(self.data, input)
         }
+    }
+}
+
+impl<'a, I, O, F: FnMut(I) -> O> From<&'a mut F> for FfiFnMutMut<'a, I, O> {
+    fn from(value: &'a mut F) -> Self {
+        Self::new(value)
     }
 }

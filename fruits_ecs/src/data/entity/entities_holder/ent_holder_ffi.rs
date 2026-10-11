@@ -181,6 +181,7 @@ impl EntitiesHolderUnsafeFfi {
             .get_component_ptr(entity_location.entity_archetype_index, component_id)
     }
 
+    // todo: to iterator
     pub fn get_all_components_ptrs(&self, entity: EntityId, mut handler: FfiFnMutMut<(*mut u8, &'static FfiExtendedTypeInfo), ()>) {
         let Some(entity_location) = self.entities_meta.get(entity) else {
             return;

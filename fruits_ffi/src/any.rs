@@ -158,7 +158,7 @@ impl<'a> FfiAnyMut<'a> {
         }
     }
 
-    pub fn ptr(&self) -> *const c_void {
+    pub fn ptr(&self) -> *mut c_void {
         self.ptr
     }
 

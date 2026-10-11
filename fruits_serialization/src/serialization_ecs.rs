@@ -2,16 +2,16 @@ use std::ops::{Deref, DerefMut};
 
 use fruits_ecs::Resource;
 
-use crate::{GlobalSerializer, StandardTransSerializer};
+use crate::TransSerializerRegistry;
 
 #[repr(C)]
 #[derive(Default)]
-pub struct SerializersResource(pub GlobalSerializer);
+pub struct SerializersResource(pub TransSerializerRegistry<'static>);
 
 impl Resource for SerializersResource { }
 
 impl Deref for SerializersResource {
-    type Target = GlobalSerializer;
+    type Target = TransSerializerRegistry<'static>;
 
     fn deref(&self) -> &Self::Target {
         &self.0

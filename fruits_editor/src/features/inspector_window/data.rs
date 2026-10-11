@@ -27,8 +27,13 @@ pub struct HierarchyWindowEntryComponent {
     pub simulated_entity: EntityId,
 }
 
-#[derive(Component, Default, Copy, Clone)]
+#[derive(Component, Default, Debug)]
 pub struct InspectorWindowComponent {
+    pub is_init: bool,
+}
+
+#[derive(Component, Default, Copy, Clone)]
+pub struct InspectorWindowContentComponent {
     pub asset_type_text: EntityId,
     pub content_container: EntityId,
 }

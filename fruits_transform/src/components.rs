@@ -43,13 +43,13 @@ impl Default for LocalTransform {
 }
 
 #[repr(C)]
-#[derive(Component, Clone, Debug, PartialEq, Default, TransSerializable)]
+#[derive(Component, Clone, Debug, PartialEq, Default, Serializable)]
 pub struct ParentComponent {
     pub children: FfiVec<EntityId>,
 }
 
 #[repr(C)]
-#[derive(Component, Copy, Clone, Debug, PartialEq, TransSerializable)]
+#[derive(Default, Component, Copy, Clone, Debug, PartialEq, Serializable)]
 pub struct ChildComponent {
     pub parent: EntityId,
 }

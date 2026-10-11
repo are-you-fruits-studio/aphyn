@@ -4,9 +4,9 @@ use fruits_engine::*;
 
 use crate::{
     features::{
-        dropdown::select_dropdown_variant_system, input_field::select_input_field_system, inspector_window::{
+        dropdown::select_dropdown_variant_system, input_field::{select_input_field_system, update_selected_input_field_text_system}, inspector_window::{
             data::{InspectedAssetResource, InspectedEntityResource}, systems::{
-                add_component_system, adjust_hierarchy_entries_system, adjust_non_rigid_composite_system, apply_inspector_to_simulated_world_system, change_inspected_asset_system, destroy_non_inspected_entity_system, remove_component_system, save_inspected_asset_from_simulated_world_to_file_system, save_simulated_entities_to_prefab_system, select_entity_system, spawn_inspected_prefab_system, update_add_component_variants_system, update_hierarchy_entries_selection, update_hierarchy_window_system, update_inspector_window_system,
+                add_component_system, adjust_hierarchy_entries_system, adjust_non_rigid_composite_system, apply_inspector_dropdown_change_to_simulated_world_system, apply_inspector_field_text_change_to_simulated_world_system, change_inspected_asset_system, destroy_non_inspected_entity_system, remove_component_system, save_inspected_asset_from_simulated_world_to_file_system, save_simulated_entities_to_prefab_system, select_entity_system, spawn_inspected_prefab_system, update_add_component_variants_system, update_hierarchy_entries_selection, update_hierarchy_window_system, update_inspector_window_system,
             },
         }, project_window_selection::select_file_system,
     }, *,
@@ -53,7 +53,8 @@ pub fn register_feature(mut world: WorldBuilderMut) {
     update
         .group(SYSTEM_GROUP)
         .insert_child_system(update_inspector_window_system)
-        .insert_child_system(apply_inspector_to_simulated_world_system)
+        .insert_child_system(apply_inspector_field_text_change_to_simulated_world_system)
+        .insert_child_system(apply_inspector_dropdown_change_to_simulated_world_system)
         .insert_child_system(save_simulated_entities_to_prefab_system)
         .insert_child_system(select_entity_system)
         .insert_child_system(update_hierarchy_entries_selection)
@@ -76,7 +77,7 @@ pub fn register_feature(mut world: WorldBuilderMut) {
         .before_system(update_add_component_variants_system)
         .before_system(select_dropdown_variant_system)
         .before_system(adjust_hierarchy_entries_system)
-        .before_system(apply_inspector_to_simulated_world_system)
+        .before_system(apply_inspector_field_text_change_to_simulated_world_system)
         .before_system(save_simulated_entities_to_prefab_system)
         .before_system(save_inspected_asset_from_simulated_world_to_file_system)
         .before_system(select_entity_system)
@@ -87,12 +88,38 @@ pub fn register_feature(mut world: WorldBuilderMut) {
         .before_system(change_inspected_asset_system)
         .before_system(update_inspector_window_system);
 
-    update.order_system(check_button_system)
+    update.order_system(check_ui_interaction_system)
         .before_system(select_entity_system);
 
     update
         .order_system(select_input_field_system)
         .before_system(update_inspector_window_system);
+
+    update
+        .order_system(update_selected_input_field_text_system)
+        .before_system(apply_inspector_field_text_change_to_simulated_world_system);
+
+    update
+        .order_system(select_dropdown_variant_system)
+        .before_system(apply_inspector_dropdown_change_to_simulated_world_system);
+
+    update
+        .order_system(apply_inspector_dropdown_change_to_simulated_world_system)
+        .before_system(save_inspected_asset_from_simulated_world_to_file_system)
+        .before_system(update_inspector_window_system);
+
+    update
+        .order_system(adjust_non_rigid_composite_system)
+        .before_system(save_inspected_asset_from_simulated_world_to_file_system)
+        .before_system(update_inspector_window_system);
+
+    update
+        .order_system(select_input_field_system)
+        .before_system(update_add_component_variants_system);
+
+    update
+        .order_system(update_selected_input_field_text_system)
+        .before_system(update_add_component_variants_system);
 
     // todo
     // update
@@ -100,7 +127,7 @@ pub fn register_feature(mut world: WorldBuilderMut) {
     //     .before_system(update_inspector_window_system);
 
     update
-        .order_system(check_button_system)
+        .order_system(check_ui_interaction_system)
         .before_system(adjust_non_rigid_composite_system);
 
     //

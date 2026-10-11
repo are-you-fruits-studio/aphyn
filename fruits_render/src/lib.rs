@@ -1,44 +1,47 @@
 //! # fruits_render
 //!
-//! Draws the contents of the world to the screen — meshes with materials, UI text and
-//! images, and debug gizmo lines — making up the engine's standard rendering subsystem.
+//! Draws the contents of the world to the screen — lit and unlit meshes with PBR materials,
+//! CPU-built batched geometry, and debug gizmo lines — followed by optional HDR
+//! post-processing (exposure, bloom, ACES color grading), making up the engine's standard
+//! rendering subsystem.
 //!
 //! # How to use
 //!
 //! Rendering is enabled by registering the module, which the engine's default-modules setup
-//! (`fruits_modules::add_defult_modules_to`) already does. Once
-//! registered, an entity is drawn by giving it the right components; the systems in this
-//! crate pick them up automatically each frame. Nothing is drawn until exactly one entity
-//! carries a [`CameraComponent`] (world-space content needs the camera to be visible).
+//! (`fruits_modules::add_defult_modules_to`) already does. Once registered, an entity is drawn
+//! by giving it the right components; the systems in this crate pick them up automatically each
+//! frame. World-space content is projected through the single entity carrying a
+//! [`CameraComponent`]; without one the world-space projection stays the identity. UI text and
+//! images are drawn by `fruits_ui`, which produces [`BatchedMeshComponent`]s for this crate.
 //!
 //! #### Drawing a mesh
 //!
-//! Attach a [`StandardMeshComponent`] and a [`StandardMaterialComponent`] (plus a transform)
-//! to an entity. Entities sharing the same mesh and material are drawn together:
+//! Attach a [`StandardMeshComponent`] and a [`StandardMaterialComponent`] (plus a transform) to
+//! an entity. Entities sharing the same mesh and material are drawn together in one instanced
+//! draw:
 //!
 //! ```ignore
 //! use fruits_engine::*;
 //!
 //! ec.add_component(entity, StandardMeshComponent { mesh: mesh.clone() }).ok().unwrap();
 //! ec.add_component(entity, StandardMaterialComponent { material: material.clone() }).ok().unwrap();
-//! ec.add_component(
-//!     entity,
-//!     GlobalTransform { scale_rotation: Mat3::IDENTITY, position: Vec3::new(0.0, 0.0, 0.0) },
-//! ).ok().unwrap();
+//! ec.add_component(entity, GlobalTransform::default()).ok().unwrap();
+//! ec.add_component(entity, LocalTransform::default()).ok().unwrap();
 //! ```
 //!
 //! #### Placing the camera
 //!
 //! Give one entity a [`CameraComponent`] and a transform. The camera's transform is the eye
-//! position; its `fov` is in radians:
+//! position and orientation; its `fov` is in radians:
 //!
 //! ```ignore
 //! use fruits_engine::*;
 //!
 //! let camera = ec.create_entity();
-//! ec.add_component(camera, GlobalTransform {
-//!     scale_rotation: Mat3::IDENTITY,
+//! ec.add_component(camera, GlobalTransform::default()).ok().unwrap();
+//! ec.add_component(camera, LocalTransform {
 //!     position: Vec3::new(0.0, 0.0, -5.0),
+//!     ..Default::default()
 //! }).ok().unwrap();
 //! ec.add_component(camera, CameraComponent {
 //!     near: 0.1,
@@ -47,56 +50,76 @@
 //! }).ok().unwrap();
 //! ```
 //!
-//! #### Defining a material
+//! #### Lighting the scene
 //!
-//! A [`StandardMaterial`] describes how a surface is shaded. [`alpha_threshold`](StandardMaterial::alpha_threshold)
-//! decides the draw path: `Some(_)` is an opaque, alpha-tested surface, `None` is a blended
-//! transparent one. [`space`](StandardMaterial::space) selects the coordinate space the mesh
-//! is interpreted in ([`RenderSpace::World`], [`RenderSpace::Window`], or [`RenderSpace::Clip`]):
+//! Lit materials are shaded by every entity carrying a [`StandardLightComponent`] (up to
+//! [`LIGHTS_COUNT_MAX`]). A point or spot light sits at its transform's position; spot and
+//! directional lights point along their transform's local `-Y` axis:
 //!
 //! ```ignore
 //! use fruits_engine::*;
 //!
-//! let material = StandardMaterial {
+//! let sun = ec.create_entity();
+//! ec.add_component(sun, GlobalTransform::default()).ok().unwrap();
+//! ec.add_component(sun, LocalTransform {
+//!     rotation: Quat::rotation_x(30.0_f64.to_radians()),
+//!     ..Default::default()
+//! }).ok().unwrap();
+//! ec.add_component(sun, StandardLightComponent::Directional {
+//!     color: Vec3::splat(3.0),
+//! }).ok().unwrap();
+//! ```
+//!
+//! #### Creating a material
+//!
+//! Create a material through the [`RenderApiResource`](fruits_render_core::RenderApiResource)
+//! and store it in the `AssetStorageResource<StandardMaterial>`. `alpha_threshold` decides the
+//! draw path: `Some(_)` is an opaque, alpha-tested surface, `None` a blended transparent one.
+//! `space` selects the coordinate space the geometry is interpreted in (`World`, `Window` in
+//! pixels, or `Clip`):
+//!
+//! ```ignore
+//! use fruits_engine::*;
+//!
+//! let render_api = res.get::<RenderApiResource>().unwrap();
+//! let material = render_api.create_material(Default::default(), StandardMaterialAssetMetadata {
 //!     space: RenderSpace::World,
 //!     color: Vec4::new(1.0, 0.5, 0.2, 1.0),
 //!     is_lit: true,
-//!     alpha_threshold: Some(0.5),
+//!     alpha_threshold: Some(0.5).into(),
 //!     ..Default::default()
-//! };
+//! });
 //!
-//! let handle = world
-//!     .resources_mut()
-//!     .get_mut::<AssetStorageResource<StandardMaterial>>()
-//!     .unwrap()
-//!     .insert(material);
+//! let handle = res.get_mut::<AssetStorageResource<StandardMaterial>>().unwrap().insert(material);
 //! ```
 //!
-//! #### Drawing UI text and images
+//! #### Turning on post-processing
 //!
-//! [`TextComponent`] and [`ImageComponent`] render in screen space. Pair them with a
-//! [`StandardMaterialComponent`] whose material uses [`RenderSpace::Window`]; the crate builds
-//! the geometry from the component each frame, so no mesh is needed:
+//! Exposure, bloom, and color grading are off by default. Enable them by editing their
+//! resources, from setup code or from a system at runtime:
 //!
 //! ```ignore
 //! use fruits_engine::*;
 //!
-//! ec.add_component(entity, TextComponent {
-//!     font: font.clone(),
-//!     text: "score: 0".into(),
-//!     font_size: UiVal::px(32.0),
-//!     horizontal_align: HorizontalAlign::Left,
-//!     vertical_align: VerticalAlign::Top,
-//!     is_y_inverted: true,
-//!     horizontal_spacing: UiVal::px(0.0),
-//!     color: Vec4::splat(1.0),
-//! }).ok().unwrap();
+//! fn enable_post_processing(
+//!     mut exposure: ResMut<ExposureResource>,
+//!     mut bloom: ResMut<BloomResource>,
+//!     mut color_grading: ResMut<ColorGradingResource>,
+//! ) {
+//!     exposure.is_enabled = true;
+//!     exposure.exposure = 0.5; // in stops: the image is multiplied by 2^exposure
+//!
+//!     bloom.is_enabled = true;
+//!     bloom.threshold = 1.0;
+//!
+//!     color_grading.ty = Some(ColorGradingType::Aces);
+//! }
 //! ```
 //!
 //! #### Drawing debug gizmo lines
 //!
 //! [`GizmosResource`] collects lines to draw for the current frame. Pick a space with
-//! [`space`](GizmosResource::space) and push a [`GizmoLine`]; the lines are drawn and cleared
+//! [`space`](GizmosResource::space) and push a [`GizmoLine`]; the lines are drawn and removed
 //! each frame, so push them every frame they should appear:
 //!
 //! ```ignore
@@ -115,70 +138,105 @@
 //!
 //! #### Registration and frame order
 //!
-//! [`add_render_module_to`] inserts the subsystem's resources and registers its systems under
-//! the [`SYSTEM_GROUP_RENDER`] group. [`Schedule::Start`] builds
-//! the long-lived GPU resources once ([`create_standard_render_resource`],
-//! [`create_gizmos_render_resource`], and the depth/transparent targets). Each
-//! [`Schedule::Update`] acquires the surface texture
-//! ([`request_surface_texture`]), runs the inner `SYSTEM_GROUP_RENDER_INTERNAL` group, then presents it
-//! ([`present_surface`]). Inside that group the explicit ordering is: rebuild render targets and
-//! the camera uniform, build text/image/masked mesh data, clear the depth and transparent
-//! targets, draw opaque geometry, draw transparent geometry, composite the transparent target,
-//! and finally draw gizmos.
+//! [`add_render_module_to`] inserts the asset storages for materials, meshes, and textures and
+//! the user-facing resources ([`GizmosResource`], [`ScreenSpaceResource`], [`BloomResource`],
+//! [`ExposureResource`], [`ColorGradingResource`]), and registers its systems under the
+//! [`SYSTEM_GROUP_RENDER`] group. [`Schedule::Start`] builds the
+//! render targets, the post-processing resources, the gizmo resources, and finally
+//! [`create_standard_render_resource`]. Each [`Schedule::Update`]
+//! runs the inner [`SYSTEM_GROUP_RENDER_INTERNAL`] group and then
+//! [`render_main_target_to_surface_system`]. Inside that group the explicit order is: recreate
+//! any render target whose size no longer matches the surface (main, depth, transparent,
+//! exposure, bloom, color grading), clear the main, depth, and transparent targets, update the
+//! camera matrix, the lights buffer, and the global uniform, draw opaque geometry (instanced
+//! then batched), draw transparent geometry (instanced then batched), composite the transparent
+//! target, apply exposure, bloom, and color grading, and finally draw gizmos. Every pass records
+//! its own command encoder and submits it immediately.
+//!
+//! #### Render targets and presentation
+//!
+//! Everything is drawn into [`MainRenderTargetResource`], an offscreen `Rgba16Float` HDR texture
+//! the size of the surface, with a `Depth32Float` [`DepthTextureResource`].
+//! [`render_main_target_to_surface_system`] acquires the surface texture, copies the main target
+//! onto it with a fullscreen triangle (`shader_render_surface.wgsl`, nearest sampling, `REPLACE`
+//! blend), and presents it; if the surface texture cannot be acquired the frame is skipped. The
+//! `recreate_*` systems compare each target against the current surface size and only rebuild
+//! when it changed, replacing the resource in place.
 //!
 //! #### Two geometry paths: instanced and batched
 //!
 //! Geometry reaches the GPU two ways. The **instanced** path ([`render_opaque_instanced`],
-//! [`render_transparent_instanced`]) groups entities by shared
-//! [`StandardMeshComponent`]/[`StandardMaterialComponent`] and issues one instanced draw per
-//! group, with per-instance model matrices written into a reused instance buffer in chunks of
+//! [`render_transparent_instanced`]) groups entities by their
+//! ([`StandardMeshComponent`], [`StandardMaterialComponent`]) pair and issues indexed instanced
+//! draws, writing the per-instance model matrices into a reused instance buffer in chunks of
 //! [`INSTANCES_PER_DRAW_MAX`]. The **batched** path ([`render_opaque_batched`],
-//! [`render_transparent_batched`]) is for [`BatchedMeshComponent`]: it transforms each vertex on
-//! the CPU into world space, appends into a shared vertex buffer grouped by material, and flushes
-//! whenever the buffer fills ([`TRIANGLES_PER_BATCHED_DRAW_MAX`] triangles). Text and image
-//! entities have no mesh asset — [`update_text_batched_mesh`] and [`update_image_batched_mesh`]
-//! regenerate their [`BatchedMeshComponent`] vertices each frame, so they always take the batched
-//! path. The instanced and batched render functions are near-duplicates (see the `todo` notes).
+//! [`render_transparent_batched`]) is for [`BatchedMeshComponent`]: it groups entities by
+//! material, transforms each indexed vertex on the CPU into world space (and converts vertex
+//! colors from sRGB to linear), writes them into a shared non-indexed vertex buffer, and
+//! flushes whenever the buffer fills ([`TRIANGLES_PER_BATCHED_DRAW_MAX`] triangles). Both paths
+//! skip entities whose `GlobalDisableableComponent` is set, treat a missing transform as the
+//! identity, and skip entities whose mesh or material handle does not resolve. The instanced and
+//! batched functions are near-duplicates (see the `todo` notes). [`StandardRenderComponent`] is
+//! defined but not read by any system.
 //!
 //! #### Opaque vs. transparent compositing
 //!
-//! A material's [`alpha_threshold`](StandardMaterial::alpha_threshold) splits the two: `Some`
-//! materials are drawn opaque (depth-write on, alpha-tested with `discard` in the shader); `None`
-//! materials are transparent. Transparent draws target an offscreen `Rgba16Float`
-//! [`TransparentTargetTextureResource`] with additive blending and depth-test but no depth-write,
-//! and [`render_transparent_final`] then composites that target over the surface with a
-//! fullscreen triangle (`shader_transparent_final.wgsl`) using alpha blending. The depth buffer is
-//! [`DepthTextureResource`] (`Depth32Float`); both targets are recreated on resize by
-//! [`recreate_depth_texture_resource`] and [`recreate_transparent_target_resource`], which compare
-//! against the current surface size and only rebuild when it changed.
+//! A material's `alpha_threshold` splits the two: `Some` materials are drawn opaque into the
+//! main target (depth-write on, `REPLACE` blend, alpha-tested with `discard` in the shader);
+//! `None` materials are transparent. Transparent draws target an offscreen `Rgba16Float`
+//! [`TransparentTargetTextureResource`] with additive blending and depth-test but no
+//! depth-write, and [`render_transparent_final_system`] then composites that target over the
+//! main target with a fullscreen triangle (`shader_transparent_final.wgsl`) using alpha
+//! blending.
 //!
-//! #### Shaders and coordinate spaces
+//! #### Shaders, materials, and lights
 //!
 //! The standard shader is generated as WGSL source at pipeline-creation time by
-//! [`shader_standard`], which concatenates code fragments and branches on `is_lit`/`is_transparent`;
-//! the lit path applies a Cook-Torrance BRDF with a single hard-coded directional light, the unlit
-//! path skips lighting. Vertex colors are gamma-corrected (raised to 2.2). `get_render_data` picks
-//! the world-to-clip matrix per draw from the material's [`RenderSpace`]: `World` uses the camera
-//! matrix, `Window` uses [`create_window_to_clip_matrix`] (pixel coordinates with the near/far from
-//! [`ScreenSpaceResource`]), and `Clip` uses the identity. [`update_camera_uniform`] builds the
-//! camera matrix from the sole [`CameraComponent`] and **panics if more than one camera exists**.
+//! [`shader_standard`], which concatenates code fragments and branches on
+//! `is_lit`/`is_transparent`; [`StandardRenderResource`] holds the four resulting pipelines plus
+//! the transparent-composite one. Bind group 0 is the global group (the
+//! `StandardUniformGlobal` with the camera position and light count, plus the lights storage
+//! buffer); bind group 1 is the material's. `get_render_data` picks the pipeline from
+//! `is_lit` / `alpha_threshold` and rewrites the material uniform before every draw: color and
+//! emission color are raised to the power 2.2 (sRGB to linear), and the world-to-clip matrix
+//! comes from the material's `RenderSpace` — `World` uses the camera matrix, `Window` uses
+//! [`create_window_to_clip_matrix`] (pixel coordinates with the near/far from
+//! [`ScreenSpaceResource`]), and `Clip` uses the identity. The lit path samples the normal map
+//! through a TBN matrix, scales metallic and roughness by their textures, starts from the
+//! emission term, and adds a Cook-Torrance BRDF contribution per light; there is no ambient
+//! term. The unlit path outputs the textured color and ignores emission.
 //!
-//! #### Masking and gizmos
+//! [`update_lights_buffer`] converts every [`StandardLightComponent`] with its transform (a
+//! missing transform is the identity) into a `StandardGenericLight` via
+//! [`light_from_components`] and uploads up to [`LIGHTS_COUNT_MAX`] of them.
+//! [`update_camera_uniform`] builds the camera matrix from the sole [`CameraComponent`]; it
+//! does nothing when there is no camera and **panics if more than one camera exists**.
 //!
-//! [`ChildrenRectMaskComponent`] marks a subtree to clip; [`update_masked_batched_mesh`] walks the
-//! hierarchy depth-first, intersects nested mask rects, and clamps each descendant's batched-mesh
-//! vertices into the resulting rect. This is a positional clamp, not true scissor masking (see the
-//! `todo`). [`GizmosResource`] keeps a line list per [`RenderSpace`]; [`render_gizmos`] drains each
-//! list in chunks of [`GIZMO_LINES_PER_DRAW_MAX`] through a line-list pipeline backed by storage
-//! buffers, popping the lines as it consumes them — which is why gizmos must be re-pushed every
-//! frame.
+//! #### Post-processing
 //!
-//! #### Built-in assets and FFI
+//! Each effect is skipped unless enabled in its resource, and each works on the main target.
+//! [`render_exposure_system`] multiplies the image by `2^exposure` into its own texture and
+//! copies the result back. [`render_bloom_system`] gathers the pixels above
+//! `threshold` (softened over `threshold_softening` with a `smoothstep` on luminance), then for
+//! each of [`BLUR_LAYERS_COUNT`] progressively halved layers downscales, blurs horizontally and
+//! vertically, and additively applies the layer back onto the main target scaled by
+//! `intensity`, ping-ponging between three textures in [`BloomRenderResource`].
+//! [`render_color_grading_system`] applies the ACES filmic curve
+//! (`shader_color_grading_aces.wgsl`) into its own texture and copies it back. Without color
+//! grading the HDR values are written to the surface unmapped.
 //!
-//! On startup the crate uploads a 2×2 white fallback texture and three embedded ASCII monospace
-//! bitmap fonts (5×7, 8×8, 8×12), keeping their handles in [`StandardRenderAssetsResource`]. Every
-//! resource in this crate is annotated `todo: support ffi`; FFI exposure of the render resources is
-//! not yet implemented.
+//! #### Gizmos
+//!
+//! [`GizmosResource`] keeps a line list per `RenderSpace`; [`render_gizmos`] runs after
+//! post-processing, so gizmos are not affected by it. It pops lines from each list in chunks of
+//! [`GIZMO_LINES_PER_DRAW_MAX`] through a line-list pipeline backed by storage buffers — which is
+//! why gizmos must be re-pushed every frame. World-space gizmos are skipped when there is no
+//! camera.
+//!
+//! #### FFI
+//!
+//! The GPU-side resources are annotated `todo: support ffi`; only the user-facing settings
+//! resources and [`GizmosResource`] are `#[repr(C)]` so far.
 
 mod assets;
 mod components;
