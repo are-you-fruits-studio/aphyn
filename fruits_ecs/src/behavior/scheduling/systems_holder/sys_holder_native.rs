@@ -32,6 +32,7 @@ impl SystemsHolderNative {
         }
     }
 
+    // todo: support an external runner that decides whether systems run single-threaded or multithreaded.
     pub fn execute_iteration(&self, data: *mut WorldDataUnsafeFfi) {
         let iter = Arc::new(Mutex::new(self.execution_graph.iter()));
 

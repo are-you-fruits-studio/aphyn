@@ -33,6 +33,12 @@ impl WorldBehaviorBuilderFfi {
         &mut self.schedules[schedule.index()]
     }
 
+    pub fn clear(&mut self) {
+        for schedule in &mut self.schedules {
+            schedule.clear();
+        }
+    }
+
     pub fn build(self) -> WorldBehaviorFfi {
         WorldBehaviorFfi {
             schedules: self.schedules.map(|mut b| b.build()),
@@ -70,5 +76,9 @@ impl<'w> WorldBehaviorBuilderMut<'w> {
         'w: 'r,
     {
         SystemsHolderBuilderMut::new(self.world.get_mut(schedule), self.types)
+    }
+
+    pub fn clear(&mut self) {
+        self.world.clear();
     }
 }

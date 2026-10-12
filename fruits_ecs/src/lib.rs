@@ -180,7 +180,9 @@
 //! sequence builds a chain, not a fan-out from the first system: to put several systems after the
 //! same one, start a separate `order_system` per edge. Chains from different call sites are merged
 //! into one graph, and conflicting ones panic with a circular-dependency error when the schedule is
-//! built.
+//! built. [`SystemsHolderBuilderMut::clear`] drops every system, ordering edge, and group registered
+//! so far in that schedule, and [`WorldBehaviorBuilderMut::clear`] does the same for every schedule
+//! (the editor uses it to strip a game library's systems from its simulated world).
 //!
 //! ```rust,no_run
 //! use fruits_ecs::*;
@@ -214,7 +216,9 @@
 //! crate uses. [`WorldDataUnsafeFfi`] bundles the three stores — resources, events, and entities —
 //! and [`WorldUnsafeFfi`] adds the per-schedule behavior. The stable `#[repr(C)]` layout is what lets
 //! these structures cross the FFI boundary, which is why type identity is carried as a runtime `u64`
-//! rather than a Rust generic.
+//! rather than a Rust generic. Schedule builders are driven through `SystemsHolderBuilderFfiVTable`
+//! (insert, order, group, clear, build); changing that vtable changes its layout, so game libraries
+//! must be rebuilt against the same engine version as the host.
 //!
 //! #### Runtime type identity
 //!

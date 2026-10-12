@@ -12,18 +12,24 @@ pub fn register_feature(mut world: WorldBuilderMut) {
     let mut update = behavior.get_mut(Schedule::Update);
 
     update.group(SYSTEM_GROUP)
-        .insert_child_system(preload_assets_into_simulated_world_system);
+        .insert_child_system(preload_assets_into_simulated_world_system)
+        .insert_child_system(tick_simulated_world_system);
+
+    update.order_system(preload_assets_into_simulated_world_system)
+        .before_system(tick_simulated_world_system);
 }
 
 pub struct SimulatedWorld {
     pub world: World,
     pub library: Option<Library>,
+    pub is_started: bool,
 }
 impl SimulatedWorld {
     pub fn new(world: World, library: Option<Library>) -> Self {
         Self {
             world,
             library,
+            is_started: false,
         }
     }
 }
@@ -46,6 +52,13 @@ fn preload_assets_into_simulated_world_system(
     let mut lib = None;
 
     let mut world = WorldBuilder::new();
+
+    world.data_mut().resources_mut().insert({
+        let mut serializers = SerializersResource::default();
+        register_common_transserializers(&mut *serializers);
+        serializers
+    });
+
     if let Some(lib_path) = lib_path {
         let init_result = unsafe {
             init_app_dynamically(world.as_mut(), lib_path)
@@ -59,13 +72,24 @@ fn preload_assets_into_simulated_world_system(
     } else {
         println!("failed to load scripts lib");
     }
+
+    world.behavior_mut().clear();
+
+    add_collision_module_to(world.as_mut());
+    add_transform_module_to(world.as_mut());
+    add_ui_module_to(world.as_mut());
+    add_render_module_to(world.as_mut());
+
+    world
+        .behavior_mut()
+        .get_mut(Schedule::Update)
+        .order_group(SYSTEM_GROUP_COLLISION)
+        .before_group(SYSTEM_GROUP_TRANSFORM)
+        .before_group(SYSTEM_GROUP_RENDER);
+
     let mut world = world.build();
 
     let mut res = world.data_mut().into_resources_mut();
-
-    if res.as_ref().get::<SerializersResource>().is_none() {
-        res.insert(SerializersResource(TransSerializerRegistry::new()));
-    }
 
     let serializer = res.get_mut::<SerializersResource>().unwrap();
     let serializer = &mut serializer.0;
@@ -94,16 +118,28 @@ fn preload_assets_into_simulated_world_system(
 
     res.insert(render_api.clone());
     res.insert(AudioStateResource::new(FfiDroppable::new(()), WrappedAudioStateHandle::new(Arc::new(Mutex::new(AudioState::new())))));
-    res.insert(AssetStorageResource::<StandardTexture>::new());
-    res.insert(AssetStorageResource::<StandardMaterial>::new());
-    res.insert(AssetStorageResource::<Font>::new());
-    res.insert(AssetStorageResource::<StandardMesh>::new());
     res.insert(AssetStorageResource::<AudioClip>::new());
     res.insert(AssetStorageResource::<Prefab>::new());
 
     load_all_assets(res.as_mut(), &(open_project.dir_path.to_string() + PROJECT_ASSETS_SUBPATH));
 
     simulated_world.0 = Some(SimulatedWorld::new(world, lib));
+}
+
+// todo: make simulated world ticking panic-safe and freeze-safe.
+fn tick_simulated_world_system(mut simulated_world: ResMut<SimulatedWorldResource>) {
+    let Some(simulated_world) = &mut simulated_world.0 else {
+        return;
+    };
+
+    if !simulated_world.is_started {
+        simulated_world.world.execute_iteration(Schedule::Start);
+        simulated_world.is_started = true;
+    }
+
+    simulated_world.world.execute_iteration(Schedule::Update);
+
+    simulated_world.world.data_mut().events_mut().clear();
 }
 
 fn copy_lib_to_unique(project_path: impl AsRef<Path>, lib_path: impl AsRef<Path>) -> Option<PathBuf> {

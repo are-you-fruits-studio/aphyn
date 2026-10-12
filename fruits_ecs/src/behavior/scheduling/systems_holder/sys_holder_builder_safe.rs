@@ -18,6 +18,10 @@ impl<'s> SystemsHolderBuilderMut<'s> {
         self.systems.insert_system(SystemFfi::new(system, self.types.clone()))
     }
 
+    pub fn clear(&mut self) {
+        self.systems.clear();
+    }
+
     #[must_use]
     pub fn order_system<'r, M0: 'static>(&'r mut self, s: impl SystemWithMarker<M0> + Any) -> OrderHelper<'r>
     where

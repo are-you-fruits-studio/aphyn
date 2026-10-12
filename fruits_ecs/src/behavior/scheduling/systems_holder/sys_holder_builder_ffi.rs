@@ -9,6 +9,7 @@ struct SystemsHolderBuilderFfiVTable {
     insert_system_fn: unsafe extern "C-unwind" fn(*mut c_void, system: SystemFfi) -> bool,
     order_fn: unsafe extern "C-unwind" fn(*mut c_void, prev: OrderEntry, next: OrderEntry),
     insert_group_child_fn: unsafe extern "C-unwind" fn(*mut c_void, group: FfiString, child: OrderEntry),
+    clear_fn: unsafe extern "C-unwind" fn(*mut c_void),
     build_fn: unsafe extern "C-unwind" fn(*mut c_void) -> SystemsHolderFfi,
 }
 
@@ -41,6 +42,13 @@ impl SystemsHolderBuilderFfi {
                 this.insert_group_child(group, child)
             }
         }
+        unsafe extern "C-unwind" fn ffi_clear(this: *mut c_void) {
+            unsafe {
+                let this = &mut *(this as *mut SystemsHolderBuilderNative);
+
+                this.clear()
+            }
+        }
         unsafe extern "C-unwind" fn ffi_build(this: *mut c_void) -> SystemsHolderFfi {
             unsafe {
                 let this = &mut *(this as *mut SystemsHolderBuilderNative);
@@ -57,6 +65,7 @@ impl SystemsHolderBuilderFfi {
                 insert_system_fn: ffi_insert_system,
                 order_fn: ffi_order,
                 insert_group_child_fn: ffi_insert_group_child,
+                clear_fn: ffi_clear,
                 build_fn: ffi_build,
             }),
         }
@@ -83,6 +92,14 @@ impl SystemsHolderBuilderFfi {
             let this = self.data.get();
 
             (self.vtable.insert_group_child_fn)(this, group, child)
+        }
+    }
+
+    pub fn clear(&mut self) {
+        unsafe {
+            let this = self.data.get();
+
+            (self.vtable.clear_fn)(this)
         }
     }
 

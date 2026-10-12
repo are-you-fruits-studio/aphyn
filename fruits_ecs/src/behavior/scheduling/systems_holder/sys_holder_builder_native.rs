@@ -34,6 +34,12 @@ impl SystemsHolderBuilderNative {
         self.system_groups.entry(group).or_default().insert(child);
     }
 
+    pub fn clear(&mut self) {
+        self.systems.clear();
+        self.systems_ordering.clear();
+        self.system_groups.clear();
+    }
+
     pub fn build(&mut self) -> SystemsHolderNative {
         let new_self = Self::new(self.types.clone());
         let old_self = std::mem::replace(self, new_self);
