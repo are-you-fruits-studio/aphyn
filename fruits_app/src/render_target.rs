@@ -1,5 +1,5 @@
 use fruits_render_core::{
-    CreateBindGroupEntry, CreateBindGroupLayoutEntry, RENDER_TARGET_FORMAT, RenderState, create_bind_group,
+    CreateBindGroupEntry, CreateBindGroupLayoutEntry, RENDER_TARGET_FORMAT, RenderState, clear_color_target, create_bind_group,
     create_bind_group_layout, create_render_pipeline,
 };
 use wgpu::*;
@@ -105,28 +105,7 @@ impl RenderTarget {
     }
 
     pub fn clear(&self, render_state: &RenderState) {
-        let mut encoder = render_state.device().create_command_encoder(&CommandEncoderDescriptor {
-            label: Some("Clear Main Render Target Encoder"),
-        });
-
-        {
-            let mut _render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("Clear Main Render Target Pass"),
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view: &self.texture_view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: LoadOp::Clear(Color::TRANSPARENT),
-                        store: StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                ..Default::default()
-            });
-        }
-
-        render_state.queue().submit(std::iter::once(encoder.finish()));
+        clear_color_target(render_state, &self.texture_view, [0.0; 4]);
     }
 
     pub fn render_to_surface(&self, render_state: &RenderState) {

@@ -5,7 +5,7 @@ use fruits_serialization::*;
 use serde::{Deserialize, Serialize};
 
 #[repr(C)]
-#[derive(Component, Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Component, Copy, Clone, Debug, PartialEq, Serializable, Serialize, Deserialize)]
 pub struct GlobalTransform {
     pub position: Vec3<f32>,
     pub scale_rotation: Mat3<f32>,
@@ -23,7 +23,7 @@ impl Default for GlobalTransform {
 }
 
 #[repr(C)]
-#[derive(Component, Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Component, Copy, Clone, Debug, PartialEq, Serializable, Serialize, Deserialize)]
 pub struct LocalTransform {
     pub position: Vec3<f32>,
     pub rotation: Quat<f32>,
@@ -55,7 +55,7 @@ pub struct ChildComponent {
 }
 
 #[repr(C)]
-#[derive(Component, Copy, Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Component, Copy, Clone, Debug, PartialEq, Default, Serializable, Serialize, Deserialize)]
 pub struct GlobalRectComponent {
     pub center: Vec2<f32>,
     pub scale: Vec2<f32>,
@@ -79,7 +79,7 @@ impl UiDirection {
 }
 
 #[repr(C)]
-#[derive(Component, Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Component, Copy, Clone, Debug, PartialEq, Serializable, Serialize, Deserialize)]
 pub struct LocalRectComponent {
     pub parent_padding_min: Vec2<UiVal>,
     pub parent_padding_max: Vec2<UiVal>,

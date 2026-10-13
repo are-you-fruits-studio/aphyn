@@ -12,3 +12,4 @@ pub mod generic_dropdown;
 pub mod test_window;
 pub mod ui_window;
 pub mod windows_layout;
+pub mod scene_window;

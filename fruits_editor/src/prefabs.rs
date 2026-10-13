@@ -9,3 +9,5 @@ pub use window::*;
 
 mod editor_window;
 pub use editor_window::*;
+mod scene_window;
+pub use scene_window::*;

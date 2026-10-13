@@ -5,7 +5,7 @@ use fruits_ffi::{FfiDroppable, FfiOption, FfiSliceRef, FfiStaticRef};
 use wgpu::*;
 use winit::window::Window;
 
-use crate::{StandardMaterial, StandardMaterialAssetMetadata, StandardMaterialAssets, StandardMesh, StandardMeshAssetMetadata, StandardTexture, StandardTextureAssetMetadata, StandardVertex};
+use crate::{StandardMaterial, StandardMaterialAssetMetadata, StandardMaterialAssets, StandardMesh, StandardMeshAssetMetadata, StandardTexture, StandardTextureAssetMetadata, StandardTextureFormat, StandardVertex};
 
 // todo: ffi?
 
@@ -120,7 +120,7 @@ impl RenderAssets {
             ],
             StandardTextureAssetMetadata {
                 raw_texture: Default::default(),
-                is_linear: true,
+                format: StandardTextureFormat::Rgba8Unorm,
                 should_generate_mipmaps: false,
             },
         );

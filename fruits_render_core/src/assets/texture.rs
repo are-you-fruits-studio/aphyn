@@ -17,10 +17,36 @@ pub struct StandardTextureNative {
 }
 
 #[repr(C)]
+#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Serializable)]
+pub enum StandardTextureFormat {
+    Rgba8Unorm,
+    #[default]
+    Rgba8UnormSrgb,
+    Rgba16Float,
+}
+
+impl StandardTextureFormat {
+    fn to_wgpu(self) -> TextureFormat {
+        match self {
+            Self::Rgba8Unorm => TextureFormat::Rgba8Unorm,
+            Self::Rgba8UnormSrgb => TextureFormat::Rgba8UnormSrgb,
+            Self::Rgba16Float => TextureFormat::Rgba16Float,
+        }
+    }
+
+    fn bytes_per_pixel(self) -> u32 {
+        match self {
+            Self::Rgba8Unorm | Self::Rgba8UnormSrgb => 4,
+            Self::Rgba16Float => 8,
+        }
+    }
+}
+
+#[repr(C)]
 #[derive(Serializable, Clone)]
 pub struct StandardTextureAssetMetadata {
     pub raw_texture: FfiString,
-    pub is_linear: bool,
+    pub format: StandardTextureFormat,
     pub should_generate_mipmaps: bool,
 }
 
@@ -28,7 +54,7 @@ impl Default for StandardTextureAssetMetadata {
     fn default() -> Self {
         Self {
             raw_texture: FfiString::new(),
-            is_linear: false,
+            format: StandardTextureFormat::default(),
             should_generate_mipmaps: false,
         }
     }
@@ -51,8 +77,8 @@ impl StandardTexture {
     ) -> Self {
         dimensions = dimensions.map(|x| x.max(1));
 
-        let bytes_per_pixel = 4;
-        let bytes_per_row = dimensions[0] * bytes_per_pixel;
+        let format_bytes_per_pixel = meta.format.bytes_per_pixel();
+        let bytes_per_row = dimensions[0] * format_bytes_per_pixel;
 
         let px_count = (dimensions[0] * dimensions[1]) as usize;
 
@@ -61,7 +87,7 @@ impl StandardTexture {
         let mut data = data;
         let mut data_vec = Vec::new();
 
-        if bytes_per_pixel < 4 {
+        if !data.is_empty() && format_bytes_per_pixel == 4 && bytes_per_pixel < 4 {
             for i in 0..px_count {
                 let mut px = [0, 0, 0, 255];
 
@@ -75,10 +101,7 @@ impl StandardTexture {
             data = data_vec.as_slice();
         }
 
-        let format = match meta.is_linear {
-            true => TextureFormat::Rgba8Unorm,
-            false => TextureFormat::Rgba8UnormSrgb,
-        };
+        let format = meta.format.to_wgpu();
 
         let mipmaps_count = match meta.should_generate_mipmaps {
             false => 1,
@@ -102,25 +125,27 @@ impl StandardTexture {
                 | TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[format],
         });
-        render_api.queue.write_texture(
-            wgpu::TexelCopyTextureInfoBase {
-                texture: &texture,
-                mip_level: 0,
-                origin: Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            data,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(bytes_per_row),
-                rows_per_image: None,
-            },
-            Extent3d {
-                depth_or_array_layers: 1,
-                width: dimensions[0],
-                height: dimensions[1],
-            },
-        );
+        if !data.is_empty() {
+            render_api.queue.write_texture(
+                wgpu::TexelCopyTextureInfoBase {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                data,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(bytes_per_row),
+                    rows_per_image: None,
+                },
+                Extent3d {
+                    depth_or_array_layers: 1,
+                    width: dimensions[0],
+                    height: dimensions[1],
+                },
+            );
+        }
 
         let sampler = render_api.device.create_sampler(&SamplerDescriptor {
             address_mode_u: AddressMode::ClampToEdge,

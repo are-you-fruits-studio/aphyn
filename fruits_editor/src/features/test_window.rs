@@ -27,18 +27,26 @@ pub struct HierarchyWindowButtonComponent;
 pub struct InspectorWindowButtonComponent;
 
 #[derive(Component, Default, Debug)]
+pub struct SceneWindowButtonComponent;
+
+#[derive(Component, Default, Debug)]
 pub struct TestWindowComponent;
+
+#[derive(Component, Default, Debug)]
+pub struct SceneWindowComponent;
 
 pub const WINDOW_KIND_TEST: &str = "Test Window";
 pub const WINDOW_KIND_PROJECT: &str = "Project Window";
 pub const WINDOW_KIND_HIERARCHY: &str = "Hierarchy Window";
 pub const WINDOW_KIND_INSPECTOR: &str = "Inspector Window";
+pub const WINDOW_KIND_SCENE: &str = "Scene Window";
 
 pub fn open_windows_system(mut world: WorldDataMut) {
     open_clicked_window::<TestWindowButtonComponent>(world.as_mut(), WINDOW_KIND_TEST);
     open_clicked_window::<ProjectWindowButtonComponent>(world.as_mut(), WINDOW_KIND_PROJECT);
     open_clicked_window::<HierarchyWindowButtonComponent>(world.as_mut(), WINDOW_KIND_HIERARCHY);
     open_clicked_window::<InspectorWindowButtonComponent>(world.as_mut(), WINDOW_KIND_INSPECTOR);
+    open_clicked_window::<SceneWindowButtonComponent>(world.as_mut(), WINDOW_KIND_SCENE);
 }
 
 fn open_clicked_window<SpecButtonComponent: 'static + Component>(world: WorldDataMut, kind: &str) {
@@ -63,6 +71,7 @@ pub fn open_window_by_kind(world: WorldDataMut, kind: &str) -> Option<EntityId> 
         WINDOW_KIND_INSPECTOR => {
             open_specific_window(world, kind, InspectorWindowComponent::default(), prefabs::init_window_as_inspector)
         }
+        WINDOW_KIND_SCENE => open_specific_window(world, kind, SceneWindowComponent, prefabs::init_window_as_scene),
         _ => None,
     }
 }

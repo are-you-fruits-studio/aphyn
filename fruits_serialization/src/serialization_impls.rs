@@ -688,54 +688,15 @@ impl<S: SerializerCtxState<T>, T> Serializable<S> for Vec4<T>
 }
 
 // todo
-impl<const N: usize, S: SerializerCtxState<T>, T> Serializable<S> for Mat<N, T>
+impl<const N: usize, S: SerializerCtxState<[[T; N]; N]>, T> Serializable<S> for Mat<N, T>
     where Self: Default
 {
     fn serialize(&self, mut ctx: SerializerCtx<S>, path: &str) -> SerializedValue {
-        todo!();
-        // let mut columns_list = ctx.serialize_list();
-
-        // for column in self.as_array() {
-        //     let mut elements_list = ctx.serialize_list();
-
-        //     for ele in column {
-        //         elements_list = elements_list.with_element(ele);
-        //     }
-
-        //     let elements_list = elements_list.finish_as_list(true);
-        //     columns_list = columns_list.with_serialized_element(elements_list);
-        // }
-
-        // columns_list.finish_as_list(true)
+        ctx.serialize(self.as_array(), path)
     }
 
-    fn deserialize(&mut self, mut ctx: SerializerCtx<S>, path: &str, value: &SerializedValue) {
-        todo!();
-        // ctx.deserialize_list(value, |ctx_list| {
-        //     let mut columns = [MaybeUninit::<[T; N]>::uninit(); N];
-
-        //     for column_idx in 0..N {
-        //         let mut elements = [MaybeUninit::<T>::uninit(); N];
-
-        //         for i in 0..N {
-        //             elements[i].write(ctx.deserialize(ctx.get_serialized_element(idx)));
-        //         }
-               
-        //         columns[column_idx].write(unsafe { transmute(elements) });
-        //     }
-
-        //     unsafe { Some(transmute(columns)) }
-        // })
-
-        // //
-
-        // ctx.deserialize_list(value, |ctx| {
-
-        //     for i in 0..N {
-        //         elements[i].write(ctx.get_element(i)?);
-        //     }
-
-        // })
+    fn deserialize(&mut self, mut ctx: SerializerCtx<S>, path: &str, serialized: &SerializedValue) {
+        ctx.deserialize(self.as_array_mut(), path, serialized)
     }
 }
 

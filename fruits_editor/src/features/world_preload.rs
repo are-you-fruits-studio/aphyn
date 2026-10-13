@@ -96,6 +96,7 @@ fn preload_assets_into_simulated_world_system(
 
     serializer.register(StandardSerializer::<SerializedValue>::default());
     serializer.register(StandardSerializer::<RenderSpace>::default());
+    serializer.register(StandardSerializer::<StandardTextureFormat>::default());
     serializer.register(StandardSerializer::<f32>::default());
     serializer.register(StandardSerializer::<bool>::default());
     serializer.register(StandardSerializer::<FfiString>::default());
@@ -127,7 +128,7 @@ fn preload_assets_into_simulated_world_system(
 }
 
 // todo: make simulated world ticking panic-safe and freeze-safe.
-fn tick_simulated_world_system(mut simulated_world: ResMut<SimulatedWorldResource>) {
+pub fn tick_simulated_world_system(mut simulated_world: ResMut<SimulatedWorldResource>) {
     let Some(simulated_world) = &mut simulated_world.0 else {
         return;
     };

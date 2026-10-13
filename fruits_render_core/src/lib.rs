@@ -42,7 +42,7 @@
 //!
 //! Upload raw pixel bytes as a [`StandardTexture`]. The [`FilterMode`] selects how the texture is
 //! sampled; the dimensions are `[width, height]` in pixels. The
-//! [`StandardTextureAssetMetadata`] decides whether the data is linear or sRGB and whether
+//! [`StandardTextureAssetMetadata`] picks the [`StandardTextureFormat`] (linear, sRGB, or HDR) and whether
 //! mipmaps are generated:
 //!
 //! ```ignore
@@ -168,10 +168,13 @@
 //! is kept so the asset can be saved back. Their `Send`/`Sync` are forwarded from the native
 //! payloads, and the native handles are reached only through the unsafe `native()` accessors.
 //!
-//! `StandardTexture::new` clamps the dimensions to at least 1, derives bytes-per-pixel from the
-//! data length over the pixel count, and pads any source with fewer than four channels out to
-//! RGBA with opaque alpha. It uploads as `Rgba8Unorm` when the metadata is `is_linear` and
-//! `Rgba8UnormSrgb` otherwise, and builds a `ClampToEdge` sampler that uses the caller's filter
+//! `StandardTexture::new` clamps the dimensions to at least 1 and creates the texture in the
+//! metadata's [`StandardTextureFormat`] (`Rgba8Unorm`, `Rgba8UnormSrgb`, or `Rgba16Float`, the
+//! last matching [`RENDER_TARGET_FORMAT`] so a texture can be drawn into by `fruits_render`). For
+//! the 8-bit formats it derives bytes-per-pixel from the data length over the pixel count and pads
+//! any source with fewer than four channels out to RGBA with opaque alpha; `Rgba16Float` data must
+//! already be 8 bytes per pixel. Empty data skips the upload and leaves the texture zeroed, which
+//! is how render targets are created. It builds a `ClampToEdge` sampler that uses the caller's filter
 //! mode for magnification, minification, and mipmapping. With `should_generate_mipmaps` it
 //! allocates the full mip chain and fills each level from the previous one by rendering a
 //! fullscreen triangle through `mip_fill_shader.wgsl`, submitting one command buffer per level.
@@ -198,7 +201,8 @@
 //!
 //! [`create_bind_group_layout`], [`create_bind_group`], and [`create_render_pipeline`] (with the
 //! [`CreateBindGroupLayoutEntry`] / [`CreateBindGroupEntry`] shorthands) wrap the verbose wgpu
-//! descriptors and are shared with `fruits_render`. [`Shader`] is a thin WGSL module wrapper that
+//! descriptors and are shared with `fruits_render`. [`clear_color_target`] clears a color view in its own
+//! pass (used by `fruits_app` and the editor). [`Shader`] is a thin WGSL module wrapper that
 //! the pipeline path does not use and is marked `// todo: remove`. `render_graph.rs` is an
 //! unfinished render-graph sketch whose methods are `todo!()`; it is compiled but not exported.
 

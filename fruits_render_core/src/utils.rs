@@ -1,4 +1,5 @@
 use fruits_utils::stack_vec::StackVec;
+use crate::RenderState;
 use wgpu::*;
 
 const MAX_ENTRIES: usize = 16;
@@ -137,4 +138,30 @@ pub fn create_render_pipeline(
         multiview: None,
         cache: None,
     })
+}
+pub fn clear_color_target(render_state: &RenderState, view: &TextureView, color: [f64; 4]) {
+    let mut encoder = render_state.device().create_command_encoder(&CommandEncoderDescriptor {
+        label: Some("Clear Color Target Encoder"),
+    });
+
+    {
+        let [r, g, b, a] = color;
+
+        let mut _render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("Clear Color Target Pass"),
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: Operations {
+                    load: LoadOp::Clear(Color { r, g, b, a }),
+                    store: StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            ..Default::default()
+        });
+    }
+
+    render_state.queue().submit(std::iter::once(encoder.finish()));
 }
