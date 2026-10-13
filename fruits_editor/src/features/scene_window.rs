@@ -14,6 +14,9 @@ const MOVE_SPEED: f32 = 5.0;
 const LOOK_SENSITIVITY: f32 = 0.004;
 const PITCH_LIMIT: f32 = 89.0_f32.to_radians();
 const CLEAR_COLOR: [f64; 4] = [0.05, 0.05, 0.05, 1.0];
+const SUN_YAW: f64 = 30.0_f64.to_radians();
+const SUN_PITCH: f64 = -50.0_f64.to_radians();
+const SUN_COLOR: Vec3<f32> = Vec3::splat(3.0);
 
 pub fn register_feature(mut world: WorldBuilderMut) {
     world.data_mut().resources_mut().insert(SceneCameraResource::default());
@@ -197,6 +200,7 @@ fn render_scene_window_system(
             camera_position: camera_res.position,
             camera_scale_rotation: camera_res.scale_rotation(),
             camera: camera_res.camera,
+            light: Some(sun_light()),
             target_texture,
             target_view,
         });
@@ -208,4 +212,11 @@ fn render_scene_window_system(
         .data_mut()
         .resources_mut()
         .remove::<CurrentRenderingResource>();
+}
+
+fn sun_light() -> StandardLight {
+    StandardLight::Directional {
+        color: SUN_COLOR,
+        direction_dst: Mat3::rotation_y(SUN_YAW) * Mat3::rotation_x(SUN_PITCH) * Vec3::new(0.0, 0.0, 1.0),
+    }
 }

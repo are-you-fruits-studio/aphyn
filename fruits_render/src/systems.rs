@@ -1127,20 +1127,28 @@ pub fn update_lights_buffer(
         &StandardLightComponent,
     )>,
     render_api: Res<RenderApiResource>,
+    current_rendering: Res<CurrentRenderingResource>,
     mut standard_render_res: ResMut<StandardRenderResource>,
     mut lights_cpu_buffer: ResMut<LightsCpuBufferResource>,
 ) {
     let render_state = unsafe { render_api.raw() };
 
-    standard_render_res.lights_count = light_q.len().min(LIGHTS_COUNT_MAX as u64) as u32;
-
-    for (i, (light_transform, light_c)) in light_q.iter().take(LIGHTS_COUNT_MAX).enumerate() {
+    let component_lights = light_q.iter().map(|(light_transform, light_c)| {
         let light_transform = light_transform.copied().unwrap_or_default();
 
-        let light = utils::light_from_components(light_c, &light_transform).into();
+        utils::light_from_components(light_c, &light_transform)
+    });
 
-        lights_cpu_buffer.0[i] = light;
+    let lights = component_lights.chain(current_rendering.light).take(LIGHTS_COUNT_MAX);
+
+    let mut lights_count = 0;
+
+    for (i, light) in lights.enumerate() {
+        lights_cpu_buffer.0[i] = light.into();
+        lights_count += 1;
     }
+
+    standard_render_res.lights_count = lights_count;
 
     let lights_bytes = fruits_utils::mem::as_bytes_slice(&lights_cpu_buffer.0);
 

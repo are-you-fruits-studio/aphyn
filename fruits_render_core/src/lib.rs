@@ -119,7 +119,10 @@
 //! component that wraps it is `fruits_render::CameraComponent`. [`CurrentRenderingResource`] is
 //! inserted by `fruits_app` right before it executes `RenderCamera` and removed right after. It
 //! stores the camera transform as plain math (`camera_position`, `camera_scale_rotation`) because
-//! `fruits_transform` depends on this crate, so `GlobalTransform` cannot be named here.
+//! `fruits_transform` depends on this crate, so `GlobalTransform` cannot be named here. Its optional
+//! `light` is a world-space [`StandardLight`] that `fruits_render` adds on top of the world's own
+//! lights for this rendering only (the editor's Scene window uses it so unlit prefabs still show up
+//! shaded); `fruits_app` passes `None`.
 //! [`world_to_clip`](CurrentRenderingResource::world_to_clip) is the perspective projection, using
 //! the target's aspect, times the inverse of the camera transform. The target is created by
 //! `fruits_app` in [`RENDER_TARGET_FORMAT`], which `fruits_render` also uses for its pipelines, so

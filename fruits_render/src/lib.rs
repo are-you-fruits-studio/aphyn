@@ -146,18 +146,18 @@
 //! [`StandardRenderResource`] and the gizmo resources; pipelines are created against the fixed
 //! [`RENDER_TARGET_FORMAT`](fruits_render_core::RENDER_TARGET_FORMAT), [`DEPTH_TEXTURE_FORMAT`],
 //! and [`TRANSPARENT_TARGET_FORMAT`] since no render target exists yet. [`Schedule::Update`] only
-//! runs the per-frame work that does not depend on the camera: [`update_lights_buffer`] and
-//! [`prepare_gizmos`]. Keeping the group in `Update` lets other modules and games keep ordering
-//! their systems `before_group(SYSTEM_GROUP_RENDER)`.
+//! runs the per-frame work that does not depend on the camera: [`prepare_gizmos`]. Keeping the
+//! group in `Update` lets other modules and games keep ordering their systems
+//! `before_group(SYSTEM_GROUP_RENDER)`.
 //!
 //! Everything else runs in [`Schedule::RenderCamera`], which `fruits_app` executes after `Update`
 //! with a [`CurrentRenderingResource`](fruits_render_core::CurrentRenderingResource) present. The
 //! explicit order is: recreate any intermediate target that no longer matches the current render
 //! target (depth, transparent, exposure, bloom, color grading), clear the depth and transparent
-//! targets, update the camera matrix and the global uniform, draw opaque geometry (instanced then
-//! batched), draw transparent geometry (instanced then batched), composite the transparent target,
-//! apply exposure, bloom, and color grading, and finally draw gizmos. Every pass records its own
-//! command encoder and submits it immediately.
+//! targets, update the camera matrix, upload the lights, update the global
+//! uniform, draw opaque geometry (instanced then batched), draw transparent geometry (instanced then
+//! batched), composite the transparent target, apply exposure, bloom, and color grading, and
+//! finally draw gizmos. Every pass records its own command encoder and submits it immediately.
 //!
 //! #### Render targets and presentation
 //!
@@ -218,7 +218,9 @@
 //!
 //! [`update_lights_buffer`] converts every [`StandardLightComponent`] with its transform (a
 //! missing transform is the identity) into a `StandardGenericLight` via
-//! [`light_from_components`] and uploads up to [`LIGHTS_COUNT_MAX`] of them.
+//! [`light_from_components`], appends `CurrentRenderingResource::light` if there is one, and
+//! uploads up to [`LIGHTS_COUNT_MAX`] of them. It runs in `RenderCamera` because that light belongs
+//! to the current rendering, so `StandardRenderResource::lights_count` describes that rendering.
 //! [`update_camera_uniform`] copies the camera matrix
 //! ([`CurrentRenderingResource::world_to_clip`](fruits_render_core::CurrentRenderingResource::world_to_clip))
 //! and position from the current rendering into [`StandardRenderResource`]; the systems never
@@ -290,7 +292,6 @@ pub fn add_render_module_to(mut world: WorldBuilderMut) {
 
     update
         .group(SYSTEM_GROUP_RENDER)
-        .insert_child_system(update_lights_buffer)
         .insert_child_system(prepare_gizmos);
 
     let mut render_camera = world_behavior.get_mut(Schedule::RenderCamera);
@@ -298,6 +299,7 @@ pub fn add_render_module_to(mut world: WorldBuilderMut) {
     render_camera
         .group(SYSTEM_GROUP_RENDER)
         .insert_child_system(update_camera_uniform)
+        .insert_child_system(update_lights_buffer)
         .insert_child_system(recreate_depth_texture_resource)
         .insert_child_system(recreate_transparent_target_resource)
         .insert_child_system(recreate_exposure_render_resource)
@@ -325,6 +327,7 @@ pub fn add_render_module_to(mut world: WorldBuilderMut) {
         .before_system(clear_depth)
         .before_system(clear_transparent_target)
         .before_system(update_camera_uniform)
+        .before_system(update_lights_buffer)
         .before_system(update_global_uniforms)
         .before_system(render_opaque_instanced)
         .before_system(render_opaque_batched)

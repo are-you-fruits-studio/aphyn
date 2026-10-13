@@ -2,6 +2,8 @@ use fruits_ecs::Resource;
 use fruits_math::{Mat3, Mat4, Vec3};
 use wgpu::{Texture, TextureFormat, TextureView};
 
+use crate::StandardLight;
+
 pub const RENDER_TARGET_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 
 #[repr(C)]
@@ -19,6 +21,7 @@ pub struct CurrentRenderingResource {
     pub camera_position: Vec3<f32>,
     pub camera_scale_rotation: Mat3<f32>,
     pub camera: Camera,
+    pub light: Option<StandardLight>,
     pub target_texture: Texture,
     pub target_view: TextureView,
 }

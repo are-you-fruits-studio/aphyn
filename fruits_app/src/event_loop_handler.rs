@@ -230,6 +230,7 @@ fn core_system_render(world: &mut World, render_target: &mut RenderTarget) {
             camera_position: camera_transform.position,
             camera_scale_rotation: camera_transform.scale_rotation,
             camera,
+            light: None,
             target_texture: render_target.texture.clone(),
             target_view: render_target.texture_view.clone(),
         });
