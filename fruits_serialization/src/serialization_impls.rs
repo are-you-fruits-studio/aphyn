@@ -1,7 +1,7 @@
 use std::{borrow::Cow, fmt::Write};
 
 use fruits_ffi::{FfiIndexMap, FfiOption, FfiSmallString, FfiString, FfiVec};
-use fruits_math::{Mat, Quat, Vec2, Vec3, Vec4};
+use fruits_math::{Mat, Number, Quat, RotationOrder3D, Vec2, Vec3, Vec4};
 
 use crate::{Serializable, SerializationError, SerializedComposite, SerializedCompositeValues, SerializedPrimitive, SerializedValue, SerializerCtxState, decompose_serialization_path, normalize_serialization_path, serialization_ctx::SerializerCtx};
 
@@ -609,24 +609,28 @@ impl<const N: usize, S: SerializerCtxState<T>, T> Serializable<S> for [T; N]
 }
 
 // todo: Mat, Quat, VecN
-impl<S: SerializerCtxState<T>, T> Serializable<S> for Quat<T>
+impl<S: SerializerCtxState<f64>, T: Number> Serializable<S> for Quat<T>
     where Self: Default
 {
     fn serialize(&self, mut ctx: SerializerCtx<S>, path: &str) -> SerializedValue {
+        let euler_angles = self.to_euler_angles(RotationOrder3D::Zxy).map(|f| f.to_degrees());
+
         ctx.serialize_map(path)
-            .with_field("x", &self.x)
-            .with_field("y", &self.y)
-            .with_field("z", &self.z)
-            .with_field("w", &self.w)
+            .with_field("x", &euler_angles.x)
+            .with_field("y", &euler_angles.y)
+            .with_field("z", &euler_angles.z)
             .finish_as_map(true)
     }
 
     fn deserialize(&mut self, mut ctx: SerializerCtx<S>, path: &str, value: &SerializedValue) {
+        let mut euler_angles = self.to_euler_angles(RotationOrder3D::Zxy).map(|f| f.to_degrees());
+
         ctx.deserialize_map(self, path, value)
-            .with_field("x", &mut self.x)
-            .with_field("y", &mut self.y)
-            .with_field("z", &mut self.z)
-            .with_field("w", &mut self.w);
+            .with_field("x", &mut euler_angles.x)
+            .with_field("y", &mut euler_angles.y)
+            .with_field("z", &mut euler_angles.z);
+
+        *self = Self::from_euler_angles(euler_angles.map(|f| f.to_radians()), RotationOrder3D::Zxy);
     }
 }
 

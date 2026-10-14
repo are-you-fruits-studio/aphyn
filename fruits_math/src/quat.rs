@@ -14,6 +14,30 @@ pub struct Quat<N> {
     pub w: N,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum RotationOrder3D {
+    Xyz,
+    Xzy,
+    Yxz,
+    Yzx,
+    Zxy,
+    Zyx,
+}
+
+impl RotationOrder3D {
+    pub const fn axes(self) -> [usize; 3] {
+        match self {
+            Self::Xyz => [0, 1, 2],
+            Self::Xzy => [0, 2, 1],
+            Self::Yxz => [1, 0, 2],
+            Self::Yzx => [1, 2, 0],
+            Self::Zxy => [2, 0, 1],
+            Self::Zyx => [2, 1, 0],
+        }
+    }
+}
+
 impl<N: Number> Quat<N> {
     pub const IDENTITY: Self = Self::new(N::ZERO, N::ZERO, N::ZERO, N::ONE);
 
@@ -172,6 +196,51 @@ impl<N: Number> Quat<N> {
 
         // Convert matrix to quaternion
         Self::from_matrix(m)
+    }
+
+    pub fn from_euler_angles(angles: Vec3<f64>, order: RotationOrder3D) -> Self {
+        let angles = angles.into_array();
+
+        let [i, j, k] = order.axes().map(|axis| match axis {
+            0 => Self::rotation_x(angles[0]),
+            1 => Self::rotation_y(angles[1]),
+            _ => Self::rotation_z(angles[2]),
+        });
+
+        k * j * i
+    }
+
+    pub fn to_euler_angles(&self, order: RotationOrder3D) -> Vec3<f64> {
+        let [i, j, k] = order.axes();
+        let [x, y, z, w] = self.into_array().map(|v| v.into_f64());
+
+        let s = 2.0 / (x * x + y * y + z * z + w * w);
+
+        // row-major rotation matrix: m[row][col]
+        let m = [
+            [1.0 - s * (y * y + z * z), s * (x * y - z * w), s * (x * z + y * w)],
+            [s * (x * y + z * w), 1.0 - s * (x * x + z * z), s * (y * z - x * w)],
+            [s * (x * z - y * w), s * (y * z + x * w), 1.0 - s * (x * x + y * y)],
+        ];
+
+        let sign = if (j + 3 - i) % 3 == 1 { 1.0 } else { -1.0 };
+
+        let sin_b = (-sign * m[k][i]).clamp(-1.0, 1.0);
+        let b = sin_b.asin();
+
+        let (a, c) = if sin_b.abs() < 1.0 - 1e-6 {
+            (f64::atan2(sign * m[k][j], m[k][k]), f64::atan2(sign * m[j][i], m[i][i]))
+        } else {
+            // gimbal lock: the first and last axes coincide, put the whole rotation into the last one
+            (0.0, f64::atan2(-sign * m[i][j], m[j][j]))
+        };
+
+        let mut angles = [0.0; 3];
+        angles[i] = a;
+        angles[j] = b;
+        angles[k] = c;
+
+        Vec3::from_array(angles)
     }
 
     pub const fn new(x: N, y: N, z: N, w: N) -> Self {

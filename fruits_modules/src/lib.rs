@@ -98,7 +98,7 @@ use fruits_asset_storage::AssetHandle;
 use fruits_audio::AudioClipAssetMetadata;
 use fruits_ecs::{Component, Schedule, WorldBuilderMut};
 use fruits_ffi::{FfiOption, FfiSmallString, FfiString, FfiVec};
-use fruits_math::{Mat, Quat, Vec2, Vec3, Vec4};
+use fruits_math::{Mat, Number, Quat, Vec2, Vec3, Vec4};
 use fruits_prefab::Prefab;
 use fruits_render::{StandardMaterialComponent, StandardMeshComponent};
 use fruits_ui::Font;
@@ -147,6 +147,8 @@ pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry
     register_self_and_related_common_transserializers::<FfiString>(serializer);
     register_self_and_related_common_transserializers::<char>(serializer);
     register_self_and_related_common_transserializers::<bool>(serializer);
+    register_self_and_related_common_transserializers::<Quat<f32>>(serializer);
+    register_self_and_related_common_transserializers::<Quat<f64>>(serializer);
     register_self_and_related_common_transserializers::<RenderSpace>(serializer);
     register_self_and_related_common_transserializers::<StandardTextureFormat>(serializer);
     register_self_and_related_common_transserializers::<CoordinateSpaceType>(serializer);
@@ -179,7 +181,6 @@ pub fn register_related_common_transserializers<T: 'static + Default>(serializer
     serializer.register(StandardSerializer::<Vec2<T>>::default());
     serializer.register(StandardSerializer::<Vec3<T>>::default());
     serializer.register(StandardSerializer::<Vec4<T>>::default());
-    serializer.register(StandardSerializer::<Quat<T>>::default());
     // todo
     serializer.register(StandardSerializer::<Mat<0, T>>::default());
     serializer.register(StandardSerializer::<Mat<1, T>>::default());

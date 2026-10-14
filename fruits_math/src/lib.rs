@@ -92,6 +92,34 @@
 //! let chained = yaw * Quat::IDENTITY;
 //! ```
 //!
+//! [`from_euler_angles`](Quat::from_euler_angles) and
+//! [`to_euler_angles`](Quat::to_euler_angles) convert between a rotation and
+//! per-axis angles (radians). The [`RotationOrder3D`] is the order the rotations
+//! are *applied* in, so [`Xyz`](RotationOrder3D::Xyz) means X first, then Y, then
+//! Z. The angles are indexed by axis (`.x` is always the X angle), whatever the
+//! order.
+//!
+//! ```
+//! use fruits_math::{Quat, RotationOrder3D, Vec3};
+//!
+//! let angles = Vec3::new(0.3, -0.7, 1.1);
+//! let (rx, ry, rz) = (Quat::<f64>::rotation_x(angles.x), Quat::rotation_y(angles.y), Quat::rotation_z(angles.z));
+//!
+//! let cases = [
+//!     (rz * ry * rx, RotationOrder3D::Xyz),
+//!     (ry * rz * rx, RotationOrder3D::Xzy),
+//!     (rz * rx * ry, RotationOrder3D::Yxz),
+//!     (rx * rz * ry, RotationOrder3D::Yzx),
+//!     (ry * rx * rz, RotationOrder3D::Zxy),
+//!     (rx * ry * rz, RotationOrder3D::Zyx),
+//! ];
+//!
+//! for (q, order) in cases {
+//!     assert_eq!(Quat::from_euler_angles(angles, order), q);
+//!     assert!((q.to_euler_angles(order) - angles).length() < 1e-9);
+//! }
+//! ```
+//!
 //! #### Interpolation
 //!
 //! [`lerp`] interpolates between two values, [`inv_lerp`] recovers the parameter,
@@ -198,6 +226,13 @@
 //! verified against the column-major [`Mat3`]. [`look_rotation`](Quat::look_rotation)
 //! falls back to alternate up axes when `forward` is parallel to `up`, and the
 //! multiplication order in `Mul` composes `rhs` then `self`.
+//!
+//! [`to_euler_angles`](Quat::to_euler_angles) is a Tait-Bryan extractor driven by
+//! the axis indices of the [`RotationOrder3D`]. It builds the rotation matrix itself in
+//! [`f64`] (independent of `to_matrix`'s unverified convention) and scales by
+//! `2 / |q|²`, so the input need not be normalized. The parity of the order
+//! flips the signs. Near gimbal lock (|sin| of the middle angle within `1e-6` of
+//! 1) the first angle is forced to 0 and the last absorbs the rotation.
 //!
 //! #### Projection and assorted free functions
 //!
