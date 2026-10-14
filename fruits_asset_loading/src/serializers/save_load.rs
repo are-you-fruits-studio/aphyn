@@ -1,10 +1,10 @@
-use std::{collections::HashMap, sync::Mutex};
+use std::collections::HashMap;
 
 use fruits_asset_storage::{AssetHandle, AssetStorageResource};
 use fruits_audio::{AudioClip, AudioClipAssetMetadata};
 use fruits_ecs::ResourcesHolderRef;
 use fruits_ffi::FfiString;
-use fruits_prefab::{Prefab, PrefabDependencies};
+use fruits_prefab::Prefab;
 use fruits_render_core::{CoordinateSpaceType, StandardMaterial, StandardMesh, StandardMeshAssetMetadata, StandardTexture};
 use fruits_serialization::*;
 
@@ -12,51 +12,43 @@ use crate::{EntityTransSerializer, serialize_prefab_no_deps};
 
 //
 
-pub fn save_with_asset_serializers_from_world<R>(
+pub fn save_load_with_asset_serializers_from_world<R>(
     res: ResourcesHolderRef,
-    prefab_dependencies: Option<&mut PrefabDependencies>,
     f: impl FnOnce(TransSerializerRegistry) -> R,
 ) -> Option<R> {
     Some(
-        save_with_asset_serializers::<R>(
+        save_load_with_asset_serializers::<R>(
             &*res.get::<AssetStorageResource<Prefab>>()?,
             &*res.get::<AssetStorageResource<StandardTexture>>()?,
             &*res.get::<AssetStorageResource<StandardMaterial>>()?,
             &*res.get::<AssetStorageResource<StandardMesh>>()?,
             &*res.get::<AssetStorageResource<AudioClip>>()?,
-            prefab_dependencies,
             f,
         )
     )
 }
 
-pub fn save_with_asset_serializers<R>(
+pub fn save_load_with_asset_serializers<R>(
     prefabs: &AssetStorageResource<Prefab>,
     textures: &AssetStorageResource<StandardTexture>,
     materials: &AssetStorageResource<StandardMaterial>,
     meshes: &AssetStorageResource<StandardMesh>,
     audio_clips: &AssetStorageResource<AudioClip>,
-    prefab_dependencies: Option<&mut PrefabDependencies>,
     f: impl FnOnce(TransSerializerRegistry) -> R,
 ) -> R {
-    let deps = prefab_dependencies.map(Mutex::new);
-
     let entities_deserialized = HashMap::new();
     let entities_serialized = HashMap::new();
 
     let mut serializer_local = TransSerializerRegistry::new();
 
-    // todo: collect deps on serialization as well?
-    let deps = deps.as_ref();
-
     serializer_local.register(EntityTransSerializer::new(&entities_deserialized, &entities_serialized));
 
-    serializer_local.register(AssetHandleLinkTransSerializer { assets: textures });
-    serializer_local.register(AssetHandleLinkTransSerializer { assets: materials });
-    serializer_local.register(AssetHandleLinkTransSerializer { assets: meshes });
-    serializer_local.register(AssetHandleLinkTransSerializer { assets: audio_clips });
+    serializer_local.register(AssetHandleLinkTransSerializer::new(textures));
+    serializer_local.register(AssetHandleLinkTransSerializer::new(materials));
+    serializer_local.register(AssetHandleLinkTransSerializer::new(meshes));
+    serializer_local.register(AssetHandleLinkTransSerializer::new(audio_clips));
     // todo: font
-    serializer_local.register(AssetHandleLinkTransSerializer { assets: prefabs });
+    serializer_local.register(AssetHandleLinkTransSerializer::new(prefabs));
 
     serializer_local.register(DirectAssetSaveTransSerializer {
         assets: textures,
@@ -104,13 +96,20 @@ pub enum DirectSerializableAsset<T> {
 pub struct AssetHandleLinkTransSerializer<'m, T: 'static> {
     assets: &'m AssetStorageResource<T>,
 }
+impl<'m, T: 'static> AssetHandleLinkTransSerializer<'m, T> {
+    pub fn new(assets: &'m AssetStorageResource<T>) -> Self {
+        Self {
+            assets,
+        }
+    }
+}
 impl<'m, T: 'static, S: Copy> Serializer<S> for AssetHandleLinkTransSerializer<'m, T> {
     type Deserialized = AssetHandle<T>;
 
     fn serialize(&self, value: &Self::Deserialized, mut ctx: SerializerCtx<S>, path: &str) -> SerializedValue {
         let key = self.assets.get_registration(value);
 
-        if key.is_none() {
+        if value != &AssetHandle::EMPTY && key.is_none() {
             ctx.report_err(SerializationError::InvalidInput { message: "AssetHandle is not registered".into() });
         }
 
@@ -124,6 +123,10 @@ impl<'m, T: 'static, S: Copy> Serializer<S> for AssetHandleLinkTransSerializer<'
             ctx.report_err(SerializationError::InvalidInput { message: "AssetHandle can only be deserialized from string".into() });
             return;
         };
+
+        if key.as_str() == "" {
+            return;
+        }
 
         let Some(stored_asset) = self.assets.get_registered(key) else {
             ctx.report_err(SerializationError::InvalidInput { message: format!("AssetHandle with a key \"{key}\" not found").into() });

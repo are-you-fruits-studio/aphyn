@@ -17,7 +17,7 @@ pub fn save_asset_from_world_res(res: ResourcesHolderRef, asset_key: &str) -> Op
         asset_type,
     };
 
-    save_with_asset_serializers_from_world(res, None, |serializers_local| {
+    save_load_with_asset_serializers_from_world(res, |serializers_local| {
         let serializer_ctx_state = serializers_global.to_ctx_state();
         let mut serializer_ctx = serializer_ctx_state.wrap_with_local(&serializers_local)
             .into_ctx(&mut err_handler);
@@ -48,7 +48,6 @@ pub fn deserialize_asset_to_world_res(
         res,
         assets_dir_path,
         asset_key,
-        None,
         |serializers_local, serializers_global| {
             let mut err_handler = |err| println!("{err}");
             let serializer_ctx_state = serializers_global.to_ctx_state();
@@ -78,7 +77,6 @@ pub fn load_asset_to_world_res(
         res,
         assets_dir_path,
         asset_key,
-        None,
         |serializers_local, serializers_global| {
             let mut err_handler = |err| println!("{err}");
             let serializer_ctx_state = serializers_global.to_ctx_state();

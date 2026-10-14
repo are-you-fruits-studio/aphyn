@@ -4,7 +4,7 @@ use fruits_asset_storage::{AssetHandle, AssetStorageResource};
 use fruits_audio::{AudioClip, AudioStateResource};
 use fruits_ecs::ResourcesHolderMut;
 use fruits_ffi::FfiString;
-use fruits_prefab::{Prefab, PrefabDependencies};
+use fruits_prefab::Prefab;
 use fruits_render_core::{RenderApiResource, StandardMaterial, StandardMesh, StandardTexture};
 use fruits_serialization::*;
 
@@ -14,7 +14,6 @@ pub fn load_asset_single_from_world<R>(
     res: ResourcesHolderMut,
     assets_dir_path: impl AsRef<Path>,
     asset_key: &str,
-    prefab_dependencies: Option<&mut PrefabDependencies>,
     f: impl FnOnce(TransSerializerRegistry, &SerializersResource) -> R,
 ) -> Option<R> {
     Some(unsafe {
@@ -29,7 +28,6 @@ pub fn load_asset_single_from_world<R>(
             &mut *res.get_ptr::<AssetStorageResource<AudioClip>>()?,
             assets_dir_path,
             asset_key,
-            prefab_dependencies,
             f,
         )
     })
@@ -46,7 +44,6 @@ pub fn load_asset_single<R>(
     audio_clips: &mut AssetStorageResource<AudioClip>,
     assets_dir_path: impl AsRef<Path>,
     asset_key: &str,
-    prefab_dependencies: Option<&mut PrefabDependencies>,
     f: impl FnOnce(TransSerializerRegistry, &SerializersResource) -> R,
 ) -> R {
     let (
@@ -56,7 +53,6 @@ pub fn load_asset_single<R>(
         materials,
         meshes,
         audio_clips,
-        deps,
     ) = (
         &Mutex::new(audio_state),
         &Mutex::new(prefabs),
@@ -64,7 +60,6 @@ pub fn load_asset_single<R>(
         &Mutex::new(materials),
         &Mutex::new(meshes),
         &Mutex::new(audio_clips),
-        prefab_dependencies.map(Mutex::new),
     );
 
     let assets_dir_path = assets_dir_path.as_ref();
@@ -74,23 +69,19 @@ pub fn load_asset_single<R>(
 
     let mut serializer_local = TransSerializerRegistry::new();
 
-    // todo: collect deps on serialization as well?
-    let deps = deps.as_ref();
-
     serializer_local.register(EntityTransSerializer::new(&entities_deserialized, &entities_serialized));
 
-    serializer_local.register(SingleLoadTransSerializer { assets: textures, deps });
-    serializer_local.register(SingleLoadTransSerializer { assets: materials, deps });
-    serializer_local.register(SingleLoadTransSerializer { assets: meshes, deps });
-    serializer_local.register(SingleLoadTransSerializer { assets: audio_clips, deps });
+    serializer_local.register(SingleLoadTransSerializer { assets: textures });
+    serializer_local.register(SingleLoadTransSerializer { assets: materials });
+    serializer_local.register(SingleLoadTransSerializer { assets: meshes });
+    serializer_local.register(SingleLoadTransSerializer { assets: audio_clips });
     // todo: font
-    serializer_local.register(SingleLoadTransSerializer { assets: prefabs, deps });
+    serializer_local.register(SingleLoadTransSerializer { assets: prefabs });
 
     serializer_local.register(SingleDirectLoadTransSerializer { 
         assets: textures,
         assets_dir_path,
         asset_key,
-        deps,
         loader: |mut ctx, value, assets_dir_path| {
             TextureLoader {
                 render_api: render_api,
@@ -102,7 +93,6 @@ pub fn load_asset_single<R>(
         assets: materials,
         assets_dir_path,
         asset_key,
-        deps,
         loader: |mut ctx, value, _assets_dir_path| {
             // todo: use real path?
             let asset_metadata = ctx.deserialize_default("", value);
@@ -115,7 +105,6 @@ pub fn load_asset_single<R>(
         assets: meshes,
         assets_dir_path,
         asset_key,
-        deps,
         loader: |mut ctx, value, assets_dir_path| {
             MeshLoader {
                 render_api: render_api,
@@ -127,7 +116,6 @@ pub fn load_asset_single<R>(
         assets: audio_clips,
         assets_dir_path,
         asset_key,
-        deps,
         loader: |mut ctx, value, assets_dir_path| {
             AudioClipLoader {
                 audio_state: &mut *audio_state.lock().unwrap(),
@@ -140,7 +128,6 @@ pub fn load_asset_single<R>(
         assets: prefabs,
         assets_dir_path,
         asset_key,
-        deps,
         loader: |ctx, value, assets_dir_path| {
             PrefabLoader.load_from_serialized(ctx, value)
         },
@@ -151,7 +138,6 @@ pub fn load_asset_single<R>(
 
 pub struct SingleLoadTransSerializer<'m, 'brw: 'm, T: 'static> {
     pub assets: &'m Mutex<&'brw mut AssetStorageResource<T>>,
-    pub deps: Option<&'m Mutex<&'brw mut PrefabDependencies>>,
 }
 impl<'m, 'brw: 'm, T: 'static, S: Copy> Serializer<S> for SingleLoadTransSerializer<'m, 'brw, T> {
     type Deserialized = AssetHandle<T>;
@@ -188,7 +174,6 @@ pub struct SingleDirectLoadTransSerializer<'m, 'brw: 'm, T: 'static, F: 'm + Sen
     pub assets: &'m Mutex<&'brw mut AssetStorageResource<T>>,
     pub assets_dir_path: &'m Path,
     pub asset_key: &'m str,
-    pub deps: Option<&'m Mutex<&'brw mut PrefabDependencies>>,
     pub loader: F,
 }
 impl<'a, 'm, 'brw: 'm, T: 'static, F: 'm + Send + Sync + Fn(SerializerCtx<TransSerializerCtxState>, &SerializedValue, &Path) -> Option<T>> Serializer<TransSerializerCtxState<'a>> for SingleDirectLoadTransSerializer<'m, 'brw, T, F> {

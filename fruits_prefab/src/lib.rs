@@ -1,8 +1,8 @@
 //! # fruits_prefab
 //!
-//! Defines the engine's in-memory prefab format — a reusable template of entities, their
-//! serialized components, and the assets those components reference — together with the
-//! helpers that convert an entity's components to and from that format.
+//! Defines the engine's in-memory prefab format — a reusable template of entities and their
+//! serialized components — together with the helpers that convert an entity's components to
+//! and from that format.
 //!
 //! # How to use
 //!
@@ -35,24 +35,23 @@
 //! entity carries:
 //!
 //! ```
-//! use fruits_prefab::{Prefab, PrefabComponent};
+//! use fruits_ffi::{FfiIndexMap, FfiString};
+//! use fruits_prefab::Prefab;
 //! use fruits_serialization::SerializedValue;
 //!
+//! let mut components = FfiIndexMap::<FfiString, SerializedValue>::default();
+//! components.insert("my_crate::Health".into(), SerializedValue::Null);
+//!
 //! let mut prefab = Prefab::empty();
-//! prefab.entities.0.insert(1, vec![
-//!     PrefabComponent {
-//!         component_id: "my_crate::Health".into(),
-//!         data: SerializedValue::Null,
-//!     },
-//! ].into());
+//! prefab.entities.0.insert(1, components.into());
 //!
 //! assert_eq!(prefab.entities.0.len(), 1);
 //! ```
 //!
 //! #### Recording and restoring an entity's components
 //!
-//! [`serialize_components`] captures every component of an entity as [`PrefabComponent`]s,
-//! and [`deserialize_prefab_components`] adds them to an entity. Both take a registry-backed
+//! [`serialize_components`] captures every component of an entity as a map from component id
+//! to serialized payload, and [`deserialize_prefab_components`] adds them to an entity. Both take a registry-backed
 //! [`SerializerCtx`]; loading prefab files, instantiating whole prefabs, and recording
 //! hierarchies live in `fruits_asset_loading`:
 //!
@@ -71,15 +70,17 @@
 //!
 //! #### Data model
 //!
-//! A [`Prefab`] holds [`PrefabEntities`] — an `FfiIndexMap` from a prefab-local entity id
-//! (`u64`) to an `FfiVec` of [`PrefabComponent`], each pairing a `component_id` string with
-//! the component's [`SerializedValue`] payload — and [`PrefabDependencies`], per-asset-type
-//! maps from asset key to the loaded `AssetHandle` (textures, meshes, materials, audio clips,
-//! fonts, and other prefabs). All of these are `#[repr(C)]`. The ids are local to the prefab:
-//! instantiation creates one real entity per id and resolves entity references inside
-//! component data through those ids. [`PrefabComponent`] derives [`Serializable`], and
-//! `SerializedValue` is serializable as-is, so the component payloads pass through prefab
-//! (de)serialization verbatim.
+//! A [`Prefab`] holds only [`PrefabEntities`] — an `FfiIndexMap` from a prefab-local entity id
+//! (`u64`) to [`PrefabEntityComponents`], an `FfiIndexMap` from component id to the
+//! component's [`SerializedValue`] payload. All of these are `#[repr(C)]`. The ids are local to
+//! the prefab: instantiation creates one real entity per id and resolves entity references
+//! inside component data through those ids. Both wrappers implement [`Serializable`] by
+//! delegating to their map, and `SerializedValue` is serializable as-is, so the component
+//! payloads pass through prefab (de)serialization verbatim.
+//!
+//! A prefab does not store the assets its components reference. Asset handles stay in the
+//! payloads as asset keys and are resolved against the world's asset storages when the prefab
+//! is instantiated (see `fruits_asset_loading`); precaching them on the prefab is a `todo`.
 //!
 //! #### The component id is the type name
 //!
@@ -101,7 +102,7 @@
 //! hierarchies into prefabs live in `fruits_asset_loading`, and the
 //! `AssetStorageResource<Prefab>` is inserted there by `add_asset_module_to`.
 //! [`serialize_prefab_single_entity`] and [`deserialize_prefab_components`] are marked `todo`:
-//! the former always stores the entity under id `0` and leaves the dependencies empty.
+//! the former always stores the entity under id `0`.
 
 use fruits_asset_storage::AssetHandle;
 use fruits_audio::AudioClip;
@@ -152,28 +153,16 @@ impl From<FfiIndexMap<u64, PrefabEntityComponents>> for PrefabEntities {
 }
 
 #[repr(C)]
-#[derive(Default, Debug, Clone)]
-pub struct PrefabDependencies {
-    pub textures: FfiIndexMap<FfiString, AssetHandle<StandardTexture>>,
-    pub meshes: FfiIndexMap<FfiString, AssetHandle<StandardMesh>>,
-    pub materials: FfiIndexMap<FfiString, AssetHandle<StandardMaterial>>,
-    pub audio_clips: FfiIndexMap<FfiString, AssetHandle<AudioClip>>,
-    pub fonts: FfiIndexMap<FfiString, AssetHandle<Font>>,
-    pub prefabs: FfiIndexMap<FfiString, AssetHandle<Prefab>>,
-}
-
-#[repr(C)]
 #[derive(Debug, Clone)]
 pub struct Prefab {
     pub entities: PrefabEntities,
-    pub dependencies: PrefabDependencies,
+    // todo: precache dependencies (map<str, AssetHandle>)
 }
 
 impl Prefab {
     pub fn empty() -> Self {
         Self {
             entities: Default::default(),
-            dependencies: Default::default(),
         }
     }
 }
@@ -188,8 +177,6 @@ pub fn serialize_prefab_single_entity(
         entities: PrefabEntities([
             (0, PrefabEntityComponents(serialize_components(entity, serializer_ctx, entities)))
         ].into_iter().collect()),
-        // todo
-        dependencies: PrefabDependencies::default(),
     }
 }
 

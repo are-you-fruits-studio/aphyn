@@ -3,7 +3,7 @@ use std::{collections::HashMap, path::Path, sync::Mutex};
 use fruits_asset_storage::{AssetHandle, AssetStorageResource};
 use fruits_audio::{AudioClip, AudioStateResource};
 use fruits_ecs::ResourcesHolderMut;
-use fruits_prefab::{Prefab, PrefabDependencies};
+use fruits_prefab::Prefab;
 use fruits_render_core::{RenderApiResource, StandardMaterial, StandardMesh, StandardTexture, StandardTextureAssetMetadata};
 use fruits_serialization::*;
 
@@ -12,7 +12,6 @@ use crate::{AudioClipLoader, EntityTransSerializer, MaterialLoader, MeshLoader, 
 pub fn load_asset_transitively_from_world<R>(
     res: ResourcesHolderMut,
     assets_dir_path: impl AsRef<Path>,
-    prefab_dependencies: Option<&mut PrefabDependencies>,
     f: impl FnOnce(TransSerializerRegistry, &SerializersResource) -> R,
 ) -> Option<R> {
     Some(unsafe {
@@ -26,7 +25,6 @@ pub fn load_asset_transitively_from_world<R>(
             &mut *res.get_ptr::<AssetStorageResource<StandardMesh>>()?,
             &mut *res.get_ptr::<AssetStorageResource<AudioClip>>()?,
             assets_dir_path,
-            prefab_dependencies,
             f,
         )
     })
@@ -42,7 +40,6 @@ pub fn load_asset_transitively<R>(
     meshes: &mut AssetStorageResource<StandardMesh>,
     audio_clips: &mut AssetStorageResource<AudioClip>,
     assets_dir_path: impl AsRef<Path>,
-    prefab_dependencies: Option<&mut PrefabDependencies>,
     f: impl FnOnce(TransSerializerRegistry, &SerializersResource) -> R,
 ) -> R {
     let (
@@ -51,8 +48,7 @@ pub fn load_asset_transitively<R>(
         textures,
         materials,
         meshes,
-        audio_clips,
-        deps,
+        audio_clips
     ) = (
         &Mutex::new(audio_state),
         &Mutex::new(prefabs),
@@ -60,7 +56,6 @@ pub fn load_asset_transitively<R>(
         &Mutex::new(materials),
         &Mutex::new(meshes),
         &Mutex::new(audio_clips),
-        prefab_dependencies.map(Mutex::new),
     );
 
     let assets_dir_path = assets_dir_path.as_ref();
@@ -70,15 +65,11 @@ pub fn load_asset_transitively<R>(
 
     let mut serializer_local = TransSerializerRegistry::new();
 
-    // todo: collect deps on serialization as well?
-    let deps = deps.as_ref();
-
     serializer_local.register(EntityTransSerializer::new(&entities_deserialized, &entities_serialized));
 
     serializer_local.register(TransitiveLoadTransSerializer { 
         assets: textures,
         assets_dir_path,
-        deps,
         loader: |mut ctx, value, assets_dir_path| {
             TextureLoader {
                 render_api: render_api,
@@ -89,7 +80,6 @@ pub fn load_asset_transitively<R>(
     serializer_local.register(TransitiveLoadTransSerializer { 
         assets: materials,
         assets_dir_path,
-        deps,
         loader: |mut ctx, value, _assets_dir_path| {
             // todo: use real path?
             let asset_metadata = ctx.deserialize_default("", value);
@@ -101,7 +91,6 @@ pub fn load_asset_transitively<R>(
     serializer_local.register(TransitiveLoadTransSerializer { 
         assets: meshes,
         assets_dir_path,
-        deps,
         loader: |mut ctx, value, assets_dir_path| {
             MeshLoader {
                 render_api: render_api,
@@ -112,7 +101,6 @@ pub fn load_asset_transitively<R>(
     serializer_local.register(TransitiveLoadTransSerializer { 
         assets: audio_clips,
         assets_dir_path,
-        deps,
         loader: |mut ctx, value, assets_dir_path| {
             AudioClipLoader {
                 audio_state: &mut *audio_state.lock().unwrap(),
@@ -124,7 +112,6 @@ pub fn load_asset_transitively<R>(
     serializer_local.register(TransitiveLoadTransSerializer { 
         assets: prefabs,
         assets_dir_path,
-        deps,
         loader: |ctx, value, assets_dir_path| {
             PrefabLoader.load_from_serialized(ctx, value)
         },
@@ -136,7 +123,6 @@ pub fn load_asset_transitively<R>(
 pub struct TransitiveLoadTransSerializer<'m, 'brw: 'm, T: 'static, F: 'm + Send + Sync + Fn(SerializerCtx<TransSerializerCtxState>, &SerializedValue, &Path) -> Option<T>> {
     pub assets: &'m Mutex<&'brw mut AssetStorageResource<T>>,
     pub assets_dir_path: &'m Path,
-    pub deps: Option<&'m Mutex<&'brw mut PrefabDependencies>>,
     pub loader: F,
 }
 impl<'a, 'm, 'brw: 'm, T: 'static, F: 'm + Send + Sync + Fn(SerializerCtx<TransSerializerCtxState>, &SerializedValue, &Path) -> Option<T>> Serializer<TransSerializerCtxState<'a>> for TransitiveLoadTransSerializer<'m, 'brw, T, F> {

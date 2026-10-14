@@ -654,9 +654,12 @@ pub fn save_inspected_asset_from_simulated_world_to_file_system(
 pub fn destroy_non_inspected_entity_system(
     mut simulated_world: ResMut<SimulatedWorldResource>,
     mut inspected_asset: ResMut<InspectedAssetResource>,
+    mut inspected_entity: ResMut<InspectedEntityResource>,
     selected_file: Res<SelectedFileResource>,
 ) {
     return_if!(selected_file.potential_asset_key == inspected_asset.asset_key);
+
+    *inspected_entity = InspectedEntityResource::default();
 
     return_if_not!(Some(world) = &mut simulated_world.0);
 
@@ -905,7 +908,7 @@ pub fn update_inspector_window_system(
             continue;
         }
 
-        let serialized = save_with_asset_serializers_from_world(simulated_world.world.data().resources(), None, |serializers_local| {
+        let serialized = save_load_with_asset_serializers_from_world(simulated_world.world.data().resources(), |serializers_local| {
             let serializers_global = simulated_world.world.data().resources().get::<SerializersResource>().unwrap();
             
             let serializer_ctx_state = serializers_global.to_ctx_state();
@@ -922,6 +925,14 @@ pub fn update_inspector_window_system(
             .flatten()
             .copied()
             .unwrap_or(EntityId::EMPTY);
+
+        if let Some(parent_c) = ent.get_component_mut::<ParentComponent>(window_c.content_container) {
+            let extra = parent_c.children.iter().skip(1).copied().collect::<Vec<_>>();
+            parent_c.children = parent_c.children.iter().take(1).copied().collect();
+            for e in extra {
+                destroy_entity_and_children(ent.as_mut(), e);
+            }
+        }
 
         spawn_serialized(
             ent.as_mut(),
@@ -947,6 +958,13 @@ fn update_prefab_components_ent(
     font: AssetHandle<Font>,
 ) {
     if let Some(parent_c) = ent.get_component_mut::<ParentComponent>(ent_parent) {
+        let children = std::mem::take(&mut parent_c.children);
+        let (kept, foreign): (Vec<_>, Vec<_>) = children.iter().copied().partition(|&e| ent.get_component::<SerializedComponentComponent>(e).is_some());
+        ent.get_component_mut::<ParentComponent>(ent_parent).unwrap().children = kept.into();
+        for e in foreign {
+            destroy_entity_and_children(ent.as_mut(), e);
+        }
+
         while ent.get_component_mut::<ParentComponent>(ent_parent).unwrap().children.len() > components.len() as u64 {
             let popped_ent = ent.get_component_mut::<ParentComponent>(ent_parent).unwrap().children.pop().unwrap();
             destroy_entity_and_children(ent.as_mut(), popped_ent);

@@ -1,13 +1,16 @@
 use std::{collections::{HashMap, VecDeque}, path::Path};
 
 use fruits_asset_storage::{AssetHandle, AssetStorageResource};
+use fruits_audio::AudioClip;
 use fruits_ecs::*;
-use fruits_ffi::{FfiIndexMap, FfiString, FfiVec};
-use fruits_prefab::{Prefab, PrefabDependencies, PrefabEntities, deserialize_component, deserialize_prefab_components, serialize_components};
+use fruits_ffi::{FfiIndexMap, FfiString};
+use fruits_prefab::{Prefab, PrefabEntities, deserialize_component, deserialize_prefab_components, serialize_components};
+use fruits_render_core::{StandardMaterial, StandardMesh, StandardTexture};
 use fruits_serialization::*;
 use fruits_transform::ParentComponent;
+use fruits_ui::Font;
 
-use crate::AssetLoader;
+use crate::{AssetLoader, save_load_with_asset_serializers_from_world};
 
 pub struct PrefabHandleLoader<'a> {
     pub prefabs: &'a mut AssetStorageResource<Prefab>,
@@ -45,7 +48,6 @@ impl PrefabLoader {
         let prefab_entities = deserialize_prefab_no_deps(ctx.as_mut().map_state(|_| PureSerializerCtxState), value);
         
         let prefab = Prefab {
-            dependencies: load_prefab_dependencies(ctx, &prefab_entities),
             entities: prefab_entities,
         };
 
@@ -79,22 +81,15 @@ struct PrefabComponentSpawnCtx {
     entities: HashMap<u64, EntityId>,
 }
 
-fn load_prefab_dependencies(mut ctx: SerializerCtx<TransSerializerCtxState>, prefab: &PrefabEntities) -> PrefabDependencies {
-    // todo
-    let mut deps = PrefabDependencies::default();
-
-    for prefab_components in prefab.0.values() {
-        for (component_id, component_value) in &prefab_components.0 {
-            _ = ctx.as_mut().deserialize_default_any(component_id, "", component_value);
-        }
-    }
-
-    deps
-}
-
 pub fn instantiate_prefab(res: ResourcesHolderRef, mut ent: EntitiesHolderMut, prefab: AssetHandle<Prefab>) -> Option<EntityId> {
     let prefabs = res.get::<AssetStorageResource<Prefab>>()?;
     let serializers_global = res.get::<SerializersResource>().unwrap();
+
+    let textures = res.get::<AssetStorageResource<StandardTexture>>();
+    let materials = res.get::<AssetStorageResource<StandardMaterial>>();
+    let meshes = res.get::<AssetStorageResource<StandardMesh>>();
+    let audio_clips = res.get::<AssetStorageResource<AudioClip>>();
+    let fonts = res.get::<AssetStorageResource<Font>>();
 
     let prefab = prefabs.get(&prefab)?;
 
@@ -113,17 +108,15 @@ pub fn instantiate_prefab(res: ResourcesHolderRef, mut ent: EntitiesHolderMut, p
 
     let entities_serialized = HashMap::new();
 
-    let deps = &prefab.dependencies;
-
     let mut serializers_local = TransSerializerRegistry::new();
 
     serializers_local.register(EntityTransSerializer::new(&ctx.entities, &entities_serialized));
-    serializers_local.register(PrefabAssetInstantiateTransSerializer::new(deps, |deps, key| deps.textures.get(key).cloned()));
-    serializers_local.register(PrefabAssetInstantiateTransSerializer::new(deps, |deps, key| deps.materials.get(key).cloned()));
-    serializers_local.register(PrefabAssetInstantiateTransSerializer::new(deps, |deps, key| deps.meshes.get(key).cloned()));
-    serializers_local.register(PrefabAssetInstantiateTransSerializer::new(deps, |deps, key| deps.audio_clips.get(key).cloned()));
-    serializers_local.register(PrefabAssetInstantiateTransSerializer::new(deps, |deps, key| deps.fonts.get(key).cloned()));
-    serializers_local.register(PrefabAssetInstantiateTransSerializer::new(deps, |deps, key| deps.prefabs.get(key).cloned()));
+    serializers_local.register(PrefabAssetInstantiateTransSerializer::new(textures));
+    serializers_local.register(PrefabAssetInstantiateTransSerializer::new(materials));
+    serializers_local.register(PrefabAssetInstantiateTransSerializer::new(meshes));
+    serializers_local.register(PrefabAssetInstantiateTransSerializer::new(audio_clips));
+    serializers_local.register(PrefabAssetInstantiateTransSerializer::new(fonts));
+    serializers_local.register(PrefabAssetInstantiateTransSerializer::new(Some(prefabs)));
 
     let mut err_handler = |err| println!("[{}:{}] {err}", file!(), line!());
     let serializer_ctx_state = serializers_global.to_ctx_state();
@@ -162,19 +155,25 @@ pub fn record_into_prefab_components(
 
     let entities_deserialized = HashMap::<u64, EntityId>::new();
 
-    let mut serializers_local = TransSerializerRegistry::new();
+    let mut serializers_sublocal = TransSerializerRegistry::new();
 
-    serializers_local.register(EntityTransSerializer {
+    serializers_sublocal.register(EntityTransSerializer {
         entities_deserialized: &entities_deserialized,
         entities_serialized: ent_to_id,
     });
 
-    let mut err_handler = |err| println!("[{}:{}] {err}", file!(), line!());
+    save_load_with_asset_serializers_from_world(res, |serializers_local| {
+        let mut err_handler = |err| println!("[{}:{}] {err}", file!(), line!());
     
-    let serializer_ctx_state = serializers_global.to_ctx_state();
-    let serializer_ctx = serializer_ctx_state.wrap_with_local(&serializers_local).into_ctx(&mut err_handler);
-
-    serialize_components(entity, serializer_ctx, ent)
+        let serializer_ctx_state = serializers_global.to_ctx_state();
+        let serializer_ctx_state = serializer_ctx_state.wrap_with_local(&serializers_local);
+        let serializer_ctx = serializer_ctx_state
+            .wrap_with_local(&serializers_sublocal)
+            .into_ctx(&mut err_handler);
+        
+        serialize_components(entity, serializer_ctx, ent)
+        // todo: maybe return option?
+    }).unwrap_or_default()
 }
 
 pub fn record_into_prefab(
@@ -209,27 +208,32 @@ pub fn record_into_prefab(
         }
     }
 
-    let mut serializers_local = TransSerializerRegistry::new();
-    serializers_local.register(EntityTransSerializer {
+    let mut serializers_sublocal = TransSerializerRegistry::new();
+    serializers_sublocal.register(EntityTransSerializer {
         entities_deserialized: &entities_deserialized,
         entities_serialized: &ent_to_id,
     });
 
-    let mut err_handler = |err| println!("[{}:{}] {err}", file!(), line!());
-    
-    let serializer_ctx_state = serializers_global.to_ctx_state();
-    let mut serializer_ctx = serializer_ctx_state.wrap_with_local(&serializers_local).into_ctx(&mut err_handler);
+    save_load_with_asset_serializers_from_world(res, |serializers_local| {
+        let mut err_handler = |err| println!("[{}:{}] {err}", file!(), line!());
 
-    let mut prefab = Prefab::empty();
-
-    for (entity, id) in entities_ordered {
-        // todo: asset references
-        let components = serialize_components(entity, serializer_ctx.as_mut(), ent);
-
-        prefab.entities.0.insert(id, components.into());
-    }
-
-    Some(prefab)
+        let serializer_ctx_state = serializers_global.to_ctx_state();
+        let serializer_ctx_state = serializer_ctx_state.wrap_with_local(&serializers_local);
+        let mut serializer_ctx = serializer_ctx_state
+            .wrap_with_local(&serializers_sublocal)
+            .into_ctx(&mut err_handler);
+        
+        let mut prefab = Prefab::empty();
+        
+        for (entity, id) in entities_ordered {
+            // todo: asset references
+            let components = serialize_components(entity, serializer_ctx.as_mut(), ent);
+            
+            prefab.entities.0.insert(id, components.into());
+        }
+        
+        prefab
+    })
 }
 
 // todo
@@ -278,19 +282,24 @@ pub fn deserialize_entity_component_from_prefab(
 
     let entities_serialized = HashMap::<EntityId, u64>::new();
 
-    let mut serializers_local = TransSerializerRegistry::new();
+    let mut serializers_sublocal = TransSerializerRegistry::new();
 
-    serializers_local.register(EntityTransSerializer {
+    serializers_sublocal.register(EntityTransSerializer {
         entities_deserialized: id_to_ent,
         entities_serialized: &entities_serialized,
     });
 
-    let mut err_handler = |err| println!("[{}:{}] {err}", file!(), line!());
+    save_load_with_asset_serializers_from_world(res, |serializers_local| {
+        let mut err_handler = |err| println!("[{}:{}] {err}", file!(), line!());
     
-    let serializer_ctx_state = serializers_global.to_ctx_state();
-    let serializer_ctx = serializer_ctx_state.wrap_with_local(&serializers_local).into_ctx(&mut err_handler);
+        let serializer_ctx_state = serializers_global.to_ctx_state();
+        let serializer_ctx_state = serializer_ctx_state.wrap_with_local(&serializers_local);
+        let serializer_ctx = serializer_ctx_state
+            .wrap_with_local(&serializers_sublocal)
+            .into_ctx(&mut err_handler);
 
-    deserialize_component(ent, entity, component_id, serializer_ctx, path, serialized)
+        deserialize_component(ent, entity, component_id, serializer_ctx, path, serialized)
+    }).unwrap_or(false)
 }
 
 pub struct EntityTransSerializer<'brw> {
@@ -349,18 +358,16 @@ impl<'brw, S: Copy> Serializer<S> for EntityTransSerializer<'brw> {
 }
 
 pub struct PrefabAssetInstantiateTransSerializer<'a, T: 'static> {
-    deps: &'a PrefabDependencies,
-    extractor: fn(&PrefabDependencies, &str) -> Option<AssetHandle<T>>,
+    asset_storage: Option<&'a AssetStorageResource<T>>
 }
 impl<'a, T: 'static> PrefabAssetInstantiateTransSerializer<'a, T> {
-    pub fn new(deps: &'a PrefabDependencies, extractor: fn(&PrefabDependencies, &str) -> Option<AssetHandle<T>>) -> Self {
+    pub fn new(asset_storage: Option<&'a AssetStorageResource<T>>) -> Self {
         Self {
-            deps,
-            extractor,
+            asset_storage,
         }
     }
 }
-impl<'a, T, S: Copy> Serializer<S> for PrefabAssetInstantiateTransSerializer<'a, T> {
+impl<'a, T: 'static, S: Copy> Serializer<S> for PrefabAssetInstantiateTransSerializer<'a, T> {
     type Deserialized = AssetHandle<T>;
 
     fn serialize(&self, _value: &Self::Deserialized, mut _ctx: SerializerCtx<S>, _path: &str) -> SerializedValue {
@@ -379,7 +386,9 @@ impl<'a, T, S: Copy> Serializer<S> for PrefabAssetInstantiateTransSerializer<'a,
             return;
         };
 
-        let Some(asset_handle) = (self.extractor)(self.deps, serialized.as_str()) else {
+        let asset_handle = self.asset_storage.map(|s| s.get_registered(serialized.as_str())).flatten().cloned();
+
+        let Some(asset_handle) = asset_handle else {
             ctx.report_err(SerializationError::InvalidInput { message: format!("AssetHandle {serialized} cannot be loaded").into() });
             return;
         };
@@ -391,6 +400,7 @@ impl<'a, T, S: Copy> Serializer<S> for PrefabAssetInstantiateTransSerializer<'a,
         Default::default()
     }
 }
+
 
 // todo: prefabs instantiation needs to:
 // + spawn entities
@@ -405,16 +415,10 @@ impl<'a, T, S: Copy> Serializer<S> for PrefabAssetInstantiateTransSerializer<'a,
 
 const _EXAMPLE: &str = r#"
 [
-  {
-    "entity_id": 0,
-    "components": [
-      {
-        "component_id": GlobalTransform,
-        "data": {
-         
-        }
-      }
-    ]
+  "0": {
+    "GlobalTransform": {
+          
+    }
   }
 ]
 "#;

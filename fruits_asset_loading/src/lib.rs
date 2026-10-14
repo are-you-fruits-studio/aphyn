@@ -153,10 +153,11 @@
 //! [`instantiate_prefab`] creates one entity per prefab-local id (the first id is the root),
 //! then deserializes every component through a context that layers a local registry over the
 //! world's `SerializersResource`: [`EntityTransSerializer`] maps stored ids to the new entities
-//! (`0` is the empty entity), and [`PrefabAssetInstantiateTransSerializer`] resolves asset
-//! keys from the prefab's `dependencies`. The prefab loader does not fill those dependencies
-//! yet (`load_prefab_dependencies` returns an empty set), so asset handles inside an
-//! instantiated prefab currently fail to resolve and report an error.
+//! (`0` is the empty entity), and a [`PrefabAssetInstantiateTransSerializer`] per asset type
+//! resolves an asset key to the handle already registered under it in the world's
+//! `AssetStorageResource` (textures, materials, meshes, audio clips, fonts, prefabs). It loads
+//! nothing: a key that isn't registered, or a missing storage, reports an error and leaves the
+//! handle empty. Its `serialize` is `unimplemented!`.
 //! [`record_into_prefab`] walks the hierarchy breadth-first through `ParentComponent`, gives
 //! each entity the id `index + 1`, and serializes its components with entity references
 //! mapped to those ids; [`override_entity_components_from_prefab`] removes all components of
@@ -302,7 +303,6 @@ pub fn load_all_assets(mut res: ResourcesHolderMut, assets_dir_path: impl AsRef<
     load_asset_transitively_from_world(
         res.as_mut(),
         assets_dir_path.as_ref(),
-        None, 
         |serializers_local, serializers_global| {
             let mut err_handler = |err| println!("[{}:{}] {err}", file!(), line!());
             let serializer_ctx_state = serializers_global.to_ctx_state();

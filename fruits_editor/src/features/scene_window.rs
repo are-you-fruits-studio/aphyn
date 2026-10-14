@@ -110,8 +110,8 @@ fn control_scene_camera_system(
         return;
     }
 
-    camera_res.yaw -= mouse_delta.x * LOOK_SENSITIVITY;
-    camera_res.pitch = (camera_res.pitch - mouse_delta.y * LOOK_SENSITIVITY).clamp(-PITCH_LIMIT, PITCH_LIMIT);
+    camera_res.yaw += mouse_delta.x * LOOK_SENSITIVITY;
+    camera_res.pitch = (camera_res.pitch + mouse_delta.y * LOOK_SENSITIVITY).clamp(-PITCH_LIMIT, PITCH_LIMIT);
 
     let axis = |positive: KeyCode, negative: KeyCode| {
         input.keyboard.is_pressed(positive) as i32 as f32 - input.keyboard.is_pressed(negative) as i32 as f32
