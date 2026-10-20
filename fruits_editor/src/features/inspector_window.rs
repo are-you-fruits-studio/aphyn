@@ -6,9 +6,9 @@ use crate::{
     features::{
         dropdown::select_dropdown_variant_system, input_field::{select_input_field_system, update_selected_input_field_text_system}, inspector_window::{
             data::{InspectedAssetResource, InspectedEntityResource}, systems::{
-                add_component_system, adjust_hierarchy_entries_system, adjust_non_rigid_composite_system, apply_inspector_dropdown_change_to_simulated_world_system, apply_inspector_field_text_change_to_simulated_world_system, change_inspected_asset_system, destroy_non_inspected_entity_system, remove_component_system, save_inspected_asset_from_simulated_world_to_file_system, save_simulated_entities_to_prefab_system, select_entity_system, spawn_inspected_prefab_system, update_add_component_variants_system, update_hierarchy_entries_selection, update_hierarchy_window_system, update_inspector_window_system,
+                add_component_system, adjust_hierarchy_entries_system, adjust_non_rigid_composite_system, apply_inspector_dropdown_change_to_simulated_world_system, apply_inspector_field_text_change_to_simulated_world_system, apply_inspector_number_drag_to_simulated_world_system, change_inspected_asset_system, destroy_non_inspected_entity_system, remove_component_system, save_inspected_asset_from_simulated_world_to_file_system, save_simulated_entities_to_prefab_system, select_entity_system, spawn_inspected_prefab_system, update_add_component_variants_system, update_hierarchy_entries_selection, update_hierarchy_window_system, update_inspector_window_system,
             },
-        }, project_window_selection::select_file_system,
+        }, number_drag::drag_number_input_field_system, project_window_selection::select_file_system,
     }, *,
 };
 
@@ -27,7 +27,6 @@ pub mod utils;
 // todo: fancier visuals
 // todo: better font
 // todo: refactor
-// todo: drag for numbers
 // todo: optional slider for numbers
 // todo: color picker
 // todo: copy-paste
@@ -54,6 +53,7 @@ pub fn register_feature(mut world: WorldBuilderMut) {
         .group(SYSTEM_GROUP)
         .insert_child_system(update_inspector_window_system)
         .insert_child_system(apply_inspector_field_text_change_to_simulated_world_system)
+        .insert_child_system(apply_inspector_number_drag_to_simulated_world_system)
         .insert_child_system(apply_inspector_dropdown_change_to_simulated_world_system)
         .insert_child_system(save_simulated_entities_to_prefab_system)
         .insert_child_system(select_entity_system)
@@ -98,6 +98,26 @@ pub fn register_feature(mut world: WorldBuilderMut) {
     update
         .order_system(update_selected_input_field_text_system)
         .before_system(apply_inspector_field_text_change_to_simulated_world_system);
+
+    update
+        .order_system(select_file_system)
+        .before_system(apply_inspector_number_drag_to_simulated_world_system);
+
+    update
+        .order_system(drag_number_input_field_system)
+        .before_system(apply_inspector_number_drag_to_simulated_world_system);
+
+    update
+        .order_system(drag_number_input_field_system)
+        .before_system(update_inspector_window_system);
+
+    update
+        .order_system(apply_inspector_number_drag_to_simulated_world_system)
+        .before_system(save_simulated_entities_to_prefab_system);
+
+    update
+        .order_system(apply_inspector_number_drag_to_simulated_world_system)
+        .before_system(update_inspector_window_system);
 
     update
         .order_system(select_dropdown_variant_system)

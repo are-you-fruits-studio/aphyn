@@ -109,6 +109,7 @@ fn run_editor_app(project_path: &str) {
     features::project_window_selection::register_feature(world.as_mut());
     features::inspector_window::register_feature(world.as_mut());
     features::input_field::register_feature(world.as_mut());
+    features::number_drag::register_feature(world.as_mut());
     features::dropdown::register_feature(world.as_mut());
     features::generic_dropdown::register_feature(world.as_mut());
     features::serialization::register_feature(world.as_mut());

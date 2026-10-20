@@ -8,7 +8,7 @@ use crate::{
             data::*, utils::{
                 entries::{parse_serialized, spawn_default_layout_ent, spawn_hierarchy_window_entry, spawn_serialized, spawn_text_ent}, find_in_parents, serialization::{are_components_slices_similar, deserialize_asset_to_world_res, enrich_serialized_with_asset_type, load_asset_to_world_res, save_asset_from_world_res}, subsequence_match_ignore_case,
             },
-        }, project_window_selection::{FileSelectedEvent, SelectedFileResource}, world_preload::{SimulatedWorld, SimulatedWorldResource},
+        }, number_drag::NumberInputFieldDraggedEvent, project_window_selection::{FileSelectedEvent, SelectedFileResource}, world_preload::{SimulatedWorld, SimulatedWorldResource},
     }, prefabs::WindowComponent, *,
 };
 
@@ -279,6 +279,33 @@ pub fn apply_inspector_field_text_change_to_simulated_world_system(
     if did_asset_load {
         inspected_asset_edited_evt.push(InspectedAssetEditedEvent);
     };
+}
+
+pub fn apply_inspector_number_drag_to_simulated_world_system(
+    dragged_evt: Evt<NumberInputFieldDraggedEvent>,
+    ent: EntitiesHolderRef,
+    mut simulated_world: ResMut<SimulatedWorldResource>,
+    inspected_entity: Res<InspectedEntityResource>,
+    inspected_asset: Res<InspectedAssetResource>,
+    open_project: Res<OpenProjectResource>,
+    mut inspected_asset_edited_evt: EvtMut<InspectedAssetEditedEvent>,
+) {
+    return_if_not!(Some(simulated_world) = &mut simulated_world.0);
+
+    for dragged_evt in dragged_evt.iter() {
+        let did_asset_load = apply_inspector_serialized_value_to_simulated_world(
+            ent,
+            dragged_evt.input_field,
+            simulated_world,
+            &inspected_entity,
+            &inspected_asset,
+            &open_project,
+        );
+
+        if did_asset_load {
+            inspected_asset_edited_evt.push(InspectedAssetEditedEvent);
+        };
+    }
 }
 
 pub fn apply_inspector_dropdown_change_to_simulated_world_system(
