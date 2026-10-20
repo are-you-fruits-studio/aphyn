@@ -19,10 +19,14 @@ pub fn register_feature(mut world: WorldBuilderMut) {
 
 //
 
+const DROPDOWN_WIDTH: f32 = 200.0;
+const DROPDOWN_ENTRY_HEIGHT: f32 = 20.0;
+
 #[repr(C)]
 #[derive(Debug, Default, Clone)]
 pub struct GenericDropdownState {
     pub variants: FfiVec<FfiString>,
+    pub position: Vec2<f32>,
     pub ty: GenericDropdownStateTy,
 }
 
@@ -43,8 +47,9 @@ pub struct GenericDropdownResource {
 }
 
 impl GenericDropdownResource {
-    pub fn request(&mut self, variants: FfiVec<FfiString>) -> u64 {
+    pub fn request(&mut self, variants: FfiVec<FfiString>, position: Vec2<f32>) -> u64 {
         self.last_state.variants = variants;
+        self.last_state.position = position;
         self.last_state.ty = GenericDropdownStateTy::Waiting;
         self.last_id = self.last_id.wrapping_add(1);
         self.last_id
@@ -54,6 +59,7 @@ impl GenericDropdownResource {
         if self.last_id != id {
             return const { &GenericDropdownState {
                 variants: FfiVec::new(),
+                position: Vec2::new(0.0, 0.0),
                 ty: GenericDropdownStateTy::Dismissed,
             } };
         }
@@ -144,13 +150,39 @@ pub fn spawn_generic_dropdown_system(mut world: WorldDataMut) {
         return;
     };
 
+    let window_size = Vec2::from_array(res.get::<RenderApiResource>().unwrap().size().map(|v| v as f32));
+    let dropdown_size = Vec2::new(
+        DROPDOWN_WIDTH,
+        DROPDOWN_ENTRY_HEIGHT * generic_dropdown_resource.last_state.variants.len() as f32,
+    );
+    let dropdown_pos = fit_dropdown_into_window(generic_dropdown_resource.last_state.position, dropdown_size, window_size);
+
     let ent_dropdown = ent.create_entity();
 
     ent.set_components(ent_dropdown, (
         GlobalRectComponent::default(),
-        LocalRectComponent::default(),
+        LocalRectComponent {
+            anchor: Vec2::new(0.0, 0.0),
+            pivot: Vec2::new(0.0, 0.0),
+            offset: dropdown_pos.map(UiVal::px),
+            scale: Vec2::new(Some(UiVal::px(DROPDOWN_WIDTH)).into(), None.into()),
+            z: -500.0,
+            ..Default::default()
+        },
         ParentComponent::default(),
         RectChildAlignComponent {
+            anchor: Vec2::new(0.0, 0.0),
+            direction: UiDirection::Vertical,
+            min_gap: UiVal::px(0.0),
+            spacing: UiSpacing::Chunk,
+        },
+        BatchedMeshComponent::default(),
+        StandardMaterialComponent {
+            material: standard_assets_resource.material_panel.clone(),
+        },
+        ImageComponent {
+            color: Vec4::from_array(rgba_f32_array!("#272727ff")),
+            is_y_inverted: true,
             ..Default::default()
         },
         GenericDropdownComponent {
@@ -167,7 +199,10 @@ pub fn spawn_generic_dropdown_system(mut world: WorldDataMut) {
 
         ent.set_components(ent_dropdown_entry, (
             GlobalRectComponent::default(),
-            LocalRectComponent::default(),
+            LocalRectComponent {
+                scale: Vec2::new(Some(UiVal::pd(1.0)).into(), Some(UiVal::px(DROPDOWN_ENTRY_HEIGHT)).into()),
+                ..Default::default()
+            },
             ChildComponent {
                 parent: ent_dropdown,
             },
@@ -204,6 +239,17 @@ pub fn spawn_generic_dropdown_system(mut world: WorldDataMut) {
             }
         ));
     }
+}
+
+// todo: handle dropdowns bigger than the window
+fn fit_dropdown_into_window(cursor: Vec2<f32>, size: Vec2<f32>, window_size: Vec2<f32>) -> Vec2<f32> {
+    Vec2::from_fn(|i| {
+        let pos = match cursor[i] + size[i] <= window_size[i] {
+            true => cursor[i],
+            false => cursor[i] - size[i],
+        };
+        pos.clamp(0.0, (window_size[i] - size[i]).max(0.0))
+    })
 }
 
 pub fn select_generic_dropdown_system(

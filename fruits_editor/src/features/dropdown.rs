@@ -1,5 +1,7 @@
 use crate::*;
 
+// todo: remove, unused since the inspector switched to generic_dropdown
+
 pub fn register_feature(mut world: WorldBuilderMut) {
     let mut behavior = world.behavior_mut();
     let mut update = behavior.get_mut(Schedule::Update);

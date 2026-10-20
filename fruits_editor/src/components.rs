@@ -48,8 +48,10 @@ pub struct SerializedFieldComponent {
 
 #[derive(Component, Clone)]
 pub struct SerializedEnumMetadataComponent {
+    pub value_button: EntityId,
     pub value_text: EntityId,
     pub variants: FfiVec<FfiString>,
+    pub dropdown_request_id: u64,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]

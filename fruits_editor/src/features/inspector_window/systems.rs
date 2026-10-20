@@ -4,7 +4,7 @@ use fruits_engine::tree::{TreeBuilder, TreeNode};
 
 use crate::{
     features::{
-        asset_serialization::{InspectedAsset, get_asset_type}, dropdown::DropdownEntryComponent, input_field::{InputFieldComponent, InputFieldSelectionChangedEvent, SelectedInputFieldResource}, inspector_window::{
+        asset_serialization::{InspectedAsset, get_asset_type}, generic_dropdown::{GenericDropdownResource, GenericDropdownStateTy}, input_field::{InputFieldComponent, InputFieldSelectionChangedEvent, SelectedInputFieldResource}, inspector_window::{
             FIELD_HEIGHT, data::*, utils::{
                 entries::{parse_serialized, spawn_default_layout_ent, spawn_hierarchy_window_entry, spawn_serialized, spawn_text_ent}, find_in_parents, serialization::{are_components_slices_similar, deserialize_asset_to_world_res, enrich_serialized_with_asset_type, load_asset_to_world_res, save_asset_from_world_res}, subsequence_match_ignore_case,
             },
@@ -355,9 +355,24 @@ pub fn apply_inspector_number_drag_to_simulated_world_system(
     }
 }
 
+pub fn open_inspector_enum_dropdown_system(
+    input_res: Res<InputResource>,
+    mut generic_dropdown_res: ResMut<GenericDropdownResource>,
+    button_q: WorldQuery<&ButtonComponent>,
+    mut enum_metadata_q: WorldQuery<&mut SerializedEnumMetadataComponent>,
+) {
+    for enum_metadata_c in enum_metadata_q.iter_mut() {
+        continue_if_not!(Some(button_c) = button_q.get(enum_metadata_c.value_button));
+        continue_if!(!button_c.was_clicked_this_frame);
+
+        let position = Vec2::from_array(input_res.mouse.position.map(|v| v as f32));
+        enum_metadata_c.dropdown_request_id = generic_dropdown_res.request(enum_metadata_c.variants.clone(), position);
+    }
+}
+
 pub fn apply_inspector_dropdown_change_to_simulated_world_system(
-    click_evt: Evt<ButtonClickEvent>,
-    ent: EntitiesHolderRef,
+    mut ent: EntitiesHolderMut,
+    generic_dropdown_res: Res<GenericDropdownResource>,
     mut simulated_world: ResMut<SimulatedWorldResource>,
     inspected_entity: Res<InspectedEntityResource>,
     inspected_asset: Res<InspectedAssetResource>,
@@ -366,10 +381,29 @@ pub fn apply_inspector_dropdown_change_to_simulated_world_system(
 ) {
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
 
-    for click_evt in click_evt.iter() {
-        continue_if_not!(Some(dropdown_entry_c) = ent.get_component::<DropdownEntryComponent>(click_evt.entity));
+    let selections = ent
+        .query::<(EntityId, &SerializedEnumMetadataComponent)>()
+        .iter()
+        .filter_map(|(ent_enum_meta, enum_metadata_c)| {
+            let state = generic_dropdown_res.get_state(enum_metadata_c.dropdown_request_id);
+            let GenericDropdownStateTy::Selected { idx } = state.ty else {
+                return None;
+            };
+            Some((ent_enum_meta, state.variants.get(idx)?.clone()))
+        })
+        .collect::<Vec<_>>();
 
-        continue_if_not!(Some(ent_composite) = find_in_parents(ent.query::<&ChildComponent>(), dropdown_entry_c.dropdown, |e| {
+    for (ent_enum_meta, variant) in selections {
+        let enum_metadata_c = ent.get_component_mut::<SerializedEnumMetadataComponent>(ent_enum_meta).unwrap();
+        enum_metadata_c.dropdown_request_id = 0;
+        let ent_value_text = enum_metadata_c.value_text;
+
+        continue_if_not!(Some(text_c) = ent.get_component_mut::<TextComponent>(ent_value_text));
+        text_c.text = variant;
+
+        let ent = ent.as_ref();
+
+        continue_if_not!(Some(ent_composite) = find_in_parents(ent.query::<&ChildComponent>(), ent_enum_meta, |e| {
             ent.get_component::<SerializedValueComponent>(e).map(|_| e)
         }));
 

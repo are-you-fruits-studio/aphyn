@@ -2,7 +2,7 @@ use fruits_engine::*;
 
 use crate::{
     features::{
-        dropdown::{DropdownComponent, DropdownEntryComponent}, input_field::InputFieldComponent, inspector_window::{
+        input_field::InputFieldComponent, inspector_window::{
             FIELD_GAP, FIELD_HEIGHT, FONT_SIZE, INDENT_WIDTH, data::{HierarchyWindowEntryComponent, SerializedCompositeAddButton, SerializedCompositeRemoveButton},
         },
     }, *,
@@ -148,13 +148,11 @@ pub fn parse_serialized(ent: EntitiesHolderRef, ent_target: EntityId) -> Seriali
 
             if let Some(ent_enum_meta) = enum_meta_parent_c.children.get(0) {
                 if let Some(enum_metadata_c) = ent.get_component::<SerializedEnumMetadataComponent>(*ent_enum_meta) {
-                    if let Some(dropdown_c) = ent.get_component::<DropdownComponent>(enum_metadata_c.value_text) {
-                        if let Some(text_c) = ent.get_component::<TextComponent>(dropdown_c.text) {
-                            enum_metadata = Some(SerializedEnumMetadata {
-                                variant: text_c.text.clone(),
-                                variants: enum_metadata_c.variants.clone(),
-                            });
-                        };
+                    if let Some(text_c) = ent.get_component::<TextComponent>(enum_metadata_c.value_text) {
+                        enum_metadata = Some(SerializedEnumMetadata {
+                            variant: text_c.text.clone(),
+                            variants: enum_metadata_c.variants.clone(),
+                        });
                     };
                 }
             }
@@ -522,11 +520,10 @@ fn spawn_serialized_enum_metadata(
 
         let ent_value_container = spawn_default_layout_ent(ent.as_mut(), ent_enum_field, false);
 
-        let enum_metadata_input_ent = spawn_dropdown_ent(
+        let (ent_dropdown_button, ent_dropdown_text) = spawn_dropdown_button_ent(
             ent.as_mut(),
             ent_value_container,
             serialized_enum_metadata.variant.clone().into(),
-            serialized_enum_metadata.variants.clone(),
             material_panel.clone(),
             material_text.clone(),
             font.clone(),
@@ -546,8 +543,10 @@ fn spawn_serialized_enum_metadata(
         ent.add_component(
             ent_enum_field,
             SerializedEnumMetadataComponent {
-                value_text: enum_metadata_input_ent,
+                value_button: ent_dropdown_button,
+                value_text: ent_dropdown_text,
                 variants: serialized_enum_metadata.variants.clone(),
+                dropdown_request_id: 0,
             },
         )
         .ok()
@@ -784,97 +783,47 @@ pub fn spawn_text_ent(
     (ent_root, ent_text)
 }
 
-fn spawn_dropdown_ent(
+fn spawn_dropdown_button_ent(
     mut ent: EntitiesHolderMut,
     ent_parent: EntityId,
     variant: FfiString,
-    variants: FfiVec<FfiString>,
     material_panel: AssetHandle<StandardMaterial>,
     material_text: AssetHandle<StandardMaterial>,
     font: AssetHandle<Font>,
-) -> EntityId {
+) -> (EntityId, EntityId) {
     let ent_root = ent.create_entity();
-    let ent_active_variant = ent.create_entity();
-    let ent_variants_container = ent.create_entity();
+    let ent_text = ent.create_entity();
 
-    ent.add_component(ent_root, GlobalRectComponent::default()).ok().unwrap();
-    ent.add_component(
-        ent_root,
+    ent.set_components(ent_root, (
+        GlobalRectComponent::default(),
         LocalRectComponent {
             scale: Vec2::new(UiVal::pd(1.0).into(), FIELD_HEIGHT.into()),
             ..Default::default()
         },
-    )
-    .ok()
-    .unwrap();
-    ent.add_component(ent_root, ChildComponent { parent: ent_parent })
-        .ok()
-        .unwrap();
-    ent.add_component(ent_root, ParentComponent::default()).ok().unwrap();
-    ent.add_component(ent_root, ButtonComponent::default()).ok().unwrap();
-    ent.add_component(ent_root, BatchedMeshComponent::default()).ok().unwrap();
-    ent.add_component(
-        ent_root,
-        StandardMaterialComponent {
-            material: material_panel.clone(),
-        },
-    )
-    .ok()
-    .unwrap();
-    ent.add_component(
-        ent_root,
+        ChildComponent { parent: ent_parent },
+        ParentComponent { children: vec![ent_text].into() },
+        ButtonComponent::default(),
+        BatchedMeshComponent::default(),
+        StandardMaterialComponent { material: material_panel },
         ImageComponent {
             color: Vec4::new(1.0, 1.0, 1.0, 1.0),
             is_y_inverted: true,
             ..Default::default()
         },
-    )
-    .ok()
-    .unwrap();
-    ent.add_component(
-        ent_root,
-        DropdownComponent {
-            text: ent_active_variant,
-            variants_container: ent_variants_container,
-        },
-    )
-    .ok()
-    .unwrap();
+    ));
     if let Some(parent_c) = ent.get_component_mut::<ParentComponent>(ent_parent) {
         parent_c.children.push(ent_root);
     }
 
-    ent.add_component(ent_active_variant, GlobalRectComponent::default())
-        .ok()
-        .unwrap();
-    ent.add_component(
-        ent_active_variant,
-        LocalRectComponent {
-            scale: Vec2::new(UiVal::pd(1.0).into(), FIELD_HEIGHT.into()),
-            ..Default::default()
-        },
-    )
-    .ok()
-    .unwrap();
-    ent.add_component(ent_active_variant, ChildComponent { parent: ent_root })
-        .ok()
-        .unwrap();
-    ent.add_component(ent_active_variant, BatchedMeshComponent::default())
-        .ok()
-        .unwrap();
-    ent.add_component(
-        ent_active_variant,
-        StandardMaterialComponent {
-            material: material_text.clone(),
-        },
-    )
-    .ok()
-    .unwrap();
-    ent.add_component(
-        ent_active_variant,
+    ent.set_components(ent_text, (
+        GlobalRectComponent::default(),
+        LocalRectComponent::default(),
+        ChildComponent { parent: ent_root },
+        BatchedMeshComponent::default(),
+        StandardMaterialComponent { material: material_text },
         TextComponent {
             color: Vec4::from_array(parse_color_rgba_f32("#000000ff").unwrap()),
-            font: font.clone(),
+            font,
             font_size: FONT_SIZE,
             is_y_inverted: true,
             text: variant,
@@ -882,183 +831,9 @@ fn spawn_dropdown_ent(
             vertical_align: VerticalAlign::Middle,
             horizontal_align: HorizontalAlign::Left,
         },
-    )
-    .ok()
-    .unwrap();
-    if let Some(parent_c) = ent.get_component_mut::<ParentComponent>(ent_root) {
-        parent_c.children.push(ent_active_variant);
-    }
+    ));
 
-    ent.add_component(ent_variants_container, GlobalRectComponent::default())
-        .ok()
-        .unwrap();
-    ent.add_component(
-        ent_variants_container,
-        LocalRectComponent {
-            scale: Vec2::new(UiVal::pd(1.0).into(), None.into()),
-            anchor: Vec2::new(0.0, 1.0),
-            pivot: Vec2::new(0.0, 0.0),
-            z: -20.0,
-            ..Default::default()
-        },
-    )
-    .ok()
-    .unwrap();
-    ent.add_component(ent_variants_container, ChildComponent { parent: ent_root })
-        .ok()
-        .unwrap();
-    ent.add_component(ent_variants_container, ParentComponent::default())
-        .ok()
-        .unwrap();
-    ent.add_component(ent_variants_container, GlobalDisableableComponent::default())
-        .ok()
-        .unwrap();
-    ent.add_component(ent_variants_container, LocalDisableableComponent { is_disabled: true })
-        .ok()
-        .unwrap();
-    ent.add_component(ent_variants_container, BatchedMeshComponent::default())
-        .ok()
-        .unwrap();
-    ent.add_component(
-        ent_variants_container,
-        StandardMaterialComponent {
-            material: material_panel.clone(),
-        },
-    )
-    .ok()
-    .unwrap();
-    // todo: remove?
-    ent.add_component(
-        ent_variants_container,
-        ImageComponent {
-            color: Vec4::new(1.0, 0.0, 1.0, 1.0),
-            is_y_inverted: true,
-            ..Default::default()
-        },
-    )
-    .ok()
-    .unwrap();
-    ent.add_component(
-        ent_variants_container,
-        RectChildAlignComponent {
-            direction: UiDirection::Vertical,
-            anchor: Vec2::new(0.0, 0.0),
-            min_gap: FIELD_GAP,
-            spacing: UiSpacing::Chunk,
-        },
-    )
-    .ok()
-    .unwrap();
-    if let Some(parent_c) = ent.get_component_mut::<ParentComponent>(ent_root) {
-        parent_c.children.push(ent_variants_container);
-    }
-
-    // todo
-
-    for variant_text in variants {
-        let ent_variant = ent.create_entity();
-        let ent_variant_text = ent.create_entity();
-
-        ent.add_component(ent_variant, GlobalRectComponent::default()).ok().unwrap();
-        ent.add_component(
-            ent_variant,
-            LocalRectComponent {
-                scale: Vec2::new(UiVal::pd(1.0).into(), FIELD_HEIGHT.into()),
-                ..Default::default()
-            },
-        )
-        .ok()
-        .unwrap();
-        ent.add_component(
-            ent_variant,
-            ChildComponent {
-                parent: ent_variants_container,
-            },
-        )
-        .ok()
-        .unwrap();
-        ent.add_component(ent_variant, ParentComponent::default()).ok().unwrap();
-        ent.add_component(ent_variant, GlobalDisableableComponent::default())
-            .ok()
-            .unwrap();
-        ent.add_component(ent_variant, LocalDisableableComponent::default())
-            .ok()
-            .unwrap();
-        ent.add_component(ent_variant, ButtonComponent::default()).ok().unwrap();
-        // ent.add_component(ent_variant, BatchedMeshComponent::default()).ok().unwrap();
-        // ent.add_component(ent_variant, StandardMaterialComponent { material: material_panel.clone() }).ok().unwrap();
-        // ent.add_component(ent_variant, ImageComponent {
-        //     color: Vec4::new(1.0, 1.0, 1.0, 1.0),
-        //     is_y_inverted: true,
-        //     ..Default::default()
-        // }).ok().unwrap();
-        ent.add_component(
-            ent_variant,
-            DropdownEntryComponent {
-                dropdown: ent_root,
-                text: ent_variant_text,
-            },
-        )
-        .ok()
-        .unwrap();
-        if let Some(parent_c) = ent.get_component_mut::<ParentComponent>(ent_variants_container) {
-            parent_c.children.push(ent_variant);
-        }
-
-        ent.add_component(ent_variant_text, GlobalRectComponent::default())
-            .ok()
-            .unwrap();
-        ent.add_component(
-            ent_variant_text,
-            LocalRectComponent {
-                scale: Vec2::new(UiVal::pd(1.0).into(), FIELD_HEIGHT.into()),
-                ..Default::default()
-            },
-        )
-        .ok()
-        .unwrap();
-        ent.add_component(ent_variant_text, ChildComponent { parent: ent_variant })
-            .ok()
-            .unwrap();
-        ent.add_component(ent_variant_text, GlobalDisableableComponent::default())
-            .ok()
-            .unwrap();
-        ent.add_component(ent_variant_text, LocalDisableableComponent::default())
-            .ok()
-            .unwrap();
-        ent.add_component(ent_variant_text, BatchedMeshComponent::default())
-            .ok()
-            .unwrap();
-        ent.add_component(
-            ent_variant_text,
-            StandardMaterialComponent {
-                material: material_text.clone(),
-            },
-        )
-        .ok()
-        .unwrap();
-        ent.add_component(
-            ent_variant_text,
-            TextComponent {
-                color: Vec4::from_array(parse_color_rgba_f32("#000000ff").unwrap()),
-                font: font.clone(),
-                font_size: FONT_SIZE,
-                is_y_inverted: true,
-                text: variant_text,
-                horizontal_spacing: UiVal::px(0.0),
-                vertical_align: VerticalAlign::Middle,
-                horizontal_align: HorizontalAlign::Left,
-            },
-        )
-        .ok()
-        .unwrap();
-        if let Some(parent_c) = ent.get_component_mut::<ParentComponent>(ent_variant) {
-            parent_c.children.push(ent_variant_text);
-        }
-        // todo
-    }
-
-    ent_root
+    (ent_root, ent_text)
 }
 
 pub fn spawn_input_area_ent(
