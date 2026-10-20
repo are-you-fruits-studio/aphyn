@@ -5,8 +5,6 @@
 - implement the ability to use custom shaders
 - implement the ability to create assets from editor
 - make simulated world use window parameters of the editor "Scene"/"Game" window, not the whole OS fruits_editor window
-- change "winit window" window name to "fruits_engine app"
-- when deserializing assets, try to deserialize them into existing asset handles, not recreating them (so that asset handles already depending on them stay valid)
 - implement dropout for components, entities and folders
 
 # Other

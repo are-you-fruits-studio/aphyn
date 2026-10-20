@@ -197,7 +197,17 @@ impl<'a, 'm, 'brw: 'm, T: 'static, F: 'm + Send + Sync + Fn(SerializerCtx<TransS
         };
 
         let asset_key: FfiString = self.asset_key.into();
-        let asset_handle = self.assets.lock().unwrap().insert_and_register(asset, asset_key.clone());
+        let asset_handle = 'reg: {
+            let mut assets = self.assets.lock().unwrap();
+            if let Some(registered_asset_handle) = assets.get_registered(&asset_key).cloned() {
+                if let Some(stored_asset) = assets.get_mut(&registered_asset_handle) {
+                    *stored_asset = asset;
+                    break 'reg registered_asset_handle;
+                }
+            }
+
+            assets.insert_and_register(asset, asset_key.clone())
+        };
 
         *value = DirectDeserializedAsset {
             handle: asset_handle,
