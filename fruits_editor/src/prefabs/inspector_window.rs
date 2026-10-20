@@ -1,6 +1,8 @@
 use crate::{
-    features::inspector_window::{
-        FIELD_HEIGHT, data::{AddComponentInputComponent, InspectorWindowContentComponent}, utils::entries::spawn_input_area_ent,
+    features::{
+        input_field::InputFieldComponent, inspector_window::{
+            FIELD_HEIGHT, data::{AddComponentInputComponent, InspectorWindowContentComponent}, utils::entries::spawn_input_area_ent,
+        },
     }, prefabs::WindowComponent, *,
 };
 
@@ -56,6 +58,13 @@ pub fn init_window_as_inspector(mut world: WorldDataMut, ent_window: EntityId) {
             ..Default::default()
         },
     ));
+
+    let ent_add_component_text = ent.get_component::<InputFieldComponent>(ent_add_component_input).unwrap().text;
+    let ent_add_component_background = ent.get_component::<ChildComponent>(ent_add_component_text).unwrap().parent;
+
+    for e in [ent_add_component_input, ent_add_component_background, ent_add_component_text, ent_add_component_variants_container] {
+        ent.set_components(e, (LocalDisableableComponent::default(), GlobalDisableableComponent::default()));
+    }
 
     let ent_scroll_content_asset_type = ent.create_entity();
     let ent_scroll_content_asset_container = ent.create_entity();

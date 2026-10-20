@@ -5,7 +5,7 @@ use fruits_engine::tree::{TreeBuilder, TreeNode};
 use crate::{
     features::{
         asset_serialization::{InspectedAsset, get_asset_type}, dropdown::DropdownEntryComponent, input_field::{InputFieldComponent, InputFieldSelectionChangedEvent, SelectedInputFieldResource}, inspector_window::{
-            data::*, utils::{
+            FIELD_HEIGHT, data::*, utils::{
                 entries::{parse_serialized, spawn_default_layout_ent, spawn_hierarchy_window_entry, spawn_serialized, spawn_text_ent}, find_in_parents, serialization::{are_components_slices_similar, deserialize_asset_to_world_res, enrich_serialized_with_asset_type, load_asset_to_world_res, save_asset_from_world_res}, subsequence_match_ignore_case,
             },
         }, number_drag::NumberInputFieldDraggedEvent, project_window_selection::{FileOpenedEvent, FileSelectedEvent, SelectedFileResource}, world_preload::{SimulatedWorld, SimulatedWorldResource},
@@ -55,7 +55,7 @@ pub fn remove_component_system(
 ) {
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
 
-    return_if!(!simulated_world.world.data().entities().contains_entity(inspected_entity.selected_entity));
+    return_if!(!is_inspected_entity_shown(simulated_world, &inspected_entity));
 
     for button_click_evt in button_click_evt.iter() {
         continue_if_not!(Some(component_remove_button_c) = ent.get_component::<ComponentRemoveButton>(button_click_evt.entity));
@@ -84,7 +84,7 @@ pub fn add_component_system(
 ) {
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
 
-    return_if!(!simulated_world.world.data().entities().contains_entity(inspected_entity.selected_entity));
+    return_if!(!is_inspected_entity_shown(simulated_world, &inspected_entity));
 
     for button_click_evt in button_click_evt.iter() {
         continue_if_not!(Some(add_component_variant_c) = ent.get_component::<AddComponentVariantComponent>(button_click_evt.entity));
@@ -112,6 +112,7 @@ pub fn update_add_component_variants_system(
     selected_input: Res<SelectedInputFieldResource>,
     assets: Res<StandardAssetsResource>,
     simulated_world: Res<SimulatedWorldResource>,
+    inspected_entity: Res<InspectedEntityResource>,
 ) {
     for entity in ent.query::<&AddComponentInputComponent>().iter().map(|c| c.variants_container).collect::<Vec<_>>() {
         destroy_entity_children(ent.as_mut(), entity);
@@ -120,6 +121,10 @@ pub fn update_add_component_variants_system(
     let Some(simulated_world) = &simulated_world.0 else {
         return;
     };
+
+    if !is_inspected_entity_shown(simulated_world, &inspected_entity) {
+        return;
+    }
 
     let Some(serializers) = simulated_world.world.data().resources().get::<SerializersResource>() else {
         return;
@@ -167,6 +172,49 @@ pub fn update_add_component_variants_system(
             ButtonComponent::default(),
         ));
     }
+}
+
+pub fn update_add_component_input_visibility_system(
+    mut ent: EntitiesHolderMut,
+    mut selected_input: ResMut<SelectedInputFieldResource>,
+    inspected_entity: Res<InspectedEntityResource>,
+    simulated_world: Res<SimulatedWorldResource>,
+    mut input_field_selection_changed_evt: EvtMut<InputFieldSelectionChangedEvent>,
+) {
+    let is_shown = simulated_world.0.as_ref().is_some_and(|w| is_inspected_entity_shown(w, &inspected_entity));
+
+    let inputs = ent
+        .query::<(EntityId, &AddComponentInputComponent, &InputFieldComponent)>()
+        .iter()
+        .map(|(e, add_c, input_c)| (e, add_c.variants_container, input_c.text))
+        .collect::<Vec<_>>();
+
+    for (ent_input, ent_variants_container, ent_text) in inputs {
+        if let Some(disableable_c) = ent.get_component_mut::<LocalDisableableComponent>(ent_input) {
+            disableable_c.is_disabled = !is_shown;
+        }
+
+        // disabled rects still take layout space, so collapse it too
+        if let Some(local_rect_c) = ent.get_component_mut::<LocalRectComponent>(ent_input) {
+            local_rect_c.scale.y = if is_shown { FIELD_HEIGHT } else { UiVal::px(0.0) }.into();
+        }
+
+        continue_if!(is_shown);
+
+        if selected_input.selected == ent_input {
+            selected_input.selected = EntityId::EMPTY;
+            input_field_selection_changed_evt.push(InputFieldSelectionChangedEvent);
+            destroy_entity_children(ent.as_mut(), ent_variants_container);
+        }
+
+        if let Some(text_c) = ent.get_component_mut::<TextComponent>(ent_text) {
+            text_c.text.clear();
+        }
+    }
+}
+
+fn is_inspected_entity_shown(simulated_world: &SimulatedWorld, inspected_entity: &InspectedEntityResource) -> bool {
+    simulated_world.world.data().entities().contains_entity(inspected_entity.selected_entity)
 }
 
 pub fn adjust_hierarchy_entries_system(
@@ -445,7 +493,7 @@ fn get_inspected_target(
     inspected_entity: &InspectedEntityResource,
     inspected_asset: &InspectedAssetResource,
 ) -> Option<InspectedTarget> {
-    if simulated_world.world.data().entities().contains_entity(inspected_entity.selected_entity) {
+    if is_inspected_entity_shown(simulated_world, inspected_entity) {
         let serialized_component_c = find_in_parents(ent.query::<&ChildComponent>(), ent_serialized, |e| {
             ent.get_component::<SerializedComponentComponent>(e)
         })?;
@@ -907,7 +955,7 @@ pub fn update_inspector_window_system(
         let asset_type_text = ent.get_component_mut::<TextComponent>(window_c.asset_type_text).unwrap();
         asset_type_text.text.clear();
 
-        if simulated_world.world.data().entities().contains_entity(inspected_entity.selected_entity) {
+        if is_inspected_entity_shown(simulated_world, &inspected_entity) {
             let inspected_components = record_into_prefab_components(
                 simulated_world.world.data().resources(),
                 simulated_world.world.data().entities(),
