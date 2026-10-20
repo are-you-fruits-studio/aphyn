@@ -73,6 +73,10 @@ pub fn highlit_window_scale_handles_system(
             window_c.scale_border_right,
             window_c.scale_border_top,
             window_c.scale_border_bottom,
+            window_c.scale_corner_top_left,
+            window_c.scale_corner_top_right,
+            window_c.scale_corner_bottom_left,
+            window_c.scale_corner_bottom_right,
         ];
 
         for ent_scale_border in ent_scale_borders {
@@ -88,83 +92,69 @@ pub fn highlit_window_scale_handles_system(
     }
 }
 
+#[derive(Clone, Copy)]
+enum ScaleEdge {
+    Min,
+    Max,
+}
+
 pub fn rescale_window_system(
     input_res: Res<InputResource>,
     handle_q: WorldQuery<(&DragAreaComponent, &GlobalRectComponent)>,
     mut window_q: WorldQuery<(&mut LocalRectComponent, &WindowComponent)>,
 ) {
+    let mouse_pos = Vec2::from_array(input_res.mouse.position.map(|v| v as f32));
+
     for (window_rect, window_c) in window_q.iter_mut() {
-        'side: {
-            if let Some((drag_area_c, handle_rect)) = handle_q.get(window_c.scale_border_right) {
-                let Some(press_global_offset) = drag_area_c.press_global_offset else {
-                    break 'side;
-                };
-                
-                let expected_pos = input_res.mouse.position[0] as f32 - press_global_offset.x;
-                let real_pos = handle_rect.center.x;
-                let old_scale = match window_rect.scale.x.into_option() {
-                    Some(UiVal { unit: UiUnit::Px, val }) => val,
-                    _ => 0.0,
-                };
-                window_rect.scale.x = UiVal::px(old_scale + expected_pos - real_pos).into();
-            }
-        }
-        'side: {
-            if let Some((drag_area_c, handle_rect)) = handle_q.get(window_c.scale_border_left) {
-                let Some(press_global_offset) = drag_area_c.press_global_offset else {
-                    break 'side;
-                };
-                
-                let expected_pos = input_res.mouse.position[0] as f32 - press_global_offset.x;
-                let real_pos = handle_rect.center.x;
-                let diff = expected_pos - real_pos;
-                let old_scale = match window_rect.scale.x.into_option() {
-                    Some(UiVal { unit: UiUnit::Px, val }) => val,
-                    _ => 0.0,
-                };
-                let old_offset = match window_rect.offset.x {
-                    UiVal { unit: UiUnit::Px, val } => val,
-                    _ => 0.0,
-                };
-                window_rect.scale.x = UiVal::px(old_scale - diff).into();
-                window_rect.offset.x = UiVal::px(old_offset + diff).into();
-            }
-        }
-        'side: {
-            if let Some((drag_area_c, handle_rect)) = handle_q.get(window_c.scale_border_bottom) {
-                let Some(press_global_offset) = drag_area_c.press_global_offset else {
-                    break 'side;
-                };
-                
-                let expected_pos = input_res.mouse.position[1] as f32 - press_global_offset.y;
-                let real_pos = handle_rect.center.y;
-                let old_scale = match window_rect.scale.y.into_option() {
-                    Some(UiVal { unit: UiUnit::Px, val }) => val,
-                    _ => 0.0,
-                };
-                window_rect.scale.y = UiVal::px(old_scale + expected_pos - real_pos).into();
-            }
-        }
-        'side: {
-            if let Some((drag_area_c, handle_rect)) = handle_q.get(window_c.scale_border_top) {
-                let Some(press_global_offset) = drag_area_c.press_global_offset else {
-                    break 'side;
-                };
-                
-                let expected_pos = input_res.mouse.position[1] as f32 - press_global_offset.y;
-                let real_pos = handle_rect.center.y;
-                let diff = expected_pos - real_pos;
-                let old_scale = match window_rect.scale.y.into_option() {
-                    Some(UiVal { unit: UiUnit::Px, val }) => val,
-                    _ => 0.0,
-                };
-                let old_offset = match window_rect.offset.y {
-                    UiVal { unit: UiUnit::Px, val } => val,
-                    _ => 0.0,
-                };
-                window_rect.scale.y = UiVal::px(old_scale - diff).into();
-                window_rect.offset.y = UiVal::px(old_offset + diff).into();
+        let handles = [
+            (window_c.scale_border_left, [Some(ScaleEdge::Min), None]),
+            (window_c.scale_border_right, [Some(ScaleEdge::Max), None]),
+            (window_c.scale_border_top, [None, Some(ScaleEdge::Min)]),
+            (window_c.scale_border_bottom, [None, Some(ScaleEdge::Max)]),
+            (window_c.scale_corner_top_left, [Some(ScaleEdge::Min), Some(ScaleEdge::Min)]),
+            (window_c.scale_corner_top_right, [Some(ScaleEdge::Max), Some(ScaleEdge::Min)]),
+            (window_c.scale_corner_bottom_left, [Some(ScaleEdge::Min), Some(ScaleEdge::Max)]),
+            (window_c.scale_corner_bottom_right, [Some(ScaleEdge::Max), Some(ScaleEdge::Max)]),
+        ];
+
+        for (handle, edges) in handles {
+            let Some((drag_area_c, handle_rect)) = handle_q.get(handle) else {
+                continue;
+            };
+
+            let Some(press_global_offset) = drag_area_c.press_global_offset else {
+                continue;
+            };
+
+            let diff = mouse_pos - press_global_offset - handle_rect.center;
+
+            for (axis, edge) in edges.into_iter().enumerate() {
+                match edge {
+                    Some(ScaleEdge::Min) => drag_min_edge(window_rect, axis, diff[axis]),
+                    Some(ScaleEdge::Max) => drag_max_edge(window_rect, axis, diff[axis]),
+                    None => {}
+                }
             }
         }
     }
+}
+
+fn px_scale(rect: &LocalRectComponent, axis: usize) -> f32 {
+    match rect.scale[axis].into_option() {
+        Some(UiVal { unit: UiUnit::Px, val }) => val,
+        _ => 0.0,
+    }
+}
+
+fn drag_max_edge(rect: &mut LocalRectComponent, axis: usize, diff: f32) {
+    rect.scale[axis] = UiVal::px(px_scale(rect, axis) + diff).into();
+}
+
+fn drag_min_edge(rect: &mut LocalRectComponent, axis: usize, diff: f32) {
+    let old_offset = match rect.offset[axis] {
+        UiVal { unit: UiUnit::Px, val } => val,
+        _ => 0.0,
+    };
+    rect.scale[axis] = UiVal::px(px_scale(rect, axis) - diff).into();
+    rect.offset[axis] = UiVal::px(old_offset + diff);
 }

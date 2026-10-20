@@ -12,6 +12,10 @@ pub struct WindowComponent {
     pub scale_border_right: EntityId,
     pub scale_border_top: EntityId,
     pub scale_border_bottom: EntityId,
+    pub scale_corner_top_left: EntityId,
+    pub scale_corner_top_right: EntityId,
+    pub scale_corner_bottom_left: EntityId,
+    pub scale_corner_bottom_right: EntityId,
 }
 
 pub fn window(mut world: WorldDataMut) -> EntityId {
@@ -31,6 +35,10 @@ pub fn window(mut world: WorldDataMut) -> EntityId {
     let ent_scale_border_right = ec.create_entity();
     let ent_scale_border_top = ec.create_entity();
     let ent_scale_border_bottom = ec.create_entity();
+    let ent_scale_corner_top_left = ec.create_entity();
+    let ent_scale_corner_top_right = ec.create_entity();
+    let ent_scale_corner_bottom_left = ec.create_entity();
+    let ent_scale_corner_bottom_right = ec.create_entity();
     let ent_bordered_root = ec.create_entity();
     let ent_header = ec.create_entity();
     let ent_header_text = ec.create_entity();
@@ -67,17 +75,21 @@ pub fn window(mut world: WorldDataMut) -> EntityId {
             scale_border_right: ent_scale_border_right,
             scale_border_top: ent_scale_border_top,
             scale_border_bottom: ent_scale_border_bottom,
+            scale_corner_top_left: ent_scale_corner_top_left,
+            scale_corner_top_right: ent_scale_corner_top_right,
+            scale_corner_bottom_left: ent_scale_corner_bottom_left,
+            scale_corner_bottom_right: ent_scale_corner_bottom_right,
         }
     ));
 
-    let mut init_scale_border_ent = |entity: EntityId, anchor: Vec2<f32>, scale: Vec2<UiVal>| {
+    let mut init_scale_border_ent = |entity: EntityId, anchor: Vec2<f32>, scale: Vec2<UiVal>, z: f32| {
         ec.as_mut().set_components(entity, (
             GlobalRectComponent::default(),
             LocalRectComponent {
                 anchor: anchor,
                 pivot: anchor,
                 scale: scale.map(|v| v.into()),
-                z: -300.0,
+                z,
                 ..Default::default()
             },
             ChildComponent { parent: ent_root },
@@ -94,10 +106,16 @@ pub fn window(mut world: WorldDataMut) -> EntityId {
         ));
     };
 
-    init_scale_border_ent(ent_scale_border_left, Vec2::new(0.0, 0.5), Vec2::new(UiVal::px(5.0), UiVal::pd(1.0)));
-    init_scale_border_ent(ent_scale_border_right, Vec2::new(1.0, 0.5), Vec2::new(UiVal::px(5.0), UiVal::pd(1.0)));
-    init_scale_border_ent(ent_scale_border_top, Vec2::new(0.5, 0.0), Vec2::new(UiVal::pd(1.0), UiVal::px(5.0)));
-    init_scale_border_ent(ent_scale_border_bottom, Vec2::new(0.5, 1.0), Vec2::new(UiVal::pd(1.0), UiVal::px(5.0)));
+    init_scale_border_ent(ent_scale_border_left, Vec2::new(0.0, 0.5), Vec2::new(UiVal::px(5.0), UiVal::pd(1.0)), -300.0);
+    init_scale_border_ent(ent_scale_border_right, Vec2::new(1.0, 0.5), Vec2::new(UiVal::px(5.0), UiVal::pd(1.0)), -300.0);
+    init_scale_border_ent(ent_scale_border_top, Vec2::new(0.5, 0.0), Vec2::new(UiVal::pd(1.0), UiVal::px(5.0)), -300.0);
+    init_scale_border_ent(ent_scale_border_bottom, Vec2::new(0.5, 1.0), Vec2::new(UiVal::pd(1.0), UiVal::px(5.0)), -300.0);
+
+    let corner_scale = Vec2::splat(UiVal::px(8.0));
+    init_scale_border_ent(ent_scale_corner_top_left, Vec2::new(0.0, 0.0), corner_scale, -301.0);
+    init_scale_border_ent(ent_scale_corner_top_right, Vec2::new(1.0, 0.0), corner_scale, -301.0);
+    init_scale_border_ent(ent_scale_corner_bottom_left, Vec2::new(0.0, 1.0), corner_scale, -301.0);
+    init_scale_border_ent(ent_scale_corner_bottom_right, Vec2::new(1.0, 1.0), corner_scale, -301.0);
 
     ec.as_mut().set_components(ent_scale_border_left, (
         GlobalRectComponent::default(),
