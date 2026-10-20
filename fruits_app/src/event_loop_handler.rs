@@ -54,7 +54,10 @@ impl ApplicationHandler for EventLoopHandler {
             return;
         };
 
-        let window = Arc::new(event_loop.create_window(WindowAttributes::default()).unwrap());
+        let mut window_attr = WindowAttributes::default();
+        window_attr.title = "fruits_engine app".into();
+
+        let window = Arc::new(event_loop.create_window(window_attr).unwrap());
 
         let state = RenderApiResource::new(Arc::clone(&window));
 
