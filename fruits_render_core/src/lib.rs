@@ -115,8 +115,11 @@
 //!
 //! #### Camera and current rendering
 //!
-//! [`Camera`] holds the plain projection parameters (`fov` in radians, `near`, `far`); the ECS
-//! component that wraps it is `fruits_render::CameraComponent`. [`CurrentRenderingResource`] is
+//! [`Camera`] holds the plain projection parameters: a [`CameraProjection`] (`Perspective { fov }`
+//! with `fov` in radians, or `Orthographic { height }` with the full view height in world units,
+//! width following the aspect), plus `near` and `far`. [`Camera::projection_matrix`] picks the
+//! matching `fruits_math` builder; route every projection through it rather than reading the
+//! variant fields directly. The ECS component that wraps it is `fruits_render::CameraComponent`. [`CurrentRenderingResource`] is
 //! inserted by `fruits_app` right before it executes `RenderCamera` and removed right after. It
 //! stores the camera transform as plain math (`camera_position`, `camera_scale_rotation`) because
 //! `fruits_transform` depends on this crate, so `GlobalTransform` cannot be named here. Its optional

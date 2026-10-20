@@ -71,7 +71,7 @@ fn setup_scene(mut world: WorldDataMut) {
     ent.add_component(ent_camera, CameraComponent(Camera {
         far: 1000.0,
         near: 0.1,
-        fov: 90.0_f32.to_radians(),
+        projection: CameraProjection::Perspective { fov: 90.0_f32.to_radians() },
     })).ok().unwrap();
 
     let ent_light = ent.create_entity();

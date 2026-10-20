@@ -33,7 +33,9 @@
 //!
 //! Give one entity a [`CameraComponent`] and a transform. The component wraps the
 //! [`Camera`](fruits_render_core::Camera) parameters from `fruits_render_core`. The camera's
-//! transform is the eye position and orientation; its `fov` is in radians:
+//! transform is the eye position and orientation. Its [`CameraProjection`](fruits_render_core::CameraProjection)
+//! is either `Perspective { fov }` (`fov` in radians) or `Orthographic { height }` (full view
+//! height in world units):
 //!
 //! ```ignore
 //! use fruits_engine::*;
@@ -45,9 +47,9 @@
 //!     ..Default::default()
 //! }).ok().unwrap();
 //! ec.add_component(camera, CameraComponent(Camera {
+//!     projection: CameraProjection::Perspective { fov: 90_f32.to_radians() },
 //!     near: 0.1,
 //!     far: 1_000.0,
-//!     fov: 90_f32.to_radians(),
 //! })).ok().unwrap();
 //! ```
 //!

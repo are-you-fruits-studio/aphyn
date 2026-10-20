@@ -131,7 +131,7 @@ fn run_editor_app(project_path: &str) {
             CameraComponent(Camera {
                 near: 0.1,
                 far: 1_000.0,
-                fov: 90_f32.to_radians(),
+                projection: CameraProjection::Perspective { fov: 90_f32.to_radians() },
             }),
         )
         .ok()

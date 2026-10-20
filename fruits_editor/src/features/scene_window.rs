@@ -69,7 +69,7 @@ impl Default for SceneCameraResource {
             camera: Camera {
                 near: 0.1,
                 far: 1_000.0,
-                fov: 90_f32.to_radians(),
+                projection: CameraProjection::Perspective { fov: 90_f32.to_radians() },
             },
             is_controlling: false,
             last_mouse_pos: Vec2::splat(0.0),

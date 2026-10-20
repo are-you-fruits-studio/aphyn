@@ -31,7 +31,7 @@ fn main() {
     ec.add_component(ent_camera, CameraComponent(Camera {
         near: 0.1_f32,
         far: 1_000_f32,
-        fov: 90_f32.to_radians(),
+        projection: CameraProjection::Perspective { fov: 90_f32.to_radians() },
     })).ok().unwrap();
 
     let ent_light = ec.create_entity();
@@ -132,7 +132,7 @@ fn follow_cursor_system(
 
     let window_size = Vec2::from_array(window_size.map(|u| u as f32));
 
-    let projection_matrix = perspective_proj_matrix(camera.0.fov, camera.0.near, camera.0.far, aspect);
+    let projection_matrix = camera.0.projection_matrix(aspect);
 
     let mouse_pos = Vec2::from_array(input.mouse.position.map(|f| f as f32));
     let mut mouse_clip_pos = mouse_pos / window_size * 2.0 - Vec2::splat(1.0);

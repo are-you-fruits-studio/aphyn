@@ -9,10 +9,25 @@ pub const RENDER_TARGET_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct Camera {
-    // todo: orthographic projection
-    pub fov: f32,
+    pub projection: CameraProjection,
     pub near: f32,
     pub far: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub enum CameraProjection {
+    Perspective { fov: f32 },
+    Orthographic { height: f32 },
+}
+
+impl Camera {
+    pub fn projection_matrix(&self, aspect: f32) -> Mat4<f32> {
+        match self.projection {
+            CameraProjection::Perspective { fov } => fruits_math::perspective_proj_matrix(fov, self.near, self.far, aspect),
+            CameraProjection::Orthographic { height } => fruits_math::orthographic_proj_matrix(height, self.near, self.far, aspect),
+        }
+    }
 }
 
 // todo: support ffi
@@ -36,7 +51,7 @@ impl CurrentRenderingResource {
         let [width, height] = self.target_size();
         let aspect = width as f32 / height as f32;
 
-        let projection_matrix = fruits_math::perspective_proj_matrix(self.camera.fov, self.camera.near, self.camera.far, aspect);
+        let projection_matrix = self.camera.projection_matrix(aspect);
 
         let view_matrix = self
             .camera_scale_rotation
