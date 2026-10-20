@@ -5,7 +5,8 @@ use fruits_engine::*;
 use crate::{
     SYSTEM_GROUP,
     features::{
-        ui_interaction::{HoverAreaComponent, check_ui_interaction_system},
+        inspector_window::{data::HierarchyWindowEntryComponent, systems::update_hierarchy_window_system},
+        ui_interaction::{ButtonClickEvent, DOUBLE_CLICK_INTERVAL, HoverAreaComponent, check_ui_interaction_system},
         world_preload::{SimulatedWorldResource, tick_simulated_world_system},
     },
 };
@@ -17,10 +18,13 @@ const CLEAR_COLOR: [f64; 4] = [0.05, 0.05, 0.05, 1.0];
 const SUN_YAW: f64 = 30.0_f64.to_radians();
 const SUN_PITCH: f64 = -50.0_f64.to_radians();
 const SUN_COLOR: Vec3<f32> = Vec3::splat(3.0);
+const FOCUS_DISTANCE_SCALE: f32 = 3.0;
+const FOCUS_MIN_DISTANCE: f32 = 2.0;
 
 pub fn register_feature(mut world: WorldBuilderMut) {
     world.data_mut().resources_mut().insert(SceneCameraResource::default());
     world.data_mut().resources_mut().insert(SceneViewResource::default());
+    world.data_mut().resources_mut().insert(HierarchyDoubleClickResource::default());
 
     let mut behavior = world.behavior_mut();
     let mut update = behavior.get_mut(Schedule::Update);
@@ -28,6 +32,7 @@ pub fn register_feature(mut world: WorldBuilderMut) {
     update
         .group(SYSTEM_GROUP)
         .insert_child_system(control_scene_camera_system)
+        .insert_child_system(focus_scene_camera_on_entity_system)
         .insert_child_system(render_scene_window_system);
 
     update
@@ -38,6 +43,15 @@ pub fn register_feature(mut world: WorldBuilderMut) {
     update
         .order_system(tick_simulated_world_system)
         .before_system(render_scene_window_system);
+
+    update
+        .order_system(control_scene_camera_system)
+        .before_system(focus_scene_camera_on_entity_system)
+        .before_system(render_scene_window_system);
+
+    update
+        .order_system(focus_scene_camera_on_entity_system)
+        .before_system(update_hierarchy_window_system);
 }
 
 #[derive(Component, Default, Debug)]
@@ -76,6 +90,11 @@ impl Default for SceneCameraResource {
             last_tick: Instant::now(),
         }
     }
+}
+
+#[derive(Resource, Default)]
+pub struct HierarchyDoubleClickResource {
+    pub last_click: Option<(EntityId, Instant)>,
 }
 
 #[derive(Resource, Default)]
@@ -121,6 +140,42 @@ fn control_scene_camera_system(
     let world_dir = camera_res.scale_rotation() * local_dir;
 
     camera_res.position += world_dir * (MOVE_SPEED * dt);
+}
+
+fn focus_scene_camera_on_entity_system(
+    input: Res<InputResource>,
+    click_evt: Evt<ButtonClickEvent>,
+    entry_q: WorldQuery<&HierarchyWindowEntryComponent>,
+    simulated_world: Res<SimulatedWorldResource>,
+    mut double_click_res: ResMut<HierarchyDoubleClickResource>,
+    mut camera_res: ResMut<SceneCameraResource>,
+) {
+    // hierarchy entries are respawned every frame, so double-clicks are tracked by the simulated entity
+    let clicked_sim_ent = click_evt.iter().find_map(|e| entry_q.get(e.entity)).map(|c| c.simulated_entity);
+
+    let Some(sim_ent) = clicked_sim_ent else {
+        if input.mouse.is_just_pressed(MouseButton::Left) {
+            double_click_res.last_click = None;
+        }
+        return;
+    };
+
+    let now = Instant::now();
+    let is_double_click = double_click_res
+        .last_click
+        .is_some_and(|(ent, time)| ent == sim_ent && now.duration_since(time) <= DOUBLE_CLICK_INTERVAL);
+
+    double_click_res.last_click = if is_double_click { None } else { Some((sim_ent, now)) };
+
+    return_if!(!is_double_click);
+    return_if_not!(Some(simulated_world) = &simulated_world.0);
+    return_if_not!(Some(transform) = simulated_world.world.data().entities().get_component::<GlobalTransform>(sim_ent));
+
+    let scale = transform.scale_rotation.to_lossy_scale();
+    let distance = (scale.x.max(scale.y).max(scale.z) * FOCUS_DISTANCE_SCALE).max(FOCUS_MIN_DISTANCE);
+    let forward = (camera_res.scale_rotation() * Vec3::new(0.0, 0.0, 1.0)).normalized();
+
+    camera_res.position = transform.position - forward * distance;
 }
 
 fn render_scene_window_system(
