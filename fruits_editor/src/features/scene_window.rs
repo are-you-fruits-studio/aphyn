@@ -92,6 +92,7 @@ impl Default for SceneCameraResource {
     }
 }
 
+// todo: maybe replace with already existing ui_interaction double-click functionality?
 #[derive(Resource, Default)]
 pub struct HierarchyDoubleClickResource {
     pub last_click: Option<(EntityId, Instant)>,

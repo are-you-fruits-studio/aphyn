@@ -21,6 +21,8 @@ pub struct OpenedPrefabResource {
     pub spawned_prefab: EntityId,
 }
 
+// todo: maybe merge InspectedAssetResource and InspectedEntityResource or smth.
+
 #[derive(Resource, Default)]
 pub struct InspectedEntityResource {
     pub selected_entity: EntityId,

@@ -296,6 +296,8 @@ pub fn adjust_hierarchy_entries_system(
     }
 }
 
+// todo: maybe merge all apply_inspector_xxx_to_simulated_world_system with a common event or smth.
+
 pub fn apply_inspector_field_text_change_to_simulated_world_system(
     text_input_evt: Evt<TextInputEvent>,
     selected_input_res: Res<SelectedInputFieldResource>,
@@ -306,10 +308,6 @@ pub fn apply_inspector_field_text_change_to_simulated_world_system(
     open_project: Res<OpenProjectResource>,
     mut asset_edited_evt: EvtMut<AssetEditedEvent>,
 ) {
-    // todo:
-    // - save assets to files when they are changed even a bit
-    // - restore the "add-component" functionality (with the new serialization api)
-
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
 
     if text_input_evt.is_empty() {

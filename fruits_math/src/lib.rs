@@ -271,6 +271,8 @@ mod num;
 mod quat;
 mod vec;
 
+use std::ops::{Add, Mul, Sub};
+
 pub use colors::*;
 pub use equations::*;
 pub use mat::*;
@@ -292,33 +294,33 @@ pub fn into_matrix4x4_with_pos<T: Primitive>(mat: Mat3<T>, pos: Vec3<T>) -> Mat4
 
 pub fn perspective_proj_matrix(fov: f32, near: f32, far: f32, aspect: f32) -> Mat4<f32> {
     // todo
-    // let s = -1_f32 / ((fov / 2_f32).tan());
+    // let s = -1.0 / ((fov / 2.0).tan());
 
     // Mat4::<f32>::from_array([
-    //     [s, 0_f32, 0_f32, 0_f32],
-    //     [0_f32, s, 0_f32, 0_f32],
-    //     [0_f32, 0_f32, (-far / (far - near)), 1_f32],
-    //     [0_f32, 0_f32, ((-far * near) / (far - near)), 0_f32],
+    //     [s, 0.0, 0.0, 0.0],
+    //     [0.0, s, 0.0, 0.0],
+    //     [0.0, 0.0, (-far / (far - near)), 1.0],
+    //     [0.0, 0.0, ((-far * near) / (far - near)), 0.0],
     // ])
 
-    let s = 1_f32 / ((fov / 2_f32).tan());
+    let s = 1.0 / ((fov / 2.0).tan());
 
     Mat4::<f32>::from_array([
-        [(s / aspect), 0_f32, 0_f32, 0_f32],
-        [0_f32, s, 0_f32, 0_f32],
-        [0_f32, 0_f32, (far / (far - near)), 1_f32],
-        [0_f32, 0_f32, ((-far * near) / (far - near)), 0_f32],
+        [(s / aspect), 0.0, 0.0, 0.0],
+        [0.0, s, 0.0, 0.0],
+        [0.0, 0.0, (far / (far - near)), 1.0],
+        [0.0, 0.0, ((-far * near) / (far - near)), 0.0],
     ])
 }
 
 pub fn orthographic_proj_matrix(height: f32, near: f32, far: f32, aspect: f32) -> Mat4<f32> {
-    let s = 2_f32 / height;
+    let s = 2.0 / height;
 
     Mat4::<f32>::from_array([
-        [(s / aspect), 0_f32, 0_f32, 0_f32],
-        [0_f32, s, 0_f32, 0_f32],
-        [0_f32, 0_f32, (1_f32 / (far - near)), 0_f32],
-        [0_f32, 0_f32, (-near / (far - near)), 1_f32],
+        [(s / aspect), 0.0, 0.0, 0.0],
+        [0.0, s, 0.0, 0.0],
+        [0.0, 0.0, (1.0 / (far - near)), 0.0],
+        [0.0, 0.0, (-near / (far - near)), 1.0],
     ])
 }
 
