@@ -18,7 +18,7 @@ pub mod utils;
 // todo: support is_rigid=false (add element, remove element, edit key)
 
 // todo: asset references as asset picker
-// todo: improve scroll (scroll handle scale, mouse scroll, scroll handle auto-hide)
+// todo: improve scroll (mouse scroll, scroll handle auto-hide)
 // todo: bool as a checkbox
 // todo: float short form
 // todo: better text editing
