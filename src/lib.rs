@@ -21,3 +21,4 @@ pub use fruits_collision::*;
 pub use fruits_prefab::*;
 pub use fruits_audio::*;
 pub use fruits_file_storage::*;
+pub use fruits_window::*;

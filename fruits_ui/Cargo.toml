@@ -11,6 +11,7 @@ fruits_ecs = { path = "../fruits_ecs" }
 fruits_asset_storage = { path = "../fruits_asset_storage" }
 fruits_math = { path = "../fruits_math" }
 fruits_render_core = { path = "../fruits_render_core" }
+fruits_window = { path = "../fruits_window" }
 fruits_ffi = { path = "../fruits_ffi" }
 fruits_transform = { path = "../fruits_transform" }
 fruits_render = { path = "../fruits_render" }

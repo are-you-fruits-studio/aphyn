@@ -37,7 +37,7 @@ impl SimulatedWorld {
 #[derive(Resource)]
 pub struct SimulatedWorldResource(pub Option<SimulatedWorld>);
 
-fn preload_assets_into_simulated_world_system(
+pub fn preload_assets_into_simulated_world_system(
     open_project: Res<OpenProjectResource>,
     mut simulated_world: ResMut<SimulatedWorldResource>,
     render_api: Res<RenderApiResource>,
@@ -118,6 +118,7 @@ fn preload_assets_into_simulated_world_system(
     serializer.register(StandardSerializer::<FfiVec<EntityId>>::default());
 
     res.insert(render_api.clone());
+    res.insert(WindowResource::new(WindowState { fullscreen: FullscreenState::Windowed, size: [1, 1] }));
     res.insert(AudioStateResource::new(FfiDroppable::new(()), WrappedAudioStateHandle::new(Arc::new(Mutex::new(AudioState::new())))));
     res.insert(AssetStorageResource::<AudioClip>::new());
     res.insert(AssetStorageResource::<Prefab>::new());

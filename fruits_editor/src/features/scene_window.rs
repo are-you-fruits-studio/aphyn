@@ -7,7 +7,7 @@ use crate::{
     features::{
         inspector_window::{data::HierarchyWindowEntryComponent, systems::update_hierarchy_window_system},
         ui_interaction::{ButtonClickEvent, DOUBLE_CLICK_INTERVAL, HoverAreaComponent, check_ui_interaction_system},
-        world_preload::{SimulatedWorldResource, tick_simulated_world_system},
+        world_preload::{SimulatedWorldResource, preload_assets_into_simulated_world_system, tick_simulated_world_system},
     },
 };
 
@@ -33,7 +33,13 @@ pub fn register_feature(mut world: WorldBuilderMut) {
         .group(SYSTEM_GROUP)
         .insert_child_system(control_scene_camera_system)
         .insert_child_system(focus_scene_camera_on_entity_system)
+        .insert_child_system(sync_simulated_window_system)
         .insert_child_system(render_scene_window_system);
+
+    update
+        .order_system(preload_assets_into_simulated_world_system)
+        .before_system(sync_simulated_window_system)
+        .before_system(tick_simulated_world_system);
 
     update
         .order_system(check_ui_interaction_system)
@@ -179,6 +185,24 @@ fn focus_scene_camera_on_entity_system(
     camera_res.position = transform.position - forward * distance;
 }
 
+fn sync_simulated_window_system(
+    mut simulated_world: ResMut<SimulatedWorldResource>,
+    image_q: WorldQuery<&GlobalRectComponent, WithFilter<SceneViewImageComponent>>,
+) {
+    return_if_not!(Some(simulated_world) = &mut simulated_world.0);
+    return_if_not!(Some(rect_c) = image_q.iter().next());
+
+    let size = scene_view_size(rect_c);
+    let window_res = simulated_world.world.data_mut().into_resources_mut().into_get_mut::<WindowResource>().unwrap();
+
+    // resetting both states also drops window changes requested by the simulated game
+    WindowResource::reset(window_res, &WindowState { fullscreen: FullscreenState::Windowed, size });
+}
+
+fn scene_view_size(rect_c: &GlobalRectComponent) -> [u32; 2] {
+    rect_c.scale.map(|v| v.round().max(1.0) as u32).into_array()
+}
+
 fn render_scene_window_system(
     render_api: Res<RenderApiResource>,
     camera_res: Res<SceneCameraResource>,
@@ -196,7 +220,7 @@ fn render_scene_window_system(
         return;
     };
 
-    let size = rect_c.scale.map(|v| v.round().max(1.0) as u32).into_array();
+    let size = scene_view_size(rect_c);
 
     if view_res.texture.is_none() || view_res.size != size {
         let texture = render_api.create_texture(

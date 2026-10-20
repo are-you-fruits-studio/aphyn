@@ -45,6 +45,7 @@ members = [
     "fruits_example/fruits_example_bloom",
     "fruits_ui",
     "fruits_file_storage",
+    "fruits_window",
 ]
 
 [package]
@@ -81,3 +82,4 @@ fruits_prefab = { path = "./fruits_prefab" }
 fruits_json = { path = "./fruits_json" }
 fruits_ui = { path = "./fruits_ui" }
 fruits_file_storage = { path = "./fruits_file_storage" }
+fruits_window = { path = "./fruits_window" }

@@ -120,13 +120,13 @@ fn init_scene_system(mut world: WorldDataMut) {
 fn follow_cursor_system(
     mut follow_q: WorldQuery<(&FollowCursorComponent, &mut LocalTransform)>,
     camera_q: WorldQuery<(&CameraComponent, &GlobalTransform)>,
-    render_state: Res<RenderApiResource>,
+    window: Res<WindowResource>,
     input: Res<InputResource>,
     mut gizmos: ResMut<GizmosResource>,
 ) {
     let (camera, camera_transform) = camera_q.iter().next().unwrap();
     
-    let window_size = render_state.size();
+    let window_size = window.prev_state().size;
 
     let aspect = window_size[0] as f32 / window_size[1] as f32;
 

@@ -159,7 +159,7 @@ pub fn spawn_generic_dropdown_system(mut world: WorldDataMut) {
         return;
     };
 
-    let window_size = Vec2::from_array(res.get::<RenderApiResource>().unwrap().size().map(|v| v as f32));
+    let window_size = Vec2::from_array(res.get::<WindowResource>().unwrap().prev_state().size.map(|v| v as f32));
     let dropdown_size = Vec2::new(
         DROPDOWN_WIDTH,
         DROPDOWN_ENTRY_HEIGHT * generic_dropdown_resource.last_state.variants.len() as f32,

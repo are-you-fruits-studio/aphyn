@@ -87,8 +87,8 @@
 //!
 //! #### Switching fullscreen mode
 //!
-//! [`WindowResource`] holds the window's desired state. Mutate its
-//! [`next_state`](WindowResource::next_state_mut) in a system; the change is applied to the real
+//! [`WindowResource`](fruits_window::WindowResource) (from `fruits_window`) holds the window's
+//! desired state. Mutate its [`next_state`](fruits_window::WindowResource::next_state_mut) in a system; the change is applied to the real
 //! window at the end of the frame:
 //!
 //! ```ignore
@@ -111,14 +111,15 @@
 //! gamepad host.
 //!
 //! On the first `resumed` the handler creates the window, builds the renderer's
-//! `RenderApiResource`, inserts [`InputResource`] and [`WindowResource`] into the world,
-//! finalizes the world, runs the [`Schedule::Start`](fruits_ecs::Schedule) pass once, and
-//! initializes `gilrs` for gamepad support. A `gilrs` failure is logged and leaves gamepads
+//! `RenderApiResource`, inserts [`InputResource`] and [`WindowResource`](fruits_window::WindowResource) into the world,
+//! finalizes the world, runs the [`Schedule::Start`](fruits_ecs::Schedule) pass once, applies the
+//! window state it requested, and initializes `gilrs` for gamepad support. A `gilrs` failure is logged and leaves gamepads
 //! disabled rather than aborting.
 //!
 //! #### The frame
 //!
-//! Each `RedrawRequested` is one frame. Before the world runs, every gamepad `gilrs` currently
+//! Each `RedrawRequested` is one frame. Before the world runs, the window state is read back from
+//! the real window, and every gamepad `gilrs` currently
 //! reports gets an entry in [`InputResource`], then pending `gilrs` events are drained into
 //! it: connect/disconnect maintain the per-id gamepad map, and
 //! button/axis events update the matching [`GamepadInputStorage`]. The
@@ -151,13 +152,14 @@
 //!
 //! #### Double-buffered window state
 //!
-//! [`WindowResource`] holds a `prev` and a `next` [`WindowState`]. Systems write the desired
-//! configuration into `next`; at frame end `WindowState::apply_difference` compares the two and
-//! only touches the real window where they differ (currently the fullscreen mode), then copies
-//! `next` into `prev`. This keeps redundant OS calls out of the steady state. The change is
-//! applied only when the window reports a current monitor with at least one video mode
-//! (exclusive fullscreen uses the first one), so without them any fullscreen switch —
-//! including back to windowed — is a no-op, while `prev` is still updated.
+//! [`WindowResource`](fruits_window::WindowResource) holds a `prev` and a `next`
+//! [`WindowState`](fruits_window::WindowState). At frame start both are reset from the real
+//! window (`window_state_from_window`), so `prev` always reflects the actual window, including
+//! user resizes. Systems write the desired configuration into `next`; after the `Update` pass
+//! (and once after the `Start` pass) `window_state_apply_difference` compares the two and only
+//! touches the real window where they differ (fullscreen mode and size). This keeps redundant
+//! OS calls out of the steady state. Exclusive fullscreen uses the current monitor's first video
+//! mode and falls back to borderless when there is none.
 
 mod app;
 mod event_loop_handler;
@@ -168,5 +170,4 @@ mod window_events;
 
 pub use app::*;
 pub use input_resource::*;
-pub use window_resources::*;
 pub use window_events::*;

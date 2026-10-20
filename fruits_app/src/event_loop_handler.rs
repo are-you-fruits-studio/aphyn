@@ -13,7 +13,12 @@ use winit::{
     window::{Window, WindowAttributes, WindowId},
 };
 
-use crate::{GamepadInputStorage, InputResource, TextInputEvent, WindowResource, WindowState, render_target::RenderTarget};
+use crate::{
+    GamepadInputStorage, InputResource, TextInputEvent,
+    render_target::RenderTarget,
+    window_resources::{window_state_apply_difference, window_state_from_window},
+};
+use fruits_window::WindowResource;
 
 enum EventLoopHandlerState {
     Created(WorldBuilder),
@@ -63,13 +68,14 @@ impl ApplicationHandler for EventLoopHandler {
 
         let render_target = RenderTarget::new(&*unsafe { state.raw() });
 
-        let window_state = WindowState::from_window(&window);
+        let window_state = window_state_from_window(&window);
 
         world.data_mut().resources_mut().insert(state);
         world.data_mut().resources_mut().insert(InputResource::new());
         world.data_mut().resources_mut().insert(WindowResource::new(window_state));
         let mut world = world.build();
         world.execute_iteration(Schedule::Start);
+        core_system_update_window(world.data_mut(), &window);
 
         let gamepad_host = Gilrs::new();
 
@@ -162,6 +168,7 @@ impl ApplicationHandler for EventLoopHandler {
             }
             WindowEvent::RedrawRequested => {
                 core_system_gamepad(res, gamepad_host);
+                core_system_read_window(world.data_mut(), window);
 
                 world.execute_iteration(Schedule::Update);
 
@@ -255,11 +262,14 @@ fn core_system_clear_events_and_input(mut world: WorldDataMut) {
     input.clear_frame();
 }
 
+fn core_system_read_window(world: WorldDataMut, window: &Window) {
+    let window_res = world.into_resources_mut().into_get_mut::<WindowResource>().unwrap();
+
+    WindowResource::reset(window_res, &window_state_from_window(window));
+}
+
 fn core_system_update_window(world: WorldDataMut, window: &Window) {
     let window_res = world.into_resources_mut().into_get_mut::<WindowResource>().unwrap();
 
-    let window_state_next = window_res.next_state().clone();
-    let window_state_prev = std::mem::replace(window_res.prev_state_mut(), window_state_next.clone());
-
-    WindowState::apply_difference(&window_state_prev, &window_state_next, &window);
+    window_state_apply_difference(window_res.prev_state(), window_res.next_state(), &window);
 }

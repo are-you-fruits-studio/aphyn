@@ -8,6 +8,7 @@ use fruits_render::BatchedMeshComponent;
 use fruits_render_core::*;
 
 use fruits_transform::*;
+use fruits_window::WindowResource;
 use image::GenericImageView;
 
 use crate::{ChildrenRectMaskComponent, Font, HorizontalAlign, ImageComponent, ImageFillSettings, StandardUiAssetsResource, TextComponent, VerticalAlign};
@@ -207,13 +208,13 @@ pub fn update_image_batched_mesh(mut q: WorldQuery<(&ImageComponent, &mut Batche
 
 pub fn update_text_batched_mesh(
     mut q: WorldQuery<(&TextComponent, &mut BatchedMeshComponent, Option<&GlobalRectComponent>)>,
-    render_res: Res<RenderApiResource>,
+    window: Res<WindowResource>,
     font_assets: Res<AssetStorageResource<Font>>,
 ) {
     const VERTICES_PER_CHAR: u64 = 4;
     const INDICES_PER_CHAR: u64 = 6;
 
-    let window_size = render_res.size();
+    let window_size = window.prev_state().size;
     let window_size = Vec2::from_array(window_size.map(|v| v as f32));
 
     for (text_c, mesh_c, rect_c) in q.iter_mut() {
