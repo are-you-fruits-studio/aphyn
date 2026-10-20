@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, ffi::OsStr};
 
 use fruits_engine::tree::{TreeBuilder, TreeNode};
 
@@ -8,20 +8,27 @@ use crate::{
             data::*, utils::{
                 entries::{parse_serialized, spawn_default_layout_ent, spawn_hierarchy_window_entry, spawn_serialized, spawn_text_ent}, find_in_parents, serialization::{are_components_slices_similar, deserialize_asset_to_world_res, enrich_serialized_with_asset_type, load_asset_to_world_res, save_asset_from_world_res}, subsequence_match_ignore_case,
             },
-        }, number_drag::NumberInputFieldDraggedEvent, project_window_selection::{FileSelectedEvent, SelectedFileResource}, world_preload::{SimulatedWorld, SimulatedWorldResource},
+        }, number_drag::NumberInputFieldDraggedEvent, project_window_selection::{FileOpenedEvent, FileSelectedEvent, SelectedFileResource}, world_preload::{SimulatedWorld, SimulatedWorldResource},
     }, prefabs::WindowComponent, *,
 };
 
 pub fn select_entity_system(
     mut inspected_entity: ResMut<InspectedEntityResource>,
+    mut selected_file: ResMut<SelectedFileResource>,
     button_click_evt: Evt<ButtonClickEvent>,
+    file_selected_evt: Evt<FileSelectedEvent>,
     entry_q: WorldQuery<&HierarchyWindowEntryComponent>,
     mut prefab_entity_selected_evt: EvtMut<PrefabEntitySelectedEvent>,
 ) {
+    if !file_selected_evt.is_empty() {
+        inspected_entity.selected_entity = EntityId::EMPTY;
+    }
+
     return_if_not!(Some(button_click_evt) = button_click_evt.last());
 
     if let Some(entry_c) = entry_q.get(button_click_evt.entity) {
         inspected_entity.selected_entity = entry_c.simulated_entity;
+        *selected_file = SelectedFileResource::default();
         prefab_entity_selected_evt.push(PrefabEntitySelectedEvent);
     }
 }
@@ -44,14 +51,11 @@ pub fn remove_component_system(
     button_click_evt: Evt<ButtonClickEvent>,
     mut simulated_world: ResMut<SimulatedWorldResource>,
     inspected_entity: Res<InspectedEntityResource>,
-    inspected_asset: Res<InspectedAssetResource>,
-    mut inspected_asset_edited_evt: EvtMut<InspectedAssetEditedEvent>,
+    mut asset_edited_evt: EvtMut<AssetEditedEvent>,
 ) {
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
 
-    return_if!(
-        get_asset_type(simulated_world.world.data().resources(), inspected_asset.asset_key.as_str()) != Some(AssetType::Prefab)
-    );
+    return_if!(!simulated_world.world.data().entities().contains_entity(inspected_entity.selected_entity));
 
     for button_click_evt in button_click_evt.iter() {
         continue_if_not!(Some(component_remove_button_c) = ent.get_component::<ComponentRemoveButton>(button_click_evt.entity));
@@ -66,7 +70,7 @@ pub fn remove_component_system(
         continue_if!(!has_component);
 
         if sim_ent.remove_component_any(inspected_entity.selected_entity, component_id).is_some() {
-            inspected_asset_edited_evt.push(InspectedAssetEditedEvent);
+            asset_edited_evt.push(AssetEditedEvent::OpenedPrefab);
         }
     }
 }
@@ -76,14 +80,11 @@ pub fn add_component_system(
     button_click_evt: Evt<ButtonClickEvent>,
     mut simulated_world: ResMut<SimulatedWorldResource>,
     inspected_entity: Res<InspectedEntityResource>,
-    inspected_asset: Res<InspectedAssetResource>,
-    mut inspected_asset_edited_evt: EvtMut<InspectedAssetEditedEvent>,
+    mut asset_edited_evt: EvtMut<AssetEditedEvent>,
 ) {
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
 
-    return_if!(
-        get_asset_type(simulated_world.world.data().resources(), inspected_asset.asset_key.as_str()) != Some(AssetType::Prefab)
-    );
+    return_if!(!simulated_world.world.data().entities().contains_entity(inspected_entity.selected_entity));
 
     for button_click_evt in button_click_evt.iter() {
         continue_if_not!(Some(add_component_variant_c) = ent.get_component::<AddComponentVariantComponent>(button_click_evt.entity));
@@ -101,7 +102,7 @@ pub fn add_component_system(
         );
 
         if did_add {
-            inspected_asset_edited_evt.push(InspectedAssetEditedEvent);
+            asset_edited_evt.push(AssetEditedEvent::OpenedPrefab);
         }
     }
 }
@@ -171,17 +172,16 @@ pub fn update_add_component_variants_system(
 pub fn adjust_hierarchy_entries_system(
     button_click_evt: Evt<ButtonClickEvent>,
     mut inspected_entity: ResMut<InspectedEntityResource>,
-    inspected_asset: Res<InspectedAssetResource>,
+    mut selected_file: ResMut<SelectedFileResource>,
+    opened_prefab: Res<OpenedPrefabResource>,
     mut simulated_world: ResMut<SimulatedWorldResource>,
     button_add_q: WorldQuery<&HierarchyButtonAddComponent>,
     button_remove_q: WorldQuery<&HierarchyButtonRemoveComponent>,
-    mut inspected_asset_edited_evt: EvtMut<InspectedAssetEditedEvent>,
+    mut asset_edited_evt: EvtMut<AssetEditedEvent>,
 ) {
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
 
-    return_if!(
-        get_asset_type(simulated_world.world.data().resources(), inspected_asset.asset_key.as_str()) != Some(AssetType::Prefab)
-    );
+    return_if!(!simulated_world.world.data().entities().contains_entity(opened_prefab.spawned_prefab));
 
     let (_, mut sim_ent, _) = simulated_world.world.data_mut().into_tuple_mut();
 
@@ -189,7 +189,7 @@ pub fn adjust_hierarchy_entries_system(
         let ent_selected = inspected_entity.selected_entity;
 
         if button_remove_q.get(click_evt.entity).is_some()
-            && ent_selected != inspected_asset.spawned_prefab
+            && ent_selected != opened_prefab.spawned_prefab
             && sim_ent.contains_entity(ent_selected)
         {
             if let Some(&ChildComponent { parent }) = sim_ent.get_component::<ChildComponent>(ent_selected)
@@ -216,7 +216,7 @@ pub fn adjust_hierarchy_entries_system(
             }
 
             inspected_entity.selected_entity = EntityId::EMPTY;
-            inspected_asset_edited_evt.push(InspectedAssetEditedEvent);
+            asset_edited_evt.push(AssetEditedEvent::OpenedPrefab);
         }
 
         if button_add_q.get(click_evt.entity).is_some() {
@@ -242,7 +242,8 @@ pub fn adjust_hierarchy_entries_system(
             inspected_entity.id_to_ent.insert(new_id, entity);
 
             inspected_entity.selected_entity = entity;
-            inspected_asset_edited_evt.push(InspectedAssetEditedEvent);
+            *selected_file = SelectedFileResource::default();
+            asset_edited_evt.push(AssetEditedEvent::OpenedPrefab);
         }
     }
 }
@@ -255,7 +256,7 @@ pub fn apply_inspector_field_text_change_to_simulated_world_system(
     inspected_entity: Res<InspectedEntityResource>,
     inspected_asset: Res<InspectedAssetResource>,
     open_project: Res<OpenProjectResource>,
-    mut inspected_asset_edited_evt: EvtMut<InspectedAssetEditedEvent>,
+    mut asset_edited_evt: EvtMut<AssetEditedEvent>,
 ) {
     // todo:
     // - save assets to files when they are changed even a bit
@@ -267,7 +268,7 @@ pub fn apply_inspector_field_text_change_to_simulated_world_system(
         return;
     }
 
-    let did_asset_load = apply_inspector_serialized_value_to_simulated_world(
+    let edited = apply_inspector_serialized_value_to_simulated_world(
         ent,
         selected_input_res.selected,
         simulated_world,
@@ -276,8 +277,8 @@ pub fn apply_inspector_field_text_change_to_simulated_world_system(
         &open_project,
     );
 
-    if did_asset_load {
-        inspected_asset_edited_evt.push(InspectedAssetEditedEvent);
+    if let Some(edited) = edited {
+        asset_edited_evt.push(edited);
     };
 }
 
@@ -288,12 +289,12 @@ pub fn apply_inspector_number_drag_to_simulated_world_system(
     inspected_entity: Res<InspectedEntityResource>,
     inspected_asset: Res<InspectedAssetResource>,
     open_project: Res<OpenProjectResource>,
-    mut inspected_asset_edited_evt: EvtMut<InspectedAssetEditedEvent>,
+    mut asset_edited_evt: EvtMut<AssetEditedEvent>,
 ) {
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
 
     for dragged_evt in dragged_evt.iter() {
-        let did_asset_load = apply_inspector_serialized_value_to_simulated_world(
+        let edited = apply_inspector_serialized_value_to_simulated_world(
             ent,
             dragged_evt.input_field,
             simulated_world,
@@ -302,8 +303,8 @@ pub fn apply_inspector_number_drag_to_simulated_world_system(
             &open_project,
         );
 
-        if did_asset_load {
-            inspected_asset_edited_evt.push(InspectedAssetEditedEvent);
+        if let Some(edited) = edited {
+            asset_edited_evt.push(edited);
         };
     }
 }
@@ -315,7 +316,7 @@ pub fn apply_inspector_dropdown_change_to_simulated_world_system(
     inspected_entity: Res<InspectedEntityResource>,
     inspected_asset: Res<InspectedAssetResource>,
     open_project: Res<OpenProjectResource>,
-    mut inspected_asset_edited_evt: EvtMut<InspectedAssetEditedEvent>,
+    mut asset_edited_evt: EvtMut<AssetEditedEvent>,
 ) {
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
 
@@ -326,7 +327,7 @@ pub fn apply_inspector_dropdown_change_to_simulated_world_system(
             ent.get_component::<SerializedValueComponent>(e).map(|_| e)
         }));
 
-        let did_asset_load = apply_inspector_serialized_value_to_simulated_world(
+        let edited = apply_inspector_serialized_value_to_simulated_world(
             ent,
             ent_composite,
             simulated_world,
@@ -335,8 +336,8 @@ pub fn apply_inspector_dropdown_change_to_simulated_world_system(
             &open_project,
         );
 
-        if did_asset_load {
-            inspected_asset_edited_evt.push(InspectedAssetEditedEvent);
+        if let Some(edited) = edited {
+            asset_edited_evt.push(edited);
         };
     }
 }
@@ -348,7 +349,7 @@ pub fn adjust_non_rigid_composite_system(
     inspected_entity: Res<InspectedEntityResource>,
     inspected_asset: Res<InspectedAssetResource>,
     open_project: Res<OpenProjectResource>,
-    mut inspected_asset_edited_evt: EvtMut<InspectedAssetEditedEvent>,
+    mut asset_edited_evt: EvtMut<AssetEditedEvent>,
 ) {
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
 
@@ -362,7 +363,7 @@ pub fn adjust_non_rigid_composite_system(
         };
 
         continue_if_not!(Some(serialized_value_c) = ent.get_component::<SerializedValueComponent>(ent_composite));
-        continue_if_not!(Some(target) = get_inspected_target(ent, ent_composite, simulated_world, &inspected_asset));
+        continue_if_not!(Some(target) = get_inspected_target(ent, ent_composite, simulated_world, &inspected_entity, &inspected_asset));
 
         let path = serialized_value_c.path.as_str();
 
@@ -418,7 +419,7 @@ pub fn adjust_non_rigid_composite_system(
         };
 
         if did_asset_load {
-            inspected_asset_edited_evt.push(InspectedAssetEditedEvent);
+            asset_edited_evt.push(target.edited_event());
         };
     }
 }
@@ -428,25 +429,39 @@ enum InspectedTarget {
     PrefabComponent { component_id: FfiString },
 }
 
+impl InspectedTarget {
+    fn edited_event(&self) -> AssetEditedEvent {
+        match self {
+            InspectedTarget::Asset(_) => AssetEditedEvent::InspectedAsset,
+            InspectedTarget::PrefabComponent { .. } => AssetEditedEvent::OpenedPrefab,
+        }
+    }
+}
+
 fn get_inspected_target(
     ent: EntitiesHolderRef,
     ent_serialized: EntityId,
     simulated_world: &SimulatedWorld,
+    inspected_entity: &InspectedEntityResource,
     inspected_asset: &InspectedAssetResource,
 ) -> Option<InspectedTarget> {
-    let asset_type = get_asset_type(simulated_world.world.data().resources(), inspected_asset.asset_key.as_str())?;
+    if simulated_world.world.data().entities().contains_entity(inspected_entity.selected_entity) {
+        let serialized_component_c = find_in_parents(ent.query::<&ChildComponent>(), ent_serialized, |e| {
+            ent.get_component::<SerializedComponentComponent>(e)
+        })?;
 
-    if asset_type != AssetType::Prefab {
-        return Some(InspectedTarget::Asset(asset_type));
+        let component_id_text_c = ent.get_component::<TextComponent>(serialized_component_c.component_id_text)?;
+
+        return Some(InspectedTarget::PrefabComponent { component_id: component_id_text_c.text.clone() });
     }
 
-    let serialized_component_c = find_in_parents(ent.query::<&ChildComponent>(), ent_serialized, |e| {
-        ent.get_component::<SerializedComponentComponent>(e)
-    })?;
+    let asset_type = get_asset_type(simulated_world.world.data().resources(), inspected_asset.asset_key.as_str())?;
 
-    let component_id_text_c = ent.get_component::<TextComponent>(serialized_component_c.component_id_text)?;
+    if asset_type == AssetType::Prefab {
+        return None;
+    }
 
-    Some(InspectedTarget::PrefabComponent { component_id: component_id_text_c.text.clone() })
+    Some(InspectedTarget::Asset(asset_type))
 }
 
 fn serialize_from_simulated_world(
@@ -516,16 +531,12 @@ fn apply_inspector_serialized_value_to_simulated_world(
     inspected_entity: &InspectedEntityResource,
     inspected_asset: &InspectedAssetResource,
     open_project: &OpenProjectResource,
-) -> bool {
-    let Some(serialized_value_c) = ent.get_component::<SerializedValueComponent>(ent_serialized) else {
-        return false;
-    };
+) -> Option<AssetEditedEvent> {
+    let serialized_value_c = ent.get_component::<SerializedValueComponent>(ent_serialized)?;
 
-    let Some(target) = get_inspected_target(ent, ent_serialized, simulated_world, inspected_asset) else {
-        return false;
-    };
+    let target = get_inspected_target(ent, ent_serialized, simulated_world, inspected_entity, inspected_asset)?;
 
-    deserialize_to_simulated_world(
+    let did_asset_load = deserialize_to_simulated_world(
         &target,
         &serialized_value_c.path,
         &parse_serialized(ent, ent_serialized),
@@ -533,7 +544,9 @@ fn apply_inspector_serialized_value_to_simulated_world(
         inspected_entity,
         inspected_asset,
         open_project,
-    )
+    );
+
+    did_asset_load.then(|| target.edited_event())
 }
 
 // todo: rewrite to new serialization api
@@ -547,7 +560,7 @@ pub fn apply_inspector_to_simulated_world_system(
     inspected_entity: Res<InspectedEntityResource>,
     open_project: Res<OpenProjectResource>,
     mut simulated_world: ResMut<SimulatedWorldResource>,
-    mut inspected_asset_edited_evt: EvtMut<InspectedAssetEditedEvent>,
+    mut asset_edited_evt: EvtMut<AssetEditedEvent>,
 ) {
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
     return_if_not!(Some(window_c) = inspector_window_q.iter().next().copied());
@@ -592,7 +605,7 @@ pub fn apply_inspector_to_simulated_world_system(
             &inspected_entity.id_to_ent,
         );
 
-        inspected_asset_edited_evt.push(InspectedAssetEditedEvent);
+        asset_edited_evt.push(AssetEditedEvent::OpenedPrefab);
 
         return;
     }
@@ -621,13 +634,13 @@ pub fn apply_inspector_to_simulated_world_system(
     );
 
     if did_asset_load {
-        inspected_asset_edited_evt.push(InspectedAssetEditedEvent);
+        asset_edited_evt.push(AssetEditedEvent::InspectedAsset);
     };
 }
 
 pub fn save_simulated_entities_to_prefab_system(
     mut simulated_world: ResMut<SimulatedWorldResource>,
-    inspected_asset: Res<InspectedAssetResource>,
+    opened_prefab: Res<OpenedPrefabResource>,
 ) {
     let Some(simulated_world) = &mut simulated_world.0 else {
         return;
@@ -636,74 +649,64 @@ pub fn save_simulated_entities_to_prefab_system(
     let Some(prefab) = record_into_prefab(
         simulated_world.world.data().resources(),
         simulated_world.world.data().entities(),
-        inspected_asset.spawned_prefab
+        opened_prefab.spawned_prefab
     ) else {
         return;
     };
 
-    let Some(AssetType::Prefab) = get_asset_type(simulated_world.world.data().resources(), inspected_asset.asset_key.as_str()) else {
+    let Some(AssetType::Prefab) = get_asset_type(simulated_world.world.data().resources(), opened_prefab.asset_key.as_str()) else {
         return;
     };
 
     let prefabs = simulated_world.world.data_mut().into_resources_mut().into_get_mut::<AssetStorageResource<Prefab>>().unwrap();
-    let prefab_handle = prefabs.get_registered(inspected_asset.asset_key.as_str()).unwrap().clone();
+    let prefab_handle = prefabs.get_registered(opened_prefab.asset_key.as_str()).unwrap().clone();
 
     *prefabs.get_mut(&prefab_handle).unwrap() = prefab;
 }
 
 pub fn save_inspected_asset_from_simulated_world_to_file_system(
-    evt_inspected_asset_edited: Evt<InspectedAssetEditedEvent>,
+    asset_edited_evt: Evt<AssetEditedEvent>,
     simulated_world: Res<SimulatedWorldResource>,
     selected_file: Res<SelectedFileResource>,
     inspected_asset: Res<InspectedAssetResource>,
+    opened_prefab: Res<OpenedPrefabResource>,
 ) {
-    return_if!(evt_inspected_asset_edited.is_empty() && inspected_asset.asset_key == selected_file.potential_asset_key);
-
     return_if_not!(Some(simulated_world) = &simulated_world.0);
 
-    let serialized = save_asset_from_world_res(
-        simulated_world.world.data().resources(),
-        inspected_asset.asset_key.as_str(),
-    );
+    let res = simulated_world.world.data().resources();
 
-    return_if_not!(Some(serialized) = serialized);
+    let is_inspected_asset_edited = asset_edited_evt.iter().any(|e| *e == AssetEditedEvent::InspectedAsset);
+    let is_opened_prefab_edited = asset_edited_evt.iter().any(|e| *e == AssetEditedEvent::OpenedPrefab);
+
+    if is_inspected_asset_edited || inspected_asset.asset_key != selected_file.potential_asset_key {
+        save_asset_from_world_res_to_file(res, inspected_asset.asset_key.as_str(), &inspected_asset.path);
+    }
+
+    if is_opened_prefab_edited {
+        save_asset_from_world_res_to_file(res, opened_prefab.asset_key.as_str(), &opened_prefab.path);
+    }
+}
+
+fn save_asset_from_world_res_to_file(res: ResourcesHolderRef, asset_key: &str, path: &OsStr) {
+    return_if_not!(Some(serialized) = save_asset_from_world_res(res, asset_key));
 
     let json_str = serde_json::to_string_pretty(&serialized.to_json()).unwrap();
 
     let json_bytes = json_str.into_bytes();
 
-    if let Err(err) = std::fs::write(&inspected_asset.path, &json_bytes) {
-        eprintln!("failed to write to {:?}. {}", &inspected_asset.path, err);
-        return;
+    if let Err(err) = std::fs::write(path, &json_bytes) {
+        eprintln!("failed to write to {:?}. {}", path, err);
     }
 }
 
-pub fn destroy_non_inspected_entity_system(
+pub fn open_prefab_system(
+    file_opened_evt: Evt<FileOpenedEvent>,
     mut simulated_world: ResMut<SimulatedWorldResource>,
-    mut inspected_asset: ResMut<InspectedAssetResource>,
+    mut opened_prefab: ResMut<OpenedPrefabResource>,
     mut inspected_entity: ResMut<InspectedEntityResource>,
     selected_file: Res<SelectedFileResource>,
 ) {
-    return_if!(selected_file.potential_asset_key == inspected_asset.asset_key);
-
-    *inspected_entity = InspectedEntityResource::default();
-
-    return_if_not!(Some(world) = &mut simulated_world.0);
-
-    for entity in world.world.data().entities().query::<EntityId>().iter().collect::<Vec<_>>() {
-        world.world.data_mut().entities_mut().destroy_entity(entity);
-    }
-
-    inspected_asset.spawned_prefab = EntityId::EMPTY;
-}
-
-pub fn spawn_inspected_prefab_system(
-    mut simulated_world: ResMut<SimulatedWorldResource>,
-    mut inspected_asset: ResMut<InspectedAssetResource>,
-    mut inspected_entity: ResMut<InspectedEntityResource>,
-    selected_file: Res<SelectedFileResource>,
-) {
-    return_if!(selected_file.potential_asset_key == inspected_asset.asset_key);
+    return_if!(file_opened_evt.is_empty());
 
     return_if_not!(Some(world) = &mut simulated_world.0);
 
@@ -720,6 +723,13 @@ pub fn spawn_inspected_prefab_system(
             .cloned()
     );
 
+    *inspected_entity = InspectedEntityResource::default();
+    *opened_prefab = OpenedPrefabResource::default();
+
+    for entity in ent.query::<EntityId>().iter().collect::<Vec<_>>() {
+        ent.destroy_entity(entity);
+    }
+
     let instantiated = instantiate_prefab(res.as_ref(), ent.as_mut(), prefab_handle).unwrap_or(EntityId::EMPTY);
 
     if !ent.contains_entity(instantiated) {
@@ -729,9 +739,6 @@ pub fn spawn_inspected_prefab_system(
         return;
     }
 
-    inspected_entity.ent_to_id.clear();
-    inspected_entity.id_to_ent.clear();
-
     for entity in ent.query::<EntityId>().iter() {
         let id = entity.version_index().index + 1;
 
@@ -739,7 +746,11 @@ pub fn spawn_inspected_prefab_system(
         inspected_entity.id_to_ent.insert(id, entity);
     }
 
-    inspected_asset.spawned_prefab = instantiated;
+    *opened_prefab = OpenedPrefabResource {
+        asset_key: selected_file.potential_asset_key.clone(),
+        path: selected_file.path.clone(),
+        spawned_prefab: instantiated,
+    };
 }
 
 pub fn update_hierarchy_window_system(
@@ -874,14 +885,14 @@ pub fn update_inspector_window_system(
     simulated_world: Res<SimulatedWorldResource>,
     assets: Res<StandardAssetsResource>,
     file_selected_evt: Evt<FileSelectedEvent>,
-    inspected_asset_edited_evt: Evt<InspectedAssetEditedEvent>,
+    asset_edited_evt: Evt<AssetEditedEvent>,
     prefab_entity_selected_evt: Evt<PrefabEntitySelectedEvent>,
     input_field_selection_changed_evt: Evt<InputFieldSelectionChangedEvent>,
 ) {
     // todo
     return_if!(
         file_selected_evt.is_empty()
-            && inspected_asset_edited_evt.is_empty()
+            && asset_edited_evt.is_empty()
             && input_field_selection_changed_evt.is_empty()
             && prefab_entity_selected_evt.is_empty()
     );
@@ -896,25 +907,7 @@ pub fn update_inspector_window_system(
         let asset_type_text = ent.get_component_mut::<TextComponent>(window_c.asset_type_text).unwrap();
         asset_type_text.text.clear();
 
-        let Some(asset_type) = get_asset_type(simulated_world.world.data().resources(), selected_file.potential_asset_key.as_str()) else {
-            destroy_entity_children(ent.as_mut(), window_c.content_container);
-            continue;
-        };
-
-        asset_type_text.text.push_str("asset type: ");
-        asset_type_text.text.push_str(asset_type.serialized_str());
-
-        let inspected_asset = InspectedAsset {
-            asset_key: selected_file.potential_asset_key.clone().into(),
-            asset_type,
-        };
-
-        // todo
-        let mut err_handler = |err| println!("[{}:{}] {err}", file!(), line!());
-        // let mut err_handler = |_| ();
-
-        // todo
-        if asset_type == AssetType::Prefab {
+        if simulated_world.world.data().entities().contains_entity(inspected_entity.selected_entity) {
             let inspected_components = record_into_prefab_components(
                 simulated_world.world.data().resources(),
                 simulated_world.world.data().entities(),
@@ -934,6 +927,28 @@ pub fn update_inspector_window_system(
 
             continue;
         }
+
+        let Some(asset_type) = get_asset_type(simulated_world.world.data().resources(), selected_file.potential_asset_key.as_str()) else {
+            destroy_entity_children(ent.as_mut(), window_c.content_container);
+            continue;
+        };
+
+        asset_type_text.text.push_str("asset type: ");
+        asset_type_text.text.push_str(asset_type.serialized_str());
+
+        if asset_type == AssetType::Prefab {
+            destroy_entity_children(ent.as_mut(), window_c.content_container);
+            continue;
+        }
+
+        let inspected_asset = InspectedAsset {
+            asset_key: selected_file.potential_asset_key.clone().into(),
+            asset_type,
+        };
+
+        // todo
+        let mut err_handler = |err| println!("[{}:{}] {err}", file!(), line!());
+        // let mut err_handler = |_| ();
 
         let serialized = save_load_with_asset_serializers_from_world(simulated_world.world.data().resources(), |serializers_local| {
             let serializers_global = simulated_world.world.data().resources().get::<SerializersResource>().unwrap();

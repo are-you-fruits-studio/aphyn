@@ -30,13 +30,17 @@ pub struct SelectedFileResource {
 #[derive(Event, Copy, Clone, Default)]
 pub struct FileSelectedEvent;
 
+#[derive(Event, Copy, Clone, Default)]
+pub struct FileOpenedEvent;
+
 pub fn select_file_system(
     entry_q: WorldQuery<(&ProjectWindowEntryComponent, &ButtonComponent)>,
     open_project: Res<OpenProjectResource>,
     mut selected_file_res: ResMut<SelectedFileResource>,
     mut select_evt: EvtMut<FileSelectedEvent>,
+    mut open_evt: EvtMut<FileOpenedEvent>,
 ) {
-    let Some(entry_c) = entry_q.iter().filter(|(e, b)| b.was_clicked_this_frame).map(|(e, b)| e).next() else {
+    let Some((entry_c, button_c)) = entry_q.iter().filter(|(_, b)| b.was_clicked_this_frame).next() else {
         return;
     };
 
@@ -52,6 +56,10 @@ pub fn select_file_system(
     selected_file_res.path = entry_c.path.clone();
     selected_file_res.potential_asset_key = potential_key;
     select_evt.push(FileSelectedEvent);
+
+    if button_c.was_double_clicked_this_frame {
+        open_evt.push(FileOpenedEvent);
+    }
 }
 
 pub fn update_project_entry_selection_system(

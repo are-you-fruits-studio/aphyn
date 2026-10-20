@@ -8,8 +8,14 @@ pub struct OpenProjectResource {
     pub dir_path: String,
 }
 
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct InspectedAssetResource {
+    pub asset_key: String,
+    pub path: OsString,
+}
+
+#[derive(Resource, Default)]
+pub struct OpenedPrefabResource {
     pub asset_key: String,
     pub path: OsString,
     pub spawned_prefab: EntityId,
@@ -69,8 +75,11 @@ pub struct AddComponentVariantComponent {
     pub component_id: FfiString,
 }
 
-#[derive(Event)]
-pub struct InspectedAssetEditedEvent;
+#[derive(Event, Copy, Clone, PartialEq, Eq)]
+pub enum AssetEditedEvent {
+    InspectedAsset,
+    OpenedPrefab,
+}
 
 #[derive(Event)]
 pub struct PrefabEntitySelectedEvent;

@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use fruits_engine::*;
 
 use crate::SYSTEM_GROUP;
@@ -7,6 +9,10 @@ pub fn register_feature(mut world: WorldBuilderMut) {
         .data_mut()
         .resources_mut()
         .insert(UiRaycastResource::default());
+    world
+        .data_mut()
+        .resources_mut()
+        .insert(DoubleClickResource::default());
 
     let mut behavior = world.behavior_mut();
     let mut update = behavior.get_mut(Schedule::Update);
@@ -26,9 +32,17 @@ pub struct UiRaycastResource {
     pub bvh: Bvh<EntityId>,
 }
 
+pub const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(400);
+
+#[derive(Resource, Default)]
+pub struct DoubleClickResource {
+    pub last_click: Option<(EntityId, Instant)>,
+}
+
 #[derive(Component, Debug, Copy, Clone, Default)]
 pub struct ButtonComponent {
     pub was_clicked_this_frame: bool,
+    pub was_double_clicked_this_frame: bool,
 }
 
 #[derive(Component, Debug, Copy, Clone, Default)]
@@ -80,6 +94,7 @@ pub fn check_ui_interaction_system(
     rect_q: WorldQuery<&GlobalRectComponent>,
     input: Res<InputResource>,
     raycast_res: Res<UiRaycastResource>,
+    mut double_click_res: ResMut<DoubleClickResource>,
     mut click_evt: EvtMut<ButtonClickEvent>,
     mut button_q: WorldQuery<&mut ButtonComponent>,
     mut drag_area_q: WorldQuery<&mut DragAreaComponent>,
@@ -87,6 +102,7 @@ pub fn check_ui_interaction_system(
 ) {
     for button_c in button_q.iter_mut() {
         button_c.was_clicked_this_frame = false;
+        button_c.was_double_clicked_this_frame = false;
     }
     for hover_area_c in hover_area_q.iter_mut() {
         hover_area_c.is_hovered = false;
@@ -130,6 +146,9 @@ pub fn check_ui_interaction_system(
     }
 
     let Some(target_ent) = closest_ent else {
+        if left_just_pressed {
+            double_click_res.last_click = None;
+        }
         return;
     };
 
@@ -141,8 +160,16 @@ pub fn check_ui_interaction_system(
         return;
     }
 
+    let now = Instant::now();
+    let is_double_click = double_click_res
+        .last_click
+        .is_some_and(|(ent, time)| ent == target_ent && now.duration_since(time) <= DOUBLE_CLICK_INTERVAL);
+
+    double_click_res.last_click = if is_double_click { None } else { Some((target_ent, now)) };
+
     if let Some(buttom_c) = button_q.get_mut(target_ent) {
         buttom_c.was_clicked_this_frame = true;
+        buttom_c.was_double_clicked_this_frame = is_double_click;
     }
     if let Some(drag_area_c) = drag_area_q.get_mut(target_ent) {
         let press_pos = Vec2::from_array(input.mouse.position.map(|v| v as f32));
