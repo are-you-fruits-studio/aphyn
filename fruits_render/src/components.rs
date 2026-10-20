@@ -6,7 +6,7 @@ use fruits_render_core::{Camera, StandardMaterial, StandardMesh, StandardVertex}
 use fruits_serialization::*;
 
 #[repr(C)]
-#[derive(Component)]
+#[derive(Component, Default, Serializable)]
 pub struct StandardRenderComponent {
     pub mesh: AssetHandle<StandardMesh>,
     pub material: AssetHandle<StandardMaterial>,
@@ -19,7 +19,7 @@ pub struct StandardMeshComponent {
 }
 
 #[repr(C)]
-#[derive(Component, Default, Clone)]
+#[derive(Component, Default, Clone, Serializable)]
 pub struct BatchedMeshComponent {
     pub vertices: FfiVec<StandardVertex>,
     pub indices: FfiVec<u16>,
@@ -32,7 +32,7 @@ pub struct StandardMaterialComponent {
 }
 
 #[repr(C)]
-#[derive(Component, Clone, Copy)]
+#[derive(Component, Clone, Copy, Serializable)]
 pub enum StandardLightComponent {
     Point {
         color: Vec3<f32>,
@@ -47,7 +47,15 @@ pub enum StandardLightComponent {
         color: Vec3<f32>,
     },
 }
+impl Default for StandardLightComponent {
+    fn default() -> Self {
+        Self::Point {
+            color: Vec3::splat(1.0),
+            range: 10.0,
+        }
+    }
+}
 
 #[repr(C)]
-#[derive(Component, Clone, Copy)]
+#[derive(Component, Clone, Copy, Default, Serializable)]
 pub struct CameraComponent(pub Camera);

@@ -36,10 +36,11 @@
 //!
 //! #### Making the common types serializable
 //!
-//! The default modules fill the world's [`SerializersResource`] with the engine's common
-//! types (see below). To serialize your own type through it, register it the same way;
-//! [`register_self_and_related_common_transserializers`] also registers its vector, matrix,
-//! quaternion, `Vec`/`FfiVec`, and `Option`/`FfiOption` wrappers:
+//! The default modules fill the world's [`SerializersResource`] with the engine's components
+//! and the types they contain (see below). To serialize your own type through it, register it
+//! and every field type not registered yet with [`register_transserializer`];
+//! [`register_self_and_related_common_transserializers`] also registers the type's vector,
+//! matrix, array, `Vec`/`FfiVec`, and `Option`/`FfiOption` wrappers:
 //!
 //! ```ignore
 //! use fruits_engine::*;
@@ -75,13 +76,19 @@
 //! [`SerializersResource`] (defined in `fruits_serialization`) is a newtype over a `'static`
 //! [`TransSerializerRegistry`] that derefs to it. It is filled here, with the world, because
 //! this crate is the one that depends on every subsystem whose types it registers.
-//! [`register_common_transserializers`] registers a [`StandardSerializer`] for the primitive
-//! and string types, render-space and coordinate-space enums, the texture/mesh/material/audio
-//! asset metadata types, [`DebugNameComponent`], and the transform hierarchy components, each
-//! together with its related wrappers. For `AssetHandle<T>` it registers only the wrappers: the
-//! handle itself is (de)serialized by the per-operation local serializers in
-//! `fruits_asset_loading`, which layer over this registry. The related wrappers include
-//! `Mat<0..=8, T>`, whose `Serializable` impl is still a `todo!()` in `fruits_serialization`.
+//! [`register_common_transserializers`] registers a [`StandardSerializer`] for exactly the
+//! types the engine needs: every engine component (transform, render, UI, audio, collision,
+//! [`DebugNameComponent`]), the texture/mesh/material/audio asset metadata types the asset
+//! loaders read, and, recursively, the type of every field they contain, generic instantiations
+//! included (`Vec2<FfiOption<UiVal>>`, `[[f32; 3]; 3]` behind `Mat3<f32>`, `f64` behind
+//! `Quat<f32>`, ...). The list is maintained by hand: adding a component or a field type means
+//! adding it here, otherwise (de)serialization reports `MissingSerializer`. `AssetHandle<T>` and
+//! `EntityId` are deliberately absent: they are (de)serialized by the per-operation local
+//! serializers in `fruits_asset_loading`, which layer over this registry.
+//!
+//! Since `fruits_serialization` sits below the subsystem crates, most of these types derive
+//! `Serializable` in their own crate; the `fruits_ffi`/`fruits_math` and primitive types get
+//! their impls in `fruits_serialization`.
 //!
 //! [`DebugNameComponent`] is a serializable component wrapping an `FfiSmallString` name.
 //!
@@ -94,17 +101,22 @@
 //! value accessors are currently commented out (`todo`), so the measured numbers are
 //! only printed, not exposed to other systems.
 
-use fruits_asset_storage::AssetHandle;
-use fruits_audio::AudioClipAssetMetadata;
+use fruits_audio::{AudioClipAssetMetadata, AudioSource};
+use fruits_collision::{CollisionAabb, CollisionBox, CollisionLine, CollisionShape, CollisionSphere, ColliderComponent, LineBoundType};
 use fruits_ecs::{Component, Schedule, WorldBuilderMut};
 use fruits_ffi::{FfiOption, FfiSmallString, FfiString, FfiVec};
-use fruits_math::{Mat, Number, Quat, Vec2, Vec3, Vec4};
-use fruits_prefab::Prefab;
-use fruits_render::{StandardMaterialComponent, StandardMeshComponent};
-use fruits_ui::Font;
-use fruits_render_core::{CoordinateSpaceType, RenderSpace, StandardMaterial, StandardMaterialAssetMetadata, StandardMesh, StandardMeshAssetMetadata, StandardTexture, StandardTextureAssetMetadata, StandardTextureFormat};
+use fruits_math::{Mat, Mat3, Quat, Vec2, Vec3, Vec4};
+use fruits_render::{BatchedMeshComponent, CameraComponent, StandardLightComponent, StandardMaterialComponent, StandardMeshComponent, StandardRenderComponent};
+use fruits_render_core::{
+    Camera, CameraProjection, CoordinateSpaceType, RenderSpace, StandardMaterialAssetMetadata, StandardMeshAssetMetadata, StandardTextureAssetMetadata,
+    StandardTextureFormat, StandardVertex,
+};
 use fruits_serialization::*;
-use fruits_transform::{ChildComponent, GlobalRectComponent, GlobalTransform, LocalRectComponent, LocalTransform, ParentComponent};
+use fruits_transform::{
+    ChildComponent, GlobalDisableableComponent, GlobalRectComponent, GlobalTransform, LocalDisableableComponent, LocalRectComponent, LocalTransform,
+    ParentComponent, RectChildAlignComponent, UiDirection, UiSpacing, UiUnit, UiVal,
+};
+use fruits_ui::{ChildrenRectMaskComponent, HorizontalAlign, ImageComponent, ImageFillSettings, TextComponent, VerticalAlign};
 
 pub mod fps_counter;
 
@@ -131,46 +143,83 @@ pub fn add_defult_modules_to(mut world: WorldBuilderMut) {
 }
 
 pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry) {
-    register_self_and_related_common_transserializers::<i8>(serializer);
-    register_self_and_related_common_transserializers::<u8>(serializer);
-    register_self_and_related_common_transserializers::<i16>(serializer);
-    register_self_and_related_common_transserializers::<u16>(serializer);
-    register_self_and_related_common_transserializers::<i32>(serializer);
-    register_self_and_related_common_transserializers::<u32>(serializer);
-    register_self_and_related_common_transserializers::<i64>(serializer);
-    register_self_and_related_common_transserializers::<u64>(serializer);
-    register_self_and_related_common_transserializers::<i128>(serializer);
-    register_self_and_related_common_transserializers::<u128>(serializer);
-    register_self_and_related_common_transserializers::<f32>(serializer);
-    register_self_and_related_common_transserializers::<f64>(serializer);
-    register_self_and_related_common_transserializers::<String>(serializer);
-    register_self_and_related_common_transserializers::<FfiString>(serializer);
-    register_self_and_related_common_transserializers::<char>(serializer);
-    register_self_and_related_common_transserializers::<bool>(serializer);
-    register_self_and_related_common_transserializers::<Quat<f32>>(serializer);
-    register_self_and_related_common_transserializers::<Quat<f64>>(serializer);
-    register_self_and_related_common_transserializers::<RenderSpace>(serializer);
-    register_self_and_related_common_transserializers::<StandardTextureFormat>(serializer);
-    register_self_and_related_common_transserializers::<CoordinateSpaceType>(serializer);
-    register_self_and_related_common_transserializers::<StandardMeshAssetMetadata>(serializer);
-    register_self_and_related_common_transserializers::<AudioClipAssetMetadata>(serializer);
-    register_self_and_related_common_transserializers::<StandardTextureAssetMetadata>(serializer);
-    register_self_and_related_common_transserializers::<StandardMaterialAssetMetadata>(serializer);
-    register_self_and_related_common_transserializers::<DebugNameComponent>(serializer);
-    register_self_and_related_common_transserializers::<ParentComponent>(serializer);
-    register_self_and_related_common_transserializers::<ChildComponent>(serializer);
-    register_self_and_related_common_transserializers::<LocalTransform>(serializer);
-    register_self_and_related_common_transserializers::<GlobalTransform>(serializer);
-    register_self_and_related_common_transserializers::<LocalRectComponent>(serializer);
-    register_self_and_related_common_transserializers::<GlobalRectComponent>(serializer);
-    register_self_and_related_common_transserializers::<StandardMaterialComponent>(serializer);
-    register_self_and_related_common_transserializers::<StandardMeshComponent>(serializer);
-    // todo?
-    register_related_common_transserializers::<AssetHandle<StandardMaterial>>(serializer);
-    register_related_common_transserializers::<AssetHandle<Font>>(serializer);
-    register_related_common_transserializers::<AssetHandle<StandardTexture>>(serializer);
-    register_related_common_transserializers::<AssetHandle<StandardMesh>>(serializer);
-    register_related_common_transserializers::<AssetHandle<Prefab>>(serializer);
+    // todo: automate it better (make components expose an api to register all their dependent types that implement Serializable).
+    // components
+    register_transserializer::<DebugNameComponent>(serializer);
+    register_transserializer::<GlobalTransform>(serializer);
+    register_transserializer::<LocalTransform>(serializer);
+    register_transserializer::<ParentComponent>(serializer);
+    register_transserializer::<ChildComponent>(serializer);
+    register_transserializer::<GlobalRectComponent>(serializer);
+    register_transserializer::<LocalRectComponent>(serializer);
+    register_transserializer::<GlobalDisableableComponent>(serializer);
+    register_transserializer::<LocalDisableableComponent>(serializer);
+    register_transserializer::<RectChildAlignComponent>(serializer);
+    register_transserializer::<StandardRenderComponent>(serializer);
+    register_transserializer::<StandardMeshComponent>(serializer);
+    register_transserializer::<BatchedMeshComponent>(serializer);
+    register_transserializer::<StandardMaterialComponent>(serializer);
+    register_transserializer::<StandardLightComponent>(serializer);
+    register_transserializer::<CameraComponent>(serializer);
+    register_transserializer::<TextComponent>(serializer);
+    register_transserializer::<ImageComponent>(serializer);
+    register_transserializer::<ChildrenRectMaskComponent>(serializer);
+    register_transserializer::<AudioSource>(serializer);
+    register_transserializer::<ColliderComponent>(serializer);
+
+    // asset metadata
+    register_transserializer::<StandardMeshAssetMetadata>(serializer);
+    register_transserializer::<StandardTextureAssetMetadata>(serializer);
+    register_transserializer::<StandardMaterialAssetMetadata>(serializer);
+    register_transserializer::<AudioClipAssetMetadata>(serializer);
+
+    // field types
+    register_transserializer::<bool>(serializer);
+    register_transserializer::<u8>(serializer);
+    register_transserializer::<u16>(serializer);
+    register_transserializer::<f32>(serializer);
+    register_transserializer::<f64>(serializer);
+    register_transserializer::<FfiString>(serializer);
+    register_transserializer::<FfiSmallString>(serializer);
+    register_transserializer::<FfiOption<f32>>(serializer);
+    register_transserializer::<FfiVec<u16>>(serializer);
+    register_transserializer::<[f32; 2]>(serializer);
+    register_transserializer::<[f32; 3]>(serializer);
+    register_transserializer::<[f32; 4]>(serializer);
+    register_transserializer::<[[f32; 3]; 3]>(serializer);
+    register_transserializer::<Vec2<f32>>(serializer);
+    register_transserializer::<Vec3<f32>>(serializer);
+    register_transserializer::<Vec4<f32>>(serializer);
+    register_transserializer::<[Vec3<f32>; 3]>(serializer);
+    register_transserializer::<Mat3<f32>>(serializer);
+    register_transserializer::<Quat<f32>>(serializer);
+    register_transserializer::<UiVal>(serializer);
+    register_transserializer::<UiUnit>(serializer);
+    register_transserializer::<UiSpacing>(serializer);
+    register_transserializer::<UiDirection>(serializer);
+    register_transserializer::<Vec2<UiVal>>(serializer);
+    register_transserializer::<FfiOption<UiVal>>(serializer);
+    register_transserializer::<Vec2<FfiOption<UiVal>>>(serializer);
+    register_transserializer::<StandardVertex>(serializer);
+    register_transserializer::<FfiVec<StandardVertex>>(serializer);
+    register_transserializer::<Camera>(serializer);
+    register_transserializer::<CameraProjection>(serializer);
+    register_transserializer::<RenderSpace>(serializer);
+    register_transserializer::<CoordinateSpaceType>(serializer);
+    register_transserializer::<StandardTextureFormat>(serializer);
+    register_transserializer::<HorizontalAlign>(serializer);
+    register_transserializer::<VerticalAlign>(serializer);
+    register_transserializer::<ImageFillSettings>(serializer);
+    register_transserializer::<CollisionShape>(serializer);
+    register_transserializer::<CollisionLine>(serializer);
+    register_transserializer::<CollisionAabb>(serializer);
+    register_transserializer::<CollisionBox>(serializer);
+    register_transserializer::<CollisionSphere>(serializer);
+    register_transserializer::<LineBoundType>(serializer);
+}
+
+pub fn register_transserializer<T: 'static + Default + for<'a> Serializable<TransSerializerCtxState<'a>>>(serializer: &mut TransSerializerRegistry) {
+    serializer.register(StandardSerializer::<T>::default());
 }
 
 pub fn register_self_and_related_common_transserializers<T: 'static + Default + for<'a> Serializable<TransSerializerCtxState<'a>>>(serializer: &mut TransSerializerRegistry) {

@@ -63,8 +63,9 @@ pub struct GlobalRectComponent {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Serializable, Serialize, Deserialize)]
 pub enum UiDirection {
+    #[default]
     Vertical,
     Horizontal,
 }
@@ -104,7 +105,7 @@ impl Default for LocalRectComponent {
 }
 
 #[repr(C)]
-#[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serializable, Serialize, Deserialize)]
 pub struct GlobalDisableableComponent {
     pub is_disabled: bool,
 }
@@ -114,7 +115,7 @@ impl Default for GlobalDisableableComponent {
     }
 }
 #[repr(C)]
-#[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serializable, Serialize, Deserialize)]
 pub struct LocalDisableableComponent {
     pub is_disabled: bool,
 }
@@ -125,7 +126,7 @@ impl Default for LocalDisableableComponent {
 }
 
 #[repr(C)]
-#[derive(Component, Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Component, Copy, Clone, Debug, PartialEq, Serializable, Serialize, Deserialize)]
 pub struct RectChildAlignComponent {
     pub anchor: Vec2<f32>,
     pub direction: UiDirection,
@@ -145,8 +146,9 @@ impl Default for RectChildAlignComponent {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Serializable, Serialize, Deserialize)]
 pub enum UiSpacing {
+    #[default]
     Chunk,
     SpaceBetween,
     SpaceAround,
@@ -154,15 +156,16 @@ pub enum UiSpacing {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Copy, Clone, Debug, PartialEq, Serializable, Serialize, Deserialize)]
 pub struct UiVal {
     pub unit: UiUnit,
     pub val: f32,
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serializable, Serialize, Deserialize)]
 pub enum UiUnit {
+    #[default]
     Px,
     Pw,
     Ph,
@@ -276,11 +279,5 @@ impl UiVal {
             UiUnit::Vmax => Vec2::splat(f32::max(view_size.x, view_size.y) * v),
             _ => return None,
         })
-    }
-}
-
-impl Default for UiVal {
-    fn default() -> Self {
-        Self::px(0.0)
     }
 }

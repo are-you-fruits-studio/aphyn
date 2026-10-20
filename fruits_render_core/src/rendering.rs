@@ -1,5 +1,6 @@
 use fruits_ecs::Resource;
 use fruits_math::{Mat3, Mat4, Vec3};
+use fruits_serialization::*;
 use wgpu::{Texture, TextureFormat, TextureView};
 
 use crate::StandardLight;
@@ -7,18 +8,32 @@ use crate::StandardLight;
 pub const RENDER_TARGET_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serializable)]
 pub struct Camera {
     pub projection: CameraProjection,
     pub near: f32,
     pub far: f32,
 }
+impl Default for Camera {
+    fn default() -> Self {
+        Self {
+            projection: CameraProjection::default(),
+            near: 0.1,
+            far: 1000.0,
+        }
+    }
+}
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serializable)]
 pub enum CameraProjection {
     Perspective { fov: f32 },
     Orthographic { height: f32 },
+}
+impl Default for CameraProjection {
+    fn default() -> Self {
+        Self::Perspective { fov: 90_f32.to_radians() }
+    }
 }
 
 impl Camera {

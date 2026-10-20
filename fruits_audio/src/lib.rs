@@ -233,7 +233,7 @@ impl AudioClip {
 }
 
 #[repr(C)]
-#[derive(Component)]
+#[derive(Component, Serializable)]
 pub struct AudioSource {
     pub clip: AssetHandle<AudioClip>,
     pub playback_time: f64,
@@ -241,6 +241,18 @@ pub struct AudioSource {
     pub should_force_playback_time: bool,
     pub is_playing: bool,
     pub is_looped: bool,
+}
+impl Default for AudioSource {
+    fn default() -> Self {
+        Self {
+            clip: AssetHandle::EMPTY,
+            playback_time: 0.0,
+            volume: 1.0,
+            should_force_playback_time: false,
+            is_playing: true,
+            is_looped: false,
+        }
+    }
 }
 
 #[repr(C)]

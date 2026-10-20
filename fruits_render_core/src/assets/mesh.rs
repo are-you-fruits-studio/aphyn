@@ -4,7 +4,7 @@ use fruits_utils::mem::{AllBitVariationsValid, AllBitsInit};
 use wgpu::{Buffer, Device, util::DeviceExt};
 
 #[repr(C)]
-#[derive(Copy, Clone, Default, Debug)]
+#[derive(Copy, Clone, Default, Debug, Serializable)]
 pub struct StandardVertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],
