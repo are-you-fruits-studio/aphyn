@@ -67,6 +67,15 @@ impl GenericDropdownResource {
         &self.last_state
     }
 
+    pub fn take_selected(&self, id: &mut u64) -> Option<u64> {
+        let GenericDropdownStateTy::Selected { idx } = self.get_state(*id).ty else {
+            return None;
+        };
+
+        *id = 0;
+        Some(idx)
+    }
+
     pub fn try_dismiss(&mut self, id: u64) -> bool {
         if self.last_id != id {
             return false;
@@ -271,7 +280,7 @@ pub fn select_generic_dropdown_system(
         return;
     }
 
-    if input_res.mouse.is_just_pressed(MouseButton::Left) {
+    if input_res.mouse.is_just_pressed(MouseButton::Left) || input_res.mouse.is_just_pressed(MouseButton::Right) {
         let id = generic_dropdown_res.last_id;
         generic_dropdown_res.try_dismiss(id);
     }

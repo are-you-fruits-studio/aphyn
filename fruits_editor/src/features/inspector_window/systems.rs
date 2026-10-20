@@ -4,7 +4,7 @@ use fruits_engine::tree::{TreeBuilder, TreeNode};
 
 use crate::{
     features::{
-        asset_serialization::{InspectedAsset, get_asset_type}, generic_dropdown::{GenericDropdownResource, GenericDropdownStateTy}, input_field::{InputFieldComponent, InputFieldSelectionChangedEvent, SelectedInputFieldResource}, inspector_window::{
+        asset_serialization::{InspectedAsset, get_asset_type}, generic_dropdown::{GenericDropdownResource, GenericDropdownStateTy}, input_field::{InputFieldComponent, InputFieldSelectionChangedEvent, InputFieldTextChangedEvent, SelectedInputFieldResource}, inspector_window::{
             FIELD_HEIGHT, data::*, utils::{
                 entries::{parse_serialized, spawn_default_layout_ent, spawn_hierarchy_window_entry, spawn_serialized, spawn_text_ent}, find_in_parents, serialization::{are_components_slices_similar, deserialize_asset_to_world_res, enrich_serialized_with_asset_type, load_asset_to_world_res, save_asset_from_world_res}, subsequence_match_ignore_case,
             },
@@ -59,19 +59,66 @@ pub fn remove_component_system(
 
     for button_click_evt in button_click_evt.iter() {
         continue_if_not!(Some(component_remove_button_c) = ent.get_component::<ComponentRemoveButton>(button_click_evt.entity));
-        continue_if_not!(Some(serialized_component_c) = ent.get_component::<SerializedComponentComponent>(component_remove_button_c.component));
-        continue_if_not!(Some(component_id_text_c) = ent.get_component::<TextComponent>(serialized_component_c.component_id_text));
+        continue_if_not!(Some(component_id) = get_inspected_component_id(ent, component_remove_button_c.component));
 
-        let component_id = component_id_text_c.text.as_str();
-        let (_, mut sim_ent, _) = simulated_world.world.data_mut().into_tuple_mut();
-
-        let mut has_component = false;
-        sim_ent.get_all_components(inspected_entity.selected_entity, |c| has_component |= c.type_info().short().name() == component_id);
-        continue_if!(!has_component);
-
-        if sim_ent.remove_component_any(inspected_entity.selected_entity, component_id).is_some() {
+        if remove_inspected_component(simulated_world, &inspected_entity, component_id.as_str()) {
             asset_edited_evt.push(AssetEditedEvent::OpenedPrefab);
         }
+    }
+}
+
+fn get_inspected_component_id(ent: EntitiesHolderRef, ent_component: EntityId) -> Option<FfiString> {
+    let serialized_component_c = ent.get_component::<SerializedComponentComponent>(ent_component)?;
+    let component_id_text_c = ent.get_component::<TextComponent>(serialized_component_c.component_id_text)?;
+    Some(component_id_text_c.text.clone())
+}
+
+fn remove_inspected_component(simulated_world: &mut SimulatedWorld, inspected_entity: &InspectedEntityResource, component_id: &str) -> bool {
+    let (_, mut sim_ent, _) = simulated_world.world.data_mut().into_tuple_mut();
+
+    let mut has_component = false;
+    sim_ent.get_all_components(inspected_entity.selected_entity, |c| has_component |= c.type_info().short().name() == component_id);
+
+    has_component && sim_ent.remove_component_any(inspected_entity.selected_entity, component_id).is_some()
+}
+
+pub fn open_component_context_menu_system(
+    ent: EntitiesHolderRef,
+    input_res: Res<InputResource>,
+    mut generic_dropdown_res: ResMut<GenericDropdownResource>,
+    mut context_menu_res: ResMut<ComponentContextMenuResource>,
+) {
+    let Some(ent_component) = ent
+        .query::<(&ButtonComponent, &ComponentHeaderComponent)>()
+        .iter()
+        .find(|(b, _)| b.was_right_clicked_this_frame)
+        .map(|(_, header_c)| header_c.component)
+    else {
+        return;
+    };
+
+    return_if_not!(Some(component_id) = get_inspected_component_id(ent, ent_component));
+
+    let position = Vec2::from_array(input_res.mouse.position.map(|v| v as f32));
+    context_menu_res.request_id = generic_dropdown_res.request(vec![FfiString::from("Remove component")].into(), position);
+    context_menu_res.component_id = component_id;
+}
+
+pub fn apply_component_context_menu_system(
+    generic_dropdown_res: Res<GenericDropdownResource>,
+    mut context_menu_res: ResMut<ComponentContextMenuResource>,
+    mut simulated_world: ResMut<SimulatedWorldResource>,
+    inspected_entity: Res<InspectedEntityResource>,
+    mut asset_edited_evt: EvtMut<AssetEditedEvent>,
+) {
+    let context_menu = &mut *context_menu_res;
+
+    return_if_not!(Some(_) = generic_dropdown_res.take_selected(&mut context_menu.request_id));
+    return_if_not!(Some(simulated_world) = &mut simulated_world.0);
+    return_if!(!is_inspected_entity_shown(simulated_world, &inspected_entity));
+
+    if remove_inspected_component(simulated_world, &inspected_entity, context_menu.component_id.as_str()) {
+        asset_edited_evt.push(AssetEditedEvent::OpenedPrefab);
     }
 }
 
@@ -299,8 +346,7 @@ pub fn adjust_hierarchy_entries_system(
 // todo: maybe merge all apply_inspector_xxx_to_simulated_world_system with a common event or smth.
 
 pub fn apply_inspector_field_text_change_to_simulated_world_system(
-    text_input_evt: Evt<TextInputEvent>,
-    selected_input_res: Res<SelectedInputFieldResource>,
+    text_changed_evt: Evt<InputFieldTextChangedEvent>,
     ent: EntitiesHolderRef,
     mut simulated_world: ResMut<SimulatedWorldResource>,
     inspected_entity: Res<InspectedEntityResource>,
@@ -310,22 +356,20 @@ pub fn apply_inspector_field_text_change_to_simulated_world_system(
 ) {
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
 
-    if text_input_evt.is_empty() {
-        return;
+    for text_changed_evt in text_changed_evt.iter() {
+        let edited = apply_inspector_serialized_value_to_simulated_world(
+            ent,
+            text_changed_evt.input_field,
+            simulated_world,
+            &inspected_entity,
+            &inspected_asset,
+            &open_project,
+        );
+
+        if let Some(edited) = edited {
+            asset_edited_evt.push(edited);
+        };
     }
-
-    let edited = apply_inspector_serialized_value_to_simulated_world(
-        ent,
-        selected_input_res.selected,
-        simulated_world,
-        &inspected_entity,
-        &inspected_asset,
-        &open_project,
-    );
-
-    if let Some(edited) = edited {
-        asset_edited_evt.push(edited);
-    };
 }
 
 pub fn apply_inspector_number_drag_to_simulated_world_system(
@@ -1144,7 +1188,7 @@ fn update_prefab_component_ent(
     }
 
     let comp_ent = spawn_default_layout_ent(ent.as_mut(), ent_parent, false);
-    let (_, componet_id_text_ent) = spawn_text_ent(
+    let (component_header_ent, componet_id_text_ent) = spawn_text_ent(
         ent.as_mut(),
         comp_ent,
         component_id.into(),
@@ -1152,6 +1196,10 @@ fn update_prefab_component_ent(
         material_text.clone(),
         font.clone(),
     );
+    ent.set_components(component_header_ent, (
+        ComponentHeaderComponent { component: comp_ent },
+        ButtonComponent::default(),
+    ));
     let (btn_remove, _) = spawn_text_ent(
         ent.as_mut(),
         comp_ent,

@@ -43,6 +43,7 @@ pub struct DoubleClickResource {
 pub struct ButtonComponent {
     pub was_clicked_this_frame: bool,
     pub was_double_clicked_this_frame: bool,
+    pub was_right_clicked_this_frame: bool,
 }
 
 #[derive(Component, Debug, Copy, Clone, Default)]
@@ -103,6 +104,7 @@ pub fn check_ui_interaction_system(
     for button_c in button_q.iter_mut() {
         button_c.was_clicked_this_frame = false;
         button_c.was_double_clicked_this_frame = false;
+        button_c.was_right_clicked_this_frame = false;
     }
     for hover_area_c in hover_area_q.iter_mut() {
         hover_area_c.is_hovered = false;
@@ -155,7 +157,13 @@ pub fn check_ui_interaction_system(
     if let Some(hover_area_c) = hover_area_q.get_mut(target_ent) {
         hover_area_c.is_hovered = true;
     }
-    
+
+    if input.mouse.is_just_pressed(MouseButton::Right)
+        && let Some(button_c) = button_q.get_mut(target_ent)
+    {
+        button_c.was_right_clicked_this_frame = true;
+    }
+
     if !left_just_pressed {
         return;
     }

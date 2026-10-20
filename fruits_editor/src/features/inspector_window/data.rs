@@ -52,6 +52,17 @@ pub struct ComponentRemoveButton {
 }
 
 #[derive(Component, Default, Copy, Clone)]
+pub struct ComponentHeaderComponent {
+    pub component: EntityId,
+}
+
+#[derive(Resource, Default)]
+pub struct ComponentContextMenuResource {
+    pub request_id: u64,
+    pub component_id: FfiString,
+}
+
+#[derive(Component, Default, Copy, Clone)]
 pub struct SerializedCompositeAddButton {
     pub composite: EntityId,
 }
