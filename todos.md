@@ -1,19 +1,18 @@
 # Prioritized
 
+- implement new asset: scene
+- rework rendering to be able to implement both scene and preview windows
+- implement playable game window ("Preview") (with simulated world being live and using updates)
+- make OS window icon configurable
 - implement global cpu-stored batched mesh (same batching as now, but using lightweight pattern)
 - make components rendering prettier and make components look separated
 - implement the ability to use custom shaders
 - implement the ability to create assets from editor
-- make simulated world use window parameters of the editor "Scene"/"Game" window, not the whole OS fruits_editor window
 - implement dropout for components, entities and folders
 
 # Other
 
 - implement windows docking (like in Microsoft VS)
-- implement new asset: scene
-- preview window
-- rework rendering to be able to implement both scene and preview windows
-- implement playable game window ("Preview") (with simulated world being live and using updates)
 - copy-paste (with right mouse button and drop-down) (maybe even ctrl c ctrl v)
 - transform-adjust interactable gizmo on selected object
 - fancy contrasting borders on windows
@@ -24,11 +23,10 @@
 - live reload assets
 - live recompile scripts
 - use pure serializer if no transserializer available
-- use dynamic dropdown for enums inspecting
 - maybe add scroll with automatic visibility to dynamic dropdown
 - restrict windows layout to not go outside bounds
-- make OS window name configurable
 - implement more basic features for input fields (cursor, selection, shortcuts, etc.)
 - describe project structure and architecture better for claude
 - order windows on the z axis based on what was used more recently
+- save last window title change, so that this api isn't cleared by OS that don't support title reading: W11, iOS and other platforms
 - other "todo"s throughout the project

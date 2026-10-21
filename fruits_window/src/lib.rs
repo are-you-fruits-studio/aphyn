@@ -37,6 +37,7 @@
 //! `fruits_app`, which owns `winit`; see its "Double-buffered window state" section.
 
 use fruits_ecs::Resource;
+use fruits_ffi::FfiString;
 
 #[repr(C)]
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -52,12 +53,14 @@ pub enum FullscreenState {
 pub struct WindowState {
     pub fullscreen: FullscreenState,
     pub size: [u32; 2],
+    pub title: FfiString,
 }
 
 impl WindowState {
     pub fn reset(this: &mut Self, other: &WindowState) {
         this.fullscreen = other.fullscreen;
         this.size = other.size;
+        this.title = other.title.clone();
     }
 }
 

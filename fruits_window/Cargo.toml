@@ -10,3 +10,4 @@ crate-type = ["lib"]
 
 [dependencies]
 fruits_ecs = { path = "../fruits_ecs" }
+fruits_ffi = { path = "../fruits_ffi" }

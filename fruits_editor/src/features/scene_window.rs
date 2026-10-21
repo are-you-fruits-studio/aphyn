@@ -196,7 +196,8 @@ fn sync_simulated_window_system(
     let window_res = simulated_world.world.data_mut().into_resources_mut().into_get_mut::<WindowResource>().unwrap();
 
     // resetting both states also drops window changes requested by the simulated game
-    WindowResource::reset(window_res, &WindowState { fullscreen: FullscreenState::Windowed, size });
+    let title = window_res.prev_state().title.clone();
+    WindowResource::reset(window_res, &WindowState { fullscreen: FullscreenState::Windowed, size, title });
 }
 
 fn scene_view_size(rect_c: &GlobalRectComponent) -> [u32; 2] {

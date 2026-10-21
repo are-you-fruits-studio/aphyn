@@ -157,9 +157,11 @@
 //! window (`window_state_from_window`), so `prev` always reflects the actual window, including
 //! user resizes. Systems write the desired configuration into `next`; after the `Update` pass
 //! (and once after the `Start` pass) `window_state_apply_difference` compares the two and only
-//! touches the real window where they differ (fullscreen mode and size). This keeps redundant
-//! OS calls out of the steady state. Exclusive fullscreen uses the current monitor's first video
-//! mode and falls back to borderless when there is none.
+//! touches the real window where they differ (fullscreen mode, size and title). This keeps
+//! redundant OS calls out of the steady state. Exclusive fullscreen uses the current monitor's
+//! first video mode and falls back to borderless when there is none. `winit` cannot read the
+//! title back on x11, Wayland, iOS, Android and Web, so there `prev.title` is always empty while
+//! setting `next.title` still works.
 
 mod app;
 mod event_loop_handler;

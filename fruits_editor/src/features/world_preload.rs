@@ -118,7 +118,7 @@ pub fn preload_assets_into_simulated_world_system(
     serializer.register(StandardSerializer::<FfiVec<EntityId>>::default());
 
     res.insert(render_api.clone());
-    res.insert(WindowResource::new(WindowState { fullscreen: FullscreenState::Windowed, size: [1, 1] }));
+    res.insert(WindowResource::new(WindowState { fullscreen: FullscreenState::Windowed, size: [1, 1], title: "Scene".into() }));
     res.insert(AudioStateResource::new(FfiDroppable::new(()), WrappedAudioStateHandle::new(Arc::new(Mutex::new(AudioState::new())))));
     res.insert(AssetStorageResource::<AudioClip>::new());
     res.insert(AssetStorageResource::<Prefab>::new());

@@ -1,3 +1,4 @@
+use fruits_ffi::FfiString;
 use fruits_window::{FullscreenState, WindowState};
 use winit::{dpi::PhysicalSize, window::{Fullscreen, Window}};
 
@@ -57,14 +58,28 @@ fn window_size_apply_difference(prev: &[u32; 2], next: &[u32; 2], window: &Windo
     _ = window.request_inner_size(winit::dpi::Size::Physical(PhysicalSize { width: next[0], height: next[1], }));
 }
 
+fn window_title_from_window(window: &Window) -> FfiString {
+    window.title().into()
+}
+
+fn window_title_apply_difference(prev: &FfiString, next: &FfiString, window: &Window) {
+    if prev == next {
+        return;
+    }
+
+    window.set_title(next);
+}
+
 pub(crate) fn window_state_from_window(window: &Window) -> WindowState {
     WindowState {
         fullscreen: fullscreen_state_from_window(window),
         size: window_size_from_window(window),
+        title: window_title_from_window(window),
     }
 }
 
 pub(crate) fn window_state_apply_difference(prev: &WindowState, next: &WindowState, window: &Window) {
     fullscreen_state_apply_difference(&prev.fullscreen, &next.fullscreen, window);
     window_size_apply_difference(&prev.size, &next.size, window);
+    window_title_apply_difference(&prev.title, &next.title, window);
 }
