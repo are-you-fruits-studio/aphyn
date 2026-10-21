@@ -142,7 +142,8 @@
 //! #### Hierarchy traversal
 //!
 //! All propagation goes through the hierarchy-walk helpers. Roots are the entities with no
-//! `ChildComponent`, or whose named parent is not in the query.
+//! `ChildComponent`, or whose named parent is not in the query; passing `Some(root)` instead walks
+//! only that entity's subtree, treating it as the single root (nothing is walked if it is not in the query).
 //! [`hierarchy_iter_depth_first`] is the core depth-first walk;
 //! [`hierarchy_iter_depth_first_parent_to_child`]
 //! visits each parent before its children (used where a value flows *down* — transforms, disabled

@@ -48,31 +48,27 @@ pub fn hierarchy_iter_breadth_first_parent_to_child(
     }
 }
 
-/// f(optional parent, children)
+/// f(optional parent, children, cache) -> cache
 pub fn hierarchy_iter_depth_first_parent_to_child<R, F: QueryFilter>(
     q: &WorldQuery<(EntityId, Option<&ChildComponent>, Option<&ParentComponent>), F>,
-    mut f: impl FnMut(EntityId, &[EntityId]) -> R,
+    root: Option<EntityId>,
+    mut f: impl FnMut(EntityId, &[EntityId], Option<&R>) -> Option<R>,
 ) {
-    hierarchy_iter_depth_first(q, move |src, dst, is_moving_to_root| {
+    hierarchy_iter_depth_first(q, root, move |parent, entity, children, cache, is_moving_to_root| {
         if is_moving_to_root {
-            // moving child_to_parent
-            return;
+            return None;
         }
 
-        if q.get(src).is_none() {
-            // src does not exist - dst is root. Dst as child
-            f(EntityId::EMPTY, &[dst]);
+        let temp_cache;
+        let mut cache = cache;
+
+        if parent == EntityId::EMPTY {
+            // entity is root. Entity as child
+            temp_cache = f(EntityId::EMPTY, &[entity], None);
+            cache = temp_cache.as_ref();
         }
 
-        let Some((_, _, p)) = q.get(dst) else {
-            // dst does not exist - src is root. Imposible while moving parent_to_child
-            return;
-        };
-
-        // dst as parent
-        let children = p.map(|p| p.children.as_slice()).unwrap_or(&[]);
-
-        f(dst, children);
+        f(entity, children, cache)
     })
 }
 
@@ -81,48 +77,46 @@ pub fn hierarchy_iter_depth_first_child_to_parent<R, F: QueryFilter>(
     q: &WorldQuery<(EntityId, Option<&ChildComponent>, Option<&ParentComponent>), F>,
     mut f: impl FnMut(EntityId, &[EntityId]) -> R,
 ) {
-    hierarchy_iter_depth_first(q, move |src, dst, is_moving_to_root| {
+    hierarchy_iter_depth_first::<(), F>(q, None, move |parent, entity, children, _, is_moving_to_root| {
         if !is_moving_to_root {
-            // moving parent_to_child
-            return;
+            return None;
         }
 
-        let Some((_, _, p)) = q.get(src) else {
-            // src does not exist - dst is root. Imposible while moving child_to_parent
-            return;
-        };
+        f(entity, children);
 
-        // src as parent
-        let children = p.map(|p| p.children.as_slice()).unwrap_or(&[]);
-
-        f(src, children);
-
-        if q.get(dst).is_none() {
-            // dst does not exist - src is root. Src as child
-            f(EntityId::EMPTY, &[src]);
+        if parent == EntityId::EMPTY {
+            // entity is root. Entity as child
+            f(EntityId::EMPTY, &[entity]);
         }
+
+        None
     })
 }
 
-/// f(src, dst, is_moving_to_root)
+/// f(optional parent, entity, children, cache, is_moving_to_root) -> entity cache.
+/// Called for every entity twice: moving down (cache is the parent's) and moving to root (cache is the entity's, result ignored).
 pub fn hierarchy_iter_depth_first<R, F: QueryFilter>(
     q: &WorldQuery<(EntityId, Option<&ChildComponent>, Option<&ParentComponent>), F>,
-    mut f: impl FnMut(EntityId, EntityId, bool) -> R,
+    root: Option<EntityId>,
+    mut f: impl FnMut(EntityId, EntityId, &[EntityId], Option<&R>, bool) -> Option<R>,
 ) {
-    let roots = q
-        .iter()
-        .filter_map(|(e, c, _p)| {
-            let Some(child_component) = c else {
-                return Some(e);
-            };
+    let roots = match root {
+        Some(root) => q.get(root).map(|_| root).into_iter().collect::<Vec<_>>(),
+        None => q
+            .iter()
+            .filter_map(|(e, c, _p)| {
+                let Some(child_component) = c else {
+                    return Some(e);
+                };
 
-            if q.get(child_component.parent).is_none() {
-                return Some(e);
-            }
+                if q.get(child_component.parent).is_none() {
+                    return Some(e);
+                }
 
-            None
-        })
-        .collect::<Vec<_>>();
+                None
+            })
+            .collect::<Vec<_>>(),
+    };
 
     let get_children = |ent| -> &[EntityId] {
         let Some(p) = q.get(ent).map(|t| t.2).flatten() else {
@@ -131,37 +125,38 @@ pub fn hierarchy_iter_depth_first<R, F: QueryFilter>(
         p.children.as_slice()
     };
 
-    let mut stack = VecDeque::<(EntityId, usize)>::new();
+    let mut stack = VecDeque::<(EntityId, &[EntityId], Option<R>, usize)>::new();
 
     for root in roots {
-        f(EntityId::EMPTY, root, false);
-
         let mut entity = root;
+        let mut entity_children = get_children(entity);
+        let mut entity_cache = f(EntityId::EMPTY, entity, entity_children, None, false);
         let mut child_idx_to_check = 0;
 
         loop {
-            let children = get_children(entity);
-
-            if let Some(&child_entity) = children.get(child_idx_to_check) {
-                stack.push_back((entity, child_idx_to_check + 1));
-                f(entity, child_entity, false);
+            if let Some(&child_entity) = entity_children.get(child_idx_to_check) {
+                let child_entity_children = get_children(child_entity);
+                let child_entity_cache = f(entity, child_entity, child_entity_children, entity_cache.as_ref(), false);
+                stack.push_back((entity, entity_children, entity_cache, child_idx_to_check + 1));
 
                 entity = child_entity;
+                entity_cache = child_entity_cache;
+                entity_children = child_entity_children;
                 child_idx_to_check = 0;
                 continue;
             }
 
-            // todo: handle root
-            if let Some((parent_ent, parent_idx_to_check)) = stack.pop_back() {
-                f(entity, parent_ent, true);
+            let parent = stack.back().map(|t| t.0).unwrap_or(EntityId::EMPTY);
+            f(parent, entity, entity_children, entity_cache.as_ref(), true);
 
-                entity = parent_ent;
-                child_idx_to_check = parent_idx_to_check;
-                continue;
-            }
+            let Some((parent_ent, parent_ent_children, parent_ent_cache, parent_idx_to_check)) = stack.pop_back() else {
+                break;
+            };
 
-            f(entity, EntityId::EMPTY, true);
-            break;
+            entity = parent_ent;
+            entity_cache = parent_ent_cache;
+            entity_children = parent_ent_children;
+            child_idx_to_check = parent_idx_to_check;
         }
     }
 }

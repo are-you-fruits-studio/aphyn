@@ -299,48 +299,74 @@ pub fn update_text_batched_mesh(
 
 pub fn update_masked_batched_mesh(
     hierarchy_q: WorldQuery<(EntityId, Option<&ChildComponent>, Option<&ParentComponent>)>,
-    mask_q: WorldQuery<&GlobalRectComponent, WithFilter<ChildrenRectMaskComponent>>,
+    mask_q: WorldQuery<(EntityId, &GlobalRectComponent), WithFilter<ChildrenRectMaskComponent>>,
     mut mesh_q: WorldQuery<&mut BatchedMeshComponent>,
 ) {
-    let mut masked = HashMap::<EntityId, GlobalRectComponent>::new();
+    let mut roots = Vec::new();
 
-    fruits_transform::hierarchy_iter_depth_first_parent_to_child(&hierarchy_q, |e, c| {
-        let parent_mask = masked.remove(&e);
+    for (mask_e, _) in mask_q.iter() {
+        let mut top = mask_e;
+        let mut current = mask_e;
 
-        for &child in c {
-            let child_mask = mask_q.get(child);
+        while let Some((_, Some(child_c), _)) = hierarchy_q.get(current) {
+            current = child_c.parent;
 
-            let rect = match (parent_mask, child_mask) {
-                (None, None) => continue,
-                (Some(m), None) => m,
-                (None, Some(&m)) => m,
-                (Some(p), Some(c)) => {
-                    let min = (p.center - p.scale * 0.5).zip_copied(c.center - c.scale * 0.5, f32::max);
-                    let max = (p.center + p.scale * 0.5).zip_copied(c.center + c.scale * 0.5, f32::min);
+            if hierarchy_q.get(current).is_none() {
+                break;
+            }
 
-                    let center = (min + max) * 0.5;
-                    let scale = max - min;
-
-                    GlobalRectComponent { center, scale, z: 0.0 }
-                }
-            };
-
-            masked.insert(child, rect);
-
-            let min = rect.center - rect.scale * 0.5;
-            let max = rect.center + rect.scale * 0.5;
-
-            // todo: Use proper masking.
-            if let Some(mesh) = mesh_q.get_mut(child) {
-                for vertex in &mut mesh.vertices {
-                    let mut pos = Vec3::from_array(vertex.position).xy();
-
-                    pos = pos.zip_copied(min, f32::max);
-                    pos = pos.zip_copied(max, f32::min);
-
-                    vertex.position = [pos.x, pos.y, vertex.position[2]];
-                }
+            if mask_q.get(current).is_some() {
+                top = current;
             }
         }
+
+        if !roots.contains(&top) {
+            roots.push(top);
+        }
+    }
+
+    for root in roots {
+        update_masked_batched_mesh_subtree(&hierarchy_q, &mask_q, &mut mesh_q, root);
+    }
+}
+
+fn update_masked_batched_mesh_subtree(
+    hierarchy_q: &WorldQuery<(EntityId, Option<&ChildComponent>, Option<&ParentComponent>)>,
+    mask_q: &WorldQuery<(EntityId, &GlobalRectComponent), WithFilter<ChildrenRectMaskComponent>>,
+    mesh_q: &mut WorldQuery<&mut BatchedMeshComponent>,
+    root: EntityId,
+) {
+    fruits_transform::hierarchy_iter_depth_first_parent_to_child(hierarchy_q, Some(root), |e, _, parent_mask| {
+        let rect = match (parent_mask, mask_q.get(e).map(|(_, r)| r)) {
+            (None, None) => return None,
+            (Some(&m), None) => m,
+            (None, Some(&m)) => m,
+            (Some(p), Some(c)) => {
+                let min = (p.center - p.scale * 0.5).zip_copied(c.center - c.scale * 0.5, f32::max);
+                let max = (p.center + p.scale * 0.5).zip_copied(c.center + c.scale * 0.5, f32::min);
+
+                let center = (min + max) * 0.5;
+                let scale = max - min;
+
+                GlobalRectComponent { center, scale, z: 0.0 }
+            }
+        };
+
+        let min = rect.center - rect.scale * 0.5;
+        let max = rect.center + rect.scale * 0.5;
+
+        // todo: Use proper masking.
+        if let Some(mesh) = mesh_q.get_mut(e) {
+            for vertex in &mut mesh.vertices {
+                let mut pos = Vec3::from_array(vertex.position).xy();
+
+                pos = pos.zip_copied(min, f32::max);
+                pos = pos.zip_copied(max, f32::min);
+
+                vertex.position = [pos.x, pos.y, vertex.position[2]];
+            }
+        }
+
+        Some(rect)
     });
 }

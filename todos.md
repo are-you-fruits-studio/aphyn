@@ -1,7 +1,5 @@
 # Prioritized
 
-- implement the ability to create assets from editor
-
 - rework rendering to be able to implement both scene and preview windows
 - implement playable game window ("Preview") (with simulated world being live and using updates)
 - make OS window icon configurable

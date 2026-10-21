@@ -164,7 +164,7 @@ pub fn calculate_global_transform(
     local_transform_q: WorldQuery<&LocalTransform>,
     mut global_transform_q: WorldQuery<&mut GlobalTransform>,
 ) {
-    utils::hierarchy_iter_depth_first_parent_to_child(&hierarchy_q, |parent, children| {
+    utils::hierarchy_iter_depth_first_parent_to_child(&hierarchy_q, None, |parent, children, _: Option<&()>| {
         let parent_global_transform = match global_transform_q.get(parent) {
             None => GlobalTransform::IDENTITY,
             Some(&parent_global_transform) => parent_global_transform,
@@ -183,6 +183,8 @@ pub fn calculate_global_transform(
             global_transform.scale_rotation =
                 parent_global_transform.scale_rotation * (local_transform.rotation.to_matrix() * Mat3::scale(local_transform.scale));
         }
+
+        None
     });
 }
 
@@ -285,9 +287,9 @@ pub fn calculate_global_rect_scale_parent_based(
     let window_size: [u32; 2] = window.prev_state().size;
     let window_size = Vec2::from_array(window_size.map(|v| v as f32));
 
-    utils::hierarchy_iter_depth_first_parent_to_child(&hierarchy_q, |parent, children| {
+    utils::hierarchy_iter_depth_first_parent_to_child(&hierarchy_q, None, |parent, children, _: Option<&()>| {
         if children.is_empty() {
-            return;
+            return None;
         }
 
         for &ent in children {
@@ -331,6 +333,8 @@ pub fn calculate_global_rect_scale_parent_based(
             global_rect.z = parent_global_rect.z + local_rect.z;
             global_rect.center = pivoted_center;
         }
+
+        None
     });
 }
 
@@ -343,9 +347,9 @@ pub fn calculate_global_rect_pos(
 ) {
     let window_size = Vec2::from_array(window.prev_state().size.map(|v| v as f32));
 
-    utils::hierarchy_iter_depth_first_parent_to_child(&hierarchy_q, |parent, children| {
+    utils::hierarchy_iter_depth_first_parent_to_child(&hierarchy_q, None, |parent, children, _: Option<&()>| {
         if children.is_empty() {
-            return;
+            return None;
         }
 
         let align_data = 'switch: {
@@ -484,6 +488,8 @@ pub fn calculate_global_rect_pos(
                 }
             }
         }
+
+        None
     });
 }
 
@@ -493,7 +499,7 @@ pub fn calculate_global_disableable(
     local_disableable_q: WorldQuery<&LocalDisableableComponent>,
     mut global_disableable_q: WorldQuery<&mut GlobalDisableableComponent>,
 ) {
-    utils::hierarchy_iter_depth_first_parent_to_child(&hierarchy_q, |parent, children| {
+    utils::hierarchy_iter_depth_first_parent_to_child(&hierarchy_q, None, |parent, children, _: Option<&()>| {
         let is_parent_disabled = global_disableable_q.get(parent).map(|c| c.is_disabled).unwrap_or(false);
 
         for &ent in children {
@@ -505,5 +511,7 @@ pub fn calculate_global_disableable(
 
             global_disableable.is_disabled = is_parent_disabled || is_locally_disabled;
         }
+
+        None
     });
 }
