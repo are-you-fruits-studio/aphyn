@@ -18,7 +18,7 @@ pub fn select_entity_system(
     button_click_evt: Evt<ButtonClickEvent>,
     file_selected_evt: Evt<FileSelectedEvent>,
     entry_q: WorldQuery<&HierarchyWindowEntryComponent>,
-    mut prefab_entity_selected_evt: EvtMut<PrefabEntitySelectedEvent>,
+    mut entity_selected_evt: EvtMut<EntitySelectedEvent>,
 ) {
     if !file_selected_evt.is_empty() {
         inspected_entity.selected_entity = EntityId::EMPTY;
@@ -29,7 +29,7 @@ pub fn select_entity_system(
     if let Some(entry_c) = entry_q.get(button_click_evt.entity) {
         inspected_entity.selected_entity = entry_c.simulated_entity;
         *selected_file = SelectedFileResource::default();
-        prefab_entity_selected_evt.push(PrefabEntitySelectedEvent);
+        entity_selected_evt.push(EntitySelectedEvent);
     }
 }
 
@@ -62,7 +62,7 @@ pub fn remove_component_system(
         continue_if_not!(Some(component_id) = get_inspected_component_id(ent, component_remove_button_c.component));
 
         if remove_inspected_component(simulated_world, &inspected_entity, component_id.as_str()) {
-            asset_edited_evt.push(AssetEditedEvent::OpenedPrefab);
+            asset_edited_evt.push(AssetEditedEvent::OpenedEntitiesAsset);
         }
     }
 }
@@ -118,7 +118,7 @@ pub fn apply_component_context_menu_system(
     return_if!(!is_inspected_entity_shown(simulated_world, &inspected_entity));
 
     if remove_inspected_component(simulated_world, &inspected_entity, context_menu.component_id.as_str()) {
-        asset_edited_evt.push(AssetEditedEvent::OpenedPrefab);
+        asset_edited_evt.push(AssetEditedEvent::OpenedEntitiesAsset);
     }
 }
 
@@ -138,7 +138,7 @@ pub fn add_component_system(
 
         let (sim_res, sim_ent, _) = simulated_world.world.data_mut().into_tuple_mut();
 
-        let did_add = deserialize_entity_component_from_prefab(
+        let did_add = deserialize_entity_component_at_path(
             sim_res.as_ref(),
             sim_ent,
             inspected_entity.selected_entity,
@@ -149,7 +149,7 @@ pub fn add_component_system(
         );
 
         if did_add {
-            asset_edited_evt.push(AssetEditedEvent::OpenedPrefab);
+            asset_edited_evt.push(AssetEditedEvent::OpenedEntitiesAsset);
         }
     }
 }
@@ -268,7 +268,7 @@ pub fn adjust_hierarchy_entries_system(
     button_click_evt: Evt<ButtonClickEvent>,
     mut inspected_entity: ResMut<InspectedEntityResource>,
     mut selected_file: ResMut<SelectedFileResource>,
-    opened_prefab: Res<OpenedPrefabResource>,
+    opened_asset: Res<OpenedEntitiesAssetResource>,
     mut simulated_world: ResMut<SimulatedWorldResource>,
     button_add_q: WorldQuery<&HierarchyButtonAddComponent>,
     button_remove_q: WorldQuery<&HierarchyButtonRemoveComponent>,
@@ -276,7 +276,11 @@ pub fn adjust_hierarchy_entries_system(
 ) {
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
 
-    return_if!(!simulated_world.world.data().entities().contains_entity(opened_prefab.spawned_prefab));
+    match opened_asset.asset_type {
+        Some(AssetType::Prefab) => return_if!(!simulated_world.world.data().entities().contains_entity(opened_asset.prefab_root)),
+        Some(AssetType::Scene) => {}
+        _ => return,
+    }
 
     let (_, mut sim_ent, _) = simulated_world.world.data_mut().into_tuple_mut();
 
@@ -284,7 +288,7 @@ pub fn adjust_hierarchy_entries_system(
         let ent_selected = inspected_entity.selected_entity;
 
         if button_remove_q.get(click_evt.entity).is_some()
-            && ent_selected != opened_prefab.spawned_prefab
+            && ent_selected != opened_asset.prefab_root
             && sim_ent.contains_entity(ent_selected)
         {
             if let Some(&ChildComponent { parent }) = sim_ent.get_component::<ChildComponent>(ent_selected)
@@ -311,7 +315,7 @@ pub fn adjust_hierarchy_entries_system(
             }
 
             inspected_entity.selected_entity = EntityId::EMPTY;
-            asset_edited_evt.push(AssetEditedEvent::OpenedPrefab);
+            asset_edited_evt.push(AssetEditedEvent::OpenedEntitiesAsset);
         }
 
         if button_add_q.get(click_evt.entity).is_some() {
@@ -338,7 +342,7 @@ pub fn adjust_hierarchy_entries_system(
 
             inspected_entity.selected_entity = entity;
             *selected_file = SelectedFileResource::default();
-            asset_edited_evt.push(AssetEditedEvent::OpenedPrefab);
+            asset_edited_evt.push(AssetEditedEvent::OpenedEntitiesAsset);
         }
     }
 }
@@ -557,7 +561,7 @@ impl InspectedTarget {
     fn edited_event(&self) -> AssetEditedEvent {
         match self {
             InspectedTarget::Asset(_) => AssetEditedEvent::InspectedAsset,
-            InspectedTarget::PrefabComponent { .. } => AssetEditedEvent::OpenedPrefab,
+            InspectedTarget::PrefabComponent { .. } => AssetEditedEvent::OpenedEntitiesAsset,
         }
     }
 }
@@ -581,7 +585,7 @@ fn get_inspected_target(
 
     let asset_type = get_asset_type(simulated_world.world.data().resources(), inspected_asset.asset_key.as_str())?;
 
-    if asset_type == AssetType::Prefab {
+    if is_entities_asset(asset_type) {
         return None;
     }
 
@@ -601,7 +605,7 @@ fn serialize_from_simulated_world(
         InspectedTarget::Asset(_) => save_asset_from_world_res(res, inspected_asset.asset_key.as_str())?
             .get_by_path(path)
             .cloned(),
-        InspectedTarget::PrefabComponent { component_id } => record_into_prefab_components(
+        InspectedTarget::PrefabComponent { component_id } => record_entity_components(
             res,
             simulated_world.world.data().entities(),
             inspected_entity.selected_entity,
@@ -635,7 +639,7 @@ fn deserialize_to_simulated_world(
             let (sim_res, sim_ent, _) = simulated_world.world.data_mut().into_tuple_mut();
 
             // todo: react to result?
-            deserialize_entity_component_from_prefab(
+            deserialize_entity_component_at_path(
                 sim_res.as_ref(),
                 sim_ent,
                 inspected_entity.selected_entity,
@@ -694,8 +698,8 @@ pub fn apply_inspector_to_simulated_world_system(
 
     return_if_not!(Some(asset_type) = get_asset_type(simulated_world.world.data().resources(), inspected_asset.asset_key.as_str()));
 
-    if asset_type == AssetType::Prefab {
-        let stored_components = record_into_prefab_components(
+    if is_entities_asset(asset_type) {
+        let stored_components = record_entity_components(
             simulated_world.world.data().resources(),
             simulated_world.world.data().entities(),
             inspected_entity.selected_entity,
@@ -721,7 +725,7 @@ pub fn apply_inspector_to_simulated_world_system(
         return_if!(are_components_slices_similar(&stored_components, &parsed_components));
 
         let (sim_res, sim_ent, sim_evt) = simulated_world.world.data_mut().into_tuple_mut();
-        override_entity_components_from_prefab(
+        override_entity_components(
             sim_res.as_ref(),
             sim_ent,
             inspected_entity.selected_entity,
@@ -729,7 +733,7 @@ pub fn apply_inspector_to_simulated_world_system(
             &inspected_entity.id_to_ent,
         );
 
-        asset_edited_evt.push(AssetEditedEvent::OpenedPrefab);
+        asset_edited_evt.push(AssetEditedEvent::OpenedEntitiesAsset);
 
         return;
     }
@@ -762,30 +766,39 @@ pub fn apply_inspector_to_simulated_world_system(
     };
 }
 
-pub fn save_simulated_entities_to_prefab_system(
+pub fn save_simulated_entities_to_asset_system(
     mut simulated_world: ResMut<SimulatedWorldResource>,
-    opened_prefab: Res<OpenedPrefabResource>,
+    opened_asset: Res<OpenedEntitiesAssetResource>,
 ) {
     let Some(simulated_world) = &mut simulated_world.0 else {
         return;
     };
 
-    let Some(prefab) = record_into_prefab(
-        simulated_world.world.data().resources(),
-        simulated_world.world.data().entities(),
-        opened_prefab.spawned_prefab
-    ) else {
-        return;
-    };
+    let asset_key = opened_asset.asset_key.as_str();
+    let (sim_res, sim_ent, _) = simulated_world.world.data_mut().into_tuple_mut();
 
-    let Some(AssetType::Prefab) = get_asset_type(simulated_world.world.data().resources(), opened_prefab.asset_key.as_str()) else {
-        return;
-    };
+    return_if!(get_asset_type(sim_res.as_ref(), asset_key) != opened_asset.asset_type);
 
-    let prefabs = simulated_world.world.data_mut().into_resources_mut().into_get_mut::<AssetStorageResource<Prefab>>().unwrap();
-    let prefab_handle = prefabs.get_registered(opened_prefab.asset_key.as_str()).unwrap().clone();
+    match opened_asset.asset_type {
+        Some(AssetType::Prefab) => {
+            return_if_not!(Some(prefab) = record_into_prefab(sim_res.as_ref(), sim_ent.as_ref(), opened_asset.prefab_root));
+            replace_registered_asset(sim_res, asset_key, prefab);
+        }
+        Some(AssetType::Scene) => {
+            return_if_not!(Some(scene) = record_into_scene(sim_res.as_ref(), sim_ent.as_ref()));
+            replace_registered_asset(sim_res, asset_key, scene);
+        }
+        _ => {}
+    }
+}
 
-    *prefabs.get_mut(&prefab_handle).unwrap() = prefab;
+fn replace_registered_asset<T: 'static + Send + Sync>(res: ResourcesHolderMut, asset_key: &str, asset: T) {
+    return_if_not!(Some(storage) = res.into_get_mut::<AssetStorageResource<T>>());
+    return_if_not!(Some(handle) = storage.get_registered(asset_key).cloned());
+
+    if let Some(stored) = storage.get_mut(&handle) {
+        *stored = asset;
+    }
 }
 
 pub fn save_inspected_asset_from_simulated_world_to_file_system(
@@ -793,21 +806,21 @@ pub fn save_inspected_asset_from_simulated_world_to_file_system(
     simulated_world: Res<SimulatedWorldResource>,
     selected_file: Res<SelectedFileResource>,
     inspected_asset: Res<InspectedAssetResource>,
-    opened_prefab: Res<OpenedPrefabResource>,
+    opened_asset: Res<OpenedEntitiesAssetResource>,
 ) {
     return_if_not!(Some(simulated_world) = &simulated_world.0);
 
     let res = simulated_world.world.data().resources();
 
     let is_inspected_asset_edited = asset_edited_evt.iter().any(|e| *e == AssetEditedEvent::InspectedAsset);
-    let is_opened_prefab_edited = asset_edited_evt.iter().any(|e| *e == AssetEditedEvent::OpenedPrefab);
+    let is_opened_asset_edited = asset_edited_evt.iter().any(|e| *e == AssetEditedEvent::OpenedEntitiesAsset);
 
     if is_inspected_asset_edited || inspected_asset.asset_key != selected_file.potential_asset_key {
         save_asset_from_world_res_to_file(res, inspected_asset.asset_key.as_str(), &inspected_asset.path);
     }
 
-    if is_opened_prefab_edited {
-        save_asset_from_world_res_to_file(res, opened_prefab.asset_key.as_str(), &opened_prefab.path);
+    if is_opened_asset_edited {
+        save_asset_from_world_res_to_file(res, opened_asset.asset_key.as_str(), &opened_asset.path);
     }
 }
 
@@ -823,10 +836,10 @@ fn save_asset_from_world_res_to_file(res: ResourcesHolderRef, asset_key: &str, p
     }
 }
 
-pub fn open_prefab_system(
+pub fn open_entities_asset_system(
     file_opened_evt: Evt<FileOpenedEvent>,
     mut simulated_world: ResMut<SimulatedWorldResource>,
-    mut opened_prefab: ResMut<OpenedPrefabResource>,
+    mut opened_asset: ResMut<OpenedEntitiesAssetResource>,
     mut inspected_entity: ResMut<InspectedEntityResource>,
     selected_file: Res<SelectedFileResource>,
 ) {
@@ -836,31 +849,39 @@ pub fn open_prefab_system(
 
     let (res, mut ent, _evt) = world.world.data_mut().into_tuple_mut();
 
-    return_if!(get_asset_type(res.as_ref(), selected_file.potential_asset_key.as_str()) != Some(AssetType::Prefab));
+    let asset_key = selected_file.potential_asset_key.as_str();
+    let asset_type = get_asset_type(res.as_ref(), asset_key);
 
-    return_if_not!(
-        Some(prefab_handle) = res
-            .as_ref()
-            .get::<AssetStorageResource<Prefab>>()
-            .unwrap()
-            .get_registered(selected_file.potential_asset_key.as_str())
-            .cloned()
-    );
+    return_if!(!asset_type.is_some_and(is_entities_asset));
 
     *inspected_entity = InspectedEntityResource::default();
-    *opened_prefab = OpenedPrefabResource::default();
+    *opened_asset = OpenedEntitiesAssetResource::default();
 
     for entity in ent.query::<EntityId>().iter().collect::<Vec<_>>() {
         ent.destroy_entity(entity);
     }
 
-    let instantiated = instantiate_prefab(res.as_ref(), ent.as_mut(), prefab_handle).unwrap_or(EntityId::EMPTY);
+    let mut prefab_root = EntityId::EMPTY;
 
-    if !ent.contains_entity(instantiated) {
-        for entity in ent.query::<EntityId>().iter().collect::<Vec<_>>() {
-            ent.destroy_entity(entity);
+    match asset_type {
+        Some(AssetType::Prefab) => {
+            return_if_not!(Some(prefab_handle) = res.as_ref().get::<AssetStorageResource<Prefab>>().and_then(|s| s.get_registered(asset_key)).cloned());
+
+            prefab_root = instantiate_prefab(res.as_ref(), ent.as_mut(), prefab_handle).unwrap_or(EntityId::EMPTY);
+
+            if !ent.contains_entity(prefab_root) {
+                for entity in ent.query::<EntityId>().iter().collect::<Vec<_>>() {
+                    ent.destroy_entity(entity);
+                }
+                return;
+            }
         }
-        return;
+        Some(AssetType::Scene) => {
+            return_if_not!(Some(scene_handle) = res.as_ref().get::<AssetStorageResource<Scene>>().and_then(|s| s.get_registered(asset_key)).cloned());
+
+            instantiate_scene(res.as_ref(), ent.as_mut(), scene_handle);
+        }
+        _ => return,
     }
 
     for entity in ent.query::<EntityId>().iter() {
@@ -870,11 +891,16 @@ pub fn open_prefab_system(
         inspected_entity.id_to_ent.insert(id, entity);
     }
 
-    *opened_prefab = OpenedPrefabResource {
+    *opened_asset = OpenedEntitiesAssetResource {
         asset_key: selected_file.potential_asset_key.clone(),
         path: selected_file.path.clone(),
-        spawned_prefab: instantiated,
+        asset_type,
+        prefab_root,
     };
+}
+
+fn is_entities_asset(asset_type: AssetType) -> bool {
+    matches!(asset_type, AssetType::Prefab | AssetType::Scene)
 }
 
 pub fn update_hierarchy_window_system(
@@ -1010,7 +1036,7 @@ pub fn update_inspector_window_system(
     assets: Res<StandardAssetsResource>,
     file_selected_evt: Evt<FileSelectedEvent>,
     asset_edited_evt: Evt<AssetEditedEvent>,
-    prefab_entity_selected_evt: Evt<PrefabEntitySelectedEvent>,
+    entity_selected_evt: Evt<EntitySelectedEvent>,
     input_field_selection_changed_evt: Evt<InputFieldSelectionChangedEvent>,
 ) {
     // todo
@@ -1018,7 +1044,7 @@ pub fn update_inspector_window_system(
         file_selected_evt.is_empty()
             && asset_edited_evt.is_empty()
             && input_field_selection_changed_evt.is_empty()
-            && prefab_entity_selected_evt.is_empty()
+            && entity_selected_evt.is_empty()
     );
 
     let ent_selected_input = selected_input_field.selected;
@@ -1032,7 +1058,7 @@ pub fn update_inspector_window_system(
         asset_type_text.text.clear();
 
         if is_inspected_entity_shown(simulated_world, &inspected_entity) {
-            let inspected_components = record_into_prefab_components(
+            let inspected_components = record_entity_components(
                 simulated_world.world.data().resources(),
                 simulated_world.world.data().entities(),
                 inspected_entity.selected_entity,
@@ -1060,7 +1086,7 @@ pub fn update_inspector_window_system(
         asset_type_text.text.push_str("asset type: ");
         asset_type_text.text.push_str(asset_type.serialized_str());
 
-        if asset_type == AssetType::Prefab {
+        if is_entities_asset(asset_type) {
             destroy_entity_children(ent.as_mut(), window_c.content_container);
             continue;
         }

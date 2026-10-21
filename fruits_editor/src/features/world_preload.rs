@@ -122,6 +122,7 @@ pub fn preload_assets_into_simulated_world_system(
     res.insert(AudioStateResource::new(FfiDroppable::new(()), WrappedAudioStateHandle::new(Arc::new(Mutex::new(AudioState::new())))));
     res.insert(AssetStorageResource::<AudioClip>::new());
     res.insert(AssetStorageResource::<Prefab>::new());
+    res.insert(AssetStorageResource::<Scene>::new());
 
     load_all_assets(res.as_mut(), &(open_project.dir_path.to_string() + PROJECT_ASSETS_SUBPATH));
 

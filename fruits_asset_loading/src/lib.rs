@@ -1,14 +1,14 @@
 //! # fruits_asset_loading
 //!
-//! Loads engine assets — textures, materials, meshes, audio clips, and prefabs — from asset
-//! files on disk into the world's asset storages, registered under a key so the rest of the
-//! engine can reference them by name, and instantiates or records prefabs.
+//! Loads engine assets — textures, materials, meshes, audio clips, prefabs, and scenes — from
+//! asset files on disk into the world's asset storages, registered under a key so the rest of
+//! the engine can reference them by name, and instantiates or records prefabs and scenes.
 //!
 //! # How to use
 //!
 //! Every asset is identified by a **key**: the `/`-separated path, relative to the `assets/`
 //! directory, of a small JSON *asset file* with the `.asset` extension. The file declares an
-//! `asset_type` (`"texture"`, `"material"`, `"mesh"`, `"audio_clip"`, `"prefab"`, or `"font"`)
+//! `asset_type` (`"texture"`, `"material"`, `"mesh"`, `"audio_clip"`, `"prefab"`, `"scene"`, or `"font"`)
 //! and the asset's settings, and usually points at a raw payload (image, `.obj`, `.wav`) by a
 //! further `assets/`-relative path. The module is part of the engine's default modules
 //! (`add_defult_modules_to`), which also registers the texture, material, mesh, and audio-clip
@@ -89,11 +89,29 @@
 //! let prefab = record_into_prefab(res.as_ref(), ent.as_ref(), root).unwrap();
 //! ```
 //!
+//! #### Scenes
+//!
+//! A scene asset file has the same shape as a prefab one, with `"asset_type": "scene"`. A
+//! [`Scene`] has no root: [`instantiate_scene`] spawns all its entities and returns nothing, and
+//! [`record_into_scene`] captures every entity in the world:
+//!
+//! ```ignore
+//! use fruits_engine::*;
+//!
+//! let scene = res.get::<AssetStorageResource<Scene>>().unwrap()
+//!     .get_registered("scenes/level_1.asset").unwrap().clone();
+//!
+//! instantiate_scene(res.as_ref(), ent.as_mut(), scene);
+//!
+//! let recorded = record_into_scene(res.as_ref(), ent.as_ref()).unwrap();
+//! ```
+//!
 //! # How to maintain
 //!
 //! #### Startup loading
 //!
-//! [`add_asset_module_to`] inserts the `AssetStorageResource<Prefab>` and registers
+//! [`add_asset_module_to`] inserts the `AssetStorageResource<Prefab>` and
+//! `AssetStorageResource<Scene>` and registers
 //! [`load_all_assets_system`] in the `Start` schedule under [`SYSTEM_GROUP_ASSETS`]. It calls
 //! [`load_all_assets`] with the `assets` directory relative to the working directory, which
 //! walks it recursively and, for every `.asset` file, reads the JSON, validates `asset_type`
@@ -118,7 +136,9 @@
 //! [`save_with_asset_serializers`] builds the counterpart registry for saving:
 //! [`AssetHandleLinkTransSerializer`] writes a handle as its registered key, and
 //! [`DirectAssetSaveTransSerializer`] writes a [`DirectSerializableAsset`] as the asset's own
-//! metadata (or the prefab's entities); its `deserialize` is a `todo!()`.
+//! metadata (or the prefab's / scene's entities); its `deserialize` is a `todo!()`.
+//! Every registry builder takes the scene storage next to the prefab one, so the
+//! `*_from_world` variants return `None` when either storage is missing.
 //! [`load_asset_single`] loads one asset's content under a given key
 //! ([`SingleDirectLoadTransSerializer`]) while resolving other handles only from what is already
 //! registered ([`SingleLoadTransSerializer`]). Each of these has a `*_from_world` variant that
@@ -143,27 +163,31 @@
 //! - **Prefab** — [`PrefabLoader`] deserializes the file (an `entities` list of `entity_id` +
 //!   `components`) with a pure context, then deserializes every component through the loading
 //!   context so the assets it references get loaded.
+//! - **Scene** — [`SceneLoader`] does the same for scene files.
 //!
 //! The `*HandleLoader` types and the [`AssetLoader`] trait wrap these loaders with a
 //! cache-or-load-from-key path ([`AssetLoader::get_or_load_from_key`]) that is not used by the
 //! startup loading.
 //!
-//! #### Prefab instantiation and recording
+//! #### Prefab and scene instantiation and recording
 //!
-//! [`instantiate_prefab`] creates one entity per prefab-local id (the first id is the root),
-//! then deserializes every component through a context that layers a local registry over the
+//! The shared machinery lives in `serialized_entities.rs`; `prefab.rs` and `scene.rs` only add
+//! the root handling. [`instantiate_serialized_entities`] creates one entity per local id, then
+//! deserializes every component through a context that layers a local registry over the
 //! world's `SerializersResource`: [`EntityTransSerializer`] maps stored ids to the new entities
-//! (`0` is the empty entity), and a [`PrefabAssetInstantiateTransSerializer`] per asset type
+//! (`0` is the empty entity), and an [`AssetInstantiateTransSerializer`] per asset type
 //! resolves an asset key to the handle already registered under it in the world's
-//! `AssetStorageResource` (textures, materials, meshes, audio clips, fonts, prefabs). It loads
-//! nothing: a key that isn't registered, or a missing storage, reports an error and leaves the
-//! handle empty. Its `serialize` is `unimplemented!`.
-//! [`record_into_prefab`] walks the hierarchy breadth-first through `ParentComponent`, gives
-//! each entity the id `index + 1`, and serializes its components with entity references
-//! mapped to those ids; [`override_entity_components_from_prefab`] removes all components of
-//! an entity and deserializes the given ones onto it.
-//! [`deserialize_entity_component_from_prefab`] writes one component at a path with the same
-//! id mapping, adding the component when the entity doesn't have it yet.
+//! `AssetStorageResource` (textures, materials, meshes, audio clips, fonts, prefabs, scenes). It
+//! loads nothing: a key that isn't registered, or a missing storage, reports an error and leaves
+//! the handle empty. Its `serialize` is `unimplemented!`. [`instantiate_prefab`] returns the
+//! entity of the first id (the root); [`instantiate_scene`] returns nothing.
+//! [`record_serialized_entities`] serializes the given entities with entity references mapped
+//! to their ids. [`record_into_prefab`] feeds it the hierarchy walked breadth-first through
+//! `ParentComponent`; [`record_into_scene`] feeds it every entity in the world, sorted by index.
+//! Both use the id `index + 1`. [`override_entity_components`] removes all components of an
+//! entity and deserializes the given ones onto it. [`deserialize_entity_component_at_path`]
+//! writes one component at a path with the same id mapping, adding the component when the
+//! entity doesn't have it yet.
 //!
 //! The crate root keeps `todo` notes on the asset formats still to be supported (font import,
 //! and `.obj`/`.fbx` import details), and the `_*_FILE_EXAMPLE` constants are older format
@@ -173,6 +197,8 @@ mod material;
 mod mesh;
 mod texture;
 mod prefab;
+mod scene;
+mod serialized_entities;
 mod audio_clip;
 mod serializers;
 
@@ -180,13 +206,15 @@ use std::{ffi::OsStr, path::{Path, PathBuf}};
 
 use fruits_asset_storage::{AssetHandle, AssetStorageResource};
 use fruits_audio::AudioClip;
-use fruits_prefab::Prefab;
+use fruits_prefab::{Prefab, Scene};
 use fruits_render_core::{StandardMaterial, StandardMesh, StandardTexture};
 use fruits_serialization::{SerializedPrimitive, SerializedValue, SerializerCtx};
 pub use material::*;
 pub use mesh::*;
 pub use texture::*;
 pub use prefab::*;
+pub use scene::*;
+pub use serialized_entities::*;
 pub use audio_clip::*;
 pub use serializers::*;
 
@@ -196,16 +224,14 @@ use fruits_ecs::{ResourcesHolderMut, Schedule, WorldBuilderMut};
 
 // todo: asset types:
 // - mesh (import details of the existing: .obj, .fbx)
-// + texture (import details of the existing: .bmp, .png, .jpg)
-// + material
+// - texture (import details of the existing: .bmp, .png, .jpg)
 // - font
-// +/2 prefab
-// + audio_clip
 
 pub const SYSTEM_GROUP_ASSETS: &'static str = "fruits_assets";
 
 pub fn add_asset_module_to(mut world: WorldBuilderMut) {
     world.data_mut().resources_mut().insert(AssetStorageResource::<Prefab>::new());
+    world.data_mut().resources_mut().insert(AssetStorageResource::<Scene>::new());
 
     world.behavior_mut()
         .get_mut(Schedule::Start)
@@ -230,6 +256,7 @@ pub enum AssetType {
     Font,
     AudioClip,
     Prefab,
+    Scene,
 }
 
 impl AssetType {
@@ -241,6 +268,7 @@ impl AssetType {
             AssetType::Font => "font",
             AssetType::AudioClip => "audio_clip",
             AssetType::Prefab => "prefab",
+            AssetType::Scene => "scene",
         }
     }
 
@@ -252,6 +280,7 @@ impl AssetType {
             "font" => Some(AssetType::Font),
             "audio_clip" => Some(AssetType::AudioClip),
             "prefab" => Some(AssetType::Prefab),
+            "scene" => Some(AssetType::Scene),
             _ => None
         }
     }
@@ -361,6 +390,7 @@ pub fn load_all_assets(mut res: ResourcesHolderMut, assets_dir_path: impl AsRef<
                     // todo: font
                     AssetType::Font => todo!(),
                     AssetType::Prefab => _ = serializer_ctx.deserialize_default::<AssetHandle<Prefab>>("", &serialized_value),
+                    AssetType::Scene => _ = serializer_ctx.deserialize_default::<AssetHandle<Scene>>("", &serialized_value),
                 };
             });
         },

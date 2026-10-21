@@ -4,11 +4,11 @@ use fruits_asset_storage::{AssetHandle, AssetStorageResource};
 use fruits_audio::{AudioClip, AudioStateResource};
 use fruits_ecs::ResourcesHolderMut;
 use fruits_ffi::FfiString;
-use fruits_prefab::Prefab;
+use fruits_prefab::{Prefab, Scene};
 use fruits_render_core::{RenderApiResource, StandardMaterial, StandardMesh, StandardTexture};
 use fruits_serialization::*;
 
-use crate::{AudioClipLoader, EntityTransSerializer, MaterialLoader, MeshLoader, PrefabLoader, TextureLoader};
+use crate::{AudioClipLoader, EntityTransSerializer, MaterialLoader, MeshLoader, PrefabLoader, SceneLoader, TextureLoader};
 
 pub fn load_asset_single_from_world<R>(
     res: ResourcesHolderMut,
@@ -22,6 +22,7 @@ pub fn load_asset_single_from_world<R>(
             &mut *res.get_ptr::<AudioStateResource>()?,
             &*res.get_ptr::<SerializersResource>()?,
             &mut *res.get_ptr::<AssetStorageResource<Prefab>>()?,
+            &mut *res.get_ptr::<AssetStorageResource<Scene>>()?,
             &mut *res.get_ptr::<AssetStorageResource<StandardTexture>>()?,
             &mut *res.get_ptr::<AssetStorageResource<StandardMaterial>>()?,
             &mut *res.get_ptr::<AssetStorageResource<StandardMesh>>()?,
@@ -38,6 +39,7 @@ pub fn load_asset_single<R>(
     audio_state: &mut AudioStateResource,
     serializers: &SerializersResource,
     prefabs: &mut AssetStorageResource<Prefab>,
+    scenes: &mut AssetStorageResource<Scene>,
     textures: &mut AssetStorageResource<StandardTexture>,
     materials: &mut AssetStorageResource<StandardMaterial>,
     meshes: &mut AssetStorageResource<StandardMesh>,
@@ -49,6 +51,7 @@ pub fn load_asset_single<R>(
     let (
         audio_state,
         prefabs,
+        scenes,
         textures,
         materials,
         meshes,
@@ -56,6 +59,7 @@ pub fn load_asset_single<R>(
     ) = (
         &Mutex::new(audio_state),
         &Mutex::new(prefabs),
+        &Mutex::new(scenes),
         &Mutex::new(textures),
         &Mutex::new(materials),
         &Mutex::new(meshes),
@@ -77,6 +81,7 @@ pub fn load_asset_single<R>(
     serializer_local.register(SingleLoadTransSerializer { assets: audio_clips });
     // todo: font
     serializer_local.register(SingleLoadTransSerializer { assets: prefabs });
+    serializer_local.register(SingleLoadTransSerializer { assets: scenes });
 
     serializer_local.register(SingleDirectLoadTransSerializer { 
         assets: textures,
@@ -130,6 +135,14 @@ pub fn load_asset_single<R>(
         asset_key,
         loader: |ctx, value, assets_dir_path| {
             PrefabLoader.load_from_serialized(ctx, value)
+        },
+    });
+    serializer_local.register(SingleDirectLoadTransSerializer {
+        assets: scenes,
+        assets_dir_path,
+        asset_key,
+        loader: |ctx, value, assets_dir_path| {
+            SceneLoader.load_from_serialized(ctx, value)
         },
     });
 

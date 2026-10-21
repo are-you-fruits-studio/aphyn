@@ -61,6 +61,7 @@ pub fn deserialize_asset_to_world_res(
                 AssetType::Font => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<Font>>("", &serialized),
                 AssetType::AudioClip => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<AudioClip>>("", &serialized),
                 AssetType::Prefab => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<Prefab>>("", &serialized),
+                AssetType::Scene => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<Scene>>("", &serialized),
             };
         },
     ).is_some()
@@ -90,6 +91,7 @@ pub fn load_asset_to_world_res(
                 AssetType::Font => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<Font>>("", value),
                 AssetType::AudioClip => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<AudioClip>>("", value),
                 AssetType::Prefab => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<Prefab>>("", value),
+                AssetType::Scene => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<Scene>>("", value),
             };
         },
     ).is_some()

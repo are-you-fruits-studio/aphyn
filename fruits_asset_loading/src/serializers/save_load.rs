@@ -4,11 +4,11 @@ use fruits_asset_storage::{AssetHandle, AssetStorageResource};
 use fruits_audio::{AudioClip, AudioClipAssetMetadata};
 use fruits_ecs::ResourcesHolderRef;
 use fruits_ffi::FfiString;
-use fruits_prefab::Prefab;
+use fruits_prefab::{Prefab, Scene};
 use fruits_render_core::{CoordinateSpaceType, StandardMaterial, StandardMesh, StandardMeshAssetMetadata, StandardTexture};
 use fruits_serialization::*;
 
-use crate::{EntityTransSerializer, serialize_prefab_no_deps};
+use crate::{EntityTransSerializer, serialize_entities_no_deps};
 
 //
 
@@ -19,6 +19,7 @@ pub fn save_load_with_asset_serializers_from_world<R>(
     Some(
         save_load_with_asset_serializers::<R>(
             &*res.get::<AssetStorageResource<Prefab>>()?,
+            &*res.get::<AssetStorageResource<Scene>>()?,
             &*res.get::<AssetStorageResource<StandardTexture>>()?,
             &*res.get::<AssetStorageResource<StandardMaterial>>()?,
             &*res.get::<AssetStorageResource<StandardMesh>>()?,
@@ -30,6 +31,7 @@ pub fn save_load_with_asset_serializers_from_world<R>(
 
 pub fn save_load_with_asset_serializers<R>(
     prefabs: &AssetStorageResource<Prefab>,
+    scenes: &AssetStorageResource<Scene>,
     textures: &AssetStorageResource<StandardTexture>,
     materials: &AssetStorageResource<StandardMaterial>,
     meshes: &AssetStorageResource<StandardMesh>,
@@ -49,6 +51,7 @@ pub fn save_load_with_asset_serializers<R>(
     serializer_local.register(AssetHandleLinkTransSerializer::new(audio_clips));
     // todo: font
     serializer_local.register(AssetHandleLinkTransSerializer::new(prefabs));
+    serializer_local.register(AssetHandleLinkTransSerializer::new(scenes));
 
     serializer_local.register(DirectAssetSaveTransSerializer {
         assets: textures,
@@ -77,7 +80,11 @@ pub fn save_load_with_asset_serializers<R>(
     // todo: fonts
     serializer_local.register(DirectAssetSaveTransSerializer {
         assets: prefabs,
-        extractor: |ctx, p| serialize_prefab_no_deps(ctx.map_state(|_| PureSerializerCtxState), &p.entities).clone(),
+        extractor: |ctx, p| serialize_entities_no_deps(ctx.map_state(|_| PureSerializerCtxState), &p.entities).clone(),
+    });
+    serializer_local.register(DirectAssetSaveTransSerializer {
+        assets: scenes,
+        extractor: |ctx, s| serialize_entities_no_deps(ctx.map_state(|_| PureSerializerCtxState), &s.entities).clone(),
     });
 
     f(serializer_local)

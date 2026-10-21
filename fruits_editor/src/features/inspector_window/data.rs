@@ -15,10 +15,11 @@ pub struct InspectedAssetResource {
 }
 
 #[derive(Resource, Default)]
-pub struct OpenedPrefabResource {
+pub struct OpenedEntitiesAssetResource {
     pub asset_key: String,
     pub path: OsString,
-    pub spawned_prefab: EntityId,
+    pub asset_type: Option<AssetType>,
+    pub prefab_root: EntityId,
 }
 
 // todo: maybe merge InspectedAssetResource and InspectedEntityResource or smth.
@@ -91,8 +92,8 @@ pub struct AddComponentVariantComponent {
 #[derive(Event, Copy, Clone, PartialEq, Eq)]
 pub enum AssetEditedEvent {
     InspectedAsset,
-    OpenedPrefab,
+    OpenedEntitiesAsset,
 }
 
 #[derive(Event)]
-pub struct PrefabEntitySelectedEvent;
+pub struct EntitySelectedEvent;

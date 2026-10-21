@@ -16,6 +16,7 @@ impl InspectedAsset {
             AssetType::AudioClip => ctx.serialize(&DirectSerializableAsset::<AudioClip>::Key(self.asset_key.clone()), ""),
             AssetType::Font => ctx.serialize(&DirectSerializableAsset::<Font>::Key(self.asset_key.clone()), ""),
             AssetType::Prefab => ctx.serialize(&DirectSerializableAsset::<Prefab>::Key(self.asset_key.clone()), ""),
+            AssetType::Scene => ctx.serialize(&DirectSerializableAsset::<Scene>::Key(self.asset_key.clone()), ""),
         };
 
         if let SerializedValue::Composite(serialized_composite) = &mut serialized {
@@ -101,6 +102,9 @@ pub fn get_asset_type(res: ResourcesHolderRef, key: &str) -> Option<AssetType> {
     }
     if let Some(storage) = res.get::<AssetStorageResource<Prefab>>() && storage.get_registered(key).is_some() {
         return Some(AssetType::Prefab);
+    }
+    if let Some(storage) = res.get::<AssetStorageResource<Scene>>() && storage.get_registered(key).is_some() {
+        return Some(AssetType::Scene);
     }
 
     None

@@ -1,8 +1,10 @@
 //! # fruits_prefab
 //!
-//! Defines the engine's in-memory prefab format — a reusable template of entities and their
-//! serialized components — together with the helpers that convert an entity's components to
-//! and from that format.
+//! Defines the engine's in-memory prefab and scene formats — reusable templates of entities and
+//! their serialized components — together with the helpers that convert an entity's components
+//! to and from that format. A [`Prefab`] has a root entity (its first entity); a [`Scene`] has
+//! none and is just a set of entities. Spawned entities keep no link to the prefab or scene they
+//! came from.
 //!
 //! # How to use
 //!
@@ -48,12 +50,14 @@
 //! assert_eq!(prefab.entities.0.len(), 1);
 //! ```
 //!
+//! A [`Scene`] is built the same way (`Scene::empty()`, then fill `scene.entities`).
+//!
 //! #### Recording and restoring an entity's components
 //!
 //! [`serialize_components`] captures every component of an entity as a map from component id
-//! to serialized payload, and [`deserialize_prefab_components`] adds them to an entity. Both take a registry-backed
-//! [`SerializerCtx`]; loading prefab files, instantiating whole prefabs, and recording
-//! hierarchies live in `fruits_asset_loading`:
+//! to serialized payload, and [`deserialize_entity_components`] adds them to an entity. Both take a registry-backed
+//! [`SerializerCtx`]; loading prefab and scene files, instantiating them, and recording
+//! hierarchies or whole worlds live in `fruits_asset_loading`:
 //!
 //! ```ignore
 //! use fruits_engine::*;
@@ -63,24 +67,25 @@
 //! let mut ctx = serializers.to_ctx(&mut on_err);
 //!
 //! let components = serialize_components(source, ctx.as_mut(), ent.as_ref());
-//! deserialize_prefab_components(&components, target, ctx, ent.as_mut());
+//! deserialize_entity_components(&components, target, ctx, ent.as_mut());
 //! ```
 //!
 //! # How to maintain
 //!
 //! #### Data model
 //!
-//! A [`Prefab`] holds only [`PrefabEntities`] — an `FfiIndexMap` from a prefab-local entity id
-//! (`u64`) to [`PrefabEntityComponents`], an `FfiIndexMap` from component id to the
-//! component's [`SerializedValue`] payload. All of these are `#[repr(C)]`. The ids are local to
-//! the prefab: instantiation creates one real entity per id and resolves entity references
-//! inside component data through those ids. Both wrappers implement [`Serializable`] by
-//! delegating to their map, and `SerializedValue` is serializable as-is, so the component
-//! payloads pass through prefab (de)serialization verbatim.
+//! [`Prefab`] and [`Scene`] each hold only [`SerializedEntities`] — an `FfiIndexMap` from a
+//! local entity id (`u64`) to [`SerializedEntityComponents`], an `FfiIndexMap` from component
+//! id to the component's [`SerializedValue`] payload. All of these are `#[repr(C)]`. The ids are
+//! local to the prefab or scene: instantiation creates one real entity per id and resolves entity
+//! references inside component data through those ids. Both wrappers implement [`Serializable`]
+//! by delegating to their map, and `SerializedValue` is serializable as-is, so the component
+//! payloads pass through (de)serialization verbatim. The two types differ only in meaning: a
+//! prefab's first entity is its root, a scene has no root. Keep their layouts in sync.
 //!
-//! A prefab does not store the assets its components reference. Asset handles stay in the
-//! payloads as asset keys and are resolved against the world's asset storages when the prefab
-//! is instantiated (see `fruits_asset_loading`); precaching them on the prefab is a `todo`.
+//! Neither stores the assets its components reference. Asset handles stay in the payloads as
+//! asset keys and are resolved against the world's asset storages on instantiation (see
+//! `fruits_asset_loading`); precaching them is a `todo`.
 //!
 //! #### The component id is the type name
 //!
@@ -92,16 +97,16 @@
 //! otherwise [`SerializerCtx::deserialize_default_any`] looks the serializer up by the id,
 //! creates the component from the serializer's default, fills it from the payload, and it is
 //! attached with `add_component_any`. It returns `false` if no serializer matches or the
-//! component cannot be added; [`deserialize_prefab_components`] logs such components and
+//! component cannot be added; [`deserialize_entity_components`] logs such components and
 //! moves on.
 //!
 //! #### Where the rest of the pipeline lives
 //!
-//! This crate only owns the format and the per-component conversion. Reading prefab files,
-//! loading their dependencies, instantiating them into the world, and recording entity
-//! hierarchies into prefabs live in `fruits_asset_loading`, and the
-//! `AssetStorageResource<Prefab>` is inserted there by `add_asset_module_to`.
-//! [`serialize_prefab_single_entity`] and [`deserialize_prefab_components`] are marked `todo`:
+//! This crate only owns the format and the per-component conversion. Reading prefab and scene
+//! files, loading their dependencies, instantiating them into the world, and recording entities
+//! into them live in `fruits_asset_loading`, and the `AssetStorageResource<Prefab>` and
+//! `AssetStorageResource<Scene>` are inserted there by `add_asset_module_to`.
+//! [`serialize_prefab_single_entity`] and [`deserialize_entity_components`] are marked `todo`:
 //! the former always stores the entity under id `0`.
 
 use fruits_asset_storage::AssetHandle;
@@ -114,9 +119,9 @@ use fruits_serialization::*;
 
 #[repr(C)]
 #[derive(Default, Debug, Clone)]
-pub struct PrefabEntityComponents(pub FfiIndexMap<FfiString, SerializedValue>);
+pub struct SerializedEntityComponents(pub FfiIndexMap<FfiString, SerializedValue>);
 
-impl<S: Copy + SerializerCtxState<SerializedValue>> Serializable<S> for PrefabEntityComponents {
+impl<S: Copy + SerializerCtxState<SerializedValue>> Serializable<S> for SerializedEntityComponents {
     fn serialize(&self, ctx: SerializerCtx<S>, path: &str) -> SerializedValue {
         self.0.serialize(ctx, path)
     }
@@ -126,7 +131,7 @@ impl<S: Copy + SerializerCtxState<SerializedValue>> Serializable<S> for PrefabEn
     }
 }
 
-impl From<FfiIndexMap<FfiString, SerializedValue>> for PrefabEntityComponents {
+impl From<FfiIndexMap<FfiString, SerializedValue>> for SerializedEntityComponents {
     fn from(value: FfiIndexMap<FfiString, SerializedValue>) -> Self {
         Self(value)
     }
@@ -134,9 +139,9 @@ impl From<FfiIndexMap<FfiString, SerializedValue>> for PrefabEntityComponents {
 
 #[repr(C)]
 #[derive(Default, Debug, Clone)]
-pub struct PrefabEntities(pub FfiIndexMap<u64, PrefabEntityComponents>);
+pub struct SerializedEntities(pub FfiIndexMap<u64, SerializedEntityComponents>);
 
-impl<S: Copy + SerializerCtxState<PrefabEntityComponents>> Serializable<S> for PrefabEntities {
+impl<S: Copy + SerializerCtxState<SerializedEntityComponents>> Serializable<S> for SerializedEntities {
     fn serialize(&self, ctx: SerializerCtx<S>, path: &str) -> SerializedValue {
         self.0.serialize(ctx, path)
     }
@@ -146,8 +151,8 @@ impl<S: Copy + SerializerCtxState<PrefabEntityComponents>> Serializable<S> for P
     }
 }
 
-impl From<FfiIndexMap<u64, PrefabEntityComponents>> for PrefabEntities {
-    fn from(value: FfiIndexMap<u64, PrefabEntityComponents>) -> Self {
+impl From<FfiIndexMap<u64, SerializedEntityComponents>> for SerializedEntities {
+    fn from(value: FfiIndexMap<u64, SerializedEntityComponents>) -> Self {
         Self(value)
     }
 }
@@ -155,11 +160,26 @@ impl From<FfiIndexMap<u64, PrefabEntityComponents>> for PrefabEntities {
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct Prefab {
-    pub entities: PrefabEntities,
+    pub entities: SerializedEntities,
     // todo: precache dependencies (map<str, AssetHandle>)
 }
 
 impl Prefab {
+    pub fn empty() -> Self {
+        Self {
+            entities: Default::default(),
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct Scene {
+    pub entities: SerializedEntities,
+    // todo: precache dependencies (map<str, AssetHandle>)
+}
+
+impl Scene {
     pub fn empty() -> Self {
         Self {
             entities: Default::default(),
@@ -174,14 +194,14 @@ pub fn serialize_prefab_single_entity(
     entities: EntitiesHolderRef,
 ) -> Prefab {
     Prefab {
-        entities: PrefabEntities([
-            (0, PrefabEntityComponents(serialize_components(entity, serializer_ctx, entities)))
+        entities: SerializedEntities([
+            (0, SerializedEntityComponents(serialize_components(entity, serializer_ctx, entities)))
         ].into_iter().collect()),
     }
 }
 
 // todo
-pub fn deserialize_prefab_components(
+pub fn deserialize_entity_components(
     components: &FfiIndexMap<FfiString, SerializedValue>,
     entity: EntityId,
     mut serializer_ctx: SerializerCtx<TransSerializerCtxState>,

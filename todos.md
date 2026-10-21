@@ -1,10 +1,8 @@
 # Prioritized
 
-- implement new asset: scene
 - rework rendering to be able to implement both scene and preview windows
 - implement playable game window ("Preview") (with simulated world being live and using updates)
 - make OS window icon configurable
-- implement global cpu-stored batched mesh (same batching as now, but using lightweight pattern)
 - make components rendering prettier and make components look separated
 - implement the ability to use custom shaders
 - implement the ability to create assets from editor
@@ -14,6 +12,7 @@
 
 - make sure prefab root entity is the first one serialized
 
+- implement global cpu-stored batched mesh (same batching as now, but using lightweight pattern) (Let's make StandardMesh store the FfiVec<StandardVertex> vertices and FfiVec<u16> indices after creation. Let's also put it vertices and indices into StandardMeshData and use it in StandardMesh and BatchedMeshComponent instead of directly sotring vertices and indices.)
 - implement windows docking (like in Microsoft VS)
 - copy-paste (with right mouse button and drop-down) (maybe even ctrl c ctrl v)
 - transform-adjust interactable gizmo on selected object

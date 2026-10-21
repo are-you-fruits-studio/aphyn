@@ -3,11 +3,11 @@ use std::{collections::HashMap, path::Path, sync::Mutex};
 use fruits_asset_storage::{AssetHandle, AssetStorageResource};
 use fruits_audio::{AudioClip, AudioStateResource};
 use fruits_ecs::ResourcesHolderMut;
-use fruits_prefab::Prefab;
+use fruits_prefab::{Prefab, Scene};
 use fruits_render_core::{RenderApiResource, StandardMaterial, StandardMesh, StandardTexture, StandardTextureAssetMetadata};
 use fruits_serialization::*;
 
-use crate::{AudioClipLoader, EntityTransSerializer, MaterialLoader, MeshLoader, PrefabLoader, TextureLoader};
+use crate::{AudioClipLoader, EntityTransSerializer, MaterialLoader, MeshLoader, PrefabLoader, SceneLoader, TextureLoader};
 
 pub fn load_asset_transitively_from_world<R>(
     res: ResourcesHolderMut,
@@ -20,6 +20,7 @@ pub fn load_asset_transitively_from_world<R>(
             &mut *res.get_ptr::<AudioStateResource>()?,
             &*res.get_ptr::<SerializersResource>()?,
             &mut *res.get_ptr::<AssetStorageResource<Prefab>>()?,
+            &mut *res.get_ptr::<AssetStorageResource<Scene>>()?,
             &mut *res.get_ptr::<AssetStorageResource<StandardTexture>>()?,
             &mut *res.get_ptr::<AssetStorageResource<StandardMaterial>>()?,
             &mut *res.get_ptr::<AssetStorageResource<StandardMesh>>()?,
@@ -35,6 +36,7 @@ pub fn load_asset_transitively<R>(
     audio_state: &mut AudioStateResource,
     serializers: &SerializersResource,
     prefabs: &mut AssetStorageResource<Prefab>,
+    scenes: &mut AssetStorageResource<Scene>,
     textures: &mut AssetStorageResource<StandardTexture>,
     materials: &mut AssetStorageResource<StandardMaterial>,
     meshes: &mut AssetStorageResource<StandardMesh>,
@@ -45,6 +47,7 @@ pub fn load_asset_transitively<R>(
     let (
         audio_state,
         prefabs,
+        scenes,
         textures,
         materials,
         meshes,
@@ -52,6 +55,7 @@ pub fn load_asset_transitively<R>(
     ) = (
         &Mutex::new(audio_state),
         &Mutex::new(prefabs),
+        &Mutex::new(scenes),
         &Mutex::new(textures),
         &Mutex::new(materials),
         &Mutex::new(meshes),
@@ -114,6 +118,13 @@ pub fn load_asset_transitively<R>(
         assets_dir_path,
         loader: |ctx, value, assets_dir_path| {
             PrefabLoader.load_from_serialized(ctx, value)
+        },
+    });
+    serializer_local.register(TransitiveLoadTransSerializer {
+        assets: scenes,
+        assets_dir_path,
+        loader: |ctx, value, assets_dir_path| {
+            SceneLoader.load_from_serialized(ctx, value)
         },
     });
 
