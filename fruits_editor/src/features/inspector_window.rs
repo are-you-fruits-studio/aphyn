@@ -6,7 +6,7 @@ use crate::{
             data::{ComponentContextMenuResource, InspectedAssetResource, InspectedEntityResource, OpenedEntitiesAssetResource}, systems::{
                 add_component_system, adjust_hierarchy_entries_system, adjust_non_rigid_composite_system, apply_component_context_menu_system, apply_inspector_dropdown_change_to_simulated_world_system, apply_inspector_field_text_change_to_simulated_world_system, apply_inspector_number_drag_to_simulated_world_system, change_inspected_asset_system, open_component_context_menu_system, open_inspector_enum_dropdown_system, open_entities_asset_system, remove_component_system, save_inspected_asset_from_simulated_world_to_file_system, save_simulated_entities_to_asset_system, select_entity_system, update_add_component_input_visibility_system, update_add_component_variants_system, update_hierarchy_entries_selection, update_hierarchy_window_system, update_inspector_window_system,
             },
-        }, number_drag::drag_number_input_field_system, project_window_selection::{select_file_system, update_project_entry_selection_system},
+        }, number_drag::drag_number_input_field_system, project_window_selection::{apply_project_entry_context_menu_system, select_file_system, update_project_entry_selection_system},
     }, *,
 };
 
@@ -91,6 +91,10 @@ pub fn register_feature(mut world: WorldBuilderMut) {
     update
         .order_system(select_entity_system)
         .before_system(update_project_entry_selection_system);
+
+    update
+        .order_system(apply_project_entry_context_menu_system)
+        .before_system(save_simulated_entities_to_asset_system);
 
     update
         .order_system(open_entities_asset_system)

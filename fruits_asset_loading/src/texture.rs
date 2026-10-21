@@ -68,6 +68,9 @@ impl<'a> TextureLoader<'a> {
     }
 
     pub fn load_from_deserialized(&mut self, deserialized: StandardTextureAssetMetadata, assets_dir_path: impl AsRef<Path>) -> Option<StandardTexture> {
+        if deserialized.raw_texture.as_str().is_empty() {
+            return Some(self.render_api.create_texture(FilterMode::Nearest, [1, 1], &[255; 4], deserialized));
+        }
 
         let mut path = assets_dir_path.as_ref().to_path_buf();
 

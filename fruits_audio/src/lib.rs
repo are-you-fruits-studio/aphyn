@@ -109,7 +109,8 @@
 //! with a hard-coded [`StreamConfig`] of 2 channels at 48&nbsp;kHz and the default buffer size. The
 //! mixing closure runs per callback: it zeroes the output buffer, then for every playing
 //! `AudioActivePlayback` walks `sample_index` forward one multisample at a time. When the index
-//! runs past the clip it wraps (looping) or stops the playback. Each sample is scaled by the
+//! runs past the clip it wraps (looping) or stops the playback; a clip without samples stops at
+//! once, looped or not, so it stays silent. Each sample is scaled by the
 //! playback's `volume` and added to the output; the closure averages the stereo pair for a mono
 //! output and copies the channels through otherwise, although the hard-coded config always
 //! requests stereo. After mixing it stores the
@@ -386,7 +387,7 @@ fn audio_system(
             playback.volume = source.volume;
 
             if source.should_force_playback_time {
-                playback.sample_index = ((source.playback_time * AUDIO_SAMPLE_RATE as f64) as usize).clamp(0, playback.clip.samples.len() as usize - 1);
+                playback.sample_index = ((source.playback_time * AUDIO_SAMPLE_RATE as f64) as usize).clamp(0, (playback.clip.samples.len() as usize).saturating_sub(1));
                 source.should_force_playback_time = false;
             } else {
                 source.playback_time = (playback.sample_index as f64 / AUDIO_SAMPLE_RATE as f64).clamp(0.0, 1.0);
@@ -434,6 +435,12 @@ fn start_playback(state: Arc<Mutex<AudioState>>) -> cpal::Stream {
 
                     // todo: reuse the same buffer from audio asset, not clone it (probably needs FfiArc to support ffi)
                     let playback_multisamples_count = playback.clip.samples.len() as usize / AUDIO_CHANNELS_COUNT;
+
+                    if playback_multisamples_count == 0 {
+                        playback.sample_index = 0;
+                        playback.is_playing = false;
+                        continue;
+                    }
 
                     for s in 0..output_miltisamples_count {
                         let handle_over_sample = |playback: &mut AudioActivePlayback| {

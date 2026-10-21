@@ -10,7 +10,7 @@
 //! directory, of a small JSON *asset file* with the `.asset` extension. The file declares an
 //! `asset_type` (`"texture"`, `"material"`, `"mesh"`, `"audio_clip"`, `"prefab"`, `"scene"`, or `"font"`)
 //! and the asset's settings, and usually points at a raw payload (image, `.obj`, `.wav`) by a
-//! further `assets/`-relative path. The module is part of the engine's default modules
+//! further `assets/`-relative path; an empty payload path loads a placeholder asset. The module is part of the engine's default modules
 //! (`add_defult_modules_to`), which also registers the texture, material, mesh, and audio-clip
 //! storages it fills.
 //!
@@ -160,6 +160,11 @@
 //! - **Audio clip** — [`AudioClipLoader`] reads the `raw_audio` `.wav` with `hound`. Integer
 //!   samples are normalized to `f32`, the buffer is forced to stereo, and it is resampled to
 //!   the engine's sample rate when the file's rate differs.
+//!
+//! An empty payload path (`raw_texture`, `raw_mesh`, or `raw_audio` set to `""`) loads a
+//! placeholder instead of failing: a 1x1 white texture, a mesh without vertices and indices, or
+//! an audio clip without samples, which finishes as soon as it is played. A non-empty path that is missing or can't be decoded still fails the load. The
+//! renderer skips meshes without indices, so the empty mesh draws nothing.
 //! - **Prefab** — [`PrefabLoader`] deserializes the file (an `entities` list of `entity_id` +
 //!   `components`) with a pure context, then deserializes every component through the loading
 //!   context so the assets it references get loaded.

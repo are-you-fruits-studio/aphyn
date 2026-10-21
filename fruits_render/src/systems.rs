@@ -1244,6 +1244,10 @@ pub fn render_opaque_instanced(
 
         let mesh = unsafe { mesh.native() };
 
+        if mesh.indices_count == 0 {
+            continue;
+        }
+
         let (render_pipeline, bind_group) = crate::utils::get_render_data(
             material,
             &standard_render_res,
@@ -1497,6 +1501,10 @@ pub fn render_transparent_instanced(
         };
 
         let mesh = unsafe { mesh.native() };
+
+        if mesh.indices_count == 0 {
+            continue;
+        }
 
         let (render_pipeline, bind_group) = crate::utils::get_render_data(
             material,

@@ -186,7 +186,8 @@
 //! colors from sRGB to linear), writes them into a shared non-indexed vertex buffer, and
 //! flushes whenever the buffer fills ([`TRIANGLES_PER_BATCHED_DRAW_MAX`] triangles). Both paths
 //! skip entities whose `GlobalDisableableComponent` is set, treat a missing transform as the
-//! identity, and skip entities whose mesh or material handle does not resolve. The instanced and
+//! identity, and skip entities whose mesh or material handle does not resolve. The instanced path
+//! also skips meshes without indices, since wgpu panics on slicing their empty buffers. The instanced and
 //! batched functions are near-duplicates (see the `todo` notes). [`StandardRenderComponent`] is
 //! defined but not read by any system.
 //!

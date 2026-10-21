@@ -11,3 +11,5 @@ mod editor_window;
 pub use editor_window::*;
 mod scene_window;
 pub use scene_window::*;
+mod project_window;
+pub use project_window::*;

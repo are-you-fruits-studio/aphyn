@@ -56,11 +56,9 @@ impl<T> CloseIntMap<T> {
 
         let idx = k - self.offset;
 
-        let Some(stored) = self.inner.get(idx) else {
-            return None;
-        };
+        let stored = self.inner.get(idx)?;
        
-        stored.as_ref().map(|b| &**b)
+        Some(&*stored.as_ref()?)
     }
 
     pub fn get_mut(&mut self, k: u64) -> Option<&mut T> {

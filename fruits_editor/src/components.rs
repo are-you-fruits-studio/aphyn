@@ -7,6 +7,9 @@ pub struct ProjectWindowComponent {
     pub is_init: bool,
 }
 
+#[derive(Component, Default, Debug)]
+pub struct ProjectWindowEmptyAreaComponent;
+
 #[derive(Component, Debug, Clone)]
 pub struct ProjectWindowEntryComponent {
     pub path: OsString,

@@ -4,6 +4,8 @@ pub mod inspector_window;
 pub mod asset_serialization;
 pub mod project_window_entries;
 pub mod project_window_selection;
+pub mod project_window_rename;
+pub mod project_window_create;
 pub mod scroll;
 pub mod ui_interaction;
 pub mod serialization;

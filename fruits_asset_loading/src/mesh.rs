@@ -62,6 +62,10 @@ impl<'a> MeshLoader<'a> {
         self.load_from_deserialized(value, assets_dir_path)
     }
     pub fn load_from_deserialized(&mut self, value: StandardMeshAssetMetadata, assets_dir_path: impl AsRef<Path>) -> Option<StandardMesh> {
+        if value.raw_mesh.as_str().is_empty() {
+            return Some(self.render_api.create_mesh(&[], &[], Some(value)));
+        }
+
         let mut path = assets_dir_path.as_ref().to_path_buf();
         path.push(value.raw_mesh.as_str());
     

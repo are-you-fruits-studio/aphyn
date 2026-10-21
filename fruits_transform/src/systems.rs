@@ -165,12 +165,12 @@ pub fn calculate_global_transform(
     mut global_transform_q: WorldQuery<&mut GlobalTransform>,
 ) {
     utils::hierarchy_iter_depth_first_parent_to_child(&hierarchy_q, |parent, children| {
+        let parent_global_transform = match global_transform_q.get(parent) {
+            None => GlobalTransform::IDENTITY,
+            Some(&parent_global_transform) => parent_global_transform,
+        };
+        
         for &ent in children {
-            let parent_global_transform = match global_transform_q.get(parent) {
-                None => GlobalTransform::IDENTITY,
-                Some(&parent_global_transform) => parent_global_transform,
-            };
-
             let Some(&local_transform) = local_transform_q.get(ent) else {
                 continue;
             };

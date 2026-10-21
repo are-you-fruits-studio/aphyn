@@ -72,7 +72,7 @@ pub fn open_windows_system(mut world: WorldDataMut) {
 
 pub fn open_window_by_kind(world: WorldDataMut, kind: &str) -> Option<EntityId> {
     match kind {
-        WINDOW_KIND_PROJECT => open_specific_window(world, kind, ProjectWindowComponent::default(), |_, _| {}),
+        WINDOW_KIND_PROJECT => open_specific_window(world, kind, ProjectWindowComponent::default(), prefabs::init_window_as_project),
         WINDOW_KIND_HIERARCHY => {
             open_specific_window(world, kind, HierarchyWindowComponent::default(), prefabs::init_window_as_hierarchy)
         }

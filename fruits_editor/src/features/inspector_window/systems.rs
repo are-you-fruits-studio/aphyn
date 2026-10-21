@@ -15,22 +15,19 @@ use crate::{
 pub fn select_entity_system(
     mut inspected_entity: ResMut<InspectedEntityResource>,
     mut selected_file: ResMut<SelectedFileResource>,
-    button_click_evt: Evt<ButtonClickEvent>,
     file_selected_evt: Evt<FileSelectedEvent>,
-    entry_q: WorldQuery<&HierarchyWindowEntryComponent>,
+    entry_q: WorldQuery<(&HierarchyWindowEntryComponent, &ButtonComponent)>,
     mut entity_selected_evt: EvtMut<EntitySelectedEvent>,
 ) {
     if !file_selected_evt.is_empty() {
         inspected_entity.selected_entity = EntityId::EMPTY;
     }
 
-    return_if_not!(Some(button_click_evt) = button_click_evt.last());
+    return_if_not!(Some((entry_c, _)) = entry_q.iter().find(|(_, b)| b.was_clicked_this_frame || b.was_right_clicked_this_frame));
 
-    if let Some(entry_c) = entry_q.get(button_click_evt.entity) {
-        inspected_entity.selected_entity = entry_c.simulated_entity;
-        *selected_file = SelectedFileResource::default();
-        entity_selected_evt.push(EntitySelectedEvent);
-    }
+    inspected_entity.selected_entity = entry_c.simulated_entity;
+    *selected_file = SelectedFileResource::default();
+    entity_selected_evt.push(EntitySelectedEvent);
 }
 
 pub fn update_hierarchy_entries_selection(

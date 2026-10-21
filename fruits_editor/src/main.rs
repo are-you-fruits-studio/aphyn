@@ -107,6 +107,8 @@ fn run_editor_app(project_path: &str) {
     features::ui_interaction::register_feature(world.as_mut());
     features::project_window_entries::register_feature(world.as_mut());
     features::project_window_selection::register_feature(world.as_mut());
+    features::project_window_rename::register_feature(world.as_mut());
+    features::project_window_create::register_feature(world.as_mut());
     features::inspector_window::register_feature(world.as_mut());
     features::input_field::register_feature(world.as_mut());
     features::number_drag::register_feature(world.as_mut());

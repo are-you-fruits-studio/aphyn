@@ -296,7 +296,7 @@ impl<T> Ord for AssetHandle<T> {
 impl<T> Clone for AssetHandle<T> {
     fn clone(&self) -> Self {
         Self {
-            index: self.index.clone(),
+            index: self.index,
             _phantom: Default::default(),
         }
     }

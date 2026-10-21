@@ -68,6 +68,10 @@ impl<'a> AudioClipLoader<'a> {
     }
 
     pub fn load_from_deserialized(&mut self, value: AudioClipAssetMetadata, assets_dir_path: impl AsRef<Path>) -> Option<AudioClip> {
+        if value.raw_audio.as_str().is_empty() {
+            return AudioClip::new(Vec::new().into(), self.audio_state, Some(value));
+        }
+
         let mut path = assets_dir_path.as_ref().to_path_buf();
         path.push(value.raw_audio.as_str());
 

@@ -21,12 +21,15 @@ impl<const N: usize, T> Default for Mat<N, T>
 }
 
 impl<const N: usize, T> Mat<N, T> {
+    #[inline]
     pub const fn from_array(data: [[T; N]; N]) -> Self {
         Self { data }
     }
+    #[inline]
     pub const fn as_array(&self) -> &[[T; N]; N] {
         &self.data
     }
+    #[inline]
     pub const fn as_array_mut(&mut self) -> &mut [[T; N]; N] {
         &mut self.data
     }
@@ -39,6 +42,7 @@ impl<const N: usize, T> Mat<N, T> {
         Some(&self.data[x])
     }
 
+    #[inline]
     pub const fn col(&self, x: usize) -> &[T; N] {
         &self.data[x]
     }
@@ -51,12 +55,14 @@ impl<const N: usize, T> Mat<N, T> {
         Some(&mut self.data[x])
     }
 
+    #[inline]
     pub const fn col_mut(&mut self, x: usize) -> &mut [T; N] {
         &mut self.data[x]
     }
 }
 
 impl<const N: usize, T: Primitive> Mat<N, T> {
+    #[inline]
     pub const fn into_array(self) -> [[T; N]; N] {
         self.data
     }
@@ -107,6 +113,7 @@ impl<const N: usize, T: Primitive> Mat<N, T> {
         Some(&mut self.data[x][y])
     }
 
+    #[inline]
     pub const fn splat(v: T) -> Self {
         Self::from_array([[v; N]; N])
     }
@@ -147,12 +154,14 @@ impl<const N: usize, T: Primitive> Mat<N, T> {
 }
 
 impl<const N: usize, T: Primitive> From<Mat<N, T>> for [[T; N]; N] {
+    #[inline]
     fn from(data: Mat<N, T>) -> Self {
         data.into_array()
     }
 }
 
 impl<const N: usize, T: Primitive> From<[[T; N]; N]> for Mat<N, T> {
+    #[inline]
     fn from(data: [[T; N]; N]) -> Self {
         Self::from_array(data)
     }
@@ -161,12 +170,14 @@ impl<const N: usize, T: Primitive> From<[[T; N]; N]> for Mat<N, T> {
 impl<const N: usize, T: Primitive> Index<(usize, usize)> for Mat<N, T> {
     type Output = T;
 
+    #[inline]
     fn index(&self, (x, y): (usize, usize)) -> &Self::Output {
         &self.data[x][y]
     }
 }
 
 impl<const N: usize, T: Primitive> IndexMut<(usize, usize)> for Mat<N, T> {
+    #[inline]
     fn index_mut(&mut self, (x, y): (usize, usize)) -> &mut Self::Output {
         &mut self.data[x][y]
     }
@@ -175,12 +186,14 @@ impl<const N: usize, T: Primitive> IndexMut<(usize, usize)> for Mat<N, T> {
 impl<const N: usize, T: Primitive> Index<usize> for Mat<N, T> {
     type Output = [T; N];
 
+    #[inline]
     fn index(&self, i: usize) -> &Self::Output {
         &self.data[i]
     }
 }
 
 impl<const N: usize, T: Primitive> IndexMut<usize> for Mat<N, T> {
+    #[inline]
     fn index_mut(&mut self, i: usize) -> &mut Self::Output {
         &mut self.data[i]
     }
