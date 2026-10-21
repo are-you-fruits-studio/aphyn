@@ -10,7 +10,9 @@
 - implement the ability to create assets from editor
 - implement dropout for components, entities and folders
 
-# Other
+# Default
+
+- make sure prefab root entity is the first one serialized
 
 - implement windows docking (like in Microsoft VS)
 - copy-paste (with right mouse button and drop-down) (maybe even ctrl c ctrl v)
@@ -30,3 +32,7 @@
 - order windows on the z axis based on what was used more recently
 - save last window title change, so that this api isn't cleared by OS that don't support title reading: W11, iOS and other platforms
 - other "todo"s throughout the project
+
+# Low-prio
+
+- allow batch-adding components to entities and spawning entities directly into the right archetype (optimization)

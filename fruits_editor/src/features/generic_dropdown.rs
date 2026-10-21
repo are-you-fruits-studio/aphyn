@@ -19,8 +19,10 @@ pub fn register_feature(mut world: WorldBuilderMut) {
 
 //
 
-const DROPDOWN_WIDTH: f32 = 200.0;
+const DROPDOWN_MIN_WIDTH: f32 = 200.0;
 const DROPDOWN_ENTRY_HEIGHT: f32 = 20.0;
+const DROPDOWN_ENTRY_PADDING: f32 = 4.0;
+const DROPDOWN_FONT_SIZE: f32 = 20.0;
 
 #[repr(C)]
 #[derive(Debug, Default, Clone)]
@@ -159,9 +161,14 @@ pub fn spawn_generic_dropdown_system(mut world: WorldDataMut) {
         return;
     };
 
+    let font = res.get::<AssetStorageResource<Font>>().unwrap().get(&standard_assets_resource.font).unwrap();
+    let max_chars = generic_dropdown_resource.last_state.variants.iter().map(|v| v.chars().count()).max().unwrap_or(0);
+    let dropdown_width =
+        (max_chars as f32 * DROPDOWN_FONT_SIZE * font.character_ratio + 2.0 * DROPDOWN_ENTRY_PADDING).max(DROPDOWN_MIN_WIDTH);
+
     let window_size = Vec2::from_array(res.get::<WindowResource>().unwrap().prev_state().size.map(|v| v as f32));
     let dropdown_size = Vec2::new(
-        DROPDOWN_WIDTH,
+        dropdown_width,
         DROPDOWN_ENTRY_HEIGHT * generic_dropdown_resource.last_state.variants.len() as f32,
     );
     let dropdown_pos = fit_dropdown_into_window(generic_dropdown_resource.last_state.position, dropdown_size, window_size);
@@ -174,7 +181,7 @@ pub fn spawn_generic_dropdown_system(mut world: WorldDataMut) {
             anchor: Vec2::new(0.0, 0.0),
             pivot: Vec2::new(0.0, 0.0),
             offset: dropdown_pos.map(UiVal::px),
-            scale: Vec2::new(Some(UiVal::px(DROPDOWN_WIDTH)).into(), None.into()),
+            scale: Vec2::new(Some(UiVal::px(dropdown_width)).into(), None.into()),
             z: -500.0,
             ..Default::default()
         },
@@ -228,7 +235,11 @@ pub fn spawn_generic_dropdown_system(mut world: WorldDataMut) {
 
         ent.set_components(ent_dropdown_entry_text, (
             GlobalRectComponent::default(),
-            LocalRectComponent::default(),
+            LocalRectComponent {
+                parent_padding_min: Vec2::new(UiVal::px(DROPDOWN_ENTRY_PADDING), UiVal::px(0.0)),
+                parent_padding_max: Vec2::new(UiVal::px(DROPDOWN_ENTRY_PADDING), UiVal::px(0.0)),
+                ..Default::default()
+            },
             ChildComponent {
                 parent: ent_dropdown_entry,
             },
@@ -238,7 +249,7 @@ pub fn spawn_generic_dropdown_system(mut world: WorldDataMut) {
             },
             TextComponent {
                 color: Vec4::splat(1.0),
-                font_size: UiVal::px(20.0),
+                font_size: UiVal::px(DROPDOWN_FONT_SIZE),
                 horizontal_align: HorizontalAlign::Left,
                 vertical_align: VerticalAlign::Middle,
                 horizontal_spacing: UiVal::px(0.0),

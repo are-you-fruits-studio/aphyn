@@ -1,69 +1,77 @@
 use fruits_engine::*;
 
-use crate::{SYSTEM_GROUP, components::{HierarchyWindowComponent, ProjectWindowComponent}, features::{inspector_window::data::InspectorWindowComponent, ui_interaction::{ButtonComponent, check_ui_interaction_system}}, prefabs::{self, WindowComponent}};
+use crate::{
+    SYSTEM_GROUP,
+    components::{HierarchyWindowComponent, ProjectWindowComponent},
+    features::{
+        generic_dropdown::{GenericDropdownResource, select_generic_dropdown_system},
+        inspector_window::data::InspectorWindowComponent,
+        ui_interaction::ButtonComponent,
+    },
+    prefabs::{self, WindowComponent},
+};
 
 pub fn register_feature(mut world: WorldBuilderMut) {
+    world.data_mut().resources_mut().insert(WindowsDropdownResource::default());
+
     let mut behavior = world.behavior_mut();
     let mut update = behavior.get_mut(Schedule::Update);
 
     update.group(SYSTEM_GROUP)
+        .insert_child_system(open_windows_dropdown_system)
         .insert_child_system(open_windows_system);
 
     update
-        .order_system(check_ui_interaction_system)
+        .order_system(select_generic_dropdown_system)
+        .before_system(open_windows_dropdown_system)
         .before_system(open_windows_system);
 }
 
 #[derive(Component, Default, Debug)]
-pub struct TestWindowButtonComponent;
-
-#[derive(Component, Default, Debug)]
-pub struct ProjectWindowButtonComponent;
-
-#[derive(Component, Default, Debug)]
-pub struct HierarchyWindowButtonComponent;
-
-#[derive(Component, Default, Debug)]
-pub struct InspectorWindowButtonComponent;
-
-#[derive(Component, Default, Debug)]
-pub struct SceneWindowButtonComponent;
-
-#[derive(Component, Default, Debug)]
-pub struct TestWindowComponent;
+pub struct WindowsButtonComponent;
 
 #[derive(Component, Default, Debug)]
 pub struct SceneWindowComponent;
 
-pub const WINDOW_KIND_TEST: &str = "Test Window";
+#[derive(Resource, Default)]
+pub struct WindowsDropdownResource {
+    request_id: u64,
+}
+
 pub const WINDOW_KIND_PROJECT: &str = "Project Window";
 pub const WINDOW_KIND_HIERARCHY: &str = "Hierarchy Window";
 pub const WINDOW_KIND_INSPECTOR: &str = "Inspector Window";
 pub const WINDOW_KIND_SCENE: &str = "Scene Window";
 
-pub fn open_windows_system(mut world: WorldDataMut) {
-    open_clicked_window::<TestWindowButtonComponent>(world.as_mut(), WINDOW_KIND_TEST);
-    open_clicked_window::<ProjectWindowButtonComponent>(world.as_mut(), WINDOW_KIND_PROJECT);
-    open_clicked_window::<HierarchyWindowButtonComponent>(world.as_mut(), WINDOW_KIND_HIERARCHY);
-    open_clicked_window::<InspectorWindowButtonComponent>(world.as_mut(), WINDOW_KIND_INSPECTOR);
-    open_clicked_window::<SceneWindowButtonComponent>(world.as_mut(), WINDOW_KIND_SCENE);
+const WINDOW_KINDS: [&str; 4] = [WINDOW_KIND_PROJECT, WINDOW_KIND_HIERARCHY, WINDOW_KIND_INSPECTOR, WINDOW_KIND_SCENE];
+
+fn open_windows_dropdown_system(
+    button_q: WorldQuery<(&ButtonComponent, &GlobalRectComponent), WithFilter<WindowsButtonComponent>>,
+    mut generic_dropdown_res: ResMut<GenericDropdownResource>,
+    mut dropdown_res: ResMut<WindowsDropdownResource>,
+) {
+    let Some((_, rect_c)) = button_q.iter().find(|(b, _)| b.was_clicked_this_frame) else {
+        return;
+    };
+
+    let position = rect_c.center + Vec2::new(-rect_c.scale.x, rect_c.scale.y) * 0.5;
+    let variants = WINDOW_KINDS.iter().map(|k| FfiString::from(*k)).collect();
+    dropdown_res.request_id = generic_dropdown_res.request(variants, position);
 }
 
-fn open_clicked_window<SpecButtonComponent: 'static + Component>(world: WorldDataMut, kind: &str) {
-    let did_click = world
-        .entities()
-        .query_filtered::<&ButtonComponent, WithFilter<SpecButtonComponent>>()
-        .iter()
-        .any(|b| b.was_clicked_this_frame);
+pub fn open_windows_system(mut world: WorldDataMut) {
+    let mut res = world.resources_mut();
+    let mut request_id = res.get::<WindowsDropdownResource>().unwrap().request_id;
+    let idx = res.get::<GenericDropdownResource>().unwrap().take_selected(&mut request_id);
+    res.get_mut::<WindowsDropdownResource>().unwrap().request_id = request_id;
 
-    if did_click {
-        open_window_by_kind(world, kind);
+    if let Some(idx) = idx {
+        open_window_by_kind(world, WINDOW_KINDS[idx as usize]);
     }
 }
 
 pub fn open_window_by_kind(world: WorldDataMut, kind: &str) -> Option<EntityId> {
     match kind {
-        WINDOW_KIND_TEST => open_specific_window(world, kind, TestWindowComponent, |_, _| {}),
         WINDOW_KIND_PROJECT => open_specific_window(world, kind, ProjectWindowComponent::default(), |_, _| {}),
         WINDOW_KIND_HIERARCHY => {
             open_specific_window(world, kind, HierarchyWindowComponent::default(), prefabs::init_window_as_hierarchy)

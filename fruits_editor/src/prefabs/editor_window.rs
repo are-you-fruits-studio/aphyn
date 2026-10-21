@@ -1,6 +1,6 @@
 use fruits_engine::*;
 
-use crate::{features::{test_window::{HierarchyWindowButtonComponent, InspectorWindowButtonComponent, ProjectWindowButtonComponent, SceneWindowButtonComponent, TestWindowButtonComponent}, ui_interaction::ButtonComponent}, resources::StandardAssetsResource};
+use crate::{features::{test_window::WindowsButtonComponent, ui_interaction::ButtonComponent}, resources::StandardAssetsResource};
 
 fn create_header_button<C: 'static>(
     mut ent: EntitiesHolderMut,
@@ -130,11 +130,7 @@ pub fn editor_window(mut world: WorldDataMut) -> EntityId {
         },
     ));
 
-    create_header_button(ent.as_mut(), assets_res, ent_header, TestWindowButtonComponent, "Test".into(), UiVal::px(80.0));
-    create_header_button(ent.as_mut(), assets_res, ent_header, ProjectWindowButtonComponent, "Project".into(), UiVal::px(100.0));
-    create_header_button(ent.as_mut(), assets_res, ent_header, HierarchyWindowButtonComponent, "Hierarchy".into(), UiVal::px(120.0));
-    create_header_button(ent.as_mut(), assets_res, ent_header, InspectorWindowButtonComponent, "Inspector".into(), UiVal::px(120.0));
-    create_header_button(ent.as_mut(), assets_res, ent_header, SceneWindowButtonComponent, "Scene".into(), UiVal::px(80.0));
+    create_header_button(ent.as_mut(), assets_res, ent_header, WindowsButtonComponent, "Windows".into(), UiVal::px(100.0));
 
     ent_root
 }
