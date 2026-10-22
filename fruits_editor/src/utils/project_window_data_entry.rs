@@ -17,10 +17,13 @@ impl ProjectWindowDataEntry {
     }
 
     fn from_dir_entry(src: &std::fs::DirEntry) -> Self {
+        let path = src.path();
+        let is_dir = src.file_type().is_ok_and(|t| t.is_dir());
+
         Self {
             name: src.file_name().to_string_lossy().into_owned(),
-            path: src.path().as_os_str().to_os_string(),
-            children: Self::get_children(&src.path()),
+            children: if is_dir { Self::get_children(&path) } else { Vec::new() },
+            path: path.into_os_string(),
         }
     }
 
