@@ -1,6 +1,6 @@
 use std::{ffi::c_void, mem::MaybeUninit};
 
-use fruits_ffi::{FfiAny, FfiAnyMut, FfiAnyRef, FfiExtendedTypeInfo, FfiFnMutMut, FfiOpaqueMut, FfiOpaqueRef};
+use fruits_ffi::{FfiAny, FfiAnyMut, FfiAnyRef, FfiExtendedTypeInfo, FfiFnMutMut, FfiOpaqueMut, FfiOpaqueRef, FfiSliceRef, FfiVec};
 
 use crate::*;
 
@@ -28,6 +28,41 @@ fn entities_holder_add_component<C: 'static>(
     }
 }
 
+fn entities_holder_set_component<C: 'static>(
+    entities: &mut EntitiesHolderUnsafeFfi,
+    types: &TypesRegistryCache,
+    entity: EntityId,
+    component: C,
+) -> bool {
+    unsafe {
+        let mut component = MaybeUninit::new(component);
+
+        match entities.set_component(entity, component.as_mut_ptr() as *mut u8, types.get_or_register::<C>()) {
+            PtrState::Idle => {
+                component.assume_init_drop();
+                false
+            },
+            PtrState::Uninitialized => {
+                true
+            },
+            PtrState::Overwritten => {
+                component.assume_init_drop();
+                true
+            },
+        }
+    }
+}
+
+fn entities_holder_component_any_type_id(types: &TypesRegistryCache, component: &FfiAny) -> u64 {
+    let types_registry = unsafe { types.registry() };
+
+    if let Some(type_info) = types_registry.get_by_name(component.type_info().short().name()) {
+        type_info.id
+    } else {
+        types_registry.try_register(component.type_info()).unwrap()
+    }
+}
+
 fn entities_holder_add_component_any(
     entities: &mut EntitiesHolderUnsafeFfi,
     types: &TypesRegistryCache,
@@ -35,23 +70,41 @@ fn entities_holder_add_component_any(
     component: FfiAny,
 ) -> Result<(), FfiAny> {
     unsafe {
-        let types_registry = types.registry();
+        let type_id = entities_holder_component_any_type_id(types, &component);
 
-        let type_id = if let Some(type_info) = types_registry.get_by_name(component.type_info().short().name()) {
-            type_info.id
-        } else {
-            types_registry.try_register(component.type_info()).unwrap()
-        };
-
-        let mut component = MaybeUninit::new(component);
-
-        let component_ptr = { (&*component.as_mut_ptr()).ptr() };
-
-        if entities.add_component(entity, component_ptr as *mut u8, type_id) {
+        if entities.add_component(entity, component.ptr() as *mut u8, type_id) {
+            component.dealloc_without_drop();
             Ok(())
         } else {
-            Err(component.assume_init())
+            Err(component)
         }
+    }
+}
+
+fn entities_holder_set_components_any(
+    entities: &mut EntitiesHolderUnsafeFfi,
+    types: &TypesRegistryCache,
+    entity: EntityId,
+    components: FfiVec<FfiAny>,
+) -> bool {
+    unsafe {
+        let components_ptrs = components
+            .iter()
+            .map(|c| ComponentPtr {
+                ptr: c.ptr() as *mut u8,
+                id: entities_holder_component_any_type_id(types, c),
+            })
+            .collect::<FfiVec<_>>();
+
+        let is_set = entities.set_components(entity, FfiSliceRef::from_slice(&components_ptrs));
+
+        if is_set {
+            for component in components {
+                component.dealloc_without_drop();
+            }
+        }
+
+        is_set
     }
 }
 
@@ -222,21 +275,20 @@ impl<'e> EntitiesHolderMut<'e> {
         unsafe { entities_holder_add_component(&mut *self.entities, self.types, entity, component) }
     }
 
-    pub fn set_component<C: 'static>(&mut self, entity: EntityId, component: C) -> Option<C> {
-        if let Some(stored_component) = self.get_component_mut::<C>(entity) {
-            return Some(std::mem::replace(stored_component, component));
-        }
-
-        self.add_component(entity, component).ok().unwrap();
-        return None;
+    pub fn set_component<C: 'static>(&mut self, entity: EntityId, component: C) -> bool {
+        unsafe { entities_holder_set_component(&mut *self.entities, self.types, entity, component) }
     }
 
-    pub fn set_components<T: ComponentsTuple>(&mut self, entity: EntityId, components: T) -> T::SetComponentsResult {
+    pub fn set_components<T: ComponentsTuple>(&mut self, entity: EntityId, components: T) -> bool {
         T::set_as_components_into_entities_holder(self.as_mut(), entity, components)
     }
 
     pub fn add_component_any(&mut self, entity: EntityId, component: FfiAny) -> Result<(), FfiAny> {
         unsafe { entities_holder_add_component_any(&mut *self.entities, self.types, entity, component) }
+    }
+
+    pub fn set_components_any(&mut self, entity: EntityId, components: FfiVec<FfiAny>) -> bool {
+        unsafe { entities_holder_set_components_any(&mut *self.entities, self.types, entity, components) }
     }
 
     pub fn remove_component<C: 'static>(&mut self, entity: EntityId) -> Option<C> {
@@ -351,7 +403,9 @@ impl<'e> EntitiesHolderRef<'e> {
 
 mod sealed {
     use super::ComponentsTuple;
-    use super::{EntitiesHolderMut, EntityId};
+    use super::{ComponentPtr, EntitiesHolderMut, EntityId};
+    use fruits_ffi::FfiSliceRef;
+    use std::mem::MaybeUninit;
 
     pub trait Sealed {}
     
@@ -360,12 +414,22 @@ mod sealed {
             impl<$($t: 'static),+> Sealed for ($($t,)+) { }
 
             impl<$($t: 'static),+> ComponentsTuple for ($($t,)+) {
-                type SetComponentsResult = ($(Option<$t>,)+);
-
-                fn set_as_components_into_entities_holder(mut ec: EntitiesHolderMut, entity: EntityId, components: Self) -> Self::SetComponentsResult {
+                fn set_as_components_into_entities_holder(ec: EntitiesHolderMut, entity: EntityId, components: Self) -> bool {
                     #[allow(non_snake_case)]
-                    let ($($t,)+) = components;
-                    ($(ec.set_component(entity, $t),)+)
+                    let ($(mut $t,)+) = {
+                        let ($($t,)+) = components;
+                        ($(MaybeUninit::new($t),)+)
+                    };
+
+                    let components_ptrs = [$(ComponentPtr { ptr: $t.as_mut_ptr() as *mut u8, id: ec.types.get_or_register::<$t>() },)+];
+
+                    let is_set = unsafe { (*ec.entities).set_components(entity, FfiSliceRef::from_slice(&components_ptrs)) };
+
+                    if !is_set {
+                        $(unsafe { $t.assume_init_drop() };)+
+                    }
+
+                    is_set
                 }
             }
         };
@@ -390,8 +454,6 @@ mod sealed {
 }
 
 pub trait ComponentsTuple: sealed::Sealed {
-    type SetComponentsResult: 'static;
-
-    fn set_as_components_into_entities_holder(ec: EntitiesHolderMut, entity: EntityId, components: Self) -> Self::SetComponentsResult;
+    fn set_as_components_into_entities_holder(ec: EntitiesHolderMut, entity: EntityId, components: Self) -> bool;
 }
 

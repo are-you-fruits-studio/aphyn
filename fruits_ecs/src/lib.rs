@@ -239,7 +239,8 @@
 //! a different archetype. Within an archetype, removal is a swap-remove: the last entity is copied
 //! into the freed slot, so the archetype-level `destroy_entity` / `add_component` / `remove_component`
 //! operations return the entity that was moved, and [`EntitiesHolderUnsafeFfi`] uses that returned
-//! entity to fix up its location metadata. Component access goes through cached per-type ids
+//! entity to fix up its location metadata. Batched `set_components` computes the destination archetype
+//! once, drops replaced components in place, and moves the entity at most once. Component access goes through cached per-type ids
 //! ([`RegistrySpecificTypeId`]) so iteration avoids repeated registry lookups.
 //!
 //! #### Data usage drives parallel scheduling

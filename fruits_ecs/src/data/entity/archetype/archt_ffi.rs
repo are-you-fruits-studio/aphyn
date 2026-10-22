@@ -231,6 +231,95 @@ impl ArchetypeUnsafeFfi {
         Some(src.erase_entity(src_entity_index).unwrap())
     }
 
+    pub unsafe fn replace_components(&mut self, entity_index: u64, components: &[ComponentPtr]) -> bool {
+        if entity_index >= self.alive_entities_count {
+            return false;
+        }
+
+        if !components.iter().all(|c| self.layout.get_component(c.id).is_some()) {
+            return false;
+        }
+
+        for &ComponentPtr { ptr: component_ptr, id: component_id } in components {
+            let item_layout = self.layout.get_component(component_id).unwrap();
+            let location = self.layout.memory_physical_location(entity_index, item_layout);
+
+            unsafe {
+                let memory = self.archetype.get_memory(&location);
+
+                item_layout.type_info.drop(memory as *mut c_void);
+
+                std::ptr::copy_nonoverlapping(component_ptr, memory, item_layout.type_info.short().size() as usize);
+            }
+        }
+
+        true
+    }
+
+    pub unsafe fn set_components(
+        src: &mut Self,
+        dst: &mut Self,
+        src_entity_index: u64,
+        components: &[ComponentPtr],
+    ) -> Option<EntityId> {
+        if src_entity_index >= src.alive_entities_count {
+            return None;
+        }
+
+        let is_in_components = |id: u64| components.iter().any(|c| c.id == id);
+
+        let new_types_count = components.iter().filter(|c| src.layout.get_component(c.id).is_none()).count();
+
+        if dst.layout.components().len() != src.layout.components().len() + new_types_count
+            || !src.layout.components().iter().all(|c| dst.layout.get_component(c.type_info.id).is_some())
+            || !components.iter().all(|c| dst.layout.get_component(c.id).is_some())
+        {
+            return None;
+        }
+
+        let dst_entity_index = dst.create_place_for_entity();
+
+        for component in src.layout.components() {
+            let src_item_layout = src.layout.get_component(component.type_info.id).unwrap();
+            let src_location = src.layout.memory_physical_location(src_entity_index, src_item_layout);
+            let src_memory = src.archetype.get_memory(&src_location);
+
+            unsafe {
+                if is_in_components(component.type_info.id) {
+                    src_item_layout.type_info.drop(src_memory as *mut c_void);
+                } else {
+                    let dst_item_layout = dst.layout.get_component(component.type_info.id).unwrap();
+                    let dst_location = dst.layout.memory_physical_location(dst_entity_index, dst_item_layout);
+
+                    std::ptr::copy_nonoverlapping(
+                        src_memory,
+                        dst.archetype.get_memory(&dst_location),
+                        src_item_layout.type_info.short().size() as usize,
+                    );
+                }
+            }
+        }
+
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                src.archetype.get_memory(&src.layout.entity_memory_physical_location(src_entity_index)),
+                dst.archetype.get_memory(&dst.layout.entity_memory_physical_location(dst_entity_index)),
+                src.layout.entity_item_layout().type_info.short().size() as usize,
+            );
+        }
+
+        for &ComponentPtr { ptr: component_ptr, id: component_id } in components {
+            let item_layout = dst.layout.get_component(component_id).unwrap();
+            let location = dst.layout.memory_physical_location(dst_entity_index, item_layout);
+
+            unsafe {
+                std::ptr::copy_nonoverlapping(component_ptr, dst.archetype.get_memory(&location), item_layout.type_info.short().size() as usize);
+            }
+        }
+
+        Some(src.erase_entity(src_entity_index).unwrap())
+    }
+
     fn get_items_locations_iter<'l>(
         componens_layout: &'l ArchetypeLayout,
         entity_in_archetype_index: u64,
@@ -285,7 +374,7 @@ impl ArchetypeUnsafeFfi {
         // Safety: Managed by caller.
         unsafe {
             let item_layout = src.layout.get_component(component_id).unwrap();
-            let removed_component_location = src.layout.memory_physical_location(dst_entity_index, item_layout);
+            let removed_component_location = src.layout.memory_physical_location(src_entity_index, item_layout);
             let removed_ptr = src.archetype.get_memory(&removed_component_location);
 
             component_mover(removed_ptr, item_layout.type_info);

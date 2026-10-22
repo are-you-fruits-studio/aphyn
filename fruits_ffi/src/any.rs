@@ -66,6 +66,11 @@ impl FfiAny {
         }
     }
 
+    pub unsafe fn dealloc_without_drop(self) {
+        let this = ManuallyDrop::new(self);
+        unsafe { (this.meta.box_vtable.dealloc_fn)(this.ptr) };
+    }
+
     pub fn downcast<T: 'static>(self) -> Option<FfiBox<T>> {
         unsafe { self.meta.type_info.short().does_match::<T>().then(|| {
             let this = ManuallyDrop::new(self);

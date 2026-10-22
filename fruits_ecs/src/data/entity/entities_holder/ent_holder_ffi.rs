@@ -1,9 +1,24 @@
 use std::ffi::c_void;
 
-use fruits_ffi::{FfiAny, FfiAnyRef, FfiExtendedTypeInfo, FfiFnMutMut, FfiOpaqueRef, FfiVec};
+use fruits_ffi::{FfiAny, FfiAnyRef, FfiExtendedTypeInfo, FfiFnMutMut, FfiOpaqueRef, FfiSliceRef, FfiVec};
 
 use crate::*;
 
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum PtrState {
+    Idle,
+    Uninitialized,
+    Overwritten,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct ComponentPtr {
+    pub ptr: *mut u8,
+    pub id: u64,
+}
 
 #[repr(C)]
 pub struct EntitiesHolderUnsafeFfi {
@@ -116,6 +131,87 @@ impl EntitiesHolderUnsafeFfi {
         }
 
         *self.entities_meta.get_mut(entity).unwrap() = entity_with_added_component_new_location;
+
+        true
+    }
+
+    pub unsafe fn set_component(&mut self, entity: EntityId, component_ptr: *mut u8, component_id: u64) -> PtrState {
+        let Some(entity_location) = self.entities_meta.get(entity) else {
+            return PtrState::Idle;
+        };
+
+        let archetype = self.archetypes.by_id_ref(entity_location.archetype_id).unwrap();
+
+        if let Some(component_layout) = archetype.layout().get_component(component_id) {
+            let size = component_layout.type_info.short().size() as usize;
+            let stored_ptr = archetype.get_component_ptr(entity_location.entity_archetype_index, component_id).unwrap();
+
+            unsafe { std::ptr::swap_nonoverlapping(stored_ptr, component_ptr, size) };
+
+            return PtrState::Overwritten;
+        }
+
+        assert!(unsafe { self.add_component(entity, component_ptr, component_id) });
+
+        PtrState::Uninitialized
+    }
+
+    pub unsafe fn set_components(&mut self, entity: EntityId, components: FfiSliceRef<ComponentPtr>) -> bool {
+        let components = components.into_slice();
+
+        let mut input_components_set = UniqueComponentsSetBuilder::new();
+
+        for &ComponentPtr { id: component_id, .. } in components {
+            assert!(input_components_set.insert(component_id), "duplicate component type in set_components");
+        }
+
+        let Some(entity_location) = self.entities_meta.get(entity) else {
+            return false;
+        };
+
+        let src_archetype_id = entity_location.archetype_id;
+
+        let mut dst_components_set = {
+            let src_archetype = self.archetypes.by_id_ref(src_archetype_id).unwrap();
+
+            UniqueComponentsSetBuilder::from_set(src_archetype.layout().components_set())
+        };
+
+        let mut has_new_types = false;
+
+        for &ComponentPtr { id: component_id, .. } in components {
+            has_new_types |= dst_components_set.insert(component_id);
+        }
+
+        if !has_new_types {
+            let src_archetype = self.archetypes.by_id_mut(src_archetype_id).unwrap();
+
+            // Safety. Access is unique and is only used in the method scope.
+            assert!(unsafe { src_archetype.replace_components(entity_location.entity_archetype_index, components) });
+
+            return true;
+        }
+
+        let dst_archetype_id = self.archetypes.id_by_components_or_create(dst_components_set.build());
+
+        let [src_archetype, dst_archetype] = self.archetypes.by_2_ids_mut([src_archetype_id, dst_archetype_id]).unwrap();
+
+        let entity_with_set_components_new_location = EntityLocation {
+            archetype_id: dst_archetype_id,
+            entity_archetype_index: dst_archetype.entities_count(),
+        };
+
+        // Safety. Access is unique and is only used in the method scope.
+        let last_entity = unsafe {
+            ArchetypeUnsafeFfi::set_components(src_archetype, dst_archetype, entity_location.entity_archetype_index, components)
+                .unwrap()
+        };
+
+        if last_entity != entity {
+            *self.entities_meta.get_mut(last_entity).unwrap() = *entity_location;
+        }
+
+        *self.entities_meta.get_mut(entity).unwrap() = entity_with_set_components_new_location;
 
         true
     }
