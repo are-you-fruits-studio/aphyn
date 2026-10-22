@@ -117,7 +117,7 @@ use fruits_serialization::*;
 #[derive(Default, Debug, Clone)]
 pub struct SerializedEntityComponents(pub FfiIndexMap<FfiString, SerializedValue>);
 
-impl<S: Copy + SerializerCtxState<SerializedValue>> Serializable<S> for SerializedEntityComponents {
+impl<S: Copy + SerializerCtxState<FfiString> + SerializerCtxState<SerializedValue>> Serializable<S> for SerializedEntityComponents {
     fn serialize(&self, ctx: SerializerCtx<S>, path: &str) -> SerializedValue {
         self.0.serialize(ctx, path)
     }
@@ -137,7 +137,7 @@ impl From<FfiIndexMap<FfiString, SerializedValue>> for SerializedEntityComponent
 #[derive(Default, Debug, Clone)]
 pub struct SerializedEntities(pub FfiIndexMap<u64, SerializedEntityComponents>);
 
-impl<S: Copy + SerializerCtxState<SerializedEntityComponents>> Serializable<S> for SerializedEntities {
+impl<S: Copy + SerializerCtxState<u64> + SerializerCtxState<SerializedEntityComponents>> Serializable<S> for SerializedEntities {
     fn serialize(&self, ctx: SerializerCtx<S>, path: &str) -> SerializedValue {
         self.0.serialize(ctx, path)
     }

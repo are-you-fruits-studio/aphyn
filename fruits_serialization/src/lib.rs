@@ -106,6 +106,42 @@
 //! assert_eq!(player.name, "Ada");
 //! ```
 //!
+//! #### Maps with non-string keys
+//!
+//! `FfiIndexMap`, `HashMap` and `BTreeMap` accept any serializable key. A key serialized to a
+//! string stays as is; any other key becomes the compact JSON text of its serialized value:
+//!
+//! ```
+//! use std::collections::{BTreeMap, HashMap};
+//! use fruits_ffi::FfiIndexMap;
+//! use fruits_serialization::*;
+//!
+//! #[derive(Serializable, Default, PartialEq, Eq, Hash, Debug)]
+//! struct Cell(i32, i32);
+//!
+//! let mut on_err = |err: SerializationError| panic!("{err}");
+//! let mut ctx = SerializerCtx::new(PureSerializerCtxState, &mut on_err);
+//!
+//! let ids: BTreeMap<u32, String> = [(1, "a".into()), (20, "b".into())].into_iter().collect();
+//! let serialized = ctx.serialize(&ids, "");
+//! assert_eq!(serialized.to_json().to_string(), r#"{"1":"a","20":"b"}"#);
+//! assert_eq!(ctx.deserialize_default::<BTreeMap<u32, String>>("", &serialized), ids);
+//!
+//! let cells: HashMap<Cell, u8> = [(Cell(1, 2), 7)].into_iter().collect();
+//! let serialized = ctx.serialize(&cells, "");
+//! assert_eq!(serialized.to_json().to_string(), r#"{"{\"0\":1,\"1\":2}":7}"#);
+//! assert_eq!(ctx.deserialize_default::<HashMap<Cell, u8>>("", &serialized), cells);
+//!
+//! let cell = ctx.serialize(&cells, r#"{"0":1,"1":2}"#);
+//! assert!(matches!(cell, SerializedValue::Primitive(SerializedPrimitive::Int(7))));
+//!
+//! let names: FfiIndexMap<String, u8> = [("true".into(), 1), ("\"quoted\"".into(), 2)].into_iter().collect();
+//! let serialized = ctx.serialize(&names, "");
+//! let restored: FfiIndexMap<String, u8> = ctx.deserialize_default("", &serialized);
+//! assert_eq!(restored.get("true"), Some(&1));
+//! assert_eq!(restored.get("\"quoted\""), Some(&2));
+//! ```
+//!
 //! #### Project to and from JSON
 //!
 //! [`SerializedValue::to_json`] renders the value tree as a [`serde_json::Value`], and
@@ -265,8 +301,17 @@
 //! The crate implements [`Serializable`] for integers, floats, `bool`, `char`, `String`,
 //! `FfiString`, `FfiSmallString`, `&'static str` (serialize only; deserializing reports an
 //! error), `()`, `Vec`, `FfiVec`, `Option`, `FfiOption` (as enums with `None` / `Some`),
-//! fixed-size arrays, and the `fruits_math` vectors and quaternion (as maps keyed
-//! `x`/`y`/`z`/`w`). `u128` values above `i128::MAX` are clamped. The `Mat<N, T>` impl is a
+//! fixed-size arrays, `FfiIndexMap`, `HashMap`, `BTreeMap`, and the `fruits_math` vectors and
+//! quaternion (as maps keyed `x`/`y`/`z`/`w`). `u128` values above `i128::MAX` are clamped.
+//!
+//! Maps serialize as non-rigid maps whose field names encode the keys. The key is serialized
+//! through the same context; a string result is used verbatim (unless it is itself a JSON string
+//! literal, which is JSON-encoded), anything else as its compact JSON text. Decoding first parses
+//! the field name as JSON and deserializes the key from that, silently; if that fails or reports
+//! errors, it deserializes the key from the raw string, reporting errors normally. This keeps
+//! string- and integer-keyed data in its natural form (`"42"`, `"name"`). Caveats: on a
+//! registry-backed context the key type needs a registered serializer too; a key whose field
+//! name contains `/` cannot be addressed by path; `HashMap` field order is unspecified. The `Mat<N, T>` impl is a
 //! `todo!()` and panics if called. The numerous `// todo: ffi` markers flag where the FFI
 //! surface is still being built out, alongside the crate root's `todo` list and the
 //! commented-out older `FfiAny` support in `serialization_transitive.rs`.
