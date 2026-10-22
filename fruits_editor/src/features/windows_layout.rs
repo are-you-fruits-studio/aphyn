@@ -6,7 +6,7 @@ use crate::{
     SYSTEM_GROUP,
     features::{
         test_window::{open_window_by_kind, open_windows_system},
-        ui_window::{close_window_system, drag_window_system, rescale_window_system},
+        ui_window::{close_window_system, drag_window_system, keep_windows_inside_dock_system, rescale_window_system},
     },
     prefabs::WindowComponent,
 };
@@ -34,6 +34,7 @@ pub fn register_feature(mut world: WorldBuilderMut) {
         update.order_system(close_window_system).before_system(save_windows_layout_system);
         update.order_system(drag_window_system).before_system(save_windows_layout_system);
         update.order_system(rescale_window_system).before_system(save_windows_layout_system);
+        update.order_system(keep_windows_inside_dock_system).before_system(save_windows_layout_system);
     }
 }
 

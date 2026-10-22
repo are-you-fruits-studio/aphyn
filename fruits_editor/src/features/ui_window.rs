@@ -11,7 +11,8 @@ pub fn register_feature(mut world: WorldBuilderMut) {
         .insert_child_system(drag_window_system)
         .insert_child_system(close_window_system)
         .insert_child_system(highlit_window_scale_handles_system)
-        .insert_child_system(rescale_window_system);
+        .insert_child_system(rescale_window_system)
+        .insert_child_system(keep_windows_inside_dock_system);
 
     update
         .order_system(check_ui_interaction_system)
@@ -19,13 +20,57 @@ pub fn register_feature(mut world: WorldBuilderMut) {
         .before_system(drag_window_system)
         .before_system(highlit_window_scale_handles_system)
         .before_system(rescale_window_system);
+
+    update.order_system(drag_window_system).before_system(keep_windows_inside_dock_system);
+    update.order_system(rescale_window_system).before_system(keep_windows_inside_dock_system);
+}
+
+const MIN_WINDOW_SIZE: Vec2<f32> = Vec2::new(100.0, 60.0);
+
+#[derive(Component, Default, Debug)]
+pub struct DockComponent;
+
+#[derive(Clone, Copy)]
+struct Bounds {
+    min: Vec2<f32>,
+    max: Vec2<f32>,
+}
+
+impl Bounds {
+    const UNBOUNDED: Self = Self {
+        min: Vec2::new(f32::NEG_INFINITY, f32::NEG_INFINITY),
+        max: Vec2::new(f32::INFINITY, f32::INFINITY),
+    };
+}
+
+fn dock_bounds(dock_q: &WorldQuery<&GlobalRectComponent, WithFilter<DockComponent>>) -> Option<Bounds> {
+    let dock_rect = dock_q.iter().next()?;
+
+    if dock_rect.scale.x <= 0.0 || dock_rect.scale.y <= 0.0 {
+        return None;
+    }
+
+    Some(Bounds {
+        min: dock_rect.center - dock_rect.scale * 0.5,
+        max: dock_rect.center + dock_rect.scale * 0.5,
+    })
+}
+
+fn px_offset(rect: &LocalRectComponent, axis: usize) -> f32 {
+    match rect.offset[axis] {
+        UiVal { unit: UiUnit::Px, val } => val,
+        _ => 0.0,
+    }
 }
 
 pub fn drag_window_system(
     input_res: Res<InputResource>,
     mut window_q: WorldQuery<(&mut LocalRectComponent, &WindowComponent)>,
     drag_area_q: WorldQuery<(&DragAreaComponent, &GlobalRectComponent)>,
+    dock_q: WorldQuery<&GlobalRectComponent, WithFilter<DockComponent>>,
 ) {
+    let bounds = dock_bounds(&dock_q).unwrap_or(Bounds::UNBOUNDED);
+
     for (window_local_rect, window_c) in window_q.iter_mut() {
         let Some((drag_area_c, drag_area_rect)) = drag_area_q.get(window_c.drag_header) else {
             continue;
@@ -41,7 +86,11 @@ pub fn drag_window_system(
             UiUnit::Px => u.val,
             _ => 0.0,
         });
-        window_local_rect.offset = (old_offset + expected_pos -  real_pos).map(UiVal::px);
+        let new_offset = old_offset + expected_pos - real_pos;
+        window_local_rect.offset = Vec2::from_fn(|axis| {
+            let size = px_scale(window_local_rect, axis);
+            UiVal::px(new_offset[axis].min(bounds.max[axis] - size).max(bounds.min[axis]))
+        });
     }
 }
 
@@ -102,7 +151,9 @@ pub fn rescale_window_system(
     input_res: Res<InputResource>,
     handle_q: WorldQuery<(&DragAreaComponent, &GlobalRectComponent)>,
     mut window_q: WorldQuery<(&mut LocalRectComponent, &WindowComponent)>,
+    dock_q: WorldQuery<&GlobalRectComponent, WithFilter<DockComponent>>,
 ) {
+    let bounds = dock_bounds(&dock_q).unwrap_or(Bounds::UNBOUNDED);
     let mouse_pos = Vec2::from_array(input_res.mouse.position.map(|v| v as f32));
 
     for (window_rect, window_c) in window_q.iter_mut() {
@@ -130,8 +181,8 @@ pub fn rescale_window_system(
 
             for (axis, edge) in edges.into_iter().enumerate() {
                 match edge {
-                    Some(ScaleEdge::Min) => drag_min_edge(window_rect, axis, diff[axis]),
-                    Some(ScaleEdge::Max) => drag_max_edge(window_rect, axis, diff[axis]),
+                    Some(ScaleEdge::Min) => drag_min_edge(window_rect, axis, diff[axis], bounds),
+                    Some(ScaleEdge::Max) => drag_max_edge(window_rect, axis, diff[axis], bounds),
                     None => {}
                 }
             }
@@ -146,15 +197,42 @@ fn px_scale(rect: &LocalRectComponent, axis: usize) -> f32 {
     }
 }
 
-fn drag_max_edge(rect: &mut LocalRectComponent, axis: usize, diff: f32) {
-    rect.scale[axis] = UiVal::px(px_scale(rect, axis) + diff).into();
+fn drag_max_edge(rect: &mut LocalRectComponent, axis: usize, diff: f32, bounds: Bounds) {
+    let offset = px_offset(rect, axis);
+    let size = (px_scale(rect, axis) + diff).min(bounds.max[axis] - offset).max(MIN_WINDOW_SIZE[axis]);
+    rect.scale[axis] = UiVal::px(size).into();
 }
 
-fn drag_min_edge(rect: &mut LocalRectComponent, axis: usize, diff: f32) {
-    let old_offset = match rect.offset[axis] {
-        UiVal { unit: UiUnit::Px, val } => val,
-        _ => 0.0,
+fn drag_min_edge(rect: &mut LocalRectComponent, axis: usize, diff: f32, bounds: Bounds) {
+    let old_offset = px_offset(rect, axis);
+    let max_edge = old_offset + px_scale(rect, axis);
+    let offset = (old_offset + diff).max(bounds.min[axis]).min(max_edge - MIN_WINDOW_SIZE[axis]);
+    rect.scale[axis] = UiVal::px(max_edge - offset).into();
+    rect.offset[axis] = UiVal::px(offset);
+}
+
+pub fn keep_windows_inside_dock_system(
+    mut window_q: WorldQuery<&mut LocalRectComponent, WithFilter<WindowComponent>>,
+    dock_q: WorldQuery<&GlobalRectComponent, WithFilter<DockComponent>>,
+) {
+    let Some(bounds) = dock_bounds(&dock_q) else {
+        return;
     };
-    rect.scale[axis] = UiVal::px(px_scale(rect, axis) - diff).into();
-    rect.offset[axis] = UiVal::px(old_offset + diff);
+
+    for rect in window_q.iter_mut() {
+        for axis in 0..2 {
+            let old_size = px_scale(rect, axis);
+            let old_offset = px_offset(rect, axis);
+
+            let size = old_size.min(bounds.max[axis] - bounds.min[axis]).max(MIN_WINDOW_SIZE[axis]);
+            let offset = old_offset.min(bounds.max[axis] - size).max(bounds.min[axis]);
+
+            if size != old_size {
+                rect.scale[axis] = UiVal::px(size).into();
+            }
+            if offset != old_offset {
+                rect.offset[axis] = UiVal::px(offset);
+            }
+        }
+    }
 }

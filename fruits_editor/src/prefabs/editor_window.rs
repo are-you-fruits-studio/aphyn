@@ -1,6 +1,6 @@
 use fruits_engine::*;
 
-use crate::{features::{play_mode::PlayButtonComponent, test_window::WindowsButtonComponent, ui_interaction::ButtonComponent}, resources::StandardAssetsResource};
+use crate::{features::{play_mode::PlayButtonComponent, test_window::WindowsButtonComponent, ui_interaction::ButtonComponent, ui_window::DockComponent}, resources::StandardAssetsResource};
 
 fn create_header_button<C: 'static>(
     mut ent: EntitiesHolderMut,
@@ -159,6 +159,7 @@ pub fn editor_window(mut world: WorldDataMut) -> EntityId {
             color: Vec4::new(0.1, 0.1, 0.1, 1.0),
             ..Default::default()
         },
+        DockComponent,
     ));
 
     create_header_button(ent.as_mut(), assets_res, ent_header, WindowsButtonComponent, "Windows".into(), UiVal::px(100.0));
