@@ -65,7 +65,7 @@ fn create_header_button<C: 'static>(
 }
 
 pub fn editor_window(mut world: WorldDataMut) -> EntityId {
-    let (res, mut ent, evt) = world.as_tuple_mut();
+    let (res, mut ent, _evt) = world.as_tuple_mut();
 
     let assets_res = res.get::<StandardAssetsResource>().unwrap();
 

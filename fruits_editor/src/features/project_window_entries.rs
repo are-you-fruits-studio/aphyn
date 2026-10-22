@@ -82,7 +82,7 @@ impl ProjectDirWatcher {
 }
 
 pub fn update_project_window_content_system(mut world: WorldDataMut) {
-    let (mut res, mut ent, evt) = world.as_tuple_mut();
+    let (mut res, mut ent, _evt) = world.as_tuple_mut();
 
     let assets = res.as_ref().get::<StandardAssetsResource>().unwrap().clone();
     let open_project = res.as_ref().get::<OpenProjectResource>().unwrap().clone();

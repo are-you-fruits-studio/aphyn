@@ -8,7 +8,7 @@ use fruits_prefab::{Prefab, Scene};
 use fruits_render_core::{CoordinateSpaceType, StandardMaterial, StandardMesh, StandardMeshAssetMetadata, StandardTexture};
 use fruits_serialization::*;
 
-use crate::{EntityTransSerializer, serialize_entities_no_deps};
+use crate::{EntityIdDecoder, EntityIdEncoder, EntityTransSerializer, serialize_entities_no_deps};
 
 //
 
@@ -38,12 +38,9 @@ pub fn save_load_with_asset_serializers<R>(
     audio_clips: &AssetStorageResource<AudioClip>,
     f: impl FnOnce(TransSerializerRegistry) -> R,
 ) -> R {
-    let entities_deserialized = HashMap::new();
-    let entities_serialized = HashMap::new();
-
     let mut serializer_local = TransSerializerRegistry::new();
 
-    serializer_local.register(EntityTransSerializer::new(&entities_deserialized, &entities_serialized));
+    serializer_local.register(EntityTransSerializer::new(EntityIdDecoder::Empty, EntityIdEncoder::Empty));
 
     serializer_local.register(AssetHandleLinkTransSerializer::new(textures));
     serializer_local.register(AssetHandleLinkTransSerializer::new(materials));
@@ -113,7 +110,8 @@ impl<'m, T: 'static> AssetHandleLinkTransSerializer<'m, T> {
 impl<'m, T: 'static, S: Copy> Serializer<S> for AssetHandleLinkTransSerializer<'m, T> {
     type Deserialized = AssetHandle<T>;
 
-    fn serialize(&self, value: &Self::Deserialized, mut ctx: SerializerCtx<S>, path: &str) -> SerializedValue {
+    // todo: unused path
+    fn serialize(&self, value: &Self::Deserialized, mut ctx: SerializerCtx<S>, _path: &str) -> SerializedValue {
         let key = self.assets.get_registration(value);
 
         if value != &AssetHandle::EMPTY && key.is_none() {
@@ -123,7 +121,8 @@ impl<'m, T: 'static, S: Copy> Serializer<S> for AssetHandleLinkTransSerializer<'
         SerializedValue::Primitive(SerializedPrimitive::String(key.unwrap_or("").into()))
     }
 
-    fn deserialize(&self, value: &mut Self::Deserialized, mut ctx: SerializerCtx<S>, path: &str, serialized: &SerializedValue) {
+    // todo: unused path
+    fn deserialize(&self, value: &mut Self::Deserialized, mut ctx: SerializerCtx<S>, _path: &str, serialized: &SerializedValue) {
         *value = Default::default();
 
         let SerializedValue::Primitive(SerializedPrimitive::String(key)) = serialized else {
@@ -182,7 +181,7 @@ impl<'a, 'm, T: 'static, S: 'static, F: Fn(SerializerCtx<TransSerializerCtxState
         ctx.serialize(&serializable_part, path)
     }
 
-    fn deserialize(&self, value: &mut Self::Deserialized, mut ctx: SerializerCtx<TransSerializerCtxState>, path: &str, serialized: &SerializedValue) {
+    fn deserialize(&self, value: &mut Self::Deserialized, _ctx: SerializerCtx<TransSerializerCtxState>, _path: &str, _serialized: &SerializedValue) {
         todo!()
     }
     

@@ -128,7 +128,6 @@ pub fn check_ui_interaction_system(
     }
 
     let left_just_pressed = input.mouse.is_just_pressed(MouseButton::Left);
-    let left_just_released = input.mouse.is_just_released(MouseButton::Left);
 
     let pos = Vec2::from_array(input.mouse.position.map(|v| v as f32));
 

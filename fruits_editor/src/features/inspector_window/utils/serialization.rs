@@ -19,7 +19,7 @@ pub fn save_asset_from_world_res(res: ResourcesHolderRef, asset_key: &str) -> Op
 
     save_load_with_asset_serializers_from_world(res, |serializers_local| {
         let serializer_ctx_state = serializers_global.to_ctx_state();
-        let mut serializer_ctx = serializer_ctx_state.wrap_with_local(&serializers_local)
+        let serializer_ctx = serializer_ctx_state.wrap_with_local(&serializers_local)
             .into_ctx(&mut err_handler);
 
         inspected_asset.to_serialized(serializer_ctx)

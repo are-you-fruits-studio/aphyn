@@ -204,6 +204,10 @@ fn entities_holder_contains_entity(entities: &EntitiesHolderUnsafeFfi, entity: E
     entities.contains_entity(entity)
 }
 
+fn entities_holder_get_entity_by_idx_only(entities: &EntitiesHolderUnsafeFfi, idx: u64) -> Option<EntityId> {
+    entities.get_entity_by_idx_only(idx)
+}
+
 fn entities_holder_create_entity(entities: &mut EntitiesHolderUnsafeFfi) -> EntityId {
     entities.create_entity()
 }
@@ -259,6 +263,26 @@ impl<'e> EntitiesHolderMut<'e> {
 
     pub fn contains_entity(&self, entity: EntityId) -> bool {
         unsafe { entities_holder_contains_entity(&*self.entities, entity) }
+    }
+
+    pub fn get_entity_by_idx_only(&self, idx: u64) -> Option<EntityId> {
+        unsafe { entities_holder_get_entity_by_idx_only(&*self.entities, idx) }
+    }
+
+    pub fn encode_entity_as_id(&self, entity: EntityId) -> u64 {
+        if self.contains_entity(entity) {
+            entity.version_index().index + 1
+        } else {
+            0
+        }
+    }
+
+    pub fn decode_entity_from_id(&self, id: u64) -> EntityId {
+        if id != 0 && let Some(entity) = self.get_entity_by_idx_only(id) {
+            entity
+        } else {
+            EntityId::EMPTY
+        }
     }
 
     pub fn create_entity(&mut self) -> EntityId {
@@ -352,6 +376,9 @@ impl<'e> EntitiesHolderMut<'e> {
     }
 }
 
+unsafe impl<'e> Send for EntitiesHolderMut<'e> {}
+unsafe impl<'e> Sync for EntitiesHolderMut<'e> {}
+
 //
 
 #[derive(Copy, Clone)]
@@ -385,6 +412,26 @@ impl<'e> EntitiesHolderRef<'e> {
         unsafe { entities_holder_contains_entity(&*self.entities, entity) }
     }
 
+    pub fn get_entity_by_idx_only(&self, idx: u64) -> Option<EntityId> {
+        unsafe { entities_holder_get_entity_by_idx_only(&*self.entities, idx) }
+    }
+
+    pub fn encode_entity_as_id(&self, entity: EntityId) -> u64 {
+        if self.contains_entity(entity) {
+            entity.version_index().index + 1
+        } else {
+            0
+        }
+    }
+
+    pub fn decode_entity_from_id(&self, id: u64) -> EntityId {
+        if id != 0 && let Some(entity) = self.get_entity_by_idx_only(id) {
+            entity
+        } else {
+            EntityId::EMPTY
+        }
+    }
+
     pub fn get_component_ptr<C: 'static>(self, entity: EntityId) -> Option<*mut C> {
         unsafe { entities_holder_get_component_ptr(&*self.entities, self.types, entity) }
     }
@@ -400,6 +447,9 @@ impl<'e> EntitiesHolderRef<'e> {
         unsafe { entities_holder_get_all_components(&*self.entities, entity, handler) }
     }
 }
+
+unsafe impl<'e> Send for EntitiesHolderRef<'e> {}
+unsafe impl<'e> Sync for EntitiesHolderRef<'e> {}
 
 mod sealed {
     use super::ComponentsTuple;

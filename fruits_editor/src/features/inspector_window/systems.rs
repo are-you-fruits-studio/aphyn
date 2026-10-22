@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ffi::OsStr};
+use std::ffi::OsStr;
 
 use fruits_engine::tree::{TreeBuilder, TreeNode};
 
@@ -6,7 +6,7 @@ use crate::{
     features::{
         asset_serialization::{InspectedAsset, get_asset_type}, foldout::{FOLDOUT_WIDTH, FoldoutButtonComponent, FoldoutKey, FoldoutResource, FoldoutToggledEvent, spawn_foldout_arrow}, generic_dropdown::{GenericDropdownResource, GenericDropdownStateTy}, input_field::{InputFieldComponent, InputFieldSelectionChangedEvent, InputFieldTextChangedEvent, SelectedInputFieldResource}, inspector_window::{
             FIELD_HEIGHT, data::*, utils::{
-                entries::{parse_serialized, spawn_default_layout_ent, spawn_hierarchy_window_entry, spawn_serialized, spawn_text_ent}, find_in_parents, serialization::{are_components_slices_similar, deserialize_asset_to_world_res, enrich_serialized_with_asset_type, load_asset_to_world_res, save_asset_from_world_res}, subsequence_match_ignore_case,
+                entries::{parse_serialized, spawn_default_layout_ent, spawn_hierarchy_window_entry, spawn_serialized, spawn_text_ent}, find_in_parents, serialization::{deserialize_asset_to_world_res, save_asset_from_world_res}, subsequence_match_ignore_case,
             },
         }, number_drag::NumberInputFieldDraggedEvent, project_window_selection::{FileOpenedEvent, FileSelectedEvent, SelectedFileResource}, world_preload::{SimulatedWorld, SimulatedWorldResource},
     }, prefabs::WindowComponent, *,
@@ -121,7 +121,6 @@ pub fn add_component_system(
             &add_component_variant_c.component_id,
             "",
             &SerializedValue::Null,
-            &inspected_entity.id_to_ent,
         );
 
         if did_add {
@@ -316,11 +315,6 @@ pub fn apply_hierarchy_context_menu_system(
                 }
             }
 
-            let new_id = (1..=(inspected_entity.id_to_ent.len() as u64 + 1)).filter(|i| !inspected_entity.id_to_ent.contains_key(i)).next().unwrap();
-
-            inspected_entity.ent_to_id.insert(entity, new_id);
-            inspected_entity.id_to_ent.insert(new_id, entity);
-
             inspected_entity.selected_entity = entity;
             *selected_file = SelectedFileResource::default();
             asset_edited_evt.push(AssetEditedEvent::OpenedEntitiesAsset);
@@ -345,10 +339,6 @@ pub fn apply_hierarchy_context_menu_system(
 
             for e in subtree {
                 sim_ent.destroy_entity(e);
-
-                if let Some(removed_id) = inspected_entity.ent_to_id.remove(&e) {
-                    inspected_entity.id_to_ent.remove(&removed_id);
-                }
             }
 
             inspected_entity.selected_entity = EntityId::EMPTY;
@@ -619,7 +609,7 @@ fn serialize_from_simulated_world(
             res,
             simulated_world.world.data().entities(),
             inspected_entity.selected_entity,
-            &inspected_entity.ent_to_id,
+            EntityIdEncoder::World(simulated_world.world.data().entities()),
         )
         .get(component_id)?
         .get_by_path(path)
@@ -656,7 +646,6 @@ fn deserialize_to_simulated_world(
                 component_id,
                 path,
                 serialized,
-                &inspected_entity.id_to_ent,
             )
         }
     }
@@ -685,95 +674,6 @@ fn apply_inspector_serialized_value_to_simulated_world(
     );
 
     did_asset_load.then(|| target.edited_event())
-}
-
-// todo: rewrite to new serialization api
-pub fn apply_inspector_to_simulated_world_system(
-    ent: EntitiesHolderRef,
-    inspector_window_q: WorldQuery<&InspectorWindowContentComponent>,
-    parent_q: WorldQuery<&ParentComponent>,
-    text_q: WorldQuery<&TextComponent>,
-    serialized_component_q: WorldQuery<&SerializedComponentComponent>,
-    inspected_asset: Res<InspectedAssetResource>,
-    inspected_entity: Res<InspectedEntityResource>,
-    open_project: Res<OpenProjectResource>,
-    mut simulated_world: ResMut<SimulatedWorldResource>,
-    mut asset_edited_evt: EvtMut<AssetEditedEvent>,
-) {
-    return_if_not!(Some(simulated_world) = &mut simulated_world.0);
-    return_if_not!(Some(window_c) = inspector_window_q.iter().next().copied());
-    let content_container = window_c.content_container;
-    return_if_not!(Some(parent_c) = parent_q.get(content_container));
-    return_if_not!(Some(&content_ent) = parent_c.children.first());
-
-    return_if_not!(Some(asset_type) = get_asset_type(simulated_world.world.data().resources(), inspected_asset.asset_key.as_str()));
-
-    if is_entities_asset(asset_type) {
-        let stored_components = record_entity_components(
-            simulated_world.world.data().resources(),
-            simulated_world.world.data().entities(),
-            inspected_entity.selected_entity,
-            &inspected_entity.ent_to_id,
-        );
-
-        let mut parsed_components = FfiIndexMap::<FfiString, SerializedValue>::new();
-
-        for &child in &parent_c.children {
-            continue_if_not!(Some(serialized_component_c) = serialized_component_q.get(child));
-            continue_if_not!(Some(text_c) = text_q.get(serialized_component_c.component_id_text));
-            continue_if_not!(Some(component_data_container_parent_c) = parent_q.get(serialized_component_c.component_data_container));
-            continue_if_not!(Some(&serialized_ent) = component_data_container_parent_c.children.get(0));
-
-            let serialized_component = parse_serialized(ent, serialized_ent);
-
-            parsed_components.insert(
-                text_c.text.clone(),
-                serialized_component,
-            );
-        }
-
-        return_if!(are_components_slices_similar(&stored_components, &parsed_components));
-
-        let (sim_res, sim_ent, sim_evt) = simulated_world.world.data_mut().into_tuple_mut();
-        override_entity_components(
-            sim_res.as_ref(),
-            sim_ent,
-            inspected_entity.selected_entity,
-            &parsed_components,
-            &inspected_entity.id_to_ent,
-        );
-
-        asset_edited_evt.push(AssetEditedEvent::OpenedEntitiesAsset);
-
-        return;
-    }
-
-    let serialized_existing = save_asset_from_world_res(
-        simulated_world.world.data().resources(),
-        inspected_asset.asset_key.as_str(),
-    );
-
-    let mut serialized_parsed = parse_serialized(ent, content_ent);
-
-    enrich_serialized_with_asset_type(&mut serialized_parsed, asset_type);
-
-    return_if!(SerializedValue::similar_option(
-        serialized_existing.as_ref(),
-        Some(&serialized_parsed)
-    ));
-
-    // todo
-    let did_asset_load = load_asset_to_world_res(
-        simulated_world.world.data_mut().resources_mut(),
-        inspected_asset.asset_key.as_str(),
-        &serialized_parsed,
-        asset_type,
-        &(open_project.dir_path.to_string() + PROJECT_ASSETS_SUBPATH),
-    );
-
-    if did_asset_load {
-        asset_edited_evt.push(AssetEditedEvent::InspectedAsset);
-    };
 }
 
 pub fn save_simulated_entities_to_asset_system(
@@ -909,23 +809,12 @@ pub fn open_entities_asset(
         _ => return,
     }
 
-    fill_inspected_entity_ids(ent.as_ref(), inspected_entity);
-
     *opened_asset = OpenedEntitiesAssetResource {
         asset_key: asset_key.to_string(),
         path: path.to_owned(),
         asset_type,
         prefab_root,
     };
-}
-
-pub fn fill_inspected_entity_ids(ent: EntitiesHolderRef, inspected_entity: &mut InspectedEntityResource) {
-    for entity in ent.query::<EntityId>().iter() {
-        let id = entity.version_index().index + 1;
-
-        inspected_entity.ent_to_id.insert(entity, id);
-        inspected_entity.id_to_ent.insert(id, entity);
-    }
 }
 
 fn is_entities_asset(asset_type: AssetType) -> bool {
@@ -994,7 +883,6 @@ pub fn update_hierarchy_window_system(
                 &assets.material_panel,
                 &assets.font,
                 content,
-                &inspected_entity.ent_to_id,
                 &opened_asset.asset_key,
                 &foldout_res,
                 node,
@@ -1011,7 +899,6 @@ fn spawn_hierarchy_window_entries_recursively(
     material_panel: &AssetHandle<StandardMaterial>,
     font: &AssetHandle<Font>,
     parent: EntityId,
-    ent_to_id: &HashMap<EntityId, u64>,
     asset_key: &str,
     foldout_res: &FoldoutResource,
     node: &TreeNode<EntityId>,
@@ -1019,11 +906,11 @@ fn spawn_hierarchy_window_entries_recursively(
 ) {
     let simulated_ent = node.value;
 
-    let entity_id = ent_to_id.get(&simulated_ent).map(|n| n.to_string()).unwrap_or_else(|| "_".into());
+    let entity_id = sim_ent.encode_entity_as_id(simulated_ent);
 
     let name = sim_ent.get_component::<DebugNameComponent>(simulated_ent)
         .map(|s| s.0.as_str().into())
-        .unwrap_or_else(|| format!("e{{{}}}", simulated_ent.version_index().index));
+        .unwrap_or_else(|| format!("e{{{}}}", entity_id));
 
     let name = format!("[{}] {}", entity_id, name).into();
 
@@ -1037,9 +924,13 @@ fn spawn_hierarchy_window_entries_recursively(
         simulated_ent,
     );
 
-    let key = ent_to_id.get(&simulated_ent).map(|&entity_id| FoldoutKey::HierarchyEntity { asset_key: asset_key.to_string(), entity_id });
-    let is_expanded = key.as_ref().is_some_and(|k| foldout_res.is_expanded(k));
-    let foldout = key.filter(|_| !node.children.is_empty()).map(|k| (k, is_expanded));
+    let key = FoldoutKey::HierarchyEntity { asset_key: asset_key.to_string(), entity_id };
+    let is_expanded = foldout_res.is_expanded(&key);
+    let foldout = if node.children.is_empty() {
+        None
+    } else {
+        Some((key, is_expanded))
+    };
 
     spawn_foldout_arrow(
         ent.as_mut(),
@@ -1062,7 +953,6 @@ fn spawn_hierarchy_window_entries_recursively(
             material_panel,
             font,
             parent,
-            ent_to_id,
             asset_key,
             foldout_res,
             child,
@@ -1116,7 +1006,7 @@ pub fn update_inspector_window_system(
                 simulated_world.world.data().resources(),
                 simulated_world.world.data().entities(),
                 inspected_entity.selected_entity,
-                &inspected_entity.ent_to_id,
+                EntityIdEncoder::World(simulated_world.world.data().entities()),
             );
 
             update_prefab_components_ent(
@@ -1159,7 +1049,7 @@ pub fn update_inspector_window_system(
             let serializers_global = simulated_world.world.data().resources().get::<SerializersResource>().unwrap();
             
             let serializer_ctx_state = serializers_global.to_ctx_state();
-            let mut serializer_ctx = serializer_ctx_state.wrap_with_local(&serializers_local)
+            let serializer_ctx = serializer_ctx_state.wrap_with_local(&serializers_local)
                 .into_ctx(&mut err_handler);
 
             inspected_asset.to_serialized(serializer_ctx)

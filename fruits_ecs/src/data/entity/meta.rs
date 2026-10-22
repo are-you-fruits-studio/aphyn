@@ -58,6 +58,10 @@ impl EntitiesMetadata {
         self.0.remove(entity.0)
     }
 
+    pub fn get_by_idx_only(&self, idx: u64) -> Option<EntityId> {
+        self.0.get_by_idx_only(idx).map(EntityId::from_version_index)
+    }
+
     pub fn get(&self, entity: EntityId) -> Option<&EntityLocation> {
         self.0.get(entity.0)
     }

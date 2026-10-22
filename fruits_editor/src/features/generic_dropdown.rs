@@ -125,7 +125,7 @@ pub struct GenericDropdownEntryComponent {
 }
 
 pub fn delete_generic_dropdown_system(mut world: WorldDataMut) {
-    let (res, mut ent, evt) = world.as_tuple_mut();
+    let (res, mut ent, _evt) = world.as_tuple_mut();
     let generic_dropdown_resource = res.get::<GenericDropdownResource>().unwrap();
 
     let mut entities_to_destroy = Vec::new();
@@ -148,7 +148,7 @@ pub fn delete_generic_dropdown_system(mut world: WorldDataMut) {
 }
 
 pub fn spawn_generic_dropdown_system(mut world: WorldDataMut) {
-    let (res, mut ent, evt) = world.as_tuple_mut();
+    let (res, mut ent, _evt) = world.as_tuple_mut();
 
     if !ent.query::<&GenericDropdownComponent>().is_empty() {
         return;

@@ -1,8 +1,1 @@
-macro_rules! mod_and_pub_use {
-    ($i: ident) => {
-        mod $i;
-        pub use $i::*;
-    };
-}
-
-mod_and_pub_use!(debug_layout_system);
+mod debug_layout_system;

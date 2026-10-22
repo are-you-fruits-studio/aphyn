@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, VecDeque}, path::Path};
+use std::{collections::{HashMap, HashSet, VecDeque}, path::Path};
 
 use fruits_asset_storage::{AssetHandle, AssetStorageResource};
 use fruits_ecs::*;
@@ -73,16 +73,15 @@ pub fn record_into_prefab(
     let mut ent_serialize_queue = VecDeque::new();
     ent_serialize_queue.push_back(entity);
 
-    let mut ent_to_id = HashMap::new();
+    let mut ent_to_id = HashSet::new();
     let mut entities_ordered = Vec::new();
 
     while let Some(entity) = ent_serialize_queue.pop_front() {
-        let id = entity.version_index().index + 1;
-        if ent_to_id.insert(entity, id).is_some() {
+        if !ent_to_id.insert(entity) {
             continue;
         }
 
-        entities_ordered.push((entity, id));
+        entities_ordered.push(entity);
 
         if let Some(parent_c) = ent.get_component::<ParentComponent>(entity) {
             ent_serialize_queue.extend(parent_c.children.iter().copied());
@@ -90,7 +89,7 @@ pub fn record_into_prefab(
     }
 
     Some(Prefab {
-        entities: record_serialized_entities(res, ent, &entities_ordered)?,
+        entities: record_serialized_entities(res, ent, &entities_ordered, false)?,
     })
 }
 

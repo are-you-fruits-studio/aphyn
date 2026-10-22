@@ -60,7 +60,7 @@ pub fn select_input_field_system(
         selected_input_changed_evt.push(InputFieldSelectionChangedEvent);
     }
 
-    let Some(input_field_ent) = input_field_q.iter().filter(|(e, b)| b.was_clicked_this_frame).map(|(e, b)| e).next() else {
+    let Some(input_field_ent) = input_field_q.iter().filter(|(_, b)| b.was_clicked_this_frame).map(|(e, _)| e).next() else {
         return;
     };
 

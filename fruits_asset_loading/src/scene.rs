@@ -63,12 +63,11 @@ pub fn record_into_scene(res: ResourcesHolderRef, ent: EntitiesHolderRef) -> Opt
     let mut entities_ordered = ent
         .query::<EntityId>()
         .iter()
-        .map(|e| (e, e.version_index().index + 1))
         .collect::<Vec<_>>();
 
-    entities_ordered.sort_by_key(|&(_, id)| id);
+    entities_ordered.sort_by_key(|e| e.version_index().index + 1);
 
     Some(Scene {
-        entities: record_serialized_entities(res, ent, &entities_ordered)?,
+        entities: record_serialized_entities(res, ent, &entities_ordered, true)?,
     })
 }

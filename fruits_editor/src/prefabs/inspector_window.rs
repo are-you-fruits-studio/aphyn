@@ -8,7 +8,7 @@ use crate::{
 
 // todo: move
 pub fn init_window_as_inspector(mut world: WorldDataMut, ent_window: EntityId) {
-    let (res, mut ent, evt) = world.as_tuple_mut();
+    let (res, mut ent, _evt) = world.as_tuple_mut();
 
     let assets_res = res.as_ref().get::<StandardAssetsResource>().unwrap();
     let font = assets_res.font.clone();

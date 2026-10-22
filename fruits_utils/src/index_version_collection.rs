@@ -120,6 +120,43 @@ impl<T> VersionCollection<T> {
         Some(data)
     }
 
+    pub fn get_by_idx_only(&self, idx: u64) -> Option<VersionIndex> {
+        let data_with_version = self.items.get(idx)?;
+
+        Some(VersionIndex {
+            index: idx,
+            version: data_with_version.version,
+        })
+    }
+
+    pub fn get_by_idx_only_ref(&self, idx: u64) -> Option<(VersionIndex, &T)> {
+        let data_with_version = self.items.get(idx)?;
+
+        let data = data_with_version.data.as_ref()?;
+
+        Some((
+            VersionIndex {
+                index: idx,
+                version: data_with_version.version,
+            },
+            data,
+        ))
+    }
+
+    pub fn get_by_idx_only_mut(&mut self, idx: u64) -> Option<(VersionIndex, &mut T)> {
+        let data_with_version = self.items.get_mut(idx)?;
+
+        let data = data_with_version.data.as_mut()?;
+
+        Some((
+            VersionIndex {
+                index: idx,
+                version: data_with_version.version,
+            },
+            data,
+        ))
+    }
+
     pub fn get(&self, index: VersionIndex) -> Option<&T> {
         let data_with_version = self.items.get(index.index)?;
 

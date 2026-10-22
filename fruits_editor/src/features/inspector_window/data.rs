@@ -1,5 +1,5 @@
 
-use std::{collections::HashMap, ffi::OsString};
+use std::ffi::OsString;
 
 use crate::*;
 
@@ -27,8 +27,6 @@ pub struct OpenedEntitiesAssetResource {
 #[derive(Resource, Default)]
 pub struct InspectedEntityResource {
     pub selected_entity: EntityId,
-    pub ent_to_id: HashMap<EntityId, u64>,
-    pub id_to_ent: HashMap<u64, EntityId>,
 }
 
 #[derive(Component, Default, Copy, Clone)]

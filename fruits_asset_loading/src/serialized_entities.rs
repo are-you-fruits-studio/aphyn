@@ -51,11 +51,9 @@ pub fn instantiate_serialized_entities(
     }
 
     {
-        let entities_serialized = HashMap::new();
-
         let mut serializers_local = TransSerializerRegistry::new();
 
-        serializers_local.register(EntityTransSerializer::new(&id_to_ent, &entities_serialized));
+        serializers_local.register(EntityTransSerializer::new(EntityIdDecoder::Restricted(&id_to_ent), EntityIdEncoder::Empty));
         serializers_local.register(AssetInstantiateTransSerializer::new(textures));
         serializers_local.register(AssetInstantiateTransSerializer::new(materials));
         serializers_local.register(AssetInstantiateTransSerializer::new(meshes));
@@ -94,17 +92,24 @@ pub fn instantiate_serialized_entities(
 pub fn record_serialized_entities(
     res: ResourcesHolderRef,
     ent: EntitiesHolderRef,
-    entities_ordered: &[(EntityId, u64)],
+    entities_ordered: &[EntityId],
+    can_serialize_any_entity: bool,
 ) -> Option<SerializedEntities> {
     let serializers_global = res.get::<SerializersResource>().unwrap();
 
-    let entities_deserialized = HashMap::<u64, EntityId>::new();
-    let ent_to_id = entities_ordered.iter().copied().collect::<HashMap<_, _>>();
+    let ent_to_id;
+
+    let ent_to_id = if can_serialize_any_entity {
+        EntityIdEncoder::World(ent)
+    } else {
+        ent_to_id = entities_ordered.iter().copied().map(|e| (e, ent.encode_entity_as_id(e))).collect::<HashMap<_, _>>();
+        EntityIdEncoder::Restricted(&ent_to_id)
+    };
 
     let mut serializers_sublocal = TransSerializerRegistry::new();
     serializers_sublocal.register(EntityTransSerializer {
-        entities_deserialized: &entities_deserialized,
-        entities_serialized: &ent_to_id,
+        entities_deserialized: EntityIdDecoder::Empty,
+        entities_serialized: ent_to_id,
     });
 
     save_load_with_asset_serializers_from_world(res, |serializers_local| {
@@ -118,7 +123,8 @@ pub fn record_serialized_entities(
 
         let mut serialized_entities = SerializedEntities::default();
 
-        for &(entity, id) in entities_ordered {
+        for &entity in entities_ordered {
+            let id = ent.encode_entity_as_id(entity);
             // todo: asset references
             let components = serialize_components(entity, serializer_ctx.as_mut(), ent);
 
@@ -134,16 +140,14 @@ pub fn record_entity_components(
     res: ResourcesHolderRef,
     ent: EntitiesHolderRef,
     entity: EntityId,
-    ent_to_id: &HashMap<EntityId, u64>,
+    ent_to_id: EntityIdEncoder,
 ) -> FfiIndexMap<FfiString, SerializedValue> {
     let serializers_global = res.get::<SerializersResource>().unwrap();
-
-    let entities_deserialized = HashMap::<u64, EntityId>::new();
 
     let mut serializers_sublocal = TransSerializerRegistry::new();
 
     serializers_sublocal.register(EntityTransSerializer {
-        entities_deserialized: &entities_deserialized,
+        entities_deserialized: EntityIdDecoder::Empty,
         entities_serialized: ent_to_id,
     });
 
@@ -167,7 +171,7 @@ pub fn override_entity_components(
     mut ent: EntitiesHolderMut,
     entity: EntityId,
     components: &FfiIndexMap<FfiString, SerializedValue>,
-    id_to_ent: &HashMap<u64, EntityId>,
+    id_to_ent: EntityIdDecoder,
 ) {
     let mut components_to_remove = Vec::new();
     ent.get_all_components(entity, |c| components_to_remove.push(c.type_info().short().name()));
@@ -177,13 +181,11 @@ pub fn override_entity_components(
 
     let serializers_global = res.get::<SerializersResource>().unwrap();
 
-    let entities_serialized = HashMap::<EntityId, u64>::new();
-
     let mut serializers_local = TransSerializerRegistry::new();
 
     serializers_local.register(EntityTransSerializer {
         entities_deserialized: id_to_ent,
-        entities_serialized: &entities_serialized,
+        entities_serialized: EntityIdEncoder::Empty,
     });
 
     let mut err_handler = |err| println!("[{}:{}] {err}", file!(), line!());
@@ -201,17 +203,17 @@ pub fn deserialize_entity_component_at_path(
     component_id: &str,
     path: &str,
     serialized: &SerializedValue,
-    id_to_ent: &HashMap<u64, EntityId>,
 ) -> bool {
     let serializers_global = res.get::<SerializersResource>().unwrap();
-
-    let entities_serialized = HashMap::<EntityId, u64>::new();
+    
+    // todo: optimize and don't id-cache the whole world
+    let id_to_ent = ent.query::<EntityId>().iter().map(|e| (ent.encode_entity_as_id(e), e)).collect::<HashMap<_, _>>();
 
     let mut serializers_sublocal = TransSerializerRegistry::new();
-
+    
     serializers_sublocal.register(EntityTransSerializer {
-        entities_deserialized: id_to_ent,
-        entities_serialized: &entities_serialized,
+        entities_deserialized: EntityIdDecoder::Restricted(&id_to_ent),
+        entities_serialized: EntityIdEncoder::Empty,
     });
 
     save_load_with_asset_serializers_from_world(res, |serializers_local| {
@@ -227,15 +229,47 @@ pub fn deserialize_entity_component_at_path(
     }).unwrap_or(false)
 }
 
+pub enum EntityIdEncoder<'a> {
+    Empty,
+    World(EntitiesHolderRef<'a>),
+    Restricted(&'a HashMap<EntityId, u64>)
+}
+
+impl<'a> EntityIdEncoder<'a> {
+    pub fn entity_to_id(&self, entity: EntityId) -> u64 {
+        match self {
+            Self::Empty => 0,
+            Self::World(ent) => ent.encode_entity_as_id(entity),
+            Self::Restricted(map) => map.get(&entity).copied().unwrap_or(0),
+        }
+    }
+}
+
+pub enum EntityIdDecoder<'a> {
+    Empty,
+    World(EntitiesHolderRef<'a>),
+    Restricted(&'a HashMap<u64, EntityId>)
+}
+
+impl<'a> EntityIdDecoder<'a> {
+    pub fn entity_from_id(&self, id: u64) -> EntityId {
+        match self {
+            Self::Empty => EntityId::EMPTY,
+            Self::World(ent) => ent.decode_entity_from_id(id),
+            Self::Restricted(map) => map.get(&id).copied().unwrap_or(EntityId::EMPTY),
+        }
+    }
+}
+
 pub struct EntityTransSerializer<'brw> {
-    entities_deserialized: &'brw HashMap<u64, EntityId>,
-    entities_serialized: &'brw HashMap<EntityId, u64>,
+    entities_deserialized: EntityIdDecoder<'brw>,
+    entities_serialized: EntityIdEncoder<'brw>,
 }
 
 impl<'brw> EntityTransSerializer<'brw> {
     pub fn new(
-        entities_deserialized: &'brw HashMap<u64, EntityId>,
-        entities_serialized: &'brw HashMap<EntityId, u64>,
+        entities_deserialized: EntityIdDecoder<'brw>,
+        entities_serialized: EntityIdEncoder<'brw>,
     ) -> Self {
         Self {
             entities_deserialized,
@@ -252,7 +286,9 @@ impl<'brw, S: Copy> Serializer<S> for EntityTransSerializer<'brw> {
             return SerializedValue::Null;
         }
 
-        SerializedValue::Primitive(SerializedPrimitive::Int(self.entities_serialized.get(value).copied().unwrap_or(0) as i128))
+        let id = self.entities_serialized.entity_to_id(*value);
+
+        SerializedValue::Primitive(SerializedPrimitive::Int(id as i128))
     }
 
     fn deserialize(&self, value: &mut Self::Deserialized, mut ctx: SerializerCtx<S>, path: &str, serialized: &SerializedValue) {
@@ -264,7 +300,7 @@ impl<'brw, S: Copy> Serializer<S> for EntityTransSerializer<'brw> {
             SerializedValue::Primitive(SerializedPrimitive::Int(number)) => {
                 match *number {
                     0 => Some(EntityId::EMPTY),
-                    number => self.entities_deserialized.get(&(number as u64)).copied(),
+                    number => Some(self.entities_deserialized.entity_from_id(number as u64)),
                 }
             },
             _ => None,

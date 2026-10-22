@@ -6,7 +6,7 @@ use crate::{
         game_window::GameViewFocusResource,
         inspector_window::{
             data::{InspectedEntityResource, OpenProjectResource, OpenedEntitiesAssetResource},
-            systems::{fill_inspected_entity_ids, open_entities_asset, update_hierarchy_window_system},
+            systems::{open_entities_asset, update_hierarchy_window_system},
         },
         test_window::{WINDOW_KIND_GAME, open_window_by_kind},
         ui_interaction::{ButtonComponent, check_ui_interaction_system},
@@ -87,7 +87,6 @@ fn toggle_play_mode_system(
         world.start_if_needed();
 
         *inspected_entity = InspectedEntityResource::default();
-        fill_inspected_entity_ids(world.world.data().entities(), &mut inspected_entity);
 
         play_mode.should_open_game_window = true;
     }

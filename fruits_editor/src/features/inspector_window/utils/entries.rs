@@ -193,7 +193,7 @@ pub fn parse_serialized(ent: EntitiesHolderRef, ent_target: EntityId) -> Seriali
             match ty {
                 SerializedValueContainerType::List => SerializedValue::Composite(SerializedComposite {
                     is_rigid: false,
-                    values: SerializedCompositeValues::List(values.into_iter().map(|(k, v)| v).collect()),
+                    values: SerializedCompositeValues::List(values.into_iter().map(|(_, v)| v).collect()),
                 }),
                 SerializedValueContainerType::Map => SerializedValue::Composite(SerializedComposite {
                     is_rigid: false,
@@ -215,7 +215,7 @@ pub fn parse_serialized(ent: EntitiesHolderRef, ent_target: EntityId) -> Seriali
 }
 
 pub fn spawn_serialized(
-    mut ent: EntitiesHolderMut,
+    ent: EntitiesHolderMut,
     ent_last: EntityId,
     ent_parent: EntityId,
     ent_selected_input: EntityId,
@@ -320,12 +320,12 @@ fn spawn_serialized_composite(
     };
 
     let (ent_root, ent_enum_meta_container, ent_fields_container, ent_container_buttons) =
-        if let Some(SerializedValueComponent { path, ty: SerializedValueComponentTy::Container {
+        if let Some(SerializedValueComponent { ty: SerializedValueComponentTy::Container {
             ty,
             container_enum_metadata: ent_enum_meta_container,
             container_fields: ent_fields_container,
             container_buttons: ent_container_buttons,
-        }}) = ent.get_component::<SerializedValueComponent>(ent_last)
+        }, .. }) = ent.get_component::<SerializedValueComponent>(ent_last)
             && ent.get_component::<ParentComponent>(*ent_fields_container).is_some()
             && ent.get_component::<ParentComponent>(*ent_enum_meta_container).is_some()
             && ent.get_component::<ParentComponent>(*ent_container_buttons).is_some()

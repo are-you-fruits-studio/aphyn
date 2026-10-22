@@ -55,6 +55,10 @@ impl EntitiesHolderUnsafeFfi {
         self.entities_meta.contains(entity)
     }
 
+    pub fn get_entity_by_idx_only(&self, idx: u64) -> Option<EntityId> {
+        self.entities_meta.get_by_idx_only(idx)
+    }
+
     pub fn create_entity(&mut self) -> EntityId {
         let archetype_id = self.archetypes.id_by_components_or_create(UniqueComponentsSet::default());
 

@@ -151,7 +151,7 @@ fn maximize_window_system(mut window: ResMut<WindowResource>) {
 }
 
 fn init_system(mut world: WorldDataMut) {
-    let (mut res, ec, evt) = world.as_tuple_mut();
+    let (mut res, _ec, _evt) = world.as_tuple_mut();
 
     let standard_ui_assets = res.get::<StandardUiAssetsResource>().unwrap();
 

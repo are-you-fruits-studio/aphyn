@@ -19,7 +19,7 @@ pub struct WindowComponent {
 }
 
 pub fn window(mut world: WorldDataMut) -> EntityId {
-    let (res, mut ec, evt) = world.as_tuple_mut();
+    let (res, mut ec, _evt) = world.as_tuple_mut();
 
     let assets_res = res.as_ref().get::<StandardAssetsResource>().unwrap();
 

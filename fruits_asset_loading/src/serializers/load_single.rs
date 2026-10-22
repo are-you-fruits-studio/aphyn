@@ -8,7 +8,7 @@ use fruits_prefab::{Prefab, Scene};
 use fruits_render_core::{RenderApiResource, StandardMaterial, StandardMesh, StandardTexture};
 use fruits_serialization::*;
 
-use crate::{AudioClipLoader, EntityTransSerializer, MaterialLoader, MeshLoader, PrefabLoader, SceneLoader, TextureLoader};
+use crate::{AudioClipLoader, EntityIdDecoder, EntityIdEncoder, EntityTransSerializer, MaterialLoader, MeshLoader, PrefabLoader, SceneLoader, TextureLoader};
 
 pub fn load_asset_single_from_world<R>(
     res: ResourcesHolderMut,
@@ -68,12 +68,9 @@ pub fn load_asset_single<R>(
 
     let assets_dir_path = assets_dir_path.as_ref();
 
-    let entities_deserialized = HashMap::new();
-    let entities_serialized = HashMap::new();
-
     let mut serializer_local = TransSerializerRegistry::new();
 
-    serializer_local.register(EntityTransSerializer::new(&entities_deserialized, &entities_serialized));
+    serializer_local.register(EntityTransSerializer::new(EntityIdDecoder::Empty, EntityIdEncoder::Empty));
 
     serializer_local.register(SingleLoadTransSerializer { assets: textures });
     serializer_local.register(SingleLoadTransSerializer { assets: materials });
