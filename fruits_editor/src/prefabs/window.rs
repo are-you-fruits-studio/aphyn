@@ -63,7 +63,7 @@ pub fn window(mut world: WorldDataMut) -> EntityId {
             material: material_panel.clone(),
         },
         ImageComponent {
-            color: Vec4::from_array(parse_color_rgba_f32("#000000ff").unwrap()),
+            color: Vec4::from_array(parse_color_rgba_f32("#d0d0d0ff").unwrap()),
             ..Default::default()
         },
         WindowComponent {
