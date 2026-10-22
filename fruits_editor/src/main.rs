@@ -147,7 +147,7 @@ fn run_editor_app(project_path: &str) {
 }
 
 fn maximize_window_system(mut window: ResMut<WindowResource>) {
-    window.next_state_mut().fullscreen = FullscreenState::WindowedMaximized;
+    window.set_fullscreen(FullscreenState::WindowedMaximized);
 }
 
 fn init_system(mut world: WorldDataMut) {

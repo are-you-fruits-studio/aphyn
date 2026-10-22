@@ -193,7 +193,7 @@ pub fn calculate_global_rect_scale_hierarchy_independent(
     window: Res<WindowResource>,
     mut rect_q: WorldQuery<(&LocalRectComponent, &mut GlobalRectComponent)>,
 ) {
-    let window_size: [u32; 2] = window.prev_state().size;
+    let window_size: [u32; 2] = window.state().size;
     let window_size = Vec2::from_array(window_size.map(|v| v as f32));
 
     for (local_rect, global_rect) in rect_q.iter_mut() {
@@ -216,7 +216,7 @@ pub fn calculate_global_rect_scale_children_based(
     local_rect_q: WorldQuery<(&LocalRectComponent, Option<&RectChildAlignComponent>)>,
     mut global_rect_q: WorldQuery<&mut GlobalRectComponent>,
 ) {
-    let window_size = Vec2::from_array(window.prev_state().size.map(|v| v as f32));
+    let window_size = Vec2::from_array(window.state().size.map(|v| v as f32));
 
     utils::hierarchy_iter_depth_first_child_to_parent(&hierarchy_q, |parent, children| {
         let Some((&local_rect, align_c)) = local_rect_q.get(parent) else {
@@ -284,7 +284,7 @@ pub fn calculate_global_rect_scale_parent_based(
     local_rect_q: WorldQuery<&LocalRectComponent>,
     mut global_rect_q: WorldQuery<&mut GlobalRectComponent>,
 ) {
-    let window_size: [u32; 2] = window.prev_state().size;
+    let window_size: [u32; 2] = window.state().size;
     let window_size = Vec2::from_array(window_size.map(|v| v as f32));
 
     utils::hierarchy_iter_depth_first_parent_to_child(&hierarchy_q, None, |parent, children, _: Option<&()>| {
@@ -345,7 +345,7 @@ pub fn calculate_global_rect_pos(
     align_q: WorldQuery<&RectChildAlignComponent>,
     mut global_rect_q: WorldQuery<&mut GlobalRectComponent>,
 ) {
-    let window_size = Vec2::from_array(window.prev_state().size.map(|v| v as f32));
+    let window_size = Vec2::from_array(window.state().size.map(|v| v as f32));
 
     utils::hierarchy_iter_depth_first_parent_to_child(&hierarchy_q, None, |parent, children, _: Option<&()>| {
         if children.is_empty() {

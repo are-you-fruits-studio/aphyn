@@ -5,6 +5,7 @@
     - optimize update_hierarchy_window_system
 
 - make OS window icon configurable
+- "Feature request: control window size, title and resizability from the game"
 - save last window title change, so that this api isn't cleared by OS that don't support title reading: W11, iOS and other platforms
 
 - implement the ability to use custom shaders

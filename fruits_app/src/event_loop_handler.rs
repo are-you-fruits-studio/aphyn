@@ -16,9 +16,9 @@ use winit::{
 use crate::{
     GamepadInputStorage, InputResource, TextInputEvent,
     render_target::RenderTarget,
-    window_resources::{window_state_apply_difference, window_state_from_window},
+    window_resources::{window_state_apply_changes, window_state_from_window, window_state_refresh_from_window},
 };
-use fruits_window::WindowResource;
+use fruits_window::{WindowResource, WindowState};
 
 enum EventLoopHandlerState {
     Created(WorldBuilder),
@@ -265,11 +265,14 @@ fn core_system_clear_events_and_input(mut world: WorldDataMut) {
 fn core_system_read_window(world: WorldDataMut, window: &Window) {
     let window_res = world.into_resources_mut().into_get_mut::<WindowResource>().unwrap();
 
-    WindowResource::reset(window_res, &window_state_from_window(window));
+    let changes = WindowResource::take_changes(window_res);
+    let state = WindowResource::state_mut(window_res);
+    WindowState::apply_changes(state, changes);
+    window_state_refresh_from_window(state, window);
 }
 
 fn core_system_update_window(world: WorldDataMut, window: &Window) {
     let window_res = world.into_resources_mut().into_get_mut::<WindowResource>().unwrap();
 
-    window_state_apply_difference(window_res.prev_state(), window_res.next_state(), &window);
+    window_state_apply_changes(window_res.state(), WindowResource::changes(window_res), window);
 }

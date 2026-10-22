@@ -166,7 +166,7 @@ pub fn spawn_generic_dropdown_system(mut world: WorldDataMut) {
     let dropdown_width =
         (max_chars as f32 * DROPDOWN_FONT_SIZE * font.character_ratio + 2.0 * DROPDOWN_ENTRY_PADDING).max(DROPDOWN_MIN_WIDTH);
 
-    let window_size = Vec2::from_array(res.get::<WindowResource>().unwrap().prev_state().size.map(|v| v as f32));
+    let window_size = Vec2::from_array(res.get::<WindowResource>().unwrap().state().size.map(|v| v as f32));
     let dropdown_size = Vec2::new(
         dropdown_width,
         DROPDOWN_ENTRY_HEIGHT * generic_dropdown_resource.last_state.variants.len() as f32,

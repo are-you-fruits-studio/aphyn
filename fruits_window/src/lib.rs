@@ -7,37 +7,45 @@
 //! # How to use
 //!
 //! `fruits_app` inserts [`WindowResource`] into the world when the window is created.
-//! [`prev_state`](WindowResource::prev_state) is the state the real window had at the start of
-//! the frame; read it for the current window size:
+//! [`state`](WindowResource::state) is the window state at the start of the frame; read it for
+//! the current window size:
 //!
 //! ```ignore
 //! use fruits_engine::*;
 //!
 //! fn log_window_size(window: Res<WindowResource>) {
-//!     let [width, height] = window.prev_state().size;
+//!     let [width, height] = window.state().size;
 //!     println!("{width}x{height}");
 //! }
 //! ```
 //!
-//! To change the window, write into [`next_state_mut`](WindowResource::next_state_mut); the
-//! change is applied to the real window at the end of the frame:
+//! To change the window, request it with [`set_fullscreen`](WindowResource::set_fullscreen),
+//! [`set_size`](WindowResource::set_size), [`set_title`](WindowResource::set_title),
+//! [`set_resizable`](WindowResource::set_resizable) or [`set_icon`](WindowResource::set_icon)
+//! (a [`WindowIcon`] of RGBA8 pixels, `None` for the platform default); the
+//! request is applied to the real window at the end of the frame and shows up in
+//! [`state`](WindowResource::state) from the next frame on:
 //!
 //! ```ignore
 //! use fruits_engine::*;
 //!
 //! fn go_borderless(mut window: ResMut<WindowResource>) {
-//!     window.next_state_mut().fullscreen = FullscreenState::Borderless;
+//!     window.set_fullscreen(FullscreenState::Borderless);
 //! }
 //! ```
 //!
 //! # How to maintain
 //!
 //! The types here are plain `#[repr(C)]` data. Everything touching the real window
-//! (reading a [`WindowState`] from it, applying the `prev`/`next` difference) lives in
-//! `fruits_app`, which owns `winit`; see its "Double-buffered window state" section.
+//! (reading a [`WindowState`] from it, applying [`WindowChangeRequests`]) lives in
+//! `fruits_app`, which owns `winit`; see its "Window state and change requests" section.
+//! [`state_mut`](WindowResource::state_mut) is an associated function rather than a method so
+//! game systems reach for the `set_*` requests instead; it is meant for the frame-start sync in
+//! `fruits_app` and for hosts that simulate a window (the editor's scene view). The state is
+//! updated in place there, never cloned, because it can hold icon pixel data.
 
 use fruits_ecs::Resource;
-use fruits_ffi::FfiString;
+use fruits_ffi::{FfiOption, FfiString, FfiVec};
 
 #[repr(C)]
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -54,43 +62,88 @@ pub struct WindowState {
     pub fullscreen: FullscreenState,
     pub size: [u32; 2],
     pub title: FfiString,
+    pub is_resizable: bool,
+    pub icon: FfiOption<WindowIcon>,
 }
 
 impl WindowState {
-    pub fn reset(this: &mut Self, other: &WindowState) {
-        this.fullscreen = other.fullscreen;
-        this.size = other.size;
-        this.title = other.title.clone();
+    pub fn apply_changes(this: &mut Self, changes: WindowChangeRequests) {
+        if let Some(fullscreen) = changes.fullscreen.into_option() {
+            this.fullscreen = fullscreen;
+        }
+        if let Some(size) = changes.size.into_option() {
+            this.size = size;
+        }
+        if let Some(title) = changes.title.into_option() {
+            this.title = title;
+        }
+        if let Some(resizable) = changes.is_resizable.into_option() {
+            this.is_resizable = resizable;
+        }
+        if let Some(icon) = changes.icon.into_option() {
+            this.icon = icon;
+        }
     }
+}
+
+#[repr(C)]
+#[derive(Clone, PartialEq)]
+pub struct WindowIcon {
+    pub rgba: FfiVec<u8>,
+    pub size: [u32; 2],
+}
+
+#[repr(C)]
+#[derive(Default)]
+pub struct WindowChangeRequests {
+    pub fullscreen: FfiOption<FullscreenState>,
+    pub size: FfiOption<[u32; 2]>,
+    pub title: FfiOption<FfiString>,
+    pub is_resizable: FfiOption<bool>,
+    pub icon: FfiOption<FfiOption<WindowIcon>>,
 }
 
 #[repr(C)]
 #[derive(Resource)]
 pub struct WindowResource {
-    last_state: WindowState,
-    next_state: WindowState,
+    state: WindowState,
+    change_requests: WindowChangeRequests,
 }
 
 impl WindowResource {
     pub fn new(state: WindowState) -> Self {
         Self {
-            last_state: state.clone(),
-            next_state: state,
+            state,
+            change_requests: WindowChangeRequests::default(),
         }
     }
 
-    pub fn reset(this: &mut Self, new_state: &WindowState) {
-        WindowState::reset(&mut this.last_state, new_state);
-        WindowState::reset(&mut this.next_state, new_state);
+    pub fn state(&self) -> &WindowState {
+        &self.state
+    }
+    pub fn state_mut(this: &mut Self) -> &mut WindowState {
+        &mut this.state
+    }
+    pub fn take_changes(this: &mut Self) -> WindowChangeRequests {
+        std::mem::take(&mut this.change_requests)
+    }
+    pub fn changes(this: &Self) -> &WindowChangeRequests {
+        &this.change_requests
     }
 
-    pub fn prev_state(&self) -> &WindowState {
-        &self.last_state
+    pub fn set_fullscreen(&mut self, fullscreen: FullscreenState) {
+        self.change_requests.fullscreen = fullscreen.into();
     }
-    pub fn next_state(&self) -> &WindowState {
-        &self.next_state
+    pub fn set_size(&mut self, size: [u32; 2]) {
+        self.change_requests.size = size.into();
     }
-    pub fn next_state_mut(&mut self) -> &mut WindowState {
-        &mut self.next_state
+    pub fn set_title(&mut self, title: FfiString) {
+        self.change_requests.title = title.into();
+    }
+    pub fn set_resizable(&mut self, resizable: bool) {
+        self.change_requests.is_resizable = resizable.into();
+    }
+    pub fn set_icon(&mut self, icon: Option<WindowIcon>) {
+        self.change_requests.icon = FfiOption::Some(icon.into());
     }
 }

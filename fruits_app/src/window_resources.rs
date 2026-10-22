@@ -1,6 +1,6 @@
-use fruits_ffi::FfiString;
-use fruits_window::{FullscreenState, WindowState};
-use winit::{dpi::PhysicalSize, window::{Fullscreen, Window}};
+use fruits_ffi::{FfiOption, FfiString};
+use fruits_window::{FullscreenState, WindowChangeRequests, WindowIcon, WindowState};
+use winit::{dpi::PhysicalSize, window::{Fullscreen, Icon, Window}};
 
 fn fullscreen_state_from_window(window: &Window) -> FullscreenState {
     match window.fullscreen() {
@@ -13,12 +13,8 @@ fn fullscreen_state_from_window(window: &Window) -> FullscreenState {
     }
 }
 
-fn fullscreen_state_apply_difference(prev: &FullscreenState, next: &FullscreenState, window: &Window) {
-    if prev == next {
-        return;
-    }
-
-    match next {
+fn fullscreen_state_apply(fullscreen: FullscreenState, window: &Window) {
+    match fullscreen {
         FullscreenState::Windowed => {
             window.set_maximized(false);
             window.set_fullscreen(None);
@@ -50,24 +46,20 @@ fn window_size_from_window(window: &Window) -> [u32; 2] {
     [size.width, size.height]
 }
 
-fn window_size_apply_difference(prev: &[u32; 2], next: &[u32; 2], window: &Window) {
-    if prev == next {
-        return;
-    }
-
-    _ = window.request_inner_size(winit::dpi::Size::Physical(PhysicalSize { width: next[0], height: next[1], }));
+fn window_size_apply(size: [u32; 2], window: &Window) {
+    _ = window.request_inner_size(winit::dpi::Size::Physical(PhysicalSize { width: size[0], height: size[1], }));
 }
 
 fn window_title_from_window(window: &Window) -> FfiString {
     window.title().into()
 }
 
-fn window_title_apply_difference(prev: &FfiString, next: &FfiString, window: &Window) {
-    if prev == next {
-        return;
-    }
+fn window_icon_to_winit(icon: &WindowIcon) -> Option<Icon> {
+    let [width, height] = icon.size;
 
-    window.set_title(next);
+    Icon::from_rgba(icon.rgba.to_vec(), width, height)
+        .inspect_err(|err| eprintln!("ayf: Failed to set window icon. {}", err))
+        .ok()
 }
 
 pub(crate) fn window_state_from_window(window: &Window) -> WindowState {
@@ -75,11 +67,30 @@ pub(crate) fn window_state_from_window(window: &Window) -> WindowState {
         fullscreen: fullscreen_state_from_window(window),
         size: window_size_from_window(window),
         title: window_title_from_window(window),
+        is_resizable: window.is_resizable(),
+        icon: FfiOption::None,
     }
 }
 
-pub(crate) fn window_state_apply_difference(prev: &WindowState, next: &WindowState, window: &Window) {
-    fullscreen_state_apply_difference(&prev.fullscreen, &next.fullscreen, window);
-    window_size_apply_difference(&prev.size, &next.size, window);
-    window_title_apply_difference(&prev.title, &next.title, window);
+pub(crate) fn window_state_refresh_from_window(state: &mut WindowState, window: &Window) {
+    state.fullscreen = fullscreen_state_from_window(window);
+    state.size = window_size_from_window(window);
+}
+
+pub(crate) fn window_state_apply_changes(state: &WindowState, changes: &WindowChangeRequests, window: &Window) {
+    if let Some(fullscreen) = changes.fullscreen.as_ref().filter(|f| **f != state.fullscreen) {
+        fullscreen_state_apply(*fullscreen, window);
+    }
+    if let Some(size) = changes.size.as_ref().filter(|s| **s != state.size) {
+        window_size_apply(*size, window);
+    }
+    if let Some(title) = changes.title.as_ref().filter(|t| **t != state.title) {
+        window.set_title(title);
+    }
+    if let Some(resizable) = changes.is_resizable.as_ref().filter(|r| **r != state.is_resizable) {
+        window.set_resizable(*resizable);
+    }
+    if let Some(icon) = changes.icon.as_ref().filter(|i| **i != state.icon) {
+        window.set_window_icon(icon.as_ref().and_then(window_icon_to_winit));
+    }
 }

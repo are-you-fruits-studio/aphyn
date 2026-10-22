@@ -214,7 +214,7 @@ pub fn update_text_batched_mesh(
     const VERTICES_PER_CHAR: u64 = 4;
     const INDICES_PER_CHAR: u64 = 6;
 
-    let window_size = window.prev_state().size;
+    let window_size = window.state().size;
     let window_size = Vec2::from_array(window_size.map(|v| v as f32));
 
     for (text_c, mesh_c, rect_c) in q.iter_mut() {

@@ -88,14 +88,15 @@
 //! #### Switching fullscreen mode
 //!
 //! [`WindowResource`](fruits_window::WindowResource) (from `fruits_window`) holds the window's
-//! desired state. Mutate its [`next_state`](fruits_window::WindowResource::next_state_mut) in a system; the change is applied to the real
-//! window at the end of the frame:
+//! state and pending change requests. Request a change in a system with
+//! [`set_fullscreen`](fruits_window::WindowResource::set_fullscreen) (or `set_size` / `set_title`);
+//! it is applied to the real window at the end of the frame:
 //!
 //! ```ignore
 //! use fruits_engine::*;
 //!
 //! fn go_borderless(mut window: ResMut<WindowResource>) {
-//!     window.next_state_mut().fullscreen = FullscreenState::Borderless;
+//!     window.set_fullscreen(FullscreenState::Borderless);
 //! }
 //! ```
 //!
@@ -150,18 +151,24 @@
 //! in the window-event handler before anything else, so a held key neither re-triggers
 //! `is_just_pressed` nor emits another [`TextInputEvent`].
 //!
-//! #### Double-buffered window state
+//! #### Window state and change requests
 //!
-//! [`WindowResource`](fruits_window::WindowResource) holds a `prev` and a `next`
-//! [`WindowState`](fruits_window::WindowState). At frame start both are reset from the real
-//! window (`window_state_from_window`), so `prev` always reflects the actual window, including
-//! user resizes. Systems write the desired configuration into `next`; after the `Update` pass
-//! (and once after the `Start` pass) `window_state_apply_difference` compares the two and only
-//! touches the real window where they differ (fullscreen mode, size and title). This keeps
-//! redundant OS calls out of the steady state. Exclusive fullscreen uses the current monitor's
-//! first video mode and falls back to borderless when there is none. `winit` cannot read the
-//! title back on x11, Wayland, iOS, Android and Web, so there `prev.title` is always empty while
-//! setting `next.title` still works.
+//! [`WindowResource`](fruits_window::WindowResource) holds a [`WindowState`](fruits_window::WindowState)
+//! and [`WindowChangeRequests`](fruits_window::WindowChangeRequests) (one optional value per field).
+//! Systems only add requests; after the `Update` pass (and once after the `Start` pass)
+//! `window_state_apply_changes` applies each request that differs from the current state to the
+//! real window, which keeps redundant OS calls out of the steady state. The requests stay in the
+//! resource until the next frame start, where they are taken and moved into the state in place
+//! (through `WindowResource::state_mut`, so icon pixels are never cloned per frame), and then
+//! fullscreen mode and size are re-read from the real window (`window_state_refresh_from_window`)
+//! so the state reflects user resizes and requests the OS did not honor. The title and the
+//! resizable flag are read from the window only once at creation and afterwards kept from the
+//! last request, because `winit` cannot read them back on all platforms (the title on x11,
+//! Wayland, iOS, Android and Web; resizable on x11, iOS, Android and Web). The icon cannot be read
+//! back at all, so it starts as `None` (the platform default) and is likewise kept from the last
+//! request; an icon whose pixel buffer does not match its size is logged and falls back to the
+//! default. Exclusive fullscreen uses the current monitor's first video mode and falls back to
+//! borderless when there is none.
 
 mod app;
 mod event_loop_handler;
