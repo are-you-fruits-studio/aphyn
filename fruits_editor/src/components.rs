@@ -25,11 +25,8 @@ pub struct HierarchyWindowContentComponent {
     pub entries_container: EntityId,
 }
 
-#[derive(Component)]
-pub struct HierarchyButtonAddComponent;
-
-#[derive(Component)]
-pub struct HierarchyButtonRemoveComponent;
+#[derive(Component, Default, Debug)]
+pub struct HierarchyWindowEmptyAreaComponent;
 
 #[derive(Debug, Copy, Clone)]
 pub enum SerializedValueComponentTy {

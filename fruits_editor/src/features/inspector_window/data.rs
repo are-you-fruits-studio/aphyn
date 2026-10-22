@@ -48,11 +48,6 @@ pub struct InspectorWindowContentComponent {
 }
 
 #[derive(Component, Default, Copy, Clone)]
-pub struct ComponentRemoveButton {
-    pub component: EntityId,
-}
-
-#[derive(Component, Default, Copy, Clone)]
 pub struct ComponentHeaderComponent {
     pub component: EntityId,
 }
@@ -61,6 +56,28 @@ pub struct ComponentHeaderComponent {
 pub struct ComponentContextMenuResource {
     pub request_id: u64,
     pub component_id: FfiString,
+}
+
+#[derive(Clone, Copy)]
+pub enum HierarchyContextAction {
+    CreateEntity,
+    DeleteEntity,
+}
+
+impl HierarchyContextAction {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::CreateEntity => "Create Entity",
+            Self::DeleteEntity => "Delete Entity",
+        }
+    }
+}
+
+#[derive(Resource, Default)]
+pub struct HierarchyContextMenuResource {
+    pub request_id: u64,
+    pub target: EntityId,
+    pub actions: Vec<HierarchyContextAction>,
 }
 
 #[derive(Component, Default, Copy, Clone)]

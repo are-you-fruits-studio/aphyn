@@ -1,47 +1,19 @@
 use crate::{
-    components::{HierarchyButtonAddComponent, HierarchyButtonRemoveComponent, HierarchyWindowContentComponent},
-    features::inspector_window::utils::entries::{spawn_default_layout_ent, spawn_text_ent},
+    components::{HierarchyWindowContentComponent, HierarchyWindowEmptyAreaComponent},
     prefabs::WindowComponent,
     *,
 };
 
 pub fn init_window_as_hierarchy(mut world: WorldDataMut, ent_window: EntityId) {
-    let (res, mut ent, _) = world.as_tuple_mut();
-
-    let assets_res = res.as_ref().get::<StandardAssetsResource>().unwrap();
-    let font = assets_res.font.clone();
-    let material_text = assets_res.material_text.clone();
-    let material_panel = assets_res.material_panel.clone();
+    let mut ent = world.entities_mut();
 
     let ent_scroll_content = ent.get_component::<WindowComponent>(ent_window).unwrap().content_container;
+    let ent_scroll_view = ent.get_component::<ChildComponent>(ent_scroll_content).unwrap().parent;
 
-    let ent_buttons = spawn_default_layout_ent(ent.as_mut(), ent_scroll_content, false);
-    ent.get_component_mut::<RectChildAlignComponent>(ent_buttons).unwrap().direction = UiDirection::Horizontal;
+    ent.set_components(ent_scroll_view, (ButtonComponent::default(), HierarchyWindowEmptyAreaComponent));
 
-    let (ent_btn_add, ent_btn_add_text) = spawn_text_ent(
-        ent.as_mut(),
-        ent_buttons,
-        "+".into(),
-        material_panel.clone(),
-        material_text.clone(),
-        font.clone(),
-    );
-    let (ent_btn_remove, ent_btn_remove_text) = spawn_text_ent(
-        ent.as_mut(),
-        ent_buttons,
-        "-".into(),
-        material_panel,
-        material_text,
-        font,
-    );
-
-    for (ent_btn, ent_btn_text) in [(ent_btn_add, ent_btn_add_text), (ent_btn_remove, ent_btn_remove_text)] {
-        ent.get_component_mut::<LocalRectComponent>(ent_btn).unwrap().scale.x = UiVal::pd(0.5).into();
-        ent.set_component(ent_btn, ButtonComponent::default());
-        ent.get_component_mut::<TextComponent>(ent_btn_text).unwrap().horizontal_align = HorizontalAlign::Middle;
-    }
-    ent.set_component(ent_btn_add, HierarchyButtonAddComponent);
-    ent.set_component(ent_btn_remove, HierarchyButtonRemoveComponent);
+    // in front of the scroll view, so entries win the ui raycast over the empty area button
+    ent.get_component_mut::<LocalRectComponent>(ent_scroll_content).unwrap().z = -1.0;
 
     let ent_entries_container = ent.create_entity();
 

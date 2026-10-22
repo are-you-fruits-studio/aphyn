@@ -43,27 +43,6 @@ pub fn update_hierarchy_entries_selection(
     }
 }
 
-pub fn remove_component_system(
-    ent: EntitiesHolderRef,
-    button_click_evt: Evt<ButtonClickEvent>,
-    mut simulated_world: ResMut<SimulatedWorldResource>,
-    inspected_entity: Res<InspectedEntityResource>,
-    mut asset_edited_evt: EvtMut<AssetEditedEvent>,
-) {
-    return_if_not!(Some(simulated_world) = &mut simulated_world.0);
-
-    return_if!(!is_inspected_entity_shown(simulated_world, &inspected_entity));
-
-    for button_click_evt in button_click_evt.iter() {
-        continue_if_not!(Some(component_remove_button_c) = ent.get_component::<ComponentRemoveButton>(button_click_evt.entity));
-        continue_if_not!(Some(component_id) = get_inspected_component_id(ent, component_remove_button_c.component));
-
-        if remove_inspected_component(simulated_world, &inspected_entity, component_id.as_str()) {
-            asset_edited_evt.push(AssetEditedEvent::OpenedEntitiesAsset);
-        }
-    }
-}
-
 fn get_inspected_component_id(ent: EntitiesHolderRef, ent_component: EntityId) -> Option<FfiString> {
     let serialized_component_c = ent.get_component::<SerializedComponentComponent>(ent_component)?;
     let component_id_text_c = ent.get_component::<TextComponent>(serialized_component_c.component_id_text)?;
@@ -261,40 +240,101 @@ fn is_inspected_entity_shown(simulated_world: &SimulatedWorld, inspected_entity:
     simulated_world.world.data().entities().contains_entity(inspected_entity.selected_entity)
 }
 
-pub fn adjust_hierarchy_entries_system(
-    button_click_evt: Evt<ButtonClickEvent>,
+// EntityId::EMPTY for a scene, where root entities have no parent
+fn get_hierarchy_root_parent(simulated_world: &SimulatedWorld, opened_asset: &OpenedEntitiesAssetResource) -> Option<EntityId> {
+    match opened_asset.asset_type {
+        Some(AssetType::Prefab) => {
+            Some(opened_asset.prefab_root).filter(|&e| simulated_world.world.data().entities().contains_entity(e))
+        }
+        Some(AssetType::Scene) => Some(EntityId::EMPTY),
+        _ => None,
+    }
+}
+
+pub fn open_hierarchy_context_menu_system(
+    input_res: Res<InputResource>,
+    entry_q: WorldQuery<(&HierarchyWindowEntryComponent, &ButtonComponent)>,
+    empty_area_q: WorldQuery<&ButtonComponent, WithFilter<HierarchyWindowEmptyAreaComponent>>,
+    opened_asset: Res<OpenedEntitiesAssetResource>,
+    simulated_world: Res<SimulatedWorldResource>,
+    mut generic_dropdown_res: ResMut<GenericDropdownResource>,
+    mut context_menu_res: ResMut<HierarchyContextMenuResource>,
+) {
+    return_if_not!(Some(simulated_world) = &simulated_world.0);
+    return_if_not!(Some(root_parent) = get_hierarchy_root_parent(simulated_world, &opened_asset));
+
+    let (target, actions) = if let Some((entry_c, _)) = entry_q.iter().find(|(_, b)| b.was_right_clicked_this_frame) {
+        let target = entry_c.simulated_entity;
+        return_if!(!simulated_world.world.data().entities().contains_entity(target));
+
+        match target == root_parent {
+            true => (target, vec![HierarchyContextAction::CreateEntity]),
+            false => (target, vec![HierarchyContextAction::CreateEntity, HierarchyContextAction::DeleteEntity]),
+        }
+    } else if empty_area_q.iter().any(|b| b.was_right_clicked_this_frame) {
+        (root_parent, vec![HierarchyContextAction::CreateEntity])
+    } else {
+        return;
+    };
+
+    let position = Vec2::from_array(input_res.mouse.position.map(|v| v as f32));
+    context_menu_res.request_id = generic_dropdown_res.request(actions.iter().map(|a| FfiString::from(a.label())).collect(), position);
+    context_menu_res.target = target;
+    context_menu_res.actions = actions;
+}
+
+pub fn apply_hierarchy_context_menu_system(
+    generic_dropdown_res: Res<GenericDropdownResource>,
+    mut context_menu_res: ResMut<HierarchyContextMenuResource>,
     mut inspected_entity: ResMut<InspectedEntityResource>,
     mut selected_file: ResMut<SelectedFileResource>,
     opened_asset: Res<OpenedEntitiesAssetResource>,
     mut simulated_world: ResMut<SimulatedWorldResource>,
-    button_add_q: WorldQuery<&HierarchyButtonAddComponent>,
-    button_remove_q: WorldQuery<&HierarchyButtonRemoveComponent>,
     mut asset_edited_evt: EvtMut<AssetEditedEvent>,
 ) {
+    let context_menu = &mut *context_menu_res;
+
+    return_if_not!(Some(idx) = generic_dropdown_res.take_selected(&mut context_menu.request_id));
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
+    return_if_not!(Some(root_parent) = get_hierarchy_root_parent(simulated_world, &opened_asset));
 
-    match opened_asset.asset_type {
-        Some(AssetType::Prefab) => return_if!(!simulated_world.world.data().entities().contains_entity(opened_asset.prefab_root)),
-        Some(AssetType::Scene) => {}
-        _ => return,
-    }
-
+    let target = context_menu.target;
     let (_, mut sim_ent, _) = simulated_world.world.data_mut().into_tuple_mut();
 
-    for click_evt in button_click_evt.iter() {
-        let ent_selected = inspected_entity.selected_entity;
+    return_if!(target != EntityId::EMPTY && !sim_ent.contains_entity(target));
 
-        if button_remove_q.get(click_evt.entity).is_some()
-            && ent_selected != opened_asset.prefab_root
-            && sim_ent.contains_entity(ent_selected)
-        {
-            if let Some(&ChildComponent { parent }) = sim_ent.get_component::<ChildComponent>(ent_selected)
-                && let Some(parent_c) = sim_ent.get_component_mut::<ParentComponent>(parent)
-            {
-                parent_c.children = parent_c.children.iter().copied().filter(|&e| e != ent_selected).collect();
+    match context_menu.actions[idx as usize] {
+        HierarchyContextAction::CreateEntity => {
+            let entity = sim_ent.create_entity();
+
+            if target != EntityId::EMPTY {
+                sim_ent.set_component(entity, ChildComponent { parent: target });
+
+                match sim_ent.get_component_mut::<ParentComponent>(target) {
+                    Some(parent_c) => parent_c.children.push(entity),
+                    None => _ = sim_ent.set_component(target, ParentComponent { children: vec![entity].into() }),
+                }
             }
 
-            let mut subtree = vec![ent_selected];
+            let new_id = (1..=(inspected_entity.id_to_ent.len() as u64 + 1)).filter(|i| !inspected_entity.id_to_ent.contains_key(i)).next().unwrap();
+
+            inspected_entity.ent_to_id.insert(entity, new_id);
+            inspected_entity.id_to_ent.insert(new_id, entity);
+
+            inspected_entity.selected_entity = entity;
+            *selected_file = SelectedFileResource::default();
+            asset_edited_evt.push(AssetEditedEvent::OpenedEntitiesAsset);
+        }
+        HierarchyContextAction::DeleteEntity => {
+            return_if!(target == EntityId::EMPTY || target == root_parent);
+
+            if let Some(&ChildComponent { parent }) = sim_ent.get_component::<ChildComponent>(target)
+                && let Some(parent_c) = sim_ent.get_component_mut::<ParentComponent>(parent)
+            {
+                parent_c.children = parent_c.children.iter().copied().filter(|&e| e != target).collect();
+            }
+
+            let mut subtree = vec![target];
             let mut i = 0;
             while let Some(&e) = subtree.get(i) {
                 if let Some(parent_c) = sim_ent.get_component::<ParentComponent>(e) {
@@ -312,33 +352,6 @@ pub fn adjust_hierarchy_entries_system(
             }
 
             inspected_entity.selected_entity = EntityId::EMPTY;
-            asset_edited_evt.push(AssetEditedEvent::OpenedEntitiesAsset);
-        }
-
-        if button_add_q.get(click_evt.entity).is_some() {
-            let parent = sim_ent
-                .get_component::<ChildComponent>(ent_selected)
-                .map(|c| c.parent)
-                .filter(|&p| sim_ent.contains_entity(p));
-
-            let entity = sim_ent.create_entity();
-
-            if let Some(parent) = parent {
-                sim_ent.set_component(entity, ChildComponent { parent });
-
-                match sim_ent.get_component_mut::<ParentComponent>(parent) {
-                    Some(parent_c) => parent_c.children.push(entity),
-                    None => _ = sim_ent.set_component(parent, ParentComponent { children: vec![entity].into() }),
-                }
-            }
-
-            let new_id = (1..=(inspected_entity.id_to_ent.len() as u64 + 1)).filter(|i| !inspected_entity.id_to_ent.contains_key(i)).next().unwrap();
-
-            inspected_entity.ent_to_id.insert(entity, new_id);
-            inspected_entity.id_to_ent.insert(new_id, entity);
-
-            inspected_entity.selected_entity = entity;
-            *selected_file = SelectedFileResource::default();
             asset_edited_evt.push(AssetEditedEvent::OpenedEntitiesAsset);
         }
     }
@@ -1240,18 +1253,6 @@ fn update_prefab_component_ent(
     );
     ent.set_components(component_header_ent, (
         ComponentHeaderComponent { component: comp_ent },
-        ButtonComponent::default(),
-    ));
-    let (btn_remove, _) = spawn_text_ent(
-        ent.as_mut(),
-        comp_ent,
-        "X".into(),
-        material_panel.clone(),
-        material_text.clone(),
-        font.clone(),
-    );
-    ent.set_components(btn_remove, (
-        ComponentRemoveButton { component: comp_ent },
         ButtonComponent::default(),
     ));
     let comp_data_container = spawn_default_layout_ent(ent.as_mut(), comp_ent, false);
