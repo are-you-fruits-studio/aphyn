@@ -1,6 +1,4 @@
-use std::ffi::c_void;
-
-use fruits_ffi::{FfiAny, FfiAnyRef, FfiExtendedTypeInfo, FfiFnMutMut, FfiOpaqueRef, FfiSliceRef, FfiVec};
+use fruits_ffi::{FfiExtendedTypeInfo, FfiFnMutMut, FfiSliceRef};
 
 use crate::*;
 

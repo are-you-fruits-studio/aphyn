@@ -29,7 +29,6 @@ members = [
     "fruits_asset_loading",
     "fruits_asset_storage",
     "fruits_wavefront",
-    "fruits_json_macros",
     "fruits_control_flow_macros",
     "fruits_render",
     "fruits_transform",
@@ -37,7 +36,6 @@ members = [
     "fruits_asset_storage",
     "fruits_render_core",
     "fruits_prefab",
-    "fruits_json",
     "fruits_serialization_macros",
     "fruits_audio",
     "fruits_example/fruits_audio_screen_saver",
@@ -79,7 +77,6 @@ fruits_render = { path = "./fruits_render" }
 fruits_render_core = { path = "./fruits_render_core" }
 fruits_collision = { path = "./fruits_collision" }
 fruits_prefab = { path = "./fruits_prefab" }
-fruits_json = { path = "./fruits_json" }
 fruits_ui = { path = "./fruits_ui" }
 fruits_file_storage = { path = "./fruits_file_storage" }
 fruits_window = { path = "./fruits_window" }

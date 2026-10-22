@@ -1,8 +1,4 @@
-use std::{
-    marker::PhantomData,
-};
-
-use crate::{FfiAllocator, FfiRawVec, FfiRawVecInner, ZERO_SIZED_CAP};
+use crate::FfiRawVec;
 
 // todo
 
@@ -20,7 +16,7 @@ impl<T> FfiVecDeque<T> {
         }
     }
 
-    pub fn with_capacity(mut cap: u64) -> Self {
+    pub fn with_capacity(cap: u64) -> Self {
         Self {
             vec: FfiRawVec::with_capacity(cap),
             head: 0,

@@ -17,7 +17,7 @@ fn main() {
 }
 
 fn setup_scene(mut world: WorldDataMut) {
-    let (mut res, mut ent, evt) = world.as_tuple_mut();
+    let (mut res, mut ent, _evt) = world.as_tuple_mut();
 
     let render_api_res = res.get::<RenderApiResource>().unwrap();
     let ground_material = render_api_res.create_material(Default::default(), StandardMaterialAssetMetadata {

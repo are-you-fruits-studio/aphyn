@@ -1,6 +1,5 @@
-use std::{ffi::c_void, fmt::Debug};
+use std::fmt::Debug;
 
-use fruits_ffi::{FfiDroppable, FfiOption, FfiStaticRef};
 use fruits_utils::index_version_collection::{VersionCollection, VersionIndex};
 
 #[repr(transparent)]

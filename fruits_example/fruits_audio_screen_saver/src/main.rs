@@ -1,4 +1,4 @@
-use std::{panic::catch_unwind, path::PathBuf, thread, time::{Duration, Instant}};
+use std::{panic::catch_unwind, thread, time::{Duration, Instant}};
 
 use fruits_engine::*;
 
@@ -53,7 +53,7 @@ fn run_samples_visualization_app() {
 
 fn try_restart_audio_sources(
     mut last_restart: Local<Option<Instant>>,
-    mut sources_q: WorldQuery<&mut AudioSource>,
+    mut _sources_q: WorldQuery<&mut AudioSource>,
 ) {
     if last_restart.is_none() {
         *last_restart = Some(Instant::now());
@@ -67,11 +67,6 @@ fn try_restart_audio_sources(
     }
 
     *last_restart = Some(Instant::now());
-    for source in sources_q.iter_mut() {
-        // source.is_playing ^= true;
-        // source.playback_time = 1.0;
-        // source.should_force_playback_time = true;
-    }
 }
 
 #[derive(Resource)]
@@ -95,7 +90,7 @@ fn generate_samples(mut samples: ResMut<SamplesResource>) {
     samples.0.push((samples_detailed2, Vec4::new(0.0, 0.15, 0.15, 1.0)));
 }
 
-fn interpolate_linear(pn1: f32, p0: f32, p1: f32, p2: f32, t: f32) -> f32 {
+fn interpolate_linear(_pn1: f32, p0: f32, p1: f32, _p2: f32, t: f32) -> f32 {
     lerp(p0, p1, t)
 }
 
@@ -133,7 +128,7 @@ fn resample<F: FnMut(f32, f32, f32, f32, f32) -> f32>(samples: &[f32], new_sampl
 }
 
 fn visualize_samples(
-    samples: Res<SamplesResource>,
+    _samples: Res<SamplesResource>,
     audio: Res<AudioStateResource>,
     mut gizmo: ResMut<GizmosResource>,
 ) {

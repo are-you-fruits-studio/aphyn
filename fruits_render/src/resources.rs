@@ -2,7 +2,7 @@ use fruits_ecs::Resource;
 use fruits_math::{Mat4, Vec2, Vec3, Vec4};
 use fruits_render_core::{RenderSpace, StandardGenericLight, StandardVertex};
 use fruits_ffi::*;
-use fruits_utils::mem::{AllBitVariationsValid, AllBitsInit};
+use fruits_utils::mem::AllBitsInit;
 use wgpu::{BindGroup, BindGroupLayout, Buffer, PipelineLayout, RenderPipeline, Sampler, Texture, TextureView};
 
 use super::GizmoLine;

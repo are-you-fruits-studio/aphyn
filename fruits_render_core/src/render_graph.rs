@@ -102,6 +102,7 @@ macro_rules! impl_render_graph_tuple {
             type With<PN> = ($($P,)* PN,);
             
             fn into_tuple_with<PN>(self, n: PN) -> Self::With<PN> {
+                #[allow(non_snake_case)]
                 let (
                     $($P,)*
                 ) = self;
@@ -130,6 +131,7 @@ macro_rules! impl_render_graph_node_input_descriptor_tuple {
             type NodeInput = ($($P::NodeInput,)*);
             
             fn into_input(self) -> Self::NodeInput {
+                #[allow(non_snake_case)]
                 let (
                     $($P,)*
                 ) = self;

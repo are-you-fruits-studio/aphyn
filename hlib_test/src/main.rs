@@ -73,8 +73,8 @@ fn check_prefab_serialization() {
     let mut serializers_local = TransSerializerRegistry::new();
 
     serializers_local.register(EntityTransSerializer::new(
-        &entities_deserialized,
-        &entities_serialized,
+        EntityIdDecoder::Restricted(&entities_deserialized),
+        EntityIdEncoder::Restricted(&entities_serialized),
     ));
 
     //

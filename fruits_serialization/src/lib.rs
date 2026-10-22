@@ -295,7 +295,6 @@ pub use fruits_serialization_macros::*;
 pub use serialization_transitive::*;
 pub use serialization_pure::*;
 pub use serialization_registry::*;
-pub use serialization_impls::*;
 pub use serialization_model::*;
 pub use serialization_ecs::*;
 pub use serialization_utils::*;

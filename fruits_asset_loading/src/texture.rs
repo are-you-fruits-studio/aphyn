@@ -2,7 +2,6 @@ use std::path::Path;
 
 use fruits_asset_storage::AssetStorageResource;
 use fruits_ecs::{ResourcesHolderMut, ResourcesHolderRef};
-use fruits_ffi::FfiFnMutMut;
 use fruits_render_core::{FilterMode, RenderApiResource, StandardTexture, StandardTextureAssetMetadata};
 
 use fruits_serialization::{PureSerializerCtxState, SerializedValue, SerializerCtx, SerializerCtxState};

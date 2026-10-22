@@ -271,8 +271,6 @@ mod num;
 mod quat;
 mod vec;
 
-use std::ops::{Add, Mul, Sub};
-
 pub use colors::*;
 pub use equations::*;
 pub use mat::*;

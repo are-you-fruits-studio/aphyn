@@ -2,7 +2,6 @@ use std::path::Path;
 
 use fruits_asset_storage::AssetStorageResource;
 use fruits_ecs::{ResourcesHolderMut, ResourcesHolderRef};
-use fruits_ffi::FfiFnMutMut;
 use fruits_math::{Vec2, Vec3, Vec4};
 use fruits_render_core::{CoordinateSpaceType, RenderApiResource, StandardMesh, StandardMeshAssetMetadata, StandardVertex};
 use fruits_serialization::*;

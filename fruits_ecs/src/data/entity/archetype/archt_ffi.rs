@@ -371,14 +371,11 @@ impl ArchetypeUnsafeFfi {
             }
         }
 
-        // Safety: Managed by caller.
-        unsafe {
-            let item_layout = src.layout.get_component(component_id).unwrap();
-            let removed_component_location = src.layout.memory_physical_location(src_entity_index, item_layout);
-            let removed_ptr = src.archetype.get_memory(&removed_component_location);
+        let item_layout = src.layout.get_component(component_id).unwrap();
+        let removed_component_location = src.layout.memory_physical_location(src_entity_index, item_layout);
+        let removed_ptr = src.archetype.get_memory(&removed_component_location);
 
-            component_mover(removed_ptr, item_layout.type_info);
-        };
+        component_mover(removed_ptr, item_layout.type_info);
 
         Some(src.erase_entity(src_entity_index).unwrap())
     }

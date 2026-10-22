@@ -4,8 +4,6 @@
 - improve playmode performance:
     - optimize update_hierarchy_window_system
 
-- fix hierarchy tree
-
 - make OS window icon configurable
 - save last window title change, so that this api isn't cleared by OS that don't support title reading: W11, iOS and other platforms
 

@@ -8,7 +8,6 @@ pub use fruits_math_macros::*;
 pub use fruits_modules::*;
 pub use fruits_reflection::*;
 pub use fruits_serialization::*;
-pub use fruits_json::*;
 pub use fruits_utils::*;
 pub use fruits_app_launcher::*;
 pub use fruits_asset_loading::*;

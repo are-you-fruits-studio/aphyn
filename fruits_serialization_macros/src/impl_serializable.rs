@@ -8,7 +8,6 @@ pub fn derive(stream: TokenStream) -> TokenStream {
 
     let mut result = String::new();
 
-    let impl_generics = input.generics.to_token_stream().to_string();
     let mut type_generics = String::new();
 
     for param in &input.generics.params {
@@ -36,7 +35,7 @@ pub fn derive(stream: TokenStream) -> TokenStream {
                 }
             }
         },
-        syn::Data::Union(data_union) => todo!(),
+        syn::Data::Union(_data_union) => todo!(),
     }
 
     let serializer_ctx_state_ty = "SerializerCtxStateTy";
@@ -308,7 +307,7 @@ fn deserialize_impl(input: &DeriveInput, serializer_ctx_state_ty: &str) -> Strin
                     syn::Fields::Unnamed(fields_unnamed) => {
                         impl_deserialize.push_str(" ( ");
 
-                        for field in 0..fields_unnamed.unnamed.len() {
+                        for _field in 0..fields_unnamed.unnamed.len() {
                             write!(
                                 impl_deserialize,
                                 r#"Default::default(),"#

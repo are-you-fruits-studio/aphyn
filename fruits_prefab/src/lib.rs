@@ -109,12 +109,8 @@
 //! [`serialize_prefab_single_entity`] and [`deserialize_entity_components`] are marked `todo`:
 //! the former always stores the entity under id `0`.
 
-use fruits_asset_storage::AssetHandle;
-use fruits_audio::AudioClip;
 use fruits_ecs::*;
 use fruits_ffi::{FfiIndexMap, FfiString};
-use fruits_ui::Font;
-use fruits_render_core::{StandardMaterial, StandardMesh, StandardTexture};
 use fruits_serialization::*;
 
 #[repr(C)]

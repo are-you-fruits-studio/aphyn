@@ -35,18 +35,18 @@ impl<S: Copy> Serializable<S> for String {
             SerializedValue::Primitive(value) => match value {
                 SerializedPrimitive::Bool(value) => {
                     ctx.report_err(SerializationError::InvalidInput { message: "Deserializing string from bool".into() });
-                    write!(self, "{}", value);
+                    write!(self, "{}", value).unwrap();
                 },
                 SerializedPrimitive::Int(value) => {
                     ctx.report_err(SerializationError::InvalidInput { message: "Deserializing string from int".into() });
-                    write!(self, "{}", value);
+                    write!(self, "{}", value).unwrap();
                 },
                 SerializedPrimitive::Float(value) => {
                     ctx.report_err(SerializationError::InvalidInput { message: "Deserializing string from float".into() });
-                    write!(self, "{}", value);
+                    write!(self, "{}", value).unwrap();
                 },
                 SerializedPrimitive::String(value) => {
-                    write!(self, "{}", value);
+                    write!(self, "{}", value).unwrap();
                 },
             },
             SerializedValue::Null => {
