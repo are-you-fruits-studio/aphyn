@@ -158,6 +158,10 @@ pub fn register_feature(mut world: WorldBuilderMut) {
         .before_system(open_hierarchy_context_menu_system);
 
     update
+        .order_system(open_hierarchy_context_menu_system)
+        .before_system(update_hierarchy_window_system);
+
+    update
         .order_system(select_generic_dropdown_system)
         .before_system(apply_hierarchy_context_menu_system);
 

@@ -30,31 +30,31 @@ impl<T: Eq + Hash + Clone> TreeBuilder<T> {
             return self.insert_single(parent);
         }
 
-        let is_child_root = self.roots.contains(&child);
         let does_contain_child = self.nodes.contains_key(&child);
-        let does_contain_parent = self.nodes.contains_key(&parent);
 
-        if is_child_root && !does_contain_parent {
-            self.roots.remove(&child);
+        if does_contain_child && (!self.roots.contains(&child) || self.is_descendant(&child, &parent)) {
+            return false;
+        }
+
+        if !self.nodes.contains_key(&parent) {
+            self.nodes.insert(parent.clone(), Vec::new());
             self.roots.insert(parent.clone());
-            self.nodes.insert(parent, vec![child]);
-            return true;
         }
 
-        if !does_contain_child && does_contain_parent {
-            self.nodes.get_mut(&parent).unwrap().push(child.clone());
-            self.nodes.insert(child, Vec::new());
-            return true;
-        }
-
-        if !does_contain_child && !does_contain_parent {
+        if !does_contain_child {
             self.nodes.insert(child.clone(), Vec::new());
-            self.nodes.insert(parent.clone(), vec![child]);
-            self.roots.insert(parent);
-            return true;
         }
 
-        return false;
+        self.roots.remove(&child);
+        self.nodes.get_mut(&parent).unwrap().push(child);
+
+        true
+    }
+
+    fn is_descendant(&self, ancestor: &T, node: &T) -> bool {
+        self.nodes
+            .get(ancestor)
+            .is_some_and(|children| children.iter().any(|c| c == node || self.is_descendant(c, node)))
     }
 
     pub const fn roots(&self) -> &HashSet<T> {

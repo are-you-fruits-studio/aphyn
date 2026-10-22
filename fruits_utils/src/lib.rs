@@ -161,6 +161,15 @@
 //! assert_eq!(roots.len(), 1);
 //! assert_eq!(roots[0].value, "root");
 //! assert_eq!(roots[0].children[0].children[0].value, "grandchild");
+//!
+//! let mut builder = TreeBuilder::new();
+//! builder.insert_single("root");
+//! builder.insert_pair("child", "grandchild");
+//! builder.insert_pair("root", "child");
+//!
+//! let roots = builder.build();
+//! assert_eq!(roots.len(), 1);
+//! assert_eq!(roots[0].children[0].children[0].value, "grandchild");
 //! ```
 //!
 //! #### Reinterpreting a buffer's element type
@@ -257,10 +266,11 @@
 //! in its sort loop that prints to stderr.
 //!
 //! [`TreeBuilder`](tree::TreeBuilder) keeps a root set plus a child list per node.
-//! [`insert_pair`](tree::TreeBuilder::insert_pair) only accepts a pair that extends
-//! the forest — a new parent above an existing root, a new child under an existing
-//! node, or two new nodes — and returns `false` otherwise (for example when both
-//! nodes already exist); a pair of equal nodes is inserted as a single node.
+//! [`insert_pair`](tree::TreeBuilder::insert_pair) attaches the child under the
+//! parent (adding either node if it is new) as long as the child is new or still a
+//! root; it returns `false` when the child already has a parent or when the parent
+//! is a descendant of the child (a cycle). A pair of equal nodes is inserted as a
+//! single node.
 //!
 //! [`CloseIntMap`](close_int_map::CloseIntMap) stores an
 //! `FfiVec<FfiOption<FfiBox<T>>>` plus a `u64` base `offset`; inserting a key below
