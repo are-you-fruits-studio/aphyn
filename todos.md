@@ -3,16 +3,8 @@
 - implement systems scheduler where threadpool asks iterator for systems
 - improve playmode performance:
     - optimize update_hierarchy_window_system
-    - optimize update_project_window_content_system
-    - don't render game/scene when the windows are not visible
-    - 
 
-- use context menu instead of "+"/"-" in hierarchy and "x" in inspector
-- make components rendering prettier and make components look separated
-- implement dropout for components, entities and folders
-- fancy contrasting borders on windows
-- restrict windows layout to not go outside bounds
-- order windows on the z axis based on what was used more recently
+- fix hierarchy tree
 
 - make OS window icon configurable
 - save last window title change, so that this api isn't cleared by OS that don't support title reading: W11, iOS and other platforms

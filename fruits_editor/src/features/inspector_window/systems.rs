@@ -1270,6 +1270,8 @@ fn update_prefab_component_ent(
             }
         };
 
+        set_component_body_padding(ent.as_mut(), serialized_component_c.component_data_container, is_expanded);
+
         return_if!(!is_expanded);
 
         spawn_serialized(
@@ -1288,6 +1290,11 @@ fn update_prefab_component_ent(
     }
 
     let comp_ent = spawn_default_layout_ent(ent.as_mut(), ent_parent, false);
+    if let Some(align_c) = ent.get_component_mut::<RectChildAlignComponent>(comp_ent) {
+        align_c.anchor = Vec2::new(0.5, 0.0);
+        align_c.min_gap = UiVal::px(0.0);
+    }
+
     let (component_header_ent, componet_id_text_ent) = spawn_text_ent(
         ent.as_mut(),
         comp_ent,
@@ -1300,6 +1307,10 @@ fn update_prefab_component_ent(
         ComponentHeaderComponent { component: comp_ent },
         ButtonComponent::default(),
     ));
+    if let Some(image_c) = ent.get_component_mut::<ImageComponent>(component_header_ent) {
+        image_c.color = Vec4::from_array(rgba_f32_array!("#8f8f8fff"));
+    }
+
     let foldout_arrow = spawn_foldout_arrow(
         ent.as_mut(),
         component_header_ent,
@@ -1310,7 +1321,15 @@ fn update_prefab_component_ent(
         &material_text,
         &font,
     );
+
     let comp_data_container = spawn_default_layout_ent(ent.as_mut(), comp_ent, false);
+    if let Some(local_rect_c) = ent.get_component_mut::<LocalRectComponent>(comp_data_container) {
+        local_rect_c.parent_padding_min.x = COMPONENT_BODY_PADDING;
+        local_rect_c.parent_padding_max.x = COMPONENT_BODY_PADDING;
+    }
+    set_component_body_padding(ent.as_mut(), comp_data_container, is_expanded);
+
+    spawn_component_separator(ent.as_mut(), comp_ent, &material_panel);
 
     ent.set_component(comp_ent, SerializedComponentComponent {
         component_id_text: componet_id_text_ent,
@@ -1331,6 +1350,39 @@ fn update_prefab_component_ent(
         material_text.clone(),
         font.clone(),
     );
+}
+
+const COMPONENT_BODY_PADDING: UiVal = UiVal::px(4.0);
+
+// SpaceEvenly with a single child pads it by min_gap above and below; collapsed bodies stay zero-height
+fn set_component_body_padding(mut ent: EntitiesHolderMut, ent_body: EntityId, is_expanded: bool) {
+    if let Some(align_c) = ent.get_component_mut::<RectChildAlignComponent>(ent_body) {
+        align_c.spacing = UiSpacing::SpaceEvenly;
+        align_c.min_gap = if is_expanded { COMPONENT_BODY_PADDING } else { UiVal::px(0.0) };
+    }
+}
+
+fn spawn_component_separator(mut ent: EntitiesHolderMut, ent_parent: EntityId, material_panel: &AssetHandle<StandardMaterial>) {
+    let ent_separator = ent.create_entity();
+
+    ent.set_components(ent_separator, (
+        GlobalRectComponent::default(),
+        LocalRectComponent {
+            scale: Vec2::new(UiVal::pw(1.0).into(), UiVal::px(1.0).into()),
+            ..Default::default()
+        },
+        ChildComponent { parent: ent_parent },
+        BatchedMeshComponent::default(),
+        StandardMaterialComponent { material: material_panel.clone() },
+        ImageComponent {
+            color: Vec4::from_array(rgba_f32_array!("#3a3a3aff")),
+            ..Default::default()
+        },
+    ));
+
+    if let Some(parent_c) = ent.get_component_mut::<ParentComponent>(ent_parent) {
+        parent_c.children.push(ent_separator);
+    }
 }
 
 // todo

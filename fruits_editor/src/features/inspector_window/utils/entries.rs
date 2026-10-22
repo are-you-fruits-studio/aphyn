@@ -743,7 +743,7 @@ pub fn spawn_text_ent(
     ent.add_component(
         ent_root,
         ImageComponent {
-            color: Vec4::from_array(rgba_f32_array!("#38383880")),
+            color: Vec4::splat(0.0),
             ..Default::default()
         },
     )
