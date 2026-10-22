@@ -1,8 +1,17 @@
 use fruits_engine::*;
 
-use crate::{SYSTEM_GROUP, features::ui_interaction::{ButtonComponent, DragAreaComponent, HoverAreaComponent, check_ui_interaction_system}, prefabs::WindowComponent};
+use crate::{
+    SYSTEM_GROUP,
+    features::{
+        inspector_window::utils::find_in_parents,
+        ui_interaction::{ButtonComponent, DragAreaComponent, HoverAreaComponent, UiPressResource, check_ui_interaction_system},
+    },
+    prefabs::WindowComponent,
+};
 
 pub fn register_feature(mut world: WorldBuilderMut) {
+    world.data_mut().resources_mut().insert(WindowsOrderResource::default());
+
     let mut behavior = world.behavior_mut();
     let mut update = behavior.get_mut(Schedule::Update);
 
@@ -12,7 +21,8 @@ pub fn register_feature(mut world: WorldBuilderMut) {
         .insert_child_system(close_window_system)
         .insert_child_system(highlit_window_scale_handles_system)
         .insert_child_system(rescale_window_system)
-        .insert_child_system(keep_windows_inside_dock_system);
+        .insert_child_system(keep_windows_inside_dock_system)
+        .insert_child_system(order_windows_system);
 
     update
         .order_system(check_ui_interaction_system)
@@ -23,12 +33,58 @@ pub fn register_feature(mut world: WorldBuilderMut) {
 
     update.order_system(drag_window_system).before_system(keep_windows_inside_dock_system);
     update.order_system(rescale_window_system).before_system(keep_windows_inside_dock_system);
+    update.order_system(check_ui_interaction_system).before_system(order_windows_system);
+    update.order_system(close_window_system).before_system(order_windows_system);
 }
 
 const MIN_WINDOW_SIZE: Vec2<f32> = Vec2::new(100.0, 60.0);
 
+pub const WINDOWS_FRONT_Z: f32 = -8_000.0;
+pub const WINDOWS_Z_BAND: f32 = 1_000.0;
+
 #[derive(Component, Default, Debug)]
 pub struct DockComponent;
+
+#[derive(Resource, Default)]
+pub struct WindowsOrderResource {
+    pub front_to_back: Vec<EntityId>,
+}
+
+pub fn order_windows_system(
+    press_res: Res<UiPressResource>,
+    mut order_res: ResMut<WindowsOrderResource>,
+    mut window_rect_q: WorldQuery<(EntityId, &mut LocalRectComponent), WithFilter<WindowComponent>>,
+    window_q: WorldQuery<&WindowComponent>,
+    child_q: WorldQuery<&ChildComponent>,
+) {
+    let order = &mut order_res.front_to_back;
+
+    order.retain(|&ent| window_q.get(ent).is_some());
+
+    for (ent, _) in window_rect_q.iter_mut() {
+        if !order.contains(&ent) {
+            order.insert(0, ent);
+        }
+    }
+
+    if let Some(ent_pressed) = press_res.pressed_this_frame {
+        let is_window = |e: EntityId| window_q.get(e).is_some().then_some(e);
+        let ent_window = is_window(ent_pressed).or_else(|| find_in_parents(child_q, ent_pressed, is_window));
+
+        if let Some(ent_window) = ent_window
+            && let Some(idx) = order.iter().position(|&e| e == ent_window)
+        {
+            let ent_window = order.remove(idx);
+            order.insert(0, ent_window);
+        }
+    }
+
+    for (rank, &ent) in order.iter().enumerate() {
+        if let Some((_, rect_c)) = window_rect_q.get_mut(ent) {
+            rect_c.z = WINDOWS_FRONT_Z + rank as f32 * WINDOWS_Z_BAND;
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 struct Bounds {

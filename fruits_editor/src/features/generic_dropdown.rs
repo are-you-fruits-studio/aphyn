@@ -182,7 +182,7 @@ pub fn spawn_generic_dropdown_system(mut world: WorldDataMut) {
             pivot: Vec2::new(0.0, 0.0),
             offset: dropdown_pos.map(UiVal::px),
             scale: Vec2::new(Some(UiVal::px(dropdown_width)).into(), None.into()),
-            z: -500.0,
+            z: -9_000.0,
             ..Default::default()
         },
         ParentComponent::default(),

@@ -214,8 +214,8 @@
 //! test sees the authored value), and the world-to-clip matrix
 //! comes from the material's `RenderSpace` — `World` uses the camera matrix, `Window` uses
 //! [`create_window_to_clip_matrix`] (pixel coordinates with the near/far from
-//! [`ScreenSpaceResource`]), and `Clip` uses the identity. The lit path samples the normal map
-//! through a TBN matrix, scales metallic and roughness by their textures, starts from the
+//! [`ScreenSpaceResource`], `-10_000` to `10_000` by default, lower z in front), and `Clip`
+//! uses the identity. The lit path samples the normal map through a TBN matrix, scales metallic and roughness by their textures, starts from the
 //! emission term, and adds a Cook-Torrance BRDF contribution per light; there is no ambient
 //! term. The unlit path outputs the textured color and ignores emission.
 //!

@@ -66,6 +66,7 @@ pub fn window(mut world: WorldDataMut) -> EntityId {
             color: Vec4::from_array(parse_color_rgba_f32("#d0d0d0ff").unwrap()),
             ..Default::default()
         },
+        HoverAreaComponent::default(),
         WindowComponent {
             content_container: ent_scroll_content,
             title: ent_header_text,

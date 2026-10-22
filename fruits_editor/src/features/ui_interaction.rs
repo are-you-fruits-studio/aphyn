@@ -13,6 +13,10 @@ pub fn register_feature(mut world: WorldBuilderMut) {
         .data_mut()
         .resources_mut()
         .insert(DoubleClickResource::default());
+    world
+        .data_mut()
+        .resources_mut()
+        .insert(UiPressResource::default());
 
     let mut behavior = world.behavior_mut();
     let mut update = behavior.get_mut(Schedule::Update);
@@ -37,6 +41,11 @@ pub const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(400);
 #[derive(Resource, Default)]
 pub struct DoubleClickResource {
     pub last_click: Option<(EntityId, Instant)>,
+}
+
+#[derive(Resource, Default)]
+pub struct UiPressResource {
+    pub pressed_this_frame: Option<EntityId>,
 }
 
 #[derive(Component, Debug, Copy, Clone, Default)]
@@ -96,6 +105,7 @@ pub fn check_ui_interaction_system(
     input: Res<InputResource>,
     raycast_res: Res<UiRaycastResource>,
     mut double_click_res: ResMut<DoubleClickResource>,
+    mut press_res: ResMut<UiPressResource>,
     mut click_evt: EvtMut<ButtonClickEvent>,
     mut button_q: WorldQuery<&mut ButtonComponent>,
     mut drag_area_q: WorldQuery<&mut DragAreaComponent>,
@@ -109,6 +119,7 @@ pub fn check_ui_interaction_system(
     for hover_area_c in hover_area_q.iter_mut() {
         hover_area_c.is_hovered = false;
     }
+    press_res.pressed_this_frame = None;
 
     if input.mouse.is_just_released(MouseButton::Left) {
         for drag_area_c in drag_area_q.iter_mut() {
@@ -156,6 +167,10 @@ pub fn check_ui_interaction_system(
 
     if let Some(hover_area_c) = hover_area_q.get_mut(target_ent) {
         hover_area_c.is_hovered = true;
+    }
+
+    if [MouseButton::Left, MouseButton::Right, MouseButton::Middle].into_iter().any(|b| input.mouse.is_just_pressed(b)) {
+        press_res.pressed_this_frame = Some(target_ent);
     }
 
     if input.mouse.is_just_pressed(MouseButton::Right)

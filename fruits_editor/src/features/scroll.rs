@@ -119,7 +119,12 @@ fn start_end_scrolling_system(
             &mut hits,
         );
 
-        return_if_not!(Some(clicked_ent) = hits.into_iter().next());
+        let top_most_hit = hits
+            .into_iter()
+            .filter_map(|e| Some((e, global_rect_q.get(e)?.z)))
+            .min_by(|(_, a), (_, b)| a.total_cmp(b));
+
+        return_if_not!(Some((clicked_ent, _)) = top_most_hit);
 
         scroll_res.active_scroll = clicked_ent;
 

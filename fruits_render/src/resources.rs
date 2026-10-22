@@ -230,8 +230,8 @@ pub struct ScreenSpaceResource {
 impl Default for ScreenSpaceResource {
     fn default() -> Self {
         Self {
-            near: -1_000.0,
-            far: 1_000.0,
+            near: -10_000.0,
+            far: 10_000.0,
         }
     }
 }

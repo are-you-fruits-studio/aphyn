@@ -6,7 +6,10 @@ use crate::{
     SYSTEM_GROUP,
     features::{
         test_window::{open_window_by_kind, open_windows_system},
-        ui_window::{close_window_system, drag_window_system, keep_windows_inside_dock_system, rescale_window_system},
+        ui_window::{
+            WindowsOrderResource, close_window_system, drag_window_system, keep_windows_inside_dock_system, order_windows_system,
+            rescale_window_system,
+        },
     },
     prefabs::WindowComponent,
 };
@@ -35,6 +38,8 @@ pub fn register_feature(mut world: WorldBuilderMut) {
         update.order_system(drag_window_system).before_system(save_windows_layout_system);
         update.order_system(rescale_window_system).before_system(save_windows_layout_system);
         update.order_system(keep_windows_inside_dock_system).before_system(save_windows_layout_system);
+        update.order_system(open_windows_system).before_system(order_windows_system);
+        update.order_system(order_windows_system).before_system(save_windows_layout_system);
     }
 }
 
@@ -45,6 +50,7 @@ struct WindowLayoutEntry {
     offset_y: f32,
     width: f32,
     height: f32,
+    order: u32,
 }
 
 #[derive(Serializable, Default, PartialEq, Clone, Debug)]
@@ -118,10 +124,14 @@ fn px_or_zero(val: UiVal) -> f32 {
 fn restore_windows_layout_system(mut world: WorldDataMut) {
     let layout = load_layout().unwrap_or_default();
 
+    let mut ordered_windows = Vec::new();
+
     for entry in &layout.windows {
         let Some(ent_window) = open_window_by_kind(world.as_mut(), &entry.kind) else {
             continue;
         };
+
+        ordered_windows.push((entry.order, ent_window));
 
         let mut ent = world.entities_mut();
 
@@ -133,13 +143,19 @@ fn restore_windows_layout_system(mut world: WorldDataMut) {
         rect_c.scale = Vec2::new(UiVal::px(entry.width).into(), UiVal::px(entry.height).into());
     }
 
+    ordered_windows.sort_by_key(|&(order, _)| order);
+
+    world.resources_mut().get_mut::<WindowsOrderResource>().unwrap().front_to_back =
+        ordered_windows.into_iter().map(|(_, ent)| ent).collect();
+
     world.resources_mut().insert(WindowsLayoutResource { last_saved: layout });
 }
 
 pub fn save_windows_layout_system(
     input_res: Res<InputResource>,
+    order_res: Res<WindowsOrderResource>,
     mut layout_res: ResMut<WindowsLayoutResource>,
-    window_q: WorldQuery<(&LocalRectComponent, &WindowComponent)>,
+    window_q: WorldQuery<(EntityId, &LocalRectComponent, &WindowComponent)>,
     title_q: WorldQuery<&TextComponent>,
 ) {
     if input_res.mouse.is_pressed(MouseButton::Left) {
@@ -148,8 +164,9 @@ pub fn save_windows_layout_system(
 
     let mut windows = window_q
         .iter()
-        .filter_map(|(rect_c, window_c)| {
+        .filter_map(|(ent_window, rect_c, window_c)| {
             let title_c = title_q.get(window_c.title)?;
+            let order = order_res.front_to_back.iter().position(|&e| e == ent_window).unwrap_or(order_res.front_to_back.len());
 
             Some(WindowLayoutEntry {
                 kind: title_c.text.to_string(),
@@ -157,6 +174,7 @@ pub fn save_windows_layout_system(
                 offset_y: px_or_zero(rect_c.offset.y),
                 width: rect_c.scale.x.into_option().map(px_or_zero).unwrap_or(0.0),
                 height: rect_c.scale.y.into_option().map(px_or_zero).unwrap_or(0.0),
+                order: order as u32,
             })
         })
         .collect::<Vec<_>>();
