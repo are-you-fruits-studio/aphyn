@@ -28,8 +28,6 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: docs/package-lock.json
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
@@ -38,10 +36,9 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
 
       - name: Install Linux build dependencies
-        uses: awalsh128/cache-apt-pkgs-action@latest
-        with:
-          packages: libudev-dev pkg-config
-          version: 1.1
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev pkg-config
 
       - name: Generate API reference
         run: bash ./docs/scripts/generate-docs-api.sh

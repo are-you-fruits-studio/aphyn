@@ -85,17 +85,11 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.os }}-${{ matrix.target }}
-          cache-on-failure: true
-
-      - uses: awalsh128/cache-apt-pkgs-action@latest
+      - name: Install Linux dependencies
         if: runner.os == 'Linux'
-        with:
-          packages: libasound2-dev libudev-dev pkg-config
-          version: 1.1
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libudev-dev pkg-config
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} -p fruits_editor
