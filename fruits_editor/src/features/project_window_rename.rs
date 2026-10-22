@@ -5,6 +5,7 @@ use std::{
 
 use crate::{
     features::{
+        foldout::FOLDOUT_WIDTH,
         generic_dropdown::select_generic_dropdown_system,
         input_field::{
             InputFieldComponent, InputFieldSelectionChangedEvent, SelectedInputFieldResource, apply_input_field_context_menu_system,
@@ -138,6 +139,7 @@ pub fn start_project_entry_rename_system(
     // in front of the entry button, so clicks on the input don't hit the entry and deselect the input
     if let Some(local_rect_c) = ent.get_component_mut::<LocalRectComponent>(input_field) {
         local_rect_c.z = -1.0;
+        local_rect_c.parent_padding_min.x = UiVal::px(FOLDOUT_WIDTH);
     }
 
     selected_input.selected = input_field;

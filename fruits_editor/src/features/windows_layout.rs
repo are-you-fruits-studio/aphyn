@@ -11,7 +11,7 @@ use crate::{
     prefabs::WindowComponent,
 };
 
-const APP_NAME: &str = "fruits_editor";
+pub const APP_NAME: &str = "fruits_editor";
 const FILE_NAME: &str = "windows_layout.json";
 
 pub fn register_feature(mut world: WorldBuilderMut) {

@@ -121,6 +121,7 @@ fn run_editor_app(project_path: &str) {
     features::scene_window::register_feature(world.as_mut());
     features::game_window::register_feature(world.as_mut());
     features::play_mode::register_feature(world.as_mut());
+    features::foldout::register_feature(world.as_mut());
 
     world.as_mut().data_mut().resources_mut().insert(OpenProjectResource { dir_path: project_path.to_string() });
 

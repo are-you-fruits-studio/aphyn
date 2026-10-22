@@ -18,3 +18,4 @@ pub mod windows_layout;
 pub mod scene_window;
 pub mod game_window;
 pub mod play_mode;
+pub mod foldout;

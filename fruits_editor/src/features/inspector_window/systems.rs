@@ -4,7 +4,7 @@ use fruits_engine::tree::{TreeBuilder, TreeNode};
 
 use crate::{
     features::{
-        asset_serialization::{InspectedAsset, get_asset_type}, generic_dropdown::{GenericDropdownResource, GenericDropdownStateTy}, input_field::{InputFieldComponent, InputFieldSelectionChangedEvent, InputFieldTextChangedEvent, SelectedInputFieldResource}, inspector_window::{
+        asset_serialization::{InspectedAsset, get_asset_type}, foldout::{FOLDOUT_WIDTH, FoldoutButtonComponent, FoldoutKey, FoldoutResource, FoldoutToggledEvent, spawn_foldout_arrow}, generic_dropdown::{GenericDropdownResource, GenericDropdownStateTy}, input_field::{InputFieldComponent, InputFieldSelectionChangedEvent, InputFieldTextChangedEvent, SelectedInputFieldResource}, inspector_window::{
             FIELD_HEIGHT, data::*, utils::{
                 entries::{parse_serialized, spawn_default_layout_ent, spawn_hierarchy_window_entry, spawn_serialized, spawn_text_ent}, find_in_parents, serialization::{are_components_slices_similar, deserialize_asset_to_world_res, enrich_serialized_with_asset_type, load_asset_to_world_res, save_asset_from_world_res}, subsequence_match_ignore_case,
             },
@@ -935,6 +935,8 @@ fn is_entities_asset(asset_type: AssetType) -> bool {
 pub fn update_hierarchy_window_system(
     simulated_world: Res<SimulatedWorldResource>,
     inspected_entity: Res<InspectedEntityResource>,
+    opened_asset: Res<OpenedEntitiesAssetResource>,
+    foldout_res: Res<FoldoutResource>,
     mut entities: EntitiesHolderMut,
     assets: Res<StandardAssetsResource>,
     file_selected_evt: Evt<FileSelectedEvent>,
@@ -993,6 +995,8 @@ pub fn update_hierarchy_window_system(
                 &assets.font,
                 content,
                 &inspected_entity.ent_to_id,
+                &opened_asset.asset_key,
+                &foldout_res,
                 node,
                 0,
             )
@@ -1008,6 +1012,8 @@ fn spawn_hierarchy_window_entries_recursively(
     font: &AssetHandle<Font>,
     parent: EntityId,
     ent_to_id: &HashMap<EntityId, u64>,
+    asset_key: &str,
+    foldout_res: &FoldoutResource,
     node: &TreeNode<EntityId>,
     depth: usize,
 ) {
@@ -1019,12 +1025,9 @@ fn spawn_hierarchy_window_entries_recursively(
         .map(|s| s.0.as_str().into())
         .unwrap_or_else(|| format!("e{{{}}}", simulated_ent.version_index().index));
 
-    // todo: text indent to layout indent
-    let indent = std::iter::repeat_n(' ', depth).collect::<String>();
-    
-    let name = format!("{}[{}] {}", indent, entity_id, name).into();
+    let name = format!("[{}] {}", entity_id, name).into();
 
-    spawn_hierarchy_window_entry(
+    let (ent_name_container, ent_name) = spawn_hierarchy_window_entry(
         ent.as_mut(),
         &material_text,
         &material_panel,
@@ -1033,6 +1036,23 @@ fn spawn_hierarchy_window_entries_recursively(
         parent,
         simulated_ent,
     );
+
+    let key = ent_to_id.get(&simulated_ent).map(|&entity_id| FoldoutKey::HierarchyEntity { asset_key: asset_key.to_string(), entity_id });
+    let is_expanded = key.as_ref().is_some_and(|k| foldout_res.is_expanded(k));
+    let foldout = key.filter(|_| !node.children.is_empty()).map(|k| (k, is_expanded));
+
+    spawn_foldout_arrow(
+        ent.as_mut(),
+        ent_name_container,
+        ent_name,
+        depth as f32 * FOLDOUT_WIDTH,
+        foldout,
+        material_panel,
+        material_text,
+        font,
+    );
+
+    return_if!(!is_expanded);
 
     for child in &node.children {
         spawn_hierarchy_window_entries_recursively(
@@ -1043,6 +1063,8 @@ fn spawn_hierarchy_window_entries_recursively(
             font,
             parent,
             ent_to_id,
+            asset_key,
+            foldout_res,
             child,
             depth + 1,
         );
@@ -1067,6 +1089,8 @@ pub fn update_inspector_window_system(
     asset_edited_evt: Evt<AssetEditedEvent>,
     entity_selected_evt: Evt<EntitySelectedEvent>,
     input_field_selection_changed_evt: Evt<InputFieldSelectionChangedEvent>,
+    foldout_toggled_evt: Evt<FoldoutToggledEvent>,
+    foldout_res: Res<FoldoutResource>,
 ) {
     // todo
     return_if!(
@@ -1074,6 +1098,7 @@ pub fn update_inspector_window_system(
             && asset_edited_evt.is_empty()
             && input_field_selection_changed_evt.is_empty()
             && entity_selected_evt.is_empty()
+            && foldout_toggled_evt.is_empty()
     );
 
     let ent_selected_input = selected_input_field.selected;
@@ -1099,6 +1124,7 @@ pub fn update_inspector_window_system(
                 window_c.content_container,
                 ent_selected_input,
                 &inspected_components,
+                &foldout_res,
                 assets.material_panel.clone(),
                 assets.material_text.clone(),
                 assets.font.clone(),
@@ -1174,6 +1200,7 @@ fn update_prefab_components_ent(
     ent_parent: EntityId,
     ent_selected_input: EntityId,
     components: &FfiIndexMap<FfiString, SerializedValue>,
+    foldout_res: &FoldoutResource,
     material_panel: AssetHandle<StandardMaterial>,
     material_text: AssetHandle<StandardMaterial>,
     font: AssetHandle<Font>,
@@ -1201,6 +1228,7 @@ fn update_prefab_components_ent(
                 ent_selected_input,
                 component_id,
                 component_value,
+                foldout_res,
                 material_panel.clone(),
                 material_text.clone(),
                 font.clone(),
@@ -1216,17 +1244,34 @@ fn update_prefab_component_ent(
     ent_selected_input: EntityId,
     component_id: &str,
     component_value: &SerializedValue,
+    foldout_res: &FoldoutResource,
     material_panel: AssetHandle<StandardMaterial>,
     material_text: AssetHandle<StandardMaterial>,
     font: AssetHandle<Font>,
 ) {
+    let key = FoldoutKey::InspectorComponent { component_id: component_id.to_string() };
+    let is_expanded = foldout_res.is_expanded(&key);
+
     if let Some(&serialized_component_c) = ent.get_component::<SerializedComponentComponent>(ent_last)
     && let Some(container_parent_c) = ent.get_component::<ParentComponent>(serialized_component_c.component_data_container)
-    && container_parent_c.children.len() == 1
-    && let data_ent = container_parent_c.children[0]
+    && let data_ents = container_parent_c.children.iter().copied().collect::<Vec<_>>()
     && let Some(text_c) = ent.get_component_mut::<TextComponent>(serialized_component_c.component_id_text) {
         text_c.text = component_id.into();
-        
+
+        if let Some(foldout_c) = ent.get_component_mut::<FoldoutButtonComponent>(serialized_component_c.foldout_arrow) {
+            foldout_c.key = key;
+        }
+
+        let data_ent = match data_ents.as_slice() {
+            &[data_ent] if is_expanded => data_ent,
+            _ => {
+                destroy_entity_children(ent.as_mut(), serialized_component_c.component_data_container);
+                EntityId::EMPTY
+            }
+        };
+
+        return_if!(!is_expanded);
+
         spawn_serialized(
             ent.as_mut(),
             data_ent,
@@ -1255,13 +1300,26 @@ fn update_prefab_component_ent(
         ComponentHeaderComponent { component: comp_ent },
         ButtonComponent::default(),
     ));
+    let foldout_arrow = spawn_foldout_arrow(
+        ent.as_mut(),
+        component_header_ent,
+        componet_id_text_ent,
+        0.0,
+        Some((key, is_expanded)),
+        &material_panel,
+        &material_text,
+        &font,
+    );
     let comp_data_container = spawn_default_layout_ent(ent.as_mut(), comp_ent, false);
 
     ent.set_component(comp_ent, SerializedComponentComponent {
         component_id_text: componet_id_text_ent,
         component_data_container: comp_data_container,
+        foldout_arrow,
     });
-    
+
+    return_if!(!is_expanded);
+
     spawn_serialized(
         ent.as_mut(),
         EntityId::EMPTY,

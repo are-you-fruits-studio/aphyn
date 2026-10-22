@@ -8,7 +8,13 @@ use std::{
 
 use notify::{EventKind, RecursiveMode, Watcher as _, event::ModifyKind};
 
-use crate::{features::inspector_window::utils::entries::spawn_hierarchy_entry, prefabs::WindowComponent, *};
+use crate::{
+    features::{
+        foldout::{FoldoutKey, FoldoutResource, spawn_foldout_arrow}, inspector_window::utils::entries::spawn_hierarchy_entry, project_window_selection::get_potential_asset_key,
+    },
+    prefabs::WindowComponent,
+    *,
+};
 
 pub fn register_feature(mut world: WorldBuilderMut) {
     world
@@ -88,7 +94,9 @@ pub fn update_project_window_content_system(mut world: WorldDataMut) {
         .iter()
         .collect::<Vec<_>>();
 
-    let current_dir = PathBuf::from(open_project.dir_path + PROJECT_ASSETS_SUBPATH);
+    let current_dir = PathBuf::from(open_project.dir_path.clone() + PROJECT_ASSETS_SUBPATH);
+
+    let foldout_res = std::mem::take(res.get_mut::<FoldoutResource>().unwrap());
 
     let cache = res.get_mut::<ProjectWindowCache>().unwrap();
 
@@ -132,11 +140,15 @@ pub fn update_project_window_content_system(mut world: WorldDataMut) {
                 &assets.material_text,
                 &assets.material_panel,
                 &font,
+                &open_project,
+                &foldout_res,
                 content,
                 entry,
             );
         }
     }
+
+    *res.get_mut::<FoldoutResource>().unwrap() = foldout_res;
 }
 
 fn spawn_project_window_entries(
@@ -144,6 +156,8 @@ fn spawn_project_window_entries(
     material_text: &AssetHandle<StandardMaterial>,
     material_panel: &AssetHandle<StandardMaterial>,
     font: &AssetHandle<Font>,
+    open_project: &OpenProjectResource,
+    foldout_res: &FoldoutResource,
     parent: EntityId,
     entry: &ProjectWindowDataEntry,
 ) {
@@ -163,12 +177,22 @@ fn spawn_project_window_entries(
         ButtonComponent::default(),
     ));
 
+    let key = FoldoutKey::ProjectEntry { path: get_potential_asset_key(&entry.path, open_project) };
+    let is_expanded = foldout_res.is_expanded(&key);
+    let foldout = (!entry.children.is_empty()).then(|| (key, is_expanded));
+
+    spawn_foldout_arrow(ec.as_mut(), spawned.ent_entry, spawned.ent_entry_name, 0.0, foldout, material_panel, material_text, font);
+
+    return_if!(!is_expanded);
+
     for entry in &entry.children {
         spawn_project_window_entries(
             ec.as_mut(),
             material_text,
             material_panel,
             font,
+            open_project,
+            foldout_res,
             spawned.ent_children_container,
             entry,
         );

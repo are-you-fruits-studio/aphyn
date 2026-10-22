@@ -94,6 +94,7 @@ pub struct SerializedCompositeRemoveButton {
 pub struct SerializedComponentComponent {
     pub component_id_text: EntityId,
     pub component_data_container: EntityId,
+    pub foldout_arrow: EntityId,
 }
 
 #[derive(Component, Default, Copy, Clone)]

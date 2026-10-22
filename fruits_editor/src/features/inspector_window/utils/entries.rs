@@ -16,7 +16,7 @@ pub fn spawn_hierarchy_window_entry(
     name: FfiString,
     parent: EntityId,
     simulated_ent: EntityId,
- ) {
+ ) -> (EntityId, EntityId) {
     let ent_entry = ec.create_entity();
     let ent_name_container = ec.create_entity();
     let ent_name = ec.create_entity();
@@ -78,6 +78,8 @@ pub fn spawn_hierarchy_window_entry(
             horizontal_align: HorizontalAlign::Left,
         },
     ));
+
+    (ent_name_container, ent_name)
 }
 
 pub fn parse_serialized(ent: EntitiesHolderRef, ent_target: EntityId) -> SerializedValue {
