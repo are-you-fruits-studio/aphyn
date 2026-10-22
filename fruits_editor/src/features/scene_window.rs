@@ -7,6 +7,7 @@ use crate::{
     features::{
         inspector_window::{data::HierarchyWindowEntryComponent, systems::update_hierarchy_window_system},
         ui_interaction::{ButtonClickEvent, DOUBLE_CLICK_INTERVAL, HoverAreaComponent, check_ui_interaction_system},
+        game_window::GameViewImageComponent,
         world_preload::{SimulatedWorldResource, preload_assets_into_simulated_world_system, tick_simulated_world_system},
     },
 };
@@ -104,12 +105,15 @@ pub struct HierarchyDoubleClickResource {
     pub last_click: Option<(EntityId, Instant)>,
 }
 
-#[derive(Resource, Default)]
-pub struct SceneViewResource {
+#[derive(Default)]
+pub struct SimulatedViewTarget {
     pub texture: Option<AssetHandle<StandardTexture>>,
     pub material: Option<AssetHandle<StandardMaterial>>,
     pub size: [u32; 2],
 }
+
+#[derive(Resource, Default)]
+pub struct SceneViewResource(pub SimulatedViewTarget);
 
 fn control_scene_camera_system(
     input: Res<InputResource>,
@@ -187,12 +191,16 @@ fn focus_scene_camera_on_entity_system(
 
 fn sync_simulated_window_system(
     mut simulated_world: ResMut<SimulatedWorldResource>,
-    image_q: WorldQuery<&GlobalRectComponent, WithFilter<SceneViewImageComponent>>,
+    scene_image_q: WorldQuery<&GlobalRectComponent, WithFilter<SceneViewImageComponent>>,
+    game_image_q: WorldQuery<&GlobalRectComponent, WithFilter<GameViewImageComponent>>,
 ) {
+    let is_playing = simulated_world.is_playing();
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
-    return_if_not!(Some(rect_c) = image_q.iter().next());
 
-    let size = scene_view_size(rect_c);
+    let game_rect_c = game_image_q.iter().next().filter(|_| is_playing);
+    return_if_not!(Some(rect_c) = game_rect_c.or_else(|| scene_image_q.iter().next()));
+
+    let size = view_size(rect_c);
     let window_res = simulated_world.world.data_mut().into_resources_mut().into_get_mut::<WindowResource>().unwrap();
 
     // resetting both states also drops window changes requested by the simulated game
@@ -200,7 +208,7 @@ fn sync_simulated_window_system(
     WindowResource::reset(window_res, &WindowState { fullscreen: FullscreenState::Windowed, size, title });
 }
 
-fn scene_view_size(rect_c: &GlobalRectComponent) -> [u32; 2] {
+fn view_size(rect_c: &GlobalRectComponent) -> [u32; 2] {
     rect_c.scale.map(|v| v.round().max(1.0) as u32).into_array()
 }
 
@@ -213,17 +221,39 @@ fn render_scene_window_system(
     mut materials: ResMut<AssetStorageResource<StandardMaterial>>,
     mut image_q: WorldQuery<(&GlobalRectComponent, &mut StandardMaterialComponent), WithFilter<SceneViewImageComponent>>,
 ) {
-    let Some(simulated_world) = &mut simulated_world.0 else {
-        return;
+    return_if_not!(Some(simulated_world) = &mut simulated_world.0);
+    return_if_not!(Some((rect_c, material_c)) = image_q.iter_mut().next());
+
+    let camera = ViewCamera {
+        position: camera_res.position,
+        scale_rotation: camera_res.scale_rotation(),
+        camera: camera_res.camera,
+        light: Some(sun_light()),
     };
 
-    let Some((rect_c, material_c)) = image_q.iter_mut().next() else {
-        return;
-    };
+    render_simulated_view(&render_api, &mut view_res.0, &mut textures, &mut materials, rect_c, material_c, &mut simulated_world.world, Some(camera));
+}
 
-    let size = scene_view_size(rect_c);
+pub struct ViewCamera {
+    pub position: Vec3<f32>,
+    pub scale_rotation: Mat3<f32>,
+    pub camera: Camera,
+    pub light: Option<StandardLight>,
+}
 
-    if view_res.texture.is_none() || view_res.size != size {
+pub fn render_simulated_view(
+    render_api: &RenderApiResource,
+    view: &mut SimulatedViewTarget,
+    textures: &mut AssetStorageResource<StandardTexture>,
+    materials: &mut AssetStorageResource<StandardMaterial>,
+    rect_c: &GlobalRectComponent,
+    material_c: &mut StandardMaterialComponent,
+    world: &mut World,
+    camera: Option<ViewCamera>,
+) {
+    let size = view_size(rect_c);
+
+    if view.texture.is_none() || view.size != size {
         let texture = render_api.create_texture(
             FilterMode::Nearest,
             size,
@@ -248,21 +278,21 @@ fn render_scene_window_system(
             },
         );
 
-        match (&view_res.texture, &view_res.material) {
+        match (&view.texture, &view.material) {
             (Some(texture_handle), Some(material_handle)) => {
                 *textures.get_mut(texture_handle).unwrap() = texture;
                 *materials.get_mut(material_handle).unwrap() = material;
             }
             _ => {
-                view_res.texture = Some(textures.insert(texture));
-                view_res.material = Some(materials.insert(material));
+                view.texture = Some(textures.insert(texture));
+                view.material = Some(materials.insert(material));
             }
         }
 
-        view_res.size = size;
+        view.size = size;
     }
 
-    let (Some(texture_handle), Some(material_handle)) = (&view_res.texture, &view_res.material) else {
+    let (Some(texture_handle), Some(material_handle)) = (&view.texture, &view.material) else {
         return;
     };
 
@@ -273,26 +303,20 @@ fn render_scene_window_system(
 
     clear_color_target(&*unsafe { render_api.raw() }, &target_view, CLEAR_COLOR);
 
-    simulated_world
-        .world
-        .data_mut()
-        .resources_mut()
-        .insert(CurrentRenderingResource {
-            camera_position: camera_res.position,
-            camera_scale_rotation: camera_res.scale_rotation(),
-            camera: camera_res.camera,
-            light: Some(sun_light()),
-            target_texture,
-            target_view,
-        });
+    return_if_not!(Some(camera) = camera);
 
-    simulated_world.world.execute_iteration(Schedule::RenderCamera);
+    world.data_mut().resources_mut().insert(CurrentRenderingResource {
+        camera_position: camera.position,
+        camera_scale_rotation: camera.scale_rotation,
+        camera: camera.camera,
+        light: camera.light,
+        target_texture,
+        target_view,
+    });
 
-    simulated_world
-        .world
-        .data_mut()
-        .resources_mut()
-        .remove::<CurrentRenderingResource>();
+    world.execute_iteration(Schedule::RenderCamera);
+
+    world.data_mut().resources_mut().remove::<CurrentRenderingResource>();
 }
 
 fn sun_light() -> StandardLight {

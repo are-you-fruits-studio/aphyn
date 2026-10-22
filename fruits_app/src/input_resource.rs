@@ -9,7 +9,7 @@ pub use winit::event::MouseButton;
 pub use winit::keyboard::KeyCode;
 
 #[repr(C)]
-#[derive(Resource)]
+#[derive(Resource, Clone, Default)]
 pub struct InputResource {
     pub keyboard: KeyboardInputStorage,
     pub mouse: MouseInputStorage,
@@ -17,14 +17,6 @@ pub struct InputResource {
 }
 
 impl InputResource {
-    pub fn new() -> Self {
-        Self {
-            keyboard: KeyboardInputStorage::new(),
-            mouse: MouseInputStorage::new(),
-            gamepads: FfiIndexMap::new(),
-        }
-    }
-
     pub fn clear_frame(&mut self) {
         self.keyboard.clear_frame();
         self.mouse.clear_frame();
@@ -35,6 +27,7 @@ impl InputResource {
 //
 
 #[repr(C)]
+#[derive(Clone, Default)]
 pub struct KeyboardInputStorage {
     pressed: FfiIndexSet<KeyCode>,
     frame_pressed: FfiIndexSet<KeyCode>,
@@ -42,14 +35,6 @@ pub struct KeyboardInputStorage {
 }
 
 impl KeyboardInputStorage {
-    pub fn new() -> Self {
-        Self {
-            pressed: Default::default(),
-            frame_pressed: Default::default(),
-            frame_released: Default::default(),
-        }
-    }
-
     pub fn is_pressed(&self, k: KeyCode) -> bool {
         self.pressed.contains(&k)
     }
@@ -87,6 +72,7 @@ impl KeyboardInputStorage {
 //
 
 #[repr(C)]
+#[derive(Clone, Default)]
 pub struct MouseInputStorage {
     pressed: FfiIndexSet<MouseButton>,
     frame_pressed: FfiIndexSet<MouseButton>,
@@ -95,15 +81,6 @@ pub struct MouseInputStorage {
 }
 
 impl MouseInputStorage {
-    pub fn new() -> Self {
-        Self {
-            pressed: Default::default(),
-            frame_pressed: Default::default(),
-            frame_released: Default::default(),
-            position: [0.0; 2],
-        }
-    }
-
     pub fn is_pressed(&self, k: MouseButton) -> bool {
         self.pressed.contains(&k)
     }
@@ -141,6 +118,7 @@ impl MouseInputStorage {
 //
 
 #[repr(C)]
+#[derive(Clone)]
 pub struct GamepadInputStorage {
     pressed: FfiIndexSet<GamepadButton>,
     frame_pressed: FfiIndexSet<GamepadButton>,

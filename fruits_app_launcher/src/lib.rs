@@ -67,13 +67,17 @@
 //! [`launch_app_dynamically`] crosses an FFI boundary. It looks for a shared library
 //! named `lib_app` plus the platform's library suffix (`lib_app.dll`, `lib_app.so`, …)
 //! next to the current executable and hands it to [`init_app_dynamically`]. That function
-//! loads the library via `libloading`, resolves the `fruits_entry_point` C symbol (an
+//! loads the library via `libloading` and passes it to [`init_app_from_library`], which
+//! resolves the `fruits_entry_point` C symbol (an
 //! `unsafe extern "C-unwind" fn(AppInitCtxFfi)` that the game library exports through the
 //! `fruits_entry_point!` macro), and exposes the world to it:
 //! `WorldBuilderMut::into_raw_parts()` yields the raw world builder plus the type registry
 //! cache, whose registry is taken; both are packed as raw pointers into an [`AppInitCtxFfi`]
 //! and passed to the symbol, which reconstructs a safe `WorldBuilderMut` on the other side
-//! and runs the game's setup. [`init_app_dynamically`] returns the loaded [`Library`] (or the
+//! and runs the game's setup. [`init_app_from_library`] can be called again on an
+//! already-loaded library to set up another world (the editor rebuilds its simulated world
+//! this way when entering and leaving play mode); every such world must be dropped before
+//! the library. [`init_app_dynamically`] returns the loaded [`Library`] (or the
 //! `libloading` error), and the library is closed only after [`App::run`] returns, because
 //! the world holds types and function pointers that live inside it for the whole run.
 //!
@@ -113,8 +117,15 @@ pub fn launch_app_dynamically() {
     lib.close().unwrap();
 }
 
-pub unsafe fn init_app_dynamically(mut world: WorldBuilderMut, lib_path: impl AsRef<Path>) -> Result<Library, libloading::Error> {
+pub unsafe fn init_app_dynamically(world: WorldBuilderMut, lib_path: impl AsRef<Path>) -> Result<Library, libloading::Error> {
     let lib = unsafe { libloading::Library::new(lib_path.as_ref())? };
+
+    unsafe { init_app_from_library(world, &lib)? };
+
+    Ok(lib)
+}
+
+pub unsafe fn init_app_from_library(mut world: WorldBuilderMut, lib: &Library) -> Result<(), libloading::Error> {
     let init_app_symbol = unsafe { lib.get::<unsafe extern "C-unwind" fn(AppInitCtxFfi)>(b"fruits_entry_point")? };
 
     unsafe {
@@ -130,5 +141,5 @@ pub unsafe fn init_app_dynamically(mut world: WorldBuilderMut, lib_path: impl As
         init_app_symbol(ctx);
     }
 
-    Ok(lib)
+    Ok(())
 }

@@ -33,6 +33,9 @@ pub struct WindowsButtonComponent;
 #[derive(Component, Default, Debug)]
 pub struct SceneWindowComponent;
 
+#[derive(Component, Default, Debug)]
+pub struct GameWindowComponent;
+
 #[derive(Resource, Default)]
 pub struct WindowsDropdownResource {
     request_id: u64,
@@ -42,8 +45,9 @@ pub const WINDOW_KIND_PROJECT: &str = "Project Window";
 pub const WINDOW_KIND_HIERARCHY: &str = "Hierarchy Window";
 pub const WINDOW_KIND_INSPECTOR: &str = "Inspector Window";
 pub const WINDOW_KIND_SCENE: &str = "Scene Window";
+pub const WINDOW_KIND_GAME: &str = "Game Window";
 
-const WINDOW_KINDS: [&str; 4] = [WINDOW_KIND_PROJECT, WINDOW_KIND_HIERARCHY, WINDOW_KIND_INSPECTOR, WINDOW_KIND_SCENE];
+const WINDOW_KINDS: [&str; 5] = [WINDOW_KIND_PROJECT, WINDOW_KIND_HIERARCHY, WINDOW_KIND_INSPECTOR, WINDOW_KIND_SCENE, WINDOW_KIND_GAME];
 
 fn open_windows_dropdown_system(
     button_q: WorldQuery<(&ButtonComponent, &GlobalRectComponent), WithFilter<WindowsButtonComponent>>,
@@ -80,6 +84,7 @@ pub fn open_window_by_kind(world: WorldDataMut, kind: &str) -> Option<EntityId> 
             open_specific_window(world, kind, InspectorWindowComponent::default(), prefabs::init_window_as_inspector)
         }
         WINDOW_KIND_SCENE => open_specific_window(world, kind, SceneWindowComponent, prefabs::init_window_as_scene),
+        WINDOW_KIND_GAME => open_specific_window(world, kind, GameWindowComponent, prefabs::init_window_as_game),
         _ => None,
     }
 }

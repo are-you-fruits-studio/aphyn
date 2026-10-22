@@ -1,6 +1,6 @@
 use fruits_engine::*;
 
-use crate::{features::{test_window::WindowsButtonComponent, ui_interaction::ButtonComponent}, resources::StandardAssetsResource};
+use crate::{features::{play_mode::PlayButtonComponent, test_window::WindowsButtonComponent, ui_interaction::ButtonComponent}, resources::StandardAssetsResource};
 
 fn create_header_button<C: 'static>(
     mut ent: EntitiesHolderMut,
@@ -70,16 +70,18 @@ pub fn editor_window(mut world: WorldDataMut) -> EntityId {
     let assets_res = res.get::<StandardAssetsResource>().unwrap();
 
     const HEADER_HEIGHT: f32 = 20.0;
+    const PLAY_BAR_HEIGHT: f32 = 24.0;
 
     let ent_root = ent.create_entity();
     let ent_header = ent.create_entity();
+    let ent_play_bar = ent.create_entity();
     let ent_dock = ent.create_entity();
 
     ent.set_components(ent_root, (
         GlobalRectComponent::default(),
         LocalRectComponent::default(),
         ParentComponent {
-            children: vec![ent_header, ent_dock].into(),
+            children: vec![ent_header, ent_play_bar, ent_dock].into(),
         },
     ));
 
@@ -111,10 +113,39 @@ pub fn editor_window(mut world: WorldDataMut) -> EntityId {
         },
     ));
 
+    ent.set_components(ent_play_bar, (
+        GlobalRectComponent::default(),
+        LocalRectComponent {
+            anchor: Vec2::new(0.5, 0.0),
+            pivot: Vec2::new(0.5, 0.0),
+            offset: Vec2::new(UiVal::px(0.0), UiVal::px(HEADER_HEIGHT)),
+            scale: Vec2::new(UiVal::pd(1.0).into(), UiVal::px(PLAY_BAR_HEIGHT).into()),
+            ..Default::default()
+        },
+        ChildComponent {
+            parent: ent_root,
+        },
+        ParentComponent::default(),
+        RectChildAlignComponent {
+            anchor: Vec2::new(0.5, 0.5),
+            direction: UiDirection::Horizontal,
+            min_gap: UiVal::px(1.0),
+            spacing: UiSpacing::Chunk,
+        },
+        BatchedMeshComponent::default(),
+        StandardMaterialComponent {
+            material: assets_res.material_panel.clone(),
+        },
+        ImageComponent {
+            color: Vec4::new(0.15, 0.15, 0.15, 1.0),
+            ..Default::default()
+        },
+    ));
+
     ent.set_components(ent_dock, (
         GlobalRectComponent::default(),
         LocalRectComponent {
-            parent_padding_min: Vec2::new(UiVal::px(0.0), UiVal::px(HEADER_HEIGHT)),
+            parent_padding_min: Vec2::new(UiVal::px(0.0), UiVal::px(HEADER_HEIGHT + PLAY_BAR_HEIGHT)),
             ..Default::default()
         },
         ChildComponent {
@@ -131,6 +162,7 @@ pub fn editor_window(mut world: WorldDataMut) -> EntityId {
     ));
 
     create_header_button(ent.as_mut(), assets_res, ent_header, WindowsButtonComponent, "Windows".into(), UiVal::px(100.0));
+    create_header_button(ent.as_mut(), assets_res, ent_play_bar, PlayButtonComponent, "Play".into(), UiVal::px(60.0));
 
     ent_root
 }

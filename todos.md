@@ -1,36 +1,43 @@
 # Prioritized
 
-- rework rendering to be able to implement both scene and preview windows
-- implement playable game window ("Preview") (with simulated world being live and using updates)
-- make OS window icon configurable
+- implement systems scheduler where threadpool asks iterator for systems
+- improve playmode performance:
+    - optimize update_hierarchy_window_system
+    - optimize update_project_window_content_system
+    - don't render game/scene when the windows are not visible
+    - 
+
+- use context menu instead of "+"/"-" in hierarchy and "x" in inspector
 - make components rendering prettier and make components look separated
-- implement the ability to use custom shaders
 - implement dropout for components, entities and folders
+- fancy contrasting borders on windows
+- restrict windows layout to not go outside bounds
+- order windows on the z axis based on what was used more recently
+
+- make OS window icon configurable
+- save last window title change, so that this api isn't cleared by OS that don't support title reading: W11, iOS and other platforms
+
+- implement the ability to use custom shaders
 
 # Default
 
-- optimize transform mask calculation (don't iterate all roots - select roots out of entities that have mask components)
 - make sure prefab root entity is the first one serialized
+- support saving assets (and project files changes: create/rename/delete) in play mode
 
 - drag-drop files to move/assign them
-- implement global cpu-stored batched mesh (same batching as now, but using lightweight pattern) (Let's make StandardMesh store the FfiVec<StandardVertex> vertices and FfiVec<u16> indices after creation. Let's also put it vertices and indices into StandardMeshData and use it in StandardMesh and BatchedMeshComponent instead of directly sotring vertices and indices.)
+- implement global cpu-stored batched mesh (same batching as now, but using lightweight pattern) (Let's make StandardMesh store the FfiVec<StandardVertex> vertices and FfiVec<u16> indices after creation. Let's also put it vertices and indices into StandardMeshData and use it in StandardMesh and BatchedMeshComponent instead of directly storing vertices and indices.)
 - implement windows docking (like in Microsoft VS)
 - copy-paste (with right mouse button and drop-down) (maybe even ctrl c ctrl v)
 - transform-adjust interactable gizmo on selected object
-- fancy contrasting borders on windows
 - performance profiler window
 - console window
-- implement systems scheduler where threadpool asks iterator for systems
 - show opened asset with different kind of selection
 - live reload assets
 - live recompile scripts
 - use pure serializer if no transserializer available
 - maybe add scroll with automatic visibility to dynamic dropdown
-- restrict windows layout to not go outside bounds
 - implement more basic features for input fields (cursor, selection, shortcuts, etc.)
 - describe project structure and architecture better for claude
-- order windows on the z axis based on what was used more recently
-- save last window title change, so that this api isn't cleared by OS that don't support title reading: W11, iOS and other platforms
 - other "todo"s throughout the project
 
 # Low-prio

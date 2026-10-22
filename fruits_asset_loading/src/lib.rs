@@ -110,10 +110,11 @@
 //!
 //! #### Startup loading
 //!
-//! [`add_asset_module_to`] inserts the `AssetStorageResource<Prefab>` and
-//! `AssetStorageResource<Scene>` and registers
+//! [`add_asset_module_to`] inserts the `AssetStorageResource<Prefab>`,
+//! `AssetStorageResource<Scene>` and [`AssetsDirResource`], and registers
 //! [`load_all_assets_system`] in the `Start` schedule under [`SYSTEM_GROUP_ASSETS`]. It calls
-//! [`load_all_assets`] with the `assets` directory relative to the working directory, which
+//! [`load_all_assets`] with the directory from [`AssetsDirResource`] (default: `assets` relative
+//! to the working directory; the editor points it at the opened project's `assets/`), which
 //! walks it recursively and, for every `.asset` file, reads the JSON, validates `asset_type`
 //! ([`AssetType`]), builds the key from the path, and deserializes that key *as an
 //! `AssetHandle<T>`* of the matching type. Failures are printed and the file is skipped; a
@@ -223,7 +224,8 @@ pub use serialized_entities::*;
 pub use audio_clip::*;
 pub use serializers::*;
 
-use fruits_ecs::{ResourcesHolderMut, Schedule, WorldBuilderMut};
+use fruits_ecs::{Resource, ResourcesHolderMut, Schedule, WorldBuilderMut};
+use fruits_ffi::FfiString;
 
 // todo: specify supported file formats.
 
@@ -234,7 +236,17 @@ use fruits_ecs::{ResourcesHolderMut, Schedule, WorldBuilderMut};
 
 pub const SYSTEM_GROUP_ASSETS: &'static str = "fruits_assets";
 
+#[derive(Resource)]
+pub struct AssetsDirResource(pub FfiString);
+
+impl Default for AssetsDirResource {
+    fn default() -> Self {
+        Self("assets".into())
+    }
+}
+
 pub fn add_asset_module_to(mut world: WorldBuilderMut) {
+    world.data_mut().resources_mut().insert(AssetsDirResource::default());
     world.data_mut().resources_mut().insert(AssetStorageResource::<Prefab>::new());
     world.data_mut().resources_mut().insert(AssetStorageResource::<Scene>::new());
 
@@ -245,9 +257,8 @@ pub fn add_asset_module_to(mut world: WorldBuilderMut) {
 }
 
 pub fn load_all_assets_system(res: ResourcesHolderMut) {
-    // todo: use fruits_file_storage::assets_path() instead of cwd-relative "assets"
-    let mut assets_dir_path = PathBuf::new();
-    assets_dir_path.push("assets");
+    // todo: use fruits_file_storage::assets_path() as the default instead of cwd-relative "assets"
+    let assets_dir_path = PathBuf::from(res.as_ref().get::<AssetsDirResource>().map(|d| d.0.as_str()).unwrap_or("assets"));
 
     load_all_assets(res, assets_dir_path);
 }

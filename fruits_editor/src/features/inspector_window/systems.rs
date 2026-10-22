@@ -767,6 +767,9 @@ pub fn save_simulated_entities_to_asset_system(
     mut simulated_world: ResMut<SimulatedWorldResource>,
     opened_asset: Res<OpenedEntitiesAssetResource>,
 ) {
+    // todo: support saving assets in play mode
+    return_if!(simulated_world.is_playing());
+
     let Some(simulated_world) = &mut simulated_world.0 else {
         return;
     };
@@ -805,6 +808,8 @@ pub fn save_inspected_asset_from_simulated_world_to_file_system(
     inspected_asset: Res<InspectedAssetResource>,
     opened_asset: Res<OpenedEntitiesAssetResource>,
 ) {
+    // todo: support saving assets in play mode
+    return_if!(simulated_world.is_playing());
     return_if_not!(Some(simulated_world) = &simulated_world.0);
 
     let res = simulated_world.world.data().resources();
@@ -841,12 +846,22 @@ pub fn open_entities_asset_system(
     selected_file: Res<SelectedFileResource>,
 ) {
     return_if!(file_opened_evt.is_empty());
+    return_if!(simulated_world.is_playing());
 
     return_if_not!(Some(world) = &mut simulated_world.0);
 
+    open_entities_asset(world, &mut opened_asset, &mut inspected_entity, &selected_file.potential_asset_key, &selected_file.path);
+}
+
+pub fn open_entities_asset(
+    world: &mut SimulatedWorld,
+    opened_asset: &mut OpenedEntitiesAssetResource,
+    inspected_entity: &mut InspectedEntityResource,
+    asset_key: &str,
+    path: &OsStr,
+) {
     let (res, mut ent, _evt) = world.world.data_mut().into_tuple_mut();
 
-    let asset_key = selected_file.potential_asset_key.as_str();
     let asset_type = get_asset_type(res.as_ref(), asset_key);
 
     return_if!(!asset_type.is_some_and(is_entities_asset));
@@ -881,19 +896,23 @@ pub fn open_entities_asset_system(
         _ => return,
     }
 
+    fill_inspected_entity_ids(ent.as_ref(), inspected_entity);
+
+    *opened_asset = OpenedEntitiesAssetResource {
+        asset_key: asset_key.to_string(),
+        path: path.to_owned(),
+        asset_type,
+        prefab_root,
+    };
+}
+
+pub fn fill_inspected_entity_ids(ent: EntitiesHolderRef, inspected_entity: &mut InspectedEntityResource) {
     for entity in ent.query::<EntityId>().iter() {
         let id = entity.version_index().index + 1;
 
         inspected_entity.ent_to_id.insert(entity, id);
         inspected_entity.id_to_ent.insert(id, entity);
     }
-
-    *opened_asset = OpenedEntitiesAssetResource {
-        asset_key: selected_file.potential_asset_key.clone(),
-        path: selected_file.path.clone(),
-        asset_type,
-        prefab_root,
-    };
 }
 
 fn is_entities_asset(asset_type: AssetType) -> bool {

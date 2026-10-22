@@ -71,7 +71,7 @@ impl ApplicationHandler for EventLoopHandler {
         let window_state = window_state_from_window(&window);
 
         world.data_mut().resources_mut().insert(state);
-        world.data_mut().resources_mut().insert(InputResource::new());
+        world.data_mut().resources_mut().insert(InputResource::default());
         world.data_mut().resources_mut().insert(WindowResource::new(window_state));
         let mut world = world.build();
         world.execute_iteration(Schedule::Start);

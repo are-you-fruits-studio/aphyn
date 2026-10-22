@@ -135,7 +135,7 @@ fn restore_windows_layout_system(mut world: WorldDataMut) {
     world.resources_mut().insert(WindowsLayoutResource { last_saved: layout });
 }
 
-fn save_windows_layout_system(
+pub fn save_windows_layout_system(
     input_res: Res<InputResource>,
     mut layout_res: ResMut<WindowsLayoutResource>,
     window_q: WorldQuery<(&LocalRectComponent, &WindowComponent)>,

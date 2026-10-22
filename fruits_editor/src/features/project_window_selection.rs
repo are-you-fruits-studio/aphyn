@@ -112,6 +112,7 @@ pub fn open_project_entry_context_menu_system(
     entry_q: WorldQuery<(&ProjectWindowEntryComponent, &ButtonComponent)>,
     empty_area_q: WorldQuery<&ButtonComponent, WithFilter<ProjectWindowEmptyAreaComponent>>,
     open_project: Res<OpenProjectResource>,
+    simulated_world: Res<SimulatedWorldResource>,
     mut generic_dropdown_res: ResMut<GenericDropdownResource>,
     mut context_menu_res: ResMut<ProjectEntryContextMenuResource>,
 ) {
@@ -141,6 +142,13 @@ pub fn open_project_entry_context_menu_system(
     } else {
         return;
     };
+
+    // todo: support file changes in play mode
+    let actions = actions
+        .into_iter()
+        .filter(|a| !simulated_world.is_playing() || matches!(a, ProjectEntryContextAction::ShowInExplorer | ProjectEntryContextAction::CopyAssetKey))
+        .collect::<Vec<_>>();
+    return_if!(actions.is_empty());
 
     let position = Vec2::from_array(input_res.mouse.position.map(|v| v as f32));
     context_menu_res.request_id = generic_dropdown_res.request(actions.iter().map(|a| FfiString::from(a.label())).collect(), position);
