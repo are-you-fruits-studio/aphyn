@@ -1177,20 +1177,25 @@ pub fn update_global_uniforms(
     );
 }
 
-pub fn render_opaque_instanced(
+pub fn render_opaque(
     mesh_q: WorldQuery<(
         Option<&GlobalTransform>,
-        &StandardMeshComponent,
+        Option<&StandardMeshComponent>,
+        Option<&BatchedMeshComponent>,
         &StandardMaterialComponent,
         Option<&GlobalDisableableComponent>,
-    )>,
+    ), OrFilter<(
+        WithFilter<StandardMeshComponent>,
+        WithFilter<BatchedMeshComponent>,
+    )>>,
     render_api: Res<RenderApiResource>,
+    current_rendering: Res<CurrentRenderingResource>,
     screen_space_res: Res<ScreenSpaceResource>,
+    materials: Res<AssetStorageResource<StandardMaterial>>,
+    meshes: Res<AssetStorageResource<StandardMesh>>,
     standard_render_res: Res<StandardRenderResource>,
     depth_res: Res<DepthTextureResource>,
-    current_rendering: Res<CurrentRenderingResource>,
-    meshes: Res<AssetStorageResource<StandardMesh>>,
-    materials: Res<AssetStorageResource<StandardMaterial>>,
+    mut batched_vertex_cpu_buffer: ResMut<BatchedVertexCpuBufferResource>,
 ) {
     if mesh_q.len() == 0 {
         return;
@@ -1209,9 +1214,12 @@ pub fn render_opaque_instanced(
         screen_space_res.far,
     );
 
-    let mut instanced_matrices = HashMap::new();
+    // todo: try using single vec and ordering it based on materials/meshes/batching-or-instancing. Separate it while iterating. Reuse it as SystemData to avoid reallocation
 
-    for (transform, render_mesh, render_material, disableable) in mesh_q.iter() {
+    let mut instanced_matrices = HashMap::new();
+    let mut batched_meshes_by_material = HashMap::new();
+
+    for (transform, standard_mesh, batched_mesh, render_material, disableable) in mesh_q.iter() {
         if disableable.copied().unwrap_or_default().is_disabled {
             continue;
         }
@@ -1228,12 +1236,24 @@ pub fn render_opaque_instanced(
             Some(transform) => transform.scale_rotation.into_4x4_with_offset(transform.position),
             None => Mat4::IDENTITY,
         };
-        instanced_matrices
-            .entry((render_mesh.mesh.clone(), render_material.material.clone()))
-            .or_insert_with(|| Vec::new())
-            .push(mat);
+
+        if let Some(standard_mesh) = standard_mesh {
+            instanced_matrices
+                .entry((standard_mesh.mesh.clone(), render_material.material.clone()))
+                .or_insert_with(|| Vec::new())
+                .push(mat);
+        }
+        
+        if let Some(batched_mesh) = batched_mesh {
+            batched_meshes_by_material
+                .entry(render_material.material.clone())
+                .or_insert_with(|| Vec::new())
+                .push((mat, batched_mesh));
+        }
     }
 
+    //
+    
     for ((mesh, material), matrices) in instanced_matrices.iter() {
         let Some(mesh) = meshes.get(&mesh) else {
             continue;
@@ -1301,64 +1321,8 @@ pub fn render_opaque_instanced(
             render_state.queue().submit(std::iter::once(encoder.finish()));
         }
     }
-}
 
-pub fn render_opaque_batched(
-    query: WorldQuery<(
-        Option<&GlobalTransform>,
-        &BatchedMeshComponent,
-        &StandardMaterialComponent,
-        Option<&GlobalDisableableComponent>,
-    )>,
-    render_api: Res<RenderApiResource>,
-    screen_space_res: Res<ScreenSpaceResource>,
-    standard_render_res: Res<StandardRenderResource>,
-    depth_res: Res<DepthTextureResource>,
-    current_rendering: Res<CurrentRenderingResource>,
-    materials: Res<AssetStorageResource<StandardMaterial>>,
-    mut batched_vertex_cpu_buffer: ResMut<BatchedVertexCpuBufferResource>,
-) {
-    if query.len() == 0 {
-        return;
-    }
-
-    let render_state = unsafe { render_api.raw() };
-
-    let view = &current_rendering.target_view;
-
-    let window_size = current_rendering.target_size();
-
-    let window_to_clip_mat = crate::utils::create_window_to_clip_matrix(
-        window_size[0] as f32,
-        window_size[1] as f32,
-        screen_space_res.near,
-        screen_space_res.far,
-    );
-
-    let mut batched_meshes_by_material = HashMap::new();
-
-    for (transform, batched_mesh, render_material, disableable) in query.iter() {
-        if disableable.copied().unwrap_or_default().is_disabled {
-            continue;
-        }
-
-        let Some(material) = materials.get(&render_material.material) else {
-            continue;
-        };
-
-        if material.meta().alpha_threshold.is_none() {
-            continue;
-        }
-
-        let mat = match transform {
-            Some(transform) => transform.scale_rotation.into_4x4_with_offset(transform.position),
-            None => Mat4::IDENTITY,
-        };
-        batched_meshes_by_material
-            .entry(render_material.material.clone())
-            .or_insert_with(|| Vec::new())
-            .push((mat, batched_mesh));
-    }
+    //
 
     render_state.queue().write_buffer(
         &standard_render_res.instance_buffer,
