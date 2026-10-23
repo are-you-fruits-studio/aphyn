@@ -1,6 +1,7 @@
 use core::f32;
 use std::collections::HashMap;
 
+use fruits_asset_storage::AssetHandle;
 use fruits_ecs::*;
 use fruits_math::*;
 use fruits_render_core::*;
@@ -122,7 +123,7 @@ pub fn create_standard_render_resource(mut world: WorldDataMut) {
     );
 
     let instance_cpu_buffer =
-        vec![Mat4::<f32>::IDENTITY.into_array(); INSTANCES_PER_DRAW_MAX].into_boxed_slice();
+        vec![Mat4::<f32>::IDENTITY; INSTANCES_PER_DRAW_MAX].into_boxed_slice();
 
     let instance_buffer = render_state.device().create_buffer_init(&BufferInitDescriptor {
         label: Some("Instance Buffer"),
@@ -170,7 +171,6 @@ pub fn create_standard_render_resource(mut world: WorldDataMut) {
             pipeline_layout: pipeline_layout_standard,
             global_uniform_buffer,
             global_bind_group,
-            instance_cpu_buffer,
             instance_buffer,
             batched_vertex_buffer,
             lights_buffer,
@@ -188,6 +188,10 @@ pub fn create_standard_render_resource(mut world: WorldDataMut) {
     world.as_mut()
         .resources_mut()
         .insert(BatchedVertexCpuBufferResource(batched_vertex_cpu_buffer));
+
+    world.as_mut()
+        .resources_mut()
+        .insert(InstancedInstanceCpuBufferResource(instance_cpu_buffer));
 
     world.as_mut()
         .resources_mut()
@@ -1196,6 +1200,7 @@ pub fn render_opaque(
     standard_render_res: Res<StandardRenderResource>,
     depth_res: Res<DepthTextureResource>,
     mut batched_vertex_cpu_buffer: ResMut<BatchedVertexCpuBufferResource>,
+    mut instanced_instance_cpu_buffer: ResMut<InstancedInstanceCpuBufferResource>,
 ) {
     if mesh_q.len() == 0 {
         return;
@@ -1215,9 +1220,15 @@ pub fn render_opaque(
     );
 
     // todo: try using single vec and ordering it based on materials/meshes/batching-or-instancing. Separate it while iterating. Reuse it as SystemData to avoid reallocation
+    // order: material -> instance/batch -> mesh
 
-    let mut instanced_matrices = HashMap::new();
-    let mut batched_meshes_by_material = HashMap::new();
+    #[derive(Clone)]
+    enum MeshTy<'a> {
+        Instanced(AssetHandle<StandardMesh>),
+        Batched(&'a BatchedMeshComponent)
+    }
+
+    let mut render_requests = Vec::new();
 
     for (transform, standard_mesh, batched_mesh, render_material, disableable) in mesh_q.iter() {
         if disableable.copied().unwrap_or_default().is_disabled {
@@ -1238,161 +1249,204 @@ pub fn render_opaque(
         };
 
         if let Some(standard_mesh) = standard_mesh {
-            instanced_matrices
-                .entry((standard_mesh.mesh.clone(), render_material.material.clone()))
-                .or_insert_with(|| Vec::new())
-                .push(mat);
+            render_requests.push((render_material.material.clone(), MeshTy::Instanced(standard_mesh.mesh.clone()), mat));
         }
         
         if let Some(batched_mesh) = batched_mesh {
-            batched_meshes_by_material
-                .entry(render_material.material.clone())
-                .or_insert_with(|| Vec::new())
-                .push((mat, batched_mesh));
+            render_requests.push((render_material.material.clone(), MeshTy::Batched(batched_mesh), mat));
         }
     }
 
-    //
-    
-    for ((mesh, material), matrices) in instanced_matrices.iter() {
-        let Some(mesh) = meshes.get(&mesh) else {
-            continue;
-        };
-        let Some(material) = materials.get(&material) else {
-            continue;
+    render_requests.sort_by(|l, r| {
+        let (l_mesh, r_mesh) = match (&l.1, &r.1) {
+            (MeshTy::Instanced(_), MeshTy::Batched(_)) => return std::cmp::Ordering::Less,
+            (MeshTy::Batched(_), MeshTy::Instanced(_)) => return std::cmp::Ordering::Greater,
+            (MeshTy::Batched(_), MeshTy::Batched(_)) => return std::cmp::Ordering::Equal,
+            (MeshTy::Instanced(l_mesh), MeshTy::Instanced(r_mesh)) => (l_mesh, r_mesh),
         };
 
-        let mesh = unsafe { mesh.native() };
-
-        if mesh.indices_count == 0 {
-            continue;
+        // todo: order by material first to allow materials ordering between each other.
+        match l.0.cmp(&r.0) {
+            std::cmp::Ordering::Equal => (),
+            result => return result,
         }
 
-        let (render_pipeline, bind_group) = crate::utils::get_render_data(
-            material,
-            &standard_render_res,
-            &render_state,
-            window_to_clip_mat,
-        );
+        l_mesh.cmp(r_mesh)
+    });
 
-        for matrices in matrices.chunks(INSTANCES_PER_DRAW_MAX) {
-            let matrices_bytes = fruits_utils::mem::as_bytes_slice(matrices);
+    for mesh_ty_chunk in render_requests.chunk_by(|l, r| std::mem::discriminant(&l.1) == std::mem::discriminant(&r.1)) {
+        match mesh_ty_chunk[0].1 {
+            MeshTy::Instanced(_) => {
+                for material_chunk in mesh_ty_chunk.chunk_by(|l, r| l.0 == r.0) {
+                    let material = &material_chunk[0].0;
 
-            render_state
-                .queue()
-                .write_buffer(&standard_render_res.instance_buffer, 0, matrices_bytes);
+                    let Some(material) = materials.get(&material) else {
+                        continue;
+                    };
+                        
+                    let (render_pipeline, bind_group) = crate::utils::get_render_data(
+                        material,
+                        &standard_render_res,
+                        &render_state,
+                        window_to_clip_mat,
+                    );
 
-            let mut encoder = render_state.device().create_command_encoder(&CommandEncoderDescriptor {
-                label: Some("Render Encoder"),
-            });
+                    let mesh_chunks = material_chunk.chunk_by(|l, r| {
+                        let MeshTy::Instanced(l_mesh) = &l.1 else {
+                            unreachable!();
+                        };
+                        let MeshTy::Instanced(r_mesh) = &r.1 else {
+                            unreachable!();
+                        };
+                        l_mesh == r_mesh
+                    });
 
-            {
-                let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                    label: Some("Render Pass"),
-                    color_attachments: &[Some(RenderPassColorAttachment {
-                        view: view,
-                        resolve_target: None,
-                        ops: Operations {
-                            load: LoadOp::Load,
-                            store: StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    })],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: &depth_res.texture_view,
-                        depth_ops: Some(Operations {
-                            load: LoadOp::Load,
-                            store: StoreOp::Store,
-                        }),
-                        stencil_ops: None,
-                    }),
-                    ..Default::default()
-                });
+                    for mesh_chunk in mesh_chunks {
+                        let MeshTy::Instanced(mesh) = &mesh_chunk[0].1 else {
+                            unreachable!();
+                        };
+                        let Some(mesh) = meshes.get(&mesh) else {
+                            continue;
+                        };
+                        
+                        let mesh = unsafe { mesh.native() };
 
-                render_pass.set_pipeline(render_pipeline);
-                render_pass.set_bind_group(0, &standard_render_res.global_bind_group, &[]);
-                render_pass.set_bind_group(1, bind_group, &[]);
-                render_pass.set_vertex_buffer(1, standard_render_res.instance_buffer.slice(..));
-                render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(mesh.index_buffer.slice(..), IndexFormat::Uint16);
-                render_pass.draw_indexed(0..(mesh.indices_count as u32), 0, 0..(matrices.len() as u32));
-            }
+                        if mesh.indices_count == 0 {
+                            continue;
+                        }
 
-            render_state.queue().submit(std::iter::once(encoder.finish()));
-        }
-    }
+                        for matrix_chunk in mesh_chunk.chunks(INSTANCES_PER_DRAW_MAX) {
+                            for (i, (_, _, matrix)) in matrix_chunk.iter().enumerate() {
+                                instanced_instance_cpu_buffer.0[i] = *matrix;
+                            }
 
-    //
+                            let matrices_bytes = fruits_utils::mem::as_bytes_slice(&instanced_instance_cpu_buffer.0[..matrix_chunk.len()]);
 
-    render_state.queue().write_buffer(
-        &standard_render_res.instance_buffer,
-        0,
-        fruits_utils::mem::as_bytes(&Mat4::<f32>::IDENTITY),
-    );
-    render_state.queue().submit([]);
+                            render_state
+                                .queue()
+                                .write_buffer(&standard_render_res.instance_buffer, 0, matrices_bytes);
+                            
+                            let mut encoder = render_state.device().create_command_encoder(&CommandEncoderDescriptor {
+                                label: Some("Render Encoder"),
+                            });
 
-    let batch_cpu_buffer = &mut batched_vertex_cpu_buffer.0;
+                            {
+                                let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                                    label: Some("Render Pass"),
+                                    color_attachments: &[Some(RenderPassColorAttachment {
+                                        view: view,
+                                        resolve_target: None,
+                                        ops: Operations {
+                                            load: LoadOp::Load,
+                                            store: StoreOp::Store,
+                                        },
+                                        depth_slice: None,
+                                    })],
+                                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                                        view: &depth_res.texture_view,
+                                        depth_ops: Some(Operations {
+                                            load: LoadOp::Load,
+                                            store: StoreOp::Store,
+                                        }),
+                                        stencil_ops: None,
+                                    }),
+                                    ..Default::default()
+                                });
 
-    for (material, matrices_and_meshes) in &batched_meshes_by_material {
-        let Some(material) = materials.get(&material) else {
-            continue;
-        };
+                                render_pass.set_pipeline(render_pipeline);
+                                render_pass.set_bind_group(0, &standard_render_res.global_bind_group, &[]);
+                                render_pass.set_bind_group(1, bind_group, &[]);
+                                render_pass.set_vertex_buffer(1, standard_render_res.instance_buffer.slice(..));
+                                render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                                render_pass.set_index_buffer(mesh.index_buffer.slice(..), IndexFormat::Uint16);
+                                render_pass.draw_indexed(0..(mesh.indices_count as u32), 0, 0..(matrix_chunk.len() as u32));
+                            }
 
-        let (render_pipeline, bind_group) = crate::utils::get_render_data(
-            material,
-            &standard_render_res,
-            &render_state,
-            window_to_clip_mat,
-        );
-
-        let mut batch_buffer_i = 0;
-
-        let srgb_to_linear = |x: f32| x.powf(2.2);
-        for (mat, batched_mesh) in matrices_and_meshes {
-            for &i in &batched_mesh.indices {
-                let mut vertex = batched_mesh.vertices[i as u64];
-
-                vertex.position = mat.mul_with_projection(Vec3::from_array(vertex.position)).into_array();
-                vertex.normal = mat.mul_with_projection_as_dir(Vec3::from_array(vertex.normal)).into_array();
-                vertex.color = [
-                    srgb_to_linear(vertex.color[0]),
-                    srgb_to_linear(vertex.color[1]),
-                    srgb_to_linear(vertex.color[2]),
-                    vertex.color[3],
-                ];
-
-                batch_cpu_buffer[batch_buffer_i] = vertex;
-
-                batch_buffer_i += 1;
-
-                if batch_buffer_i < batch_cpu_buffer.len() {
-                    continue;
+                            render_state.queue().submit(std::iter::once(encoder.finish()));
+                        }
+                    }
                 }
-
-                batch_buffer_i = 0;
-
-                submit_render_batched(
-                    &render_state,
-                    &standard_render_res,
-                    &batch_cpu_buffer[..],
-                    view,
-                    &depth_res,
-                    render_pipeline,
-                    bind_group,
+            },
+            MeshTy::Batched(_) => {
+                render_state.queue().write_buffer(
+                    &standard_render_res.instance_buffer,
+                    0,
+                    fruits_utils::mem::as_bytes(&Mat4::<f32>::IDENTITY),
                 );
-            }
-        }
+                render_state.queue().submit([]);
 
-        if batch_buffer_i > 0 {
-            submit_render_batched(
-                &render_state,
-                &standard_render_res,
-                &batch_cpu_buffer[..batch_buffer_i],
-                view,
-                &depth_res,
-                render_pipeline,
-                bind_group,
-            );
+                let batch_cpu_buffer = &mut batched_vertex_cpu_buffer.0;
+
+                for material_chunks in mesh_ty_chunk.chunk_by(|l, r| l.0 == r.0) {
+                    let material = &material_chunks[0].0;
+
+                    let Some(material) = materials.get(&material) else {
+                        continue;
+                    };
+
+                    let (render_pipeline, bind_group) = crate::utils::get_render_data(
+                        material,
+                        &standard_render_res,
+                        &render_state,
+                        window_to_clip_mat,
+                    );
+
+                    let mut batch_buffer_i = 0;
+
+                    // todo: to Image/Text components, the gamma curve should not be here with batching
+                    let srgb_to_linear = |x: f32| x.powf(2.2);
+                    for (_, batched_mesh, mat) in material_chunks {
+                        let MeshTy::Batched(batched_mesh) = batched_mesh else {
+                            unreachable!();
+                        };
+
+                        for &i in &batched_mesh.indices {
+                            let mut vertex = batched_mesh.vertices[i as u64];
+
+                            vertex.position = mat.mul_with_projection(Vec3::from_array(vertex.position)).into_array();
+                            vertex.normal = mat.mul_with_projection_as_dir(Vec3::from_array(vertex.normal)).into_array();
+                            vertex.color = [
+                                srgb_to_linear(vertex.color[0]),
+                                srgb_to_linear(vertex.color[1]),
+                                srgb_to_linear(vertex.color[2]),
+                                vertex.color[3],
+                            ];
+
+                            batch_cpu_buffer[batch_buffer_i] = vertex;
+
+                            batch_buffer_i += 1;
+
+                            if batch_buffer_i < batch_cpu_buffer.len() {
+                                continue;
+                            }
+
+                            batch_buffer_i = 0;
+
+                            submit_render_batched(
+                                &render_state,
+                                &standard_render_res,
+                                &batch_cpu_buffer[..],
+                                view,
+                                &depth_res,
+                                render_pipeline,
+                                bind_group,
+                            );
+                        }
+                    }
+
+                    if batch_buffer_i > 0 {
+                        submit_render_batched(
+                            &render_state,
+                            &standard_render_res,
+                            &batch_cpu_buffer[..batch_buffer_i],
+                            view,
+                            &depth_res,
+                            render_pipeline,
+                            bind_group,
+                        );
+                    }
+                }
+            },
         }
     }
 }

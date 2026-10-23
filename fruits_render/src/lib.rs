@@ -157,7 +157,7 @@
 //! explicit order is: recreate any intermediate target that no longer matches the current render
 //! target (depth, transparent, exposure, bloom, color grading), clear the depth and transparent
 //! targets, update the camera matrix, upload the lights, update the global
-//! uniform, draw opaque geometry (instanced then batched), draw transparent geometry (instanced then
+//! uniform, draw opaque geometry (one system, instanced then batched), draw transparent geometry (instanced then
 //! batched), composite the transparent target, apply exposure, bloom, and color grading, and
 //! finally draw gizmos. Every pass records its own command encoder and submits it immediately.
 //!
@@ -176,20 +176,28 @@
 //!
 //! #### Two geometry paths: instanced and batched
 //!
-//! Geometry reaches the GPU two ways. The **instanced** path ([`render_opaque_instanced`],
-//! [`render_transparent_instanced`]) groups entities by their
+//! Geometry reaches the GPU two ways. The **instanced** path groups entities by their
 //! ([`StandardMeshComponent`], [`StandardMaterialComponent`]) pair and issues indexed instanced
 //! draws, writing the per-instance model matrices into a reused instance buffer in chunks of
-//! [`INSTANCES_PER_DRAW_MAX`]. The **batched** path ([`render_opaque_batched`],
-//! [`render_transparent_batched`]) is for [`BatchedMeshComponent`]: it groups entities by
-//! material, transforms each indexed vertex on the CPU into world space (and converts vertex
-//! colors from sRGB to linear), writes them into a shared non-indexed vertex buffer, and
-//! flushes whenever the buffer fills ([`TRIANGLES_PER_BATCHED_DRAW_MAX`] triangles). Both paths
-//! skip entities whose `GlobalDisableableComponent` is set, treat a missing transform as the
-//! identity, and skip entities whose mesh or material handle does not resolve. The instanced path
-//! also skips meshes without indices, since wgpu panics on slicing their empty buffers. The instanced and
-//! batched functions are near-duplicates (see the `todo` notes). [`StandardRenderComponent`] is
-//! defined but not read by any system.
+//! [`INSTANCES_PER_DRAW_MAX`]. The **batched** path is for [`BatchedMeshComponent`]: it groups
+//! entities by material, transforms each indexed vertex on the CPU into world space (and converts
+//! vertex colors from sRGB to linear), writes them into a shared non-indexed vertex buffer, and
+//! flushes whenever the buffer fills ([`TRIANGLES_PER_BATCHED_DRAW_MAX`] triangles); it first
+//! writes an identity matrix into instance 0 of the instance buffer, which the batched draws read.
+//! Both paths skip entities whose `GlobalDisableableComponent` is set, treat a missing transform as
+//! the identity, and skip entities whose mesh or material handle does not resolve. The instanced
+//! path also skips meshes without indices, since wgpu panics on slicing their empty buffers. An
+//! entity with both mesh components is drawn by both paths.
+//!
+//! Opaque geometry is drawn by a single system, [`render_opaque`]. It queries entities with either
+//! mesh component, collects one `(material, mesh, model matrix)` request per mesh component into a
+//! per-frame `Vec`, sorts it (all instanced requests before all batched ones; instanced requests by
+//! material, then mesh handle), and walks it with `chunk_by` so every run of equal material/mesh
+//! becomes one draw group. Instanced matrices are staged in [`InstancedInstanceCpuBufferResource`]
+//! and batched vertices in [`BatchedVertexCpuBufferResource`]. Transparent geometry still uses two
+//! separate, near-duplicate systems ([`render_transparent_instanced`],
+//! [`render_transparent_batched`]) that group with `HashMap`s (see the `todo` notes).
+//! [`StandardRenderComponent`] is defined but not read by any system.
 //!
 //! #### Opaque vs. transparent compositing
 //!

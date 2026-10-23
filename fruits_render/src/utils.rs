@@ -59,6 +59,7 @@ pub(crate) fn get_render_data<'a, 'b>(
         _padding: Default::default(),
     };
 
+    // optimize - only write when there are changes.
     render_state.queue().write_buffer(
         &material_native.buffer_uniform,
         0,

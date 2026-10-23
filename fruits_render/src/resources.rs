@@ -197,7 +197,6 @@ pub struct StandardRenderResource {
     pub lights_buffer: Buffer,
     pub lights_count: u32,
     pub instance_buffer: Buffer,
-    pub instance_cpu_buffer: Box<[[[f32; 4]; 4]]>,
     pub camera_pos: Vec3<f32>,
     pub camera_proj_matrix: Mat4<f32>,
     pub render_pipeline_opaque_lit: RenderPipeline,
@@ -211,6 +210,9 @@ pub struct StandardRenderResource {
 // todo: support ffi
 #[derive(Resource)]
 pub struct BatchedVertexCpuBufferResource(pub Box<[StandardVertex]>);
+// todo: support ffi
+#[derive(Resource)]
+pub struct InstancedInstanceCpuBufferResource(pub Box<[Mat4<f32>]>);
 
 // todo: support ffi
 #[derive(Resource)]
