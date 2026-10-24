@@ -1,5 +1,5 @@
 mod gizmo_line;
-mod shader_standard;
+mod shaders;
 
 pub use gizmo_line::*;
-pub use shader_standard::*;
+pub use shaders::*;

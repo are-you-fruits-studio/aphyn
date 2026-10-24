@@ -17,3 +17,6 @@ fruits_asset_storage = { path = "../fruits_asset_storage" }
 fruits_ffi = { path = "../fruits_ffi" }
 fruits_serialization = { path = "../fruits_serialization" }
 serde_json = { version = "1", features = ["preserve_order"] }
+
+[dev-dependencies]
+naga = { version = "27", features = ["wgsl-in"] }

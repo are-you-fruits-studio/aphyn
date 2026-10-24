@@ -1,6 +1,6 @@
 use fruits_render_core::{
-    CreateBindGroupEntry, CreateBindGroupLayoutEntry, RENDER_TARGET_FORMAT, RenderState, clear_color_target, create_bind_group,
-    create_bind_group_layout, create_render_pipeline,
+    CreateBindGroupEntry, CreateBindGroupLayoutEntry, RENDER_TARGET_FORMAT, RenderState, WgslComposer, clear_color_target,
+    create_bind_group, create_bind_group_layout, create_render_pipeline,
 };
 use wgpu::*;
 
@@ -71,9 +71,14 @@ impl RenderTarget {
             push_constant_ranges: &[],
         });
 
-        let shader = render_state
-            .device()
-            .create_shader_module(include_wgsl!("./assets/copy_texture.wgsl"));
+        let shader = WgslComposer::with_engine_libraries()
+            .create_shader_module(
+                render_state.device(),
+                "copy_texture.wgsl",
+                include_str!("./assets/copy_texture.wgsl"),
+                &[],
+            )
+            .unwrap();
 
         let render_pipeline = create_render_pipeline(
             render_state.device(),

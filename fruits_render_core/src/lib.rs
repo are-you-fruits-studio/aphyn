@@ -111,6 +111,79 @@
 //! }
 //! ```
 //!
+//! #### Writing a shader with engine includes
+//!
+//! Shaders include the engine's WGSL structs and functions instead of copying them. A
+//! [`WgslComposer`] holds named WGSL *libraries*;
+//! [`with_engine_libraries`](WgslComposer::with_engine_libraries) registers the engine ones:
+//!
+//! - `fruits/standard_types.wgsl`: `GlobalData`, `MaterialData`, `GenericLight`, `VertexAttributes`,
+//!   `InstanceRawAttributes`, `InstanceAttributes`, and `map_instance_data`.
+//! - `fruits/standard_bindings.wgsl`: the standard bind groups (`global_data`, `lights`,
+//!   `material_data`, and the five material texture/sampler pairs). Includes `standard_types`.
+//! - `fruits/pbr.wgsl`: `PI`, `FragmentLight`, `light_generic_to_fragment`, `cook_torrance_brdf`
+//!   and its terms, and `create_matrix_tbn`. Includes `standard_types`.
+//! - `fruits/fullscreen.wgsl`: `fullscreen_triangle_position(vertex_index)` and `fullscreen_uv(position)`
+//!   for drawing a fullscreen triangle with 3 vertices and no vertex buffer.
+//!
+//! [`compose`](WgslComposer::compose) resolves `#include "<path>"` and the conditional blocks
+//! `#ifdef` / `#ifndef` / `#else` / `#endif` against the defines passed in, and returns plain WGSL:
+//!
+//! ```
+//! use fruits_render_core::WgslComposer;
+//!
+//! let source = r#"
+//! #include "fruits/fullscreen.wgsl"
+//!
+//! @vertex
+//! fn vs_main(@builtin(vertex_index) vertex_index: u32) -> @builtin(position) vec4f {
+//!     return vec4f(fullscreen_triangle_position(vertex_index), 0.0, 1.0);
+//! }
+//!
+//! @fragment
+//! fn fs_main() -> @location(0) vec4f {
+//! #ifdef RED
+//!     return vec4f(1.0, 0.0, 0.0, 1.0);
+//! #else
+//!     return vec4f(1.0);
+//! #endif
+//! }
+//! "#;
+//!
+//! let composer = WgslComposer::with_engine_libraries();
+//! let red = composer.compose("my_shader.wgsl", source, &["RED"]).unwrap();
+//!
+//! assert!(red.contains("fn fullscreen_triangle_position"));
+//! assert!(red.contains("vec4f(1.0, 0.0, 0.0, 1.0)"));
+//! assert!(!red.contains("vec4f(1.0);"));
+//! ```
+//!
+//! [`create_shader_module`](WgslComposer::create_shader_module) composes and creates the
+//! `wgpu::ShaderModule` in one step. Register your own libraries with
+//! [`add_library`](WgslComposer::add_library); every library is pasted at most once per
+//! composition, however many files include it:
+//!
+//! ```
+//! use fruits_render_core::WgslComposer;
+//!
+//! let mut composer = WgslComposer::new();
+//! composer.add_library("game/noise.wgsl", "fn noise(p: vec2f) -> f32 { return fract(sin(dot(p, vec2f(12.9898, 78.233))) * 43758.5453); }");
+//! composer.add_library("game/clouds.wgsl", "#include \"game/noise.wgsl\"");
+//!
+//! let code = composer.compose("sky.wgsl", "#include \"game/noise.wgsl\"\n#include \"game/clouds.wgsl\"", &[]).unwrap();
+//! assert_eq!(code.matches("fn noise").count(), 1);
+//! ```
+//!
+//! Errors carry the file and line of the directive that failed:
+//!
+//! ```
+//! use fruits_render_core::{WgslComposeErrorKind, WgslComposer};
+//!
+//! let error = WgslComposer::new().compose("sky.wgsl", "\n#include \"game/missing.wgsl\"", &[]).unwrap_err();
+//! assert_eq!(error.kind, WgslComposeErrorKind::UnknownInclude("game/missing.wgsl".into()));
+//! assert_eq!(error.to_string(), "sky.wgsl:2: unknown include \"game/missing.wgsl\"");
+//! ```
+//!
 //! # How to maintain
 //!
 //! #### Camera and current rendering
@@ -208,9 +281,32 @@
 //! [`create_bind_group_layout`], [`create_bind_group`], and [`create_render_pipeline`] (with the
 //! [`CreateBindGroupLayoutEntry`] / [`CreateBindGroupEntry`] shorthands) wrap the verbose wgpu
 //! descriptors and are shared with `fruits_render`. [`clear_color_target`] clears a color view in its own
-//! pass (used by `fruits_app` and the editor). [`Shader`] is a thin WGSL module wrapper that
-//! the pipeline path does not use and is marked `// todo: remove`. `render_graph.rs` is an
+//! pass (used by `fruits_app` and the editor). `render_graph.rs` is an
 //! unfinished render-graph sketch whose methods are `todo!()`; it is compiled but not exported.
+//!
+//! #### WGSL composer
+//!
+//! [`WgslComposer`] (`wgsl.rs`) is a line-based preprocessor. A directive is a line whose first
+//! non-whitespace character is `#`; WGSL has no `#` token, so directives never clash with
+//! shader code. Each directive line becomes an empty line in the output. `#include` looks the
+//! quoted path up only in the registered libraries (there is no file-system lookup yet) and is
+//! **include-once**: a set of already-pasted paths is kept for the whole
+//! [`compose`](WgslComposer::compose) call, because WGSL rejects redefinitions. A path is marked
+//! before its library is expanded, and module-scope WGSL declarations do not depend on order,
+//! so include cycles terminate and still produce valid code. Conditional blocks nest, test only
+//! the defines passed from Rust (there is no `#define`), and skip every directive inside an
+//! inactive block, including `#include`. A malformed directive is an error even in an inactive
+//! block. Errors carry the file and line of the directive ([`WgslComposeError`]). WGSL
+//! compilation errors from wgpu still refer to lines of the composed output.
+//!
+//! The engine libraries live in `src/assets/wgsl/` and are embedded with `include_str!`. The
+//! structs in `standard_types.wgsl` and the bindings in `standard_bindings.wgsl` must stay in
+//! sync with [`StandardUniformGlobal`], [`StandardUniformMaterial`], [`StandardGenericLight`],
+//! [`StandardVertex::desc`], [`StandardInstance::desc`], and the global and material bind group
+//! layouts in [`RenderData`]. `mip_fill_shader.wgsl` uses `fruits/fullscreen.wgsl`. The
+//! `engine_shaders_are_valid` unit test composes every library and `mip_fill_shader.wgsl` and
+//! validates them with `naga` (a dev-dependency), so no GPU is needed. The composer uses std
+//! types because it runs at pipeline creation and is not stored in the world.
 
 mod assets;
 pub use assets::*;
@@ -223,6 +319,9 @@ pub use utils::*;
 
 mod rendering;
 pub use rendering::*;
+
+mod wgsl;
+pub use wgsl::*;
 
 mod render_graph;
 // todo

@@ -211,10 +211,15 @@
 //!
 //! #### Shaders, materials, and lights
 //!
-//! The standard shader is generated as WGSL source at pipeline-creation time by
-//! [`shader_standard`], which concatenates code fragments and branches on
-//! `is_lit`/`is_transparent`; [`StandardRenderResource`] holds the four resulting pipelines plus
-//! the transparent-composite one. Bind group 0 is the global group (the
+//! All shaders here are `.wgsl` files in `src/assets/`, composed with
+//! [`render_wgsl_composer`]: the `fruits_render_core` engine libraries plus the crate-local
+//! `fruits/bloom.wgsl` (the bloom uniform, layer storage, and their bindings, shared by the four
+//! bloom shaders). The fullscreen passes use `fruits/fullscreen.wgsl`. The standard shader,
+//! `shader_standard.wgsl`, includes `fruits/standard_bindings.wgsl` and `fruits/pbr.wgsl` and is
+//! composed four times with the defines `LIT` and `TRANSPARENT`; [`StandardRenderResource`]
+//! holds the four resulting pipelines plus the transparent-composite one. The
+//! `render_shaders_are_valid` unit test validates every shader and standard variant with `naga`.
+//! Bind group 0 is the global group (the
 //! `StandardUniformGlobal` with the camera position and light count, plus the lights storage
 //! buffer); bind group 1 is the material's. `get_render_data` picks the pipeline from
 //! `is_lit` / `alpha_threshold` and rewrites the material uniform before every draw: color and

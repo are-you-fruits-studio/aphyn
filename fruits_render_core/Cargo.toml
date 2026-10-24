@@ -16,3 +16,6 @@ fruits_asset_storage = { path = "../fruits_asset_storage" }
 wgpu = "27"
 winit = "0.30"
 pollster = "0.4"
+
+[dev-dependencies]
+naga = { version = "27", features = ["wgsl-in"] }

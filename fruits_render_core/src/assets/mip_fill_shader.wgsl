@@ -1,3 +1,5 @@
+#include "fruits/fullscreen.wgsl"
+
 @group(0) @binding(0) var src_texture: texture_2d<f32>;
 @group(0) @binding(1) var src_sampler: sampler;
 
@@ -16,18 +18,11 @@ struct VertexOutput {
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
 
-    var pos = array<vec2f, 3>(
-        vec2f(-1.0, -3.0),
-        vec2f(3.0, 1.0),
-        vec2f(-1.0, 1.0)
-    );
-
-    let p = pos[in.vertex_index];
+    let p = fullscreen_triangle_position(in.vertex_index);
 
     out.position = vec4f(p, 0.0, 1.0);
     out.mip_index = in.instance_index;
-    out.uv = p * 0.5 + 0.5;
-    out.uv.y = 1.0 - out.uv.y;
+    out.uv = fullscreen_uv(p);
 
     return out;
 }

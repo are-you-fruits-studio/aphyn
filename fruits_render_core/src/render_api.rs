@@ -192,7 +192,14 @@ impl RenderData {
             ..Default::default()
         });
         
-        let mip_fill_shader = api.device.create_shader_module(include_wgsl!("./assets/mip_fill_shader.wgsl"));
+        let mip_fill_shader = crate::WgslComposer::with_engine_libraries()
+            .create_shader_module(
+                &api.device,
+                "mip_fill_shader.wgsl",
+                include_str!("./assets/mip_fill_shader.wgsl"),
+                &[],
+            )
+            .unwrap();
 
         Self {
             bind_group_layout_global,

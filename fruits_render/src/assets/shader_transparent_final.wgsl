@@ -1,14 +1,11 @@
+#include "fruits/fullscreen.wgsl"
+
 @group(0) @binding(0) var src_texture: texture_2d<f32>;
 @group(0) @binding(1) var src_sampler: sampler;
 
 @vertex
 fn vs_main(@builtin(vertex_index) vertex_index: u32) -> @builtin(position) vec4f {
-    var pos = array<vec2f, 3>(
-        vec2f(-1.0, -3.0),
-        vec2f(3.0, 1.0),
-        vec2f(-1.0, 1.0)
-    );
-    return vec4f(pos[vertex_index], 0.0, 1.0);
+    return vec4f(fullscreen_triangle_position(vertex_index), 0.0, 1.0);
 }
 
 @fragment

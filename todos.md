@@ -5,6 +5,10 @@
     - optimize update_hierarchy_window_system
 
 - implement the ability to use custom shaders
+
+import full shaders from code,
+import depending/full shaders from assets,
+
 - make sure prefab root entity is the first one serialized
 - implement windows docking (like in Microsoft VS)
 - copy-paste (with right mouse button and drop-down) (maybe even ctrl c ctrl v)

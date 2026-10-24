@@ -47,10 +47,14 @@ pub fn create_standard_render_resource(mut world: WorldDataMut) {
     });
 
     let create_render_pipeline_fn = |is_lit: bool, is_transparent: bool| -> RenderPipeline {
-        let shader = render_state.device().create_shader_module(ShaderModuleDescriptor {
-            label: None,
-            source: ShaderSource::Wgsl(super::assets::shader_standard(is_lit, is_transparent).into()),
-        });
+        let defs = [is_lit.then_some("LIT"), is_transparent.then_some("TRANSPARENT")];
+        let defs = defs.into_iter().flatten().collect::<Vec<_>>();
+        let shader = create_engine_shader_module(
+            render_state.device(),
+            "shader_standard.wgsl",
+            include_str!("./assets/shader_standard.wgsl"),
+            &defs,
+        );
 
         let color_target_state = match is_transparent {
             false => wgpu::ColorTargetState {
@@ -102,9 +106,12 @@ pub fn create_standard_render_resource(mut world: WorldDataMut) {
     let render_pipeline_transparent_unlit = create_render_pipeline_fn(false, true);
     let render_pipeline_transparent_lit = create_render_pipeline_fn(true, true);
 
-    let render_pipeline_transparent_shader = render_state
-        .device()
-        .create_shader_module(include_wgsl!("./assets/shader_transparent_final.wgsl"));
+    let render_pipeline_transparent_shader = create_engine_shader_module(
+        render_state.device(),
+        "shader_transparent_final.wgsl",
+        include_str!("./assets/shader_transparent_final.wgsl"),
+        &[],
+    );
 
     let render_pipeline_transparent_final = create_render_pipeline(
         render_state.device(),
@@ -432,9 +439,12 @@ pub fn recreate_exposure_render_resource(mut world: WorldDataMut) {
         push_constant_ranges: &[],
     });
 
-    let shader = render_state
-        .device()
-        .create_shader_module(include_wgsl!("./assets/shader_exposure.wgsl"));
+    let shader = create_engine_shader_module(
+        render_state.device(),
+        "shader_exposure.wgsl",
+        include_str!("./assets/shader_exposure.wgsl"),
+        &[],
+    );
 
     let render_pipeline = create_render_pipeline(
         render_state.device(),
@@ -746,21 +756,33 @@ pub fn recreate_bloom_render_resource(mut world: WorldDataMut) {
         push_constant_ranges: &[],
     });
 
-    let shader_gather = render_state
-        .device()
-        .create_shader_module(include_wgsl!("./assets/shader_bloom_gather_threshold.wgsl"));
+    let shader_gather = create_engine_shader_module(
+        render_state.device(),
+        "shader_bloom_gather_threshold.wgsl",
+        include_str!("./assets/shader_bloom_gather_threshold.wgsl"),
+        &[],
+    );
 
-    let shader_blur = render_state
-        .device()
-        .create_shader_module(include_wgsl!("./assets/shader_bloom_blur.wgsl"));
+    let shader_blur = create_engine_shader_module(
+        render_state.device(),
+        "shader_bloom_blur.wgsl",
+        include_str!("./assets/shader_bloom_blur.wgsl"),
+        &[],
+    );
 
-    let shader_downscale = render_state
-        .device()
-        .create_shader_module(include_wgsl!("./assets/shader_bloom_downscale.wgsl"));
+    let shader_downscale = create_engine_shader_module(
+        render_state.device(),
+        "shader_bloom_downscale.wgsl",
+        include_str!("./assets/shader_bloom_downscale.wgsl"),
+        &[],
+    );
 
-    let shader_apply = render_state
-        .device()
-        .create_shader_module(include_wgsl!("./assets/shader_bloom_apply.wgsl"));
+    let shader_apply = create_engine_shader_module(
+        render_state.device(),
+        "shader_bloom_apply.wgsl",
+        include_str!("./assets/shader_bloom_apply.wgsl"),
+        &[],
+    );
 
     let render_pipeline_gather = create_render_pipeline(
         render_state.device(),
@@ -942,9 +964,12 @@ pub fn recreate_color_grading_render_resource(mut world: WorldDataMut) {
         push_constant_ranges: &[],
     });
 
-    let shader = render_state
-        .device()
-        .create_shader_module(include_wgsl!("./assets/shader_color_grading_aces.wgsl"));
+    let shader = create_engine_shader_module(
+        render_state.device(),
+        "shader_color_grading_aces.wgsl",
+        include_str!("./assets/shader_color_grading_aces.wgsl"),
+        &[],
+    );
 
     let render_pipeline = create_render_pipeline(
         render_state.device(),
@@ -1030,9 +1055,12 @@ pub fn create_gizmos_render_resource(mut world: WorldDataMut) {
         push_constant_ranges: &[],
     });
 
-    let shader = render_state
-        .device()
-        .create_shader_module(include_wgsl!("./assets/shader_gizmo.wgsl"));
+    let shader = create_engine_shader_module(
+        render_state.device(),
+        "shader_gizmo.wgsl",
+        include_str!("./assets/shader_gizmo.wgsl"),
+        &[],
+    );
 
     let pipeline = create_render_pipeline(
         render_state.device(),
