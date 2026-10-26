@@ -7,7 +7,7 @@ use fruits_transform::GlobalTransform;
 use gilrs::Gilrs;
 use winit::{
     application::ApplicationHandler,
-    event::{DeviceEvent, DeviceId, ElementState, WindowEvent},
+    event::{DeviceEvent, DeviceId, ElementState, MouseScrollDelta, WindowEvent},
     event_loop::ActiveEventLoop,
     keyboard::PhysicalKey,
     window::{Window, WindowAttributes, WindowId},
@@ -143,6 +143,20 @@ impl ApplicationHandler for EventLoopHandler {
                     ElementState::Released => input.mouse.release(button),
                 }
             }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let input = res.get_mut::<InputResource>().unwrap();
+
+                match delta {
+                    MouseScrollDelta::LineDelta(x, y) => {
+                        input.mouse.scroll_delta_lines[0] += x;
+                        input.mouse.scroll_delta_lines[1] += y;
+                    },
+                    MouseScrollDelta::PixelDelta(physical_position) => {
+                        input.mouse.scroll_delta_pixels[0] += physical_position.x;
+                        input.mouse.scroll_delta_pixels[1] += physical_position.y;
+                    },
+                }
+            }
             WindowEvent::KeyboardInput { event, .. } => {
                 if event.repeat {
                     return;
@@ -196,14 +210,14 @@ fn core_system_gamepad(mut res: ResourcesHolderMut, gamepad_host: &mut Option<Gi
         fn get_or_create_gamepad(input: &mut InputResource, gamepad_id: usize) -> &mut GamepadInputStorage {
             input.gamepads.entry(gamepad_id).or_insert_with(|| GamepadInputStorage::new())
         }
-        
+
         for (gamepad_id, _) in gamepad_host.gamepads() {
             get_or_create_gamepad(input, gamepad_id.into());
         }
 
         while let Some(gamepad_evt) = gamepad_host.next_event() {
             let gamepad_id: usize = gamepad_evt.id.into();
-           
+
             match gamepad_evt.event {
                 gilrs::EventType::Connected => _ = get_or_create_gamepad(input, gamepad_id),
                 gilrs::EventType::Disconnected => _ = input.gamepads.remove_swap(&gamepad_id),

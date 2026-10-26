@@ -78,6 +78,8 @@ pub struct MouseInputStorage {
     frame_pressed: FfiIndexSet<MouseButton>,
     frame_released: FfiIndexSet<MouseButton>,
     pub position: [f64; 2],
+    pub scroll_delta_lines: [f32; 2],
+    pub scroll_delta_pixels: [f64; 2],
 }
 
 impl MouseInputStorage {
@@ -105,13 +107,14 @@ impl MouseInputStorage {
 
     pub fn clear(&mut self) {
         self.pressed.clear();
-        self.frame_pressed.clear();
-        self.frame_released.clear();
+        self.clear_frame();
     }
 
     pub fn clear_frame(&mut self) {
         self.frame_pressed.clear();
         self.frame_released.clear();
+        self.scroll_delta_lines = [0.0; 2];
+        self.scroll_delta_pixels = [0.0; 2];
     }
 }
 

@@ -57,6 +57,11 @@
 //!     // Cursor position in physical pixels.
 //!     let [x, y] = input.mouse.position;
 //!
+//!     // Wheel scroll accumulated since the last frame; positive `y` scrolls up / away from the user.
+//!     // Notched wheels report lines, touchpads report physical pixels, so read both.
+//!     let [_, wheel_lines] = input.mouse.scroll_delta_lines;
+//!     let [_, wheel_pixels] = input.mouse.scroll_delta_pixels;
+//!
 //!     // Gamepads are keyed by id; an analog stick reads back as an axis value.
 //!     if let Some(pad) = input.gamepads.get(&0) {
 //!         let throttle = pad.read_axis(GamepadAxis::LeftStickY);
@@ -64,7 +69,7 @@
 //!         let _ = (throttle, jumping);
 //!     }
 //!
-//!     let _ = (strafing, x, y);
+//!     let _ = (strafing, x, y, wheel_lines, wheel_pixels);
 //! }
 //! ```
 //!
@@ -126,7 +131,7 @@
 //! button/axis events update the matching [`GamepadInputStorage`]. The
 //! [`Schedule::Update`](fruits_ecs::Schedule) pass then runs, followed by the render core system,
 //! after which the handler clears the frame's events, calls `clear_frame` on the input storages,
-//! reconciles the window state, and requests the next redraw. Mouse, keyboard, and resize events
+//! reconciles the window state, and requests the next redraw. Mouse (buttons, cursor, wheel), keyboard, and resize events
 //! arrive as their own `winit` callbacks and write directly into the resources between frames.
 //!
 //! #### Rendering
@@ -147,7 +152,9 @@
 //! Each input storage keeps a persistent `pressed` set plus `frame_pressed` / `frame_released`
 //! sets. `press`/`release` update both; `clear_frame` (called once per frame after `Update`)
 //! empties only the two frame sets, which is what makes `is_just_pressed` / `is_just_released`
-//! true for exactly one frame while `is_pressed` stays sticky. Repeated key events are dropped
+//! true for exactly one frame while `is_pressed` stays sticky. The mouse storage's `clear_frame`
+//! also zeroes `scroll_delta_lines` / `scroll_delta_pixels`, which the wheel handler accumulates
+//! into (`+=`) so several wheel events between two frames add up. Repeated key events are dropped
 //! in the window-event handler before anything else, so a held key neither re-triggers
 //! `is_just_pressed` nor emits another [`TextInputEvent`].
 //!

@@ -1,23 +1,29 @@
 # Prioritized
 
-- implement systems scheduler where threadpool asks iterator for systems
-
-- improve playmode performance:
-    - optimize update_hierarchy_window_system
-
+- implement cursor grab and visibility
+- Make material updateable at runtime and optimize its gpu-buffer writes to dirty-only
 - make sure prefab root entity is the first one serialized
+
+# Default
+
 - implement windows docking (like in Microsoft VS)
 - copy-paste (with right mouse button and drop-down) (maybe even ctrl c ctrl v)
 - performance profiler window
 - live reload assets
 - live recompile scripts
 
-# Default
+# Queue
 
+- implement systems scheduler where threadpool asks iterator for systems
+    - don't create threadpool per systems executor. Make it external tool that is used as a parameter for every execute_iteration call
+    - measure how threadpool is used
+    - Make world execution configurable - single-threaded or multi-threaded
+
+- improve playmode performance:
+    - optimize update_hierarchy_window_system
 
 - transform-adjust interactable gizmo on selected object
 - console window
-
 - drag-drop files to move/assign them
 - show opened asset with different kind of selection
 - describe project structure and architecture better for claude
@@ -27,7 +33,10 @@
 - implement shadows
 - implement Skybox
 - implement SSR (Screen-Space Reflections)
+- make rendering more custimizeable
 - implement physics
+- implement initializing the window in the app builder before the window has been created
+- implement initializing app_id for the window
 
 # Low-prio
 
