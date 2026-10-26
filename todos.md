@@ -1,6 +1,5 @@
 # Prioritized
 
-- implement cursor grab and visibility
 - Make material updateable at runtime and optimize its gpu-buffer writes to dirty-only
 - make sure prefab root entity is the first one serialized
 

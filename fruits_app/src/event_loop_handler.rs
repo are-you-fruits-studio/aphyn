@@ -288,5 +288,6 @@ fn core_system_read_window(world: WorldDataMut, window: &Window) {
 fn core_system_update_window(world: WorldDataMut, window: &Window) {
     let window_res = world.into_resources_mut().into_get_mut::<WindowResource>().unwrap();
 
-    window_state_apply_changes(window_res.state(), WindowResource::changes(window_res), window);
+    let (state, changes) = WindowResource::state_and_changes_mut(window_res);
+    window_state_apply_changes(state, changes, window);
 }

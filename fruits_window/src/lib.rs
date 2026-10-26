@@ -21,10 +21,12 @@
 //!
 //! To change the window, request it with [`set_fullscreen`](WindowResource::set_fullscreen),
 //! [`set_size`](WindowResource::set_size), [`set_title`](WindowResource::set_title),
-//! [`set_resizable`](WindowResource::set_resizable) or [`set_icon`](WindowResource::set_icon)
-//! (a [`WindowIcon`] of RGBA8 pixels, `None` for the platform default); the
-//! request is applied to the real window at the end of the frame and shows up in
-//! [`state`](WindowResource::state) from the next frame on:
+//! [`set_resizable`](WindowResource::set_resizable), [`set_icon`](WindowResource::set_icon)
+//! (a [`WindowIcon`] of RGBA8 pixels, `None` for the platform default),
+//! [`set_cursor_grab`](WindowResource::set_cursor_grab) (a [`CursorGrabState`]) or
+//! [`set_cursor_visible`](WindowResource::set_cursor_visible); the request is applied to the real window at the end of the frame and shows up in
+//! [`state`](WindowResource::state) from the next frame on. A cursor grab mode the platform does
+//! not support is dropped, so the state keeps the previous mode:
 //!
 //! ```ignore
 //! use fruits_engine::*;
@@ -57,6 +59,14 @@ pub enum FullscreenState {
 }
 
 #[repr(C)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CursorGrabState {
+    None,
+    Confined,
+    Locked,
+}
+
+#[repr(C)]
 #[derive(Clone)]
 pub struct WindowState {
     pub fullscreen: FullscreenState,
@@ -64,6 +74,8 @@ pub struct WindowState {
     pub title: FfiString,
     pub is_resizable: bool,
     pub icon: FfiOption<WindowIcon>,
+    pub cursor_grab: CursorGrabState,
+    pub is_cursor_visible: bool,
 }
 
 impl WindowState {
@@ -83,6 +95,12 @@ impl WindowState {
         if let Some(icon) = changes.icon.into_option() {
             this.icon = icon;
         }
+        if let Some(cursor_grab) = changes.cursor_grab.into_option() {
+            this.cursor_grab = cursor_grab;
+        }
+        if let Some(cursor_visible) = changes.is_cursor_visible.into_option() {
+            this.is_cursor_visible = cursor_visible;
+        }
     }
 }
 
@@ -101,6 +119,8 @@ pub struct WindowChangeRequests {
     pub title: FfiOption<FfiString>,
     pub is_resizable: FfiOption<bool>,
     pub icon: FfiOption<FfiOption<WindowIcon>>,
+    pub cursor_grab: FfiOption<CursorGrabState>,
+    pub is_cursor_visible: FfiOption<bool>,
 }
 
 #[repr(C)]
@@ -130,6 +150,9 @@ impl WindowResource {
     pub fn changes(this: &Self) -> &WindowChangeRequests {
         &this.change_requests
     }
+    pub fn state_and_changes_mut(this: &mut Self) -> (&WindowState, &mut WindowChangeRequests) {
+        (&this.state, &mut this.change_requests)
+    }
 
     pub fn set_fullscreen(&mut self, fullscreen: FullscreenState) {
         self.change_requests.fullscreen = fullscreen.into();
@@ -145,5 +168,11 @@ impl WindowResource {
     }
     pub fn set_icon(&mut self, icon: Option<WindowIcon>) {
         self.change_requests.icon = FfiOption::Some(icon.into());
+    }
+    pub fn set_cursor_grab(&mut self, cursor_grab: CursorGrabState) {
+        self.change_requests.cursor_grab = cursor_grab.into();
+    }
+    pub fn set_cursor_visible(&mut self, cursor_visible: bool) {
+        self.change_requests.is_cursor_visible = cursor_visible.into();
     }
 }

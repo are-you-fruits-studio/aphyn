@@ -174,7 +174,10 @@
 //! Wayland, iOS, Android and Web; resizable on x11, iOS, Android and Web). The icon cannot be read
 //! back at all, so it starts as `None` (the platform default) and is likewise kept from the last
 //! request; an icon whose pixel buffer does not match its size is logged and falls back to the
-//! default. Exclusive fullscreen uses the current monitor's first video mode and falls back to
+//! default. Cursor grab and visibility cannot be read back either, so they start as
+//! `CursorGrabState::None` and visible and are kept from the last request; a grab mode the
+//! platform rejects (`Locked` on Windows and x11, `Confined` on macOS, ...) is removed from the
+//! requests in `window_state_apply_changes`, so the state keeps the previous mode. Exclusive fullscreen uses the current monitor's first video mode and falls back to
 //! borderless when there is none.
 
 mod app;

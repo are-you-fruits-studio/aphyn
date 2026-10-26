@@ -201,7 +201,7 @@ fn build_simulated_world(
         serializer.register(StandardSerializer::<FfiVec<EntityId>>::default());
 
         res.insert(render_api.clone());
-        res.insert(WindowResource::new(WindowState { fullscreen: FullscreenState::Windowed, size: [1, 1], title: "Scene".into(), is_resizable: true, icon: FfiOption::None }));
+        res.insert(WindowResource::new(WindowState { fullscreen: FullscreenState::Windowed, size: [1, 1], title: "Scene".into(), is_resizable: true, icon: FfiOption::None, cursor_grab: CursorGrabState::None, is_cursor_visible: true }));
 
         match mode {
             SimulationMode::Edit => {
