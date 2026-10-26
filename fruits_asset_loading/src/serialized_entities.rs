@@ -5,7 +5,7 @@ use fruits_audio::AudioClip;
 use fruits_ecs::*;
 use fruits_ffi::{FfiIndexMap, FfiString};
 use fruits_prefab::{Prefab, Scene, SerializedEntities, deserialize_component, deserialize_entity_components, serialize_components};
-use fruits_render_core::{StandardMaterial, StandardMesh, StandardTexture};
+use fruits_render_core::{StandardMaterial, StandardMesh, StandardShader, StandardTexture};
 use fruits_serialization::*;
 use fruits_ui::Font;
 
@@ -40,6 +40,7 @@ pub fn instantiate_serialized_entities(
     let materials = res.get::<AssetStorageResource<StandardMaterial>>();
     let meshes = res.get::<AssetStorageResource<StandardMesh>>();
     let audio_clips = res.get::<AssetStorageResource<AudioClip>>();
+    let shaders = res.get::<AssetStorageResource<StandardShader>>();
     let fonts = res.get::<AssetStorageResource<Font>>();
     let prefabs = res.get::<AssetStorageResource<Prefab>>();
     let scenes = res.get::<AssetStorageResource<Scene>>();
@@ -58,6 +59,7 @@ pub fn instantiate_serialized_entities(
         serializers_local.register(AssetInstantiateTransSerializer::new(materials));
         serializers_local.register(AssetInstantiateTransSerializer::new(meshes));
         serializers_local.register(AssetInstantiateTransSerializer::new(audio_clips));
+        serializers_local.register(AssetInstantiateTransSerializer::new(shaders));
         serializers_local.register(AssetInstantiateTransSerializer::new(fonts));
         serializers_local.register(AssetInstantiateTransSerializer::new(prefabs));
         serializers_local.register(AssetInstantiateTransSerializer::new(scenes));

@@ -1,11 +1,11 @@
 use fruits_asset_storage::AssetHandle;
-use fruits_ffi::{FfiDroppable, FfiOption};
+use fruits_ffi::FfiDroppable;
 use fruits_math::{Mat4, Vec3, Vec4};
 use fruits_serialization::*;
 use fruits_utils::mem::{AllBitVariationsValid, AllBitsInit};
 use wgpu::{BindGroup, Buffer, BufferUsages, Sampler, TextureView, util::{BufferInitDescriptor, DeviceExt}};
 
-use crate::{CreateBindGroupEntry, RenderState, StandardTexture};
+use crate::{CreateBindGroupEntry, RenderState, StandardShader, StandardTexture};
 
 #[repr(C)]
 #[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serializable)]
@@ -156,15 +156,55 @@ pub struct StandardMaterialNative {
 }
 
 #[repr(C)]
+#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serializable)]
+pub enum StandardEngineShader {
+    #[default]
+    OpaqueUnlit,
+    OpaqueLit,
+    TransparentUnlit,
+    TransparentLit,
+}
+
+impl From<StandardEngineShader> for StandardMaterialShader {
+    fn from(value: StandardEngineShader) -> Self {
+        Self::Engine(value)
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Serializable)]
+pub enum StandardMaterialShader {
+    Engine(StandardEngineShader),
+    Custom(AssetHandle<StandardShader>),
+}
+
+impl Default for StandardMaterialShader {
+    fn default() -> Self {
+        Self::Engine(StandardEngineShader::default())
+    }
+}
+
+impl StandardMaterialShader {
+    pub fn is_transparent(&self) -> bool {
+        match self {
+            Self::Engine(StandardEngineShader::TransparentUnlit | StandardEngineShader::TransparentLit) => true,
+            Self::Engine(StandardEngineShader::OpaqueUnlit | StandardEngineShader::OpaqueLit) => false,
+            // todo: transparent custom shaders
+            Self::Custom(_) => false,
+        }
+    }
+}
+
+#[repr(C)]
 #[derive(Clone, Debug, PartialEq, PartialOrd, Serializable)]
 pub struct StandardMaterialAssetMetadata {
-    pub is_lit: bool,
+    pub shader: StandardMaterialShader,
     pub space: RenderSpace,
     pub color: Vec4<f32>,
     pub emission_color: Vec4<f32>,
     pub metallic: f32,
     pub roughness: f32,
-    pub alpha_threshold: FfiOption<f32>,
+    pub alpha_threshold: f32,
     pub color_tex: AssetHandle<StandardTexture>,
     pub roughness_tex: AssetHandle<StandardTexture>,
     pub metallic_tex: AssetHandle<StandardTexture>,
@@ -175,13 +215,13 @@ pub struct StandardMaterialAssetMetadata {
 impl Default for StandardMaterialAssetMetadata {
     fn default() -> Self {
         Self {
-            is_lit: false,
+            shader: StandardMaterialShader::default(),
             space: RenderSpace::World,
             color: Vec4::splat(1.0),
             emission_color: Vec4::splat(0.0),
             metallic: 0.0,
             roughness: 0.5,
-            alpha_threshold: Some(0.5).into(),
+            alpha_threshold: 0.5,
             color_tex: AssetHandle::EMPTY,
             roughness_tex: AssetHandle::EMPTY,
             metallic_tex: AssetHandle::EMPTY,

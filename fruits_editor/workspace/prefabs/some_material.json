@@ -17,12 +17,15 @@
   },
   "metallic": 0.4560000002384186,
   "roughness": 0.9900000095367432,
-  "alpha_threshold": {
-    "$enum_variant": "None"
-  },
+  "alpha_threshold": 0.5,
   "color_tex": {
     "$enum_variant": "Some",
     "0": ""
   },
-  "is_lit": false
+  "shader": {
+    "$enum_variant": "Engine",
+    "0": {
+      "$enum_variant": "TransparentUnlit"
+    }
+  }
 }

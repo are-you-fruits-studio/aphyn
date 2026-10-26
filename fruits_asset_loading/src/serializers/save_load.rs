@@ -3,7 +3,7 @@ use fruits_audio::{AudioClip, AudioClipAssetMetadata};
 use fruits_ecs::ResourcesHolderRef;
 use fruits_ffi::FfiString;
 use fruits_prefab::{Prefab, Scene};
-use fruits_render_core::{CoordinateSpaceType, StandardMaterial, StandardMesh, StandardMeshAssetMetadata, StandardTexture};
+use fruits_render_core::{CoordinateSpaceType, StandardMaterial, StandardMesh, StandardMeshAssetMetadata, StandardShader, StandardTexture};
 use fruits_serialization::*;
 
 use crate::{EntityIdDecoder, EntityIdEncoder, EntityTransSerializer, serialize_entities_no_deps};
@@ -22,6 +22,7 @@ pub fn save_load_with_asset_serializers_from_world<R>(
             &*res.get::<AssetStorageResource<StandardMaterial>>()?,
             &*res.get::<AssetStorageResource<StandardMesh>>()?,
             &*res.get::<AssetStorageResource<AudioClip>>()?,
+            &*res.get::<AssetStorageResource<StandardShader>>()?,
             f,
         )
     )
@@ -34,6 +35,7 @@ pub fn save_load_with_asset_serializers<R>(
     materials: &AssetStorageResource<StandardMaterial>,
     meshes: &AssetStorageResource<StandardMesh>,
     audio_clips: &AssetStorageResource<AudioClip>,
+    shaders: &AssetStorageResource<StandardShader>,
     f: impl FnOnce(TransSerializerRegistry) -> R,
 ) -> R {
     let mut serializer_local = TransSerializerRegistry::new();
@@ -44,6 +46,7 @@ pub fn save_load_with_asset_serializers<R>(
     serializer_local.register(AssetHandleLinkTransSerializer::new(materials));
     serializer_local.register(AssetHandleLinkTransSerializer::new(meshes));
     serializer_local.register(AssetHandleLinkTransSerializer::new(audio_clips));
+    serializer_local.register(AssetHandleLinkTransSerializer::new(shaders));
     // todo: font
     serializer_local.register(AssetHandleLinkTransSerializer::new(prefabs));
     serializer_local.register(AssetHandleLinkTransSerializer::new(scenes));

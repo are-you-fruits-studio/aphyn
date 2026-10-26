@@ -6,6 +6,7 @@ use wgpu::{Texture, TextureFormat, TextureView};
 use crate::StandardLight;
 
 pub const RENDER_TARGET_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
+pub const DEPTH_TEXTURE_FORMAT: TextureFormat = TextureFormat::Depth32Float;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Serializable)]

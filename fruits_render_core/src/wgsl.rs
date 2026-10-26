@@ -41,6 +41,10 @@ impl WgslComposer {
         self.libraries.insert(path.into(), source.into());
     }
 
+    pub fn has_library(&self, path: &str) -> bool {
+        self.libraries.contains_key(path)
+    }
+
     pub fn compose(&self, name: &str, source: &str, defs: &[&str]) -> Result<String, WgslComposeError> {
         let mut output = String::with_capacity(source.len());
         let mut included = HashSet::new();
@@ -130,11 +134,7 @@ impl WgslComposer {
                     }
                 }
                 "include" => {
-                    let path = argument
-                        .strip_prefix('"')
-                        .and_then(|path| path.strip_suffix('"'))
-                        .filter(|path| !path.is_empty())
-                        .ok_or_else(malformed)?;
+                    let path = parse_include_argument(argument).ok_or_else(malformed)?;
 
                     if is_active {
                         let (path, library) = self
@@ -158,6 +158,26 @@ impl WgslComposer {
             None => Ok(()),
         }
     }
+}
+
+pub fn wgsl_include_paths(source: &str) -> impl Iterator<Item = &str> {
+    source.lines().filter_map(|line| {
+        let directive = line.trim_start().strip_prefix('#')?.trim();
+        let argument = directive.strip_prefix("include")?;
+
+        if !argument.starts_with(char::is_whitespace) {
+            return None;
+        }
+
+        parse_include_argument(argument.trim())
+    })
+}
+
+fn parse_include_argument(argument: &str) -> Option<&str> {
+    argument
+        .strip_prefix('"')
+        .and_then(|path| path.strip_suffix('"'))
+        .filter(|path| !path.is_empty())
 }
 
 struct Branch {
@@ -207,6 +227,8 @@ impl std::error::Error for WgslComposeError {}
 
 #[cfg(test)]
 mod tests {
+    // todo: decide how we handle tests (should we keep them? should we remove them? ...)
+
     use super::WgslComposer;
 
     fn validate(composer: &WgslComposer, name: &str, source: &str) {
@@ -230,5 +252,42 @@ mod tests {
             "mip_fill_shader.wgsl",
             include_str!("./assets/mip_fill_shader.wgsl"),
         );
+    }
+
+    #[test]
+    fn custom_shader_with_user_library_is_valid() {
+        let library = "fn tint(color: vec4<f32>) -> vec4<f32> {\n    return color * material_data.color;\n}\n";
+        let source = r#"#include "fruits/standard_bindings.wgsl"
+#include "shaders/tint.lib.wgsl"
+
+struct VertexOutput {
+    @builtin(position) position_clip: vec4<f32>,
+    @location(0) color: vec4<f32>,
+};
+
+@vertex
+fn vs_main(vertex: VertexAttributes, instance_raw: InstanceRawAttributes) -> VertexOutput {
+    let instance = map_instance_data(instance_raw);
+    var out: VertexOutput;
+    out.position_clip = material_data.matrix_world_to_clip * instance.local_to_world * vec4<f32>(vertex.position, 1.0);
+    out.color = vertex.color;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    return tint(in.color);
+}
+"#;
+
+        assert_eq!(
+            super::wgsl_include_paths(source).collect::<Vec<_>>(),
+            ["fruits/standard_bindings.wgsl", "shaders/tint.lib.wgsl"],
+        );
+
+        let mut composer = WgslComposer::with_engine_libraries();
+        composer.add_library("shaders/tint.lib.wgsl", library);
+
+        validate(&composer, "shaders/custom.wgsl", source);
     }
 }

@@ -69,8 +69,8 @@ fn init_scene_system(mut world: WorldDataMut) {
             ..Default::default()
         },
         StandardMaterialAssetMetadata {
-            is_lit: true,
-            alpha_threshold: 0.0.into(),
+            shader: StandardEngineShader::OpaqueLit.into(),
+            alpha_threshold: 0.0,
             color: Vec4::splat(1.0),
             metallic: 0.0,
             roughness: 1.0,

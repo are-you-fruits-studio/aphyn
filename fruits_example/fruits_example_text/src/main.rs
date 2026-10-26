@@ -69,7 +69,7 @@ fn init(mut world: WorldDataMut) {
     let font = standard_ui_assets.font_px_5_7.clone();
 
     let material = StandardMaterialAssetMetadata {
-        is_lit: false,
+        shader: StandardEngineShader::OpaqueUnlit.into(),
         space: RenderSpace::World,
         color_tex: texture_text_handle.clone(),
         ..Default::default()

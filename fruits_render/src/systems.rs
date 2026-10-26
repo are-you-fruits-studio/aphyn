@@ -31,14 +31,7 @@ pub fn create_standard_render_resource(mut world: WorldDataMut) {
         ],
     );
 
-    let pipeline_layout_standard = render_state.device().create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("Standard Pipeline Layout"),
-        bind_group_layouts: &[
-            &render_state.render_data().bind_group_layout_global,
-            &render_state.render_data().bind_group_layout_material,
-        ],
-        push_constant_ranges: &[],
-    });
+    let pipeline_layout_standard = &render_state.render_data().pipeline_layout_standard;
 
     let pipeline_layout_transparent_final = render_state.device().create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Transparent Final Pipeline Layout"),
@@ -83,7 +76,7 @@ pub fn create_standard_render_resource(mut world: WorldDataMut) {
         let render_pipeline = create_render_pipeline(
             render_state.device(),
             Some("Standard Render Pipeline"),
-            &pipeline_layout_standard,
+            pipeline_layout_standard,
             &shader,
             &[StandardVertex::desc(), StandardInstance::desc()],
             color_target_state,
@@ -175,7 +168,6 @@ pub fn create_standard_render_resource(mut world: WorldDataMut) {
     world.as_mut()
         .resources_mut()
         .insert(StandardRenderResource {
-            pipeline_layout: pipeline_layout_standard,
             global_uniform_buffer,
             global_bind_group,
             instance_buffer,
@@ -1224,6 +1216,7 @@ pub fn render_opaque(
     current_rendering: Res<CurrentRenderingResource>,
     screen_space_res: Res<ScreenSpaceResource>,
     materials: Res<AssetStorageResource<StandardMaterial>>,
+    shaders: Res<AssetStorageResource<StandardShader>>,
     meshes: Res<AssetStorageResource<StandardMesh>>,
     standard_render_res: Res<StandardRenderResource>,
     depth_res: Res<DepthTextureResource>,
@@ -1267,7 +1260,7 @@ pub fn render_opaque(
             continue;
         };
 
-        if material.meta().alpha_threshold.is_none() {
+        if material.meta().shader.is_transparent() {
             continue;
         }
 
@@ -1312,12 +1305,15 @@ pub fn render_opaque(
                         continue;
                     };
                         
-                    let (render_pipeline, bind_group) = crate::utils::get_render_data(
+                    let Some((render_pipeline, bind_group)) = crate::utils::get_render_data(
                         material,
                         &standard_render_res,
+                        &shaders,
                         &render_state,
                         window_to_clip_mat,
-                    );
+                    ) else {
+                        continue;
+                    };
 
                     let mesh_chunks = material_chunk.chunk_by(|l, r| {
                         let MeshTy::Instanced(l_mesh) = &l.1 else {
@@ -1412,12 +1408,15 @@ pub fn render_opaque(
                         continue;
                     };
 
-                    let (render_pipeline, bind_group) = crate::utils::get_render_data(
+                    let Some((render_pipeline, bind_group)) = crate::utils::get_render_data(
                         material,
                         &standard_render_res,
+                        &shaders,
                         &render_state,
                         window_to_clip_mat,
-                    );
+                    ) else {
+                        continue;
+                    };
 
                     let mut batch_buffer_i = 0;
 
@@ -1495,6 +1494,7 @@ pub fn render_transparent_instanced(
     current_rendering: Res<CurrentRenderingResource>,
     meshes: Res<AssetStorageResource<StandardMesh>>,
     materials: Res<AssetStorageResource<StandardMaterial>>,
+    shaders: Res<AssetStorageResource<StandardShader>>,
 ) {
     if query.len() == 0 {
         return;
@@ -1524,7 +1524,7 @@ pub fn render_transparent_instanced(
             continue;
         };
 
-        if material.meta().alpha_threshold.is_some() {
+        if !material.meta().shader.is_transparent() {
             continue;
         }
 
@@ -1552,12 +1552,15 @@ pub fn render_transparent_instanced(
             continue;
         }
 
-        let (render_pipeline, bind_group) = crate::utils::get_render_data(
+        let Some((render_pipeline, bind_group)) = crate::utils::get_render_data(
             material,
             &standard_render_res,
+            &shaders,
             &render_state,
             window_to_clip_mat,
-        );
+        ) else {
+            continue;
+        };
 
         for matrices in matrices.chunks(INSTANCES_PER_DRAW_MAX) {
             let matrices_bytes = fruits_utils::mem::as_bytes_slice(matrices);
@@ -1622,6 +1625,7 @@ pub fn render_transparent_batched(
     transparent_target_res: Res<TransparentTargetTextureResource>,
     current_rendering: Res<CurrentRenderingResource>,
     materials: Res<AssetStorageResource<StandardMaterial>>,
+    shaders: Res<AssetStorageResource<StandardShader>>,
     mut batched_vertex_cpu_buffer: ResMut<BatchedVertexCpuBufferResource>,
 ) {
     if query.len() == 0 {
@@ -1652,7 +1656,7 @@ pub fn render_transparent_batched(
             continue;
         };
 
-        if material.meta().alpha_threshold.is_some() {
+        if !material.meta().shader.is_transparent() {
             continue;
         }
 
@@ -1680,12 +1684,15 @@ pub fn render_transparent_batched(
             continue;
         };
 
-        let (render_pipeline, bind_group) = crate::utils::get_render_data(
+        let Some((render_pipeline, bind_group)) = crate::utils::get_render_data(
             material,
             &standard_render_res,
+            &shaders,
             &render_state,
             window_to_clip_mat,
-        );
+        ) else {
+            continue;
+        };
 
         let mut batch_buffer_i = 0;
 

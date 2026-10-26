@@ -76,10 +76,12 @@
 //! #### Creating a material
 //!
 //! Create a material through the [`RenderApiResource`](fruits_render_core::RenderApiResource)
-//! and store it in the `AssetStorageResource<StandardMaterial>`. `alpha_threshold` decides the
-//! draw path: `Some(_)` is an opaque, alpha-tested surface, `None` a blended transparent one.
-//! `space` selects the coordinate space the geometry is interpreted in (`World`, `Window` in
-//! pixels, or `Clip`):
+//! and store it in the `AssetStorageResource<StandardMaterial>`. `shader` decides the draw path:
+//! the opaque engine variants and custom shaders draw an opaque surface alpha-tested against
+//! `alpha_threshold`, the transparent engine variants a blended transparent one. A custom shader
+//! is a `StandardShader` from the `AssetStorageResource<StandardShader>` (usually a `.wgsl` asset
+//! loaded by `fruits_asset_loading`). `space` selects the coordinate space the geometry is
+//! interpreted in (`World`, `Window` in pixels, or `Clip`):
 //!
 //! ```ignore
 //! use fruits_engine::*;
@@ -88,8 +90,8 @@
 //! let material = render_api.create_material(Default::default(), StandardMaterialAssetMetadata {
 //!     space: RenderSpace::World,
 //!     color: Vec4::new(1.0, 0.5, 0.2, 1.0),
-//!     is_lit: true,
-//!     alpha_threshold: Some(0.5).into(),
+//!     shader: StandardEngineShader::OpaqueLit.into(),
+//!     alpha_threshold: 0.5,
 //!     ..Default::default()
 //! });
 //!
@@ -141,12 +143,13 @@
 //!
 //! #### Registration and frame order
 //!
-//! [`add_render_module_to`] inserts the asset storages for materials, meshes, and textures and
+//! [`add_render_module_to`] inserts the asset storages for materials, shaders, meshes, and textures and
 //! the user-facing resources ([`GizmosResource`], [`ScreenSpaceResource`], [`BloomResource`],
 //! [`ExposureResource`], [`ColorGradingResource`]), and registers its systems under the
 //! [`SYSTEM_GROUP_RENDER`] group in three schedules. [`Schedule::Start`] builds the
 //! [`StandardRenderResource`] and the gizmo resources; pipelines are created against the fixed
-//! [`RENDER_TARGET_FORMAT`](fruits_render_core::RENDER_TARGET_FORMAT), [`DEPTH_TEXTURE_FORMAT`],
+//! [`RENDER_TARGET_FORMAT`](fruits_render_core::RENDER_TARGET_FORMAT),
+//! [`DEPTH_TEXTURE_FORMAT`](fruits_render_core::DEPTH_TEXTURE_FORMAT),
 //! and [`TRANSPARENT_TARGET_FORMAT`] since no render target exists yet. [`Schedule::Update`] only
 //! runs the per-frame work that does not depend on the camera: [`prepare_gizmos`]. Keeping the
 //! group in `Update` lets other modules and games keep ordering their systems
@@ -201,9 +204,10 @@
 //!
 //! #### Opaque vs. transparent compositing
 //!
-//! A material's `alpha_threshold` splits the two: `Some` materials are drawn opaque into the
-//! render target (depth-write on, `REPLACE` blend, alpha-tested with `discard` in the shader);
-//! `None` materials are transparent. Transparent draws target an offscreen `Rgba16Float`
+//! [`StandardMaterialShader::is_transparent`](fruits_render_core::StandardMaterialShader::is_transparent)
+//! splits the two: opaque materials (opaque engine variants and every custom shader) are drawn
+//! into the render target (depth-write on, `REPLACE` blend, alpha-tested with `discard` against
+//! `alpha_threshold` in the engine shader); transparent engine variants are transparent. Transparent draws target an offscreen `Rgba16Float`
 //! [`TransparentTargetTextureResource`] with additive blending and depth-test but no
 //! depth-write, and [`render_transparent_final_system`] then composites that target over the
 //! render target with a fullscreen triangle (`shader_transparent_final.wgsl`) using alpha
@@ -216,13 +220,17 @@
 //! `fruits/bloom.wgsl` (the bloom uniform, layer storage, and their bindings, shared by the four
 //! bloom shaders). The fullscreen passes use `fruits/fullscreen.wgsl`. The standard shader,
 //! `shader_standard.wgsl`, includes `fruits/standard_bindings.wgsl` and `fruits/pbr.wgsl` and is
-//! composed four times with the defines `LIT` and `TRANSPARENT`; [`StandardRenderResource`]
-//! holds the four resulting pipelines plus the transparent-composite one. The
+//! composed four times with the defines `LIT` and `TRANSPARENT` against the standard pipeline
+//! layout from `RenderData`; [`StandardRenderResource`] holds the four resulting pipelines plus
+//! the transparent-composite one. The opaque variants' pipeline state must match the one
+//! `StandardShader::new` in `fruits_render_core` builds for custom shaders. The
 //! `render_shaders_are_valid` unit test validates every shader and standard variant with `naga`.
 //! Bind group 0 is the global group (the
 //! `StandardUniformGlobal` with the camera position and light count, plus the lights storage
-//! buffer); bind group 1 is the material's. `get_render_data` picks the pipeline from
-//! `is_lit` / `alpha_threshold` and rewrites the material uniform before every draw: color and
+//! buffer); bind group 1 is the material's. `get_render_data` picks the pipeline from the
+//! material's `shader` (an engine variant's pipeline, or the custom `StandardShader`'s own one;
+//! a custom handle that doesn't resolve skips the draw) and rewrites the material uniform before
+//! every draw: color and
 //! emission color RGB are raised to the power 2.2 (sRGB to linear, alpha kept as is so the alpha
 //! test sees the authored value), and the world-to-clip matrix
 //! comes from the material's `RenderSpace` — `World` uses the camera matrix, `Window` uses
@@ -280,13 +288,14 @@ pub use self::{assets::*, components::*, resources::*, systems::*, utils::*};
 
 use fruits_asset_storage::AssetStorageResource;
 use fruits_ecs::{Schedule, WorldBuilderMut};
-use fruits_render_core::{StandardMesh, StandardTexture, StandardMaterial};
+use fruits_render_core::{StandardMesh, StandardShader, StandardTexture, StandardMaterial};
 
 pub const SYSTEM_GROUP_RENDER: &'static str = "fruits_render";
 
 pub fn add_render_module_to(mut world: WorldBuilderMut) {
     let mut res = world.data_mut().into_resources_mut();
     res.insert(AssetStorageResource::<StandardMaterial>::new());
+    res.insert(AssetStorageResource::<StandardShader>::new());
     res.insert(AssetStorageResource::<StandardMesh>::new());
     res.insert(AssetStorageResource::<StandardTexture>::new());
     res.insert(GizmosResource::default());

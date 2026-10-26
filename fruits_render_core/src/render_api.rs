@@ -5,7 +5,7 @@ use fruits_ffi::{FfiDroppable, FfiOption, FfiSliceRef, FfiStaticRef};
 use wgpu::*;
 use winit::window::Window;
 
-use crate::{StandardMaterial, StandardMaterialAssetMetadata, StandardMaterialAssets, StandardMesh, StandardMeshAssetMetadata, StandardTexture, StandardTextureAssetMetadata, StandardTextureFormat, StandardVertex};
+use crate::{StandardMaterial, StandardMaterialAssetMetadata, StandardMaterialAssets, StandardMesh, StandardShader, StandardMeshAssetMetadata, StandardTexture, StandardTextureAssetMetadata, StandardTextureFormat, StandardVertex};
 
 // todo: ffi?
 
@@ -135,6 +135,7 @@ impl RenderAssets {
 pub struct RenderData {
     pub bind_group_layout_global: BindGroupLayout,
     pub bind_group_layout_material: BindGroupLayout,
+    pub pipeline_layout_standard: PipelineLayout,
     pub mip_fill_bind_group_layout: BindGroupLayout,
     pub mip_fill_render_pipeline_layout: PipelineLayout,
     pub mip_fill_sampler: Sampler,
@@ -168,6 +169,11 @@ impl RenderData {
                 crate::CreateBindGroupLayoutEntry::SamplerFiltering,
             ],
         );
+        let pipeline_layout_standard = api.device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("Standard Pipeline Layout"),
+            bind_group_layouts: &[&bind_group_layout_global, &bind_group_layout_material],
+            push_constant_ranges: &[],
+        });
         let mip_fill_bind_group_layout = crate::create_bind_group_layout(
             &api.device,
             Some("Mip Fill Bind Group Layout"),
@@ -204,6 +210,7 @@ impl RenderData {
         Self {
             bind_group_layout_global,
             bind_group_layout_material,
+            pipeline_layout_standard,
             mip_fill_bind_group_layout,
             mip_fill_render_pipeline_layout,
             mip_fill_sampler,
@@ -308,6 +315,10 @@ impl RenderState {
             meta,
         )
     }
+
+    pub fn create_shader(&self, name: &str, source: &str) -> Option<StandardShader> {
+        StandardShader::new(self, name, source)
+    }
 }
 
 //
@@ -319,6 +330,7 @@ struct RenderApiVTable {
     create_texture_fn: unsafe extern "C-unwind" fn(*const c_void, filter_mode: FilterMode, dimensions: *const u32, data: FfiSliceRef<u8>, meta: StandardTextureAssetMetadata) -> StandardTexture,
     create_mesh_fn: unsafe extern "C-unwind" fn(*const c_void, vertices: FfiSliceRef<StandardVertex>, indices: FfiSliceRef<u16>, meta: FfiOption<StandardMeshAssetMetadata>) -> StandardMesh,
     create_material_fn: unsafe extern "C-unwind" fn(*const c_void, StandardMaterialAssets<FfiOption<&StandardTexture>>, meta: StandardMaterialAssetMetadata) -> StandardMaterial,
+    create_shader_fn: unsafe extern "C-unwind" fn(*const c_void, name: FfiSliceRef<u8>, source: FfiSliceRef<u8>) -> FfiOption<StandardShader>,
     clone_fn: unsafe extern "C-unwind" fn(*const c_void) -> FfiDroppable,
 }
 
@@ -388,6 +400,19 @@ impl RenderApiResource {
                 this.create_material(assets.map(|o| o.into_option()), meta)
             }
         }
+        unsafe extern "C-unwind" fn ffi_create_shader(
+            this: *const c_void,
+            name: FfiSliceRef<u8>,
+            source: FfiSliceRef<u8>,
+        ) -> FfiOption<StandardShader> {
+            unsafe {
+                let this = &*(this as *const Arc<RenderState>);
+                let name = std::str::from_utf8_unchecked(name.into_slice());
+                let source = std::str::from_utf8_unchecked(source.into_slice());
+
+                this.create_shader(name, source).into()
+            }
+        }
         unsafe extern "C-unwind" fn ffi_clone(this: *const c_void) -> FfiDroppable {
             unsafe {
                 let this = &*(this as *const Arc<RenderState>);
@@ -404,6 +429,7 @@ impl RenderApiResource {
                 create_texture_fn: ffi_create_texture,
                 create_mesh_fn: ffi_create_mesh,
                 create_material_fn: ffi_create_material,
+                create_shader_fn: ffi_create_shader,
                 clone_fn: ffi_clone,
             }),
         }
@@ -457,6 +483,16 @@ impl RenderApiResource {
             let this = self.data.get();
 
             (self.vtable.create_material_fn)(this, assets.map(|t| t.into()), meta)
+        }
+    }
+
+    pub fn create_shader(&self, name: &str, source: &str) -> Option<StandardShader> {
+        unsafe {
+            let this = self.data.get();
+            let name = FfiSliceRef::from_slice(name.as_bytes());
+            let source = FfiSliceRef::from_slice(source.as_bytes());
+
+            (self.vtable.create_shader_fn)(this, name, source).into_option()
         }
     }
 

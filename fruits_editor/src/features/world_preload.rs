@@ -177,6 +177,8 @@ fn build_simulated_world(
 
         serializer.register(StandardSerializer::<SerializedValue>::default());
         serializer.register(StandardSerializer::<RenderSpace>::default());
+        serializer.register(StandardSerializer::<StandardMaterialShader>::default());
+        serializer.register(StandardSerializer::<StandardEngineShader>::default());
         serializer.register(StandardSerializer::<StandardTextureFormat>::default());
         serializer.register(StandardSerializer::<f32>::default());
         serializer.register(StandardSerializer::<bool>::default());

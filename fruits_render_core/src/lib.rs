@@ -61,7 +61,10 @@
 //!
 //! A [`StandardMaterial`] combines the PBR parameters in [`StandardMaterialAssetMetadata`] with up
 //! to five textures ([`StandardMaterialAssets`]); a missing texture falls back to a built-in
-//! white texture (or a flat normal map for the normal slot):
+//! white texture (or a flat normal map for the normal slot). Its `shader` is a
+//! [`StandardMaterialShader`]: one of the four engine variants ([`StandardEngineShader`], opaque or
+//! transparent, lit or unlit), or `Custom` with a [`StandardShader`] handle. Opaque shaders
+//! discard fragments whose alpha is below `alpha_threshold`:
 //!
 //! ```ignore
 //! use fruits_render_core::*;
@@ -69,12 +72,26 @@
 //! let material = render_api.create_material(
 //!     StandardMaterialAssets { color_texture: Some(&texture), ..Default::default() },
 //!     StandardMaterialAssetMetadata {
-//!         is_lit: true,
+//!         shader: StandardEngineShader::OpaqueLit.into(),
 //!         metallic: 0.0,
 //!         roughness: 0.8,
 //!         ..Default::default()
 //!     },
 //! );
+//! ```
+//!
+//! #### Creating a custom shader
+//!
+//! A [`StandardShader`] is a composed WGSL source plus the opaque render pipeline built from it.
+//! The source must have `vs_main` / `fs_main` entry points that take the standard vertex and
+//! instance streams and use the standard bind groups (include `fruits/standard_bindings.wgsl`).
+//! Creation returns `None` (and prints the wgpu error) when the WGSL or the pipeline is invalid:
+//!
+//! ```ignore
+//! use fruits_render_core::*;
+//!
+//! let code = WgslComposer::with_engine_libraries().compose("shaders/water.wgsl", source, &[]).unwrap();
+//! let shader = render_api.create_shader("shaders/water.wgsl", &code).unwrap();
 //! ```
 //!
 //! #### Describing the standard vertex and instance formats
@@ -214,7 +231,8 @@
 //! methods ([`resize`](RenderApiResource::resize), [`size`](RenderApiResource::size),
 //! [`create_texture`](RenderApiResource::create_texture),
 //! [`create_mesh`](RenderApiResource::create_mesh),
-//! [`create_material`](RenderApiResource::create_material), and
+//! [`create_material`](RenderApiResource::create_material),
+//! [`create_shader`](RenderApiResource::create_shader), and
 //! [`clone`](RenderApiResource::clone), which clones the `Arc`) only marshal their arguments
 //! through that vtable into the underlying `RenderState`. Code running in the same binary skips
 //! the marshalling with the unsafe [`raw`](RenderApiResource::raw) accessor, which reinterprets
@@ -232,8 +250,9 @@
 //! configures the surface for `RENDER_ATTACHMENT` usage with the first reported present and alpha
 //! modes. `resize` ignores zero-sized requests and reconfigures the surface. [`RenderData`] holds
 //! the long-lived bind group layouts — a global one (a uniform buffer plus a storage buffer) and
-//! a material one (a uniform buffer plus five texture/sampler pairs) — and the layout, sampler,
-//! and shader used to fill mipmaps. [`RenderAssets`] holds the two 2×2 fallback textures (white,
+//! a material one (a uniform buffer plus five texture/sampler pairs) — the standard pipeline layout
+//! made of those two (shared by the engine standard pipelines in `fruits_render` and by
+//! [`StandardShader`] pipelines), and the layout, sampler, and shader used to fill mipmaps. [`RenderAssets`] holds the two 2×2 fallback textures (white,
 //! and a linear flat normal). Two `todo`s in `render_api.rs` flag that wgpu init may later move
 //! into an ECS `Start` handler and that the per-field accessors should be replaced by exposing
 //! the `api` as a struct.
@@ -271,6 +290,16 @@
 //! [`AllBitVariationsValid`](fruits_utils::mem::AllBitVariationsValid) so they can be uploaded as
 //! raw bytes.
 //!
+//! [`StandardShader`] holds only native data (`StandardShaderNative`: the module and its render
+//! pipeline). `StandardShader::new` builds the pipeline with the same state as the engine opaque
+//! standard pipeline in `fruits_render` (standard pipeline layout, [`RENDER_TARGET_FORMAT`] with
+//! `REPLACE` blending, depth write with `LessEqual` in [`DEPTH_TEXTURE_FORMAT`], back-face
+//! culling); keep the two in sync. It wraps the creation in a wgpu validation error scope so an
+//! invalid user shader yields `None` instead of hitting wgpu's panicking error handler. Custom
+//! shaders are opaque only for now: [`StandardMaterialShader::is_transparent`] is `false` for
+//! `Custom`. The material uniform carries `alpha_threshold` for every shader; only the opaque
+//! variants use it.
+//!
 //! [`StandardVertex`] is marked the same way and reinterpreted with
 //! `fruits_utils::mem::as_bytes_slice` when its buffer is uploaded. Its five attributes sit at
 //! locations 0–4; the per-instance `local_to_world` matrix occupies locations 5–8 as four
@@ -289,7 +318,10 @@
 //! [`WgslComposer`] (`wgsl.rs`) is a line-based preprocessor. A directive is a line whose first
 //! non-whitespace character is `#`; WGSL has no `#` token, so directives never clash with
 //! shader code. Each directive line becomes an empty line in the output. `#include` looks the
-//! quoted path up only in the registered libraries (there is no file-system lookup yet) and is
+//! quoted path up only in the registered libraries (there is no file-system lookup; callers
+//! that load files, like the shader asset loader in `fruits_asset_loading`, collect the paths with
+//! [`wgsl_include_paths`], check [`has_library`](WgslComposer::has_library), and register the
+//! files first) and is
 //! **include-once**: a set of already-pasted paths is kept for the whole
 //! [`compose`](WgslComposer::compose) call, because WGSL rejects redefinitions. A path is marked
 //! before its library is expanded, and module-scope WGSL declarations do not depend on order,
@@ -304,8 +336,9 @@
 //! sync with [`StandardUniformGlobal`], [`StandardUniformMaterial`], [`StandardGenericLight`],
 //! [`StandardVertex::desc`], [`StandardInstance::desc`], and the global and material bind group
 //! layouts in [`RenderData`]. `mip_fill_shader.wgsl` uses `fruits/fullscreen.wgsl`. The
-//! `engine_shaders_are_valid` unit test composes every library and `mip_fill_shader.wgsl` and
-//! validates them with `naga` (a dev-dependency), so no GPU is needed. The composer uses std
+//! `engine_shaders_are_valid` unit test composes every library and `mip_fill_shader.wgsl`, and
+//! `custom_shader_with_user_library_is_valid` composes a custom standard shader with a user
+//! library; both validate with `naga` (a dev-dependency), so no GPU is needed. The composer uses std
 //! types because it runs at pipeline creation and is not stored in the world.
 
 mod assets;

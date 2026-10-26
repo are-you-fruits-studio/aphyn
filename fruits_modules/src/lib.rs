@@ -108,7 +108,7 @@ use fruits_ffi::{FfiOption, FfiSmallString, FfiString, FfiVec};
 use fruits_math::{Mat, Mat3, Quat, Vec2, Vec3, Vec4};
 use fruits_render::{BatchedMeshComponent, CameraComponent, StandardLightComponent, StandardMaterialComponent, StandardMeshComponent, StandardRenderComponent};
 use fruits_render_core::{
-    Camera, CameraProjection, CoordinateSpaceType, RenderSpace, StandardMaterialAssetMetadata, StandardMeshAssetMetadata, StandardTextureAssetMetadata,
+    Camera, CameraProjection, CoordinateSpaceType, RenderSpace, StandardEngineShader, StandardMaterialAssetMetadata, StandardMaterialShader, StandardMeshAssetMetadata, StandardTextureAssetMetadata,
     StandardTextureFormat, StandardVertex,
 };
 use fruits_serialization::*;
@@ -205,6 +205,8 @@ pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry
     register_transserializer::<Camera>(serializer);
     register_transserializer::<CameraProjection>(serializer);
     register_transserializer::<RenderSpace>(serializer);
+    register_transserializer::<StandardMaterialShader>(serializer);
+    register_transserializer::<StandardEngineShader>(serializer);
     register_transserializer::<CoordinateSpaceType>(serializer);
     register_transserializer::<StandardTextureFormat>(serializer);
     register_transserializer::<HorizontalAlign>(serializer);

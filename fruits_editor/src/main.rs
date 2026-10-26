@@ -161,20 +161,20 @@ fn init_system(mut world: WorldDataMut) {
     let textures_res = res.get::<AssetStorageResource<StandardTexture>>().unwrap();
 
     let material_panel = StandardMaterialAssetMetadata {
-        is_lit: false,
+        shader: StandardEngineShader::OpaqueUnlit.into(),
         space: RenderSpace::Window,
         color: Vec4::splat(1.0),
         color_tex: AssetHandle::EMPTY,
-        alpha_threshold: Some(0.5).into(),
+        alpha_threshold: 0.5,
         ..Default::default()
     };
 
     let material_text = StandardMaterialAssetMetadata {
-        is_lit: false,
+        shader: StandardEngineShader::OpaqueUnlit.into(),
         space: RenderSpace::Window,
         color: Vec4::splat(1.0),
         color_tex: texture_text.clone(),
-        alpha_threshold: Some(0.5).into(),
+        alpha_threshold: 0.5,
         ..Default::default()
     };
 

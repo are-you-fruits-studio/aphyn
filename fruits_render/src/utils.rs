@@ -1,8 +1,12 @@
+use fruits_asset_storage::AssetStorageResource;
 use fruits_math::Mat4;
 use fruits_math::Vec3;
 use fruits_math::Vec4;
 use fruits_render_core::RenderSpace;
+use fruits_render_core::StandardEngineShader;
 use fruits_render_core::StandardLight;
+use fruits_render_core::StandardMaterialShader;
+use fruits_render_core::StandardShader;
 use fruits_render_core::StandardUniformMaterial;
 use fruits_transform::GlobalTransform;
 use wgpu::*;
@@ -18,7 +22,6 @@ pub const INSTANCES_PER_DRAW_MAX: usize = 1024 * 8;
 pub const TRIANGLES_PER_BATCHED_DRAW_MAX: usize = 1024 * 32;
 pub const LIGHTS_COUNT_MAX: usize = 1024;
 
-pub const DEPTH_TEXTURE_FORMAT: TextureFormat = TextureFormat::Depth32Float;
 pub const TRANSPARENT_TARGET_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 
 pub fn create_window_to_clip_matrix(width: f32, height: f32, near: f32, far: f32) -> Mat4<f32> {
@@ -38,11 +41,23 @@ pub fn create_window_to_clip_matrix(width: f32, height: f32, near: f32, far: f32
 pub(crate) fn get_render_data<'a, 'b>(
     material: &'b StandardMaterial,
     standard_render_res: &'a StandardRenderResource,
+    shaders: &'a AssetStorageResource<StandardShader>,
     render_state: &RenderState,
     window_to_clip_mat: Mat4<f32>,
-) -> (&'a RenderPipeline, &'b BindGroup) {
+) -> Option<(&'a RenderPipeline, &'b BindGroup)> {
     let material_native = unsafe { material.native() };
     let material = material.meta();
+
+    let render_pipeline = match &material.shader {
+        StandardMaterialShader::Engine(shader) => match shader {
+            StandardEngineShader::OpaqueLit => &standard_render_res.render_pipeline_opaque_lit,
+            StandardEngineShader::OpaqueUnlit => &standard_render_res.render_pipeline_opaque_unlit,
+            StandardEngineShader::TransparentLit => &standard_render_res.render_pipeline_transparent_lit,
+            StandardEngineShader::TransparentUnlit => &standard_render_res.render_pipeline_transparent_unlit,
+        }
+        StandardMaterialShader::Custom(shader) => unsafe { &shaders.get(shader)?.native().render_pipeline },
+    };
+
     let world_to_clip = match material.space {
         RenderSpace::Clip => Mat4::IDENTITY,
         RenderSpace::Window => window_to_clip_mat,
@@ -54,7 +69,7 @@ pub(crate) fn get_render_data<'a, 'b>(
         emission_color: srgb_to_linear(material.emission_color),
         metallic: material.metallic,
         roughness: material.roughness,
-        alpha_threshold: material.alpha_threshold.into_option().unwrap_or(0.0),
+        alpha_threshold: material.alpha_threshold,
         world_to_clip,
         _padding: Default::default(),
     };
@@ -66,14 +81,7 @@ pub(crate) fn get_render_data<'a, 'b>(
         fruits_utils::mem::as_bytes(&[uniform]),
     );
 
-    let render_pipeline = match (material.is_lit, material.alpha_threshold.is_some()) {
-        (true, true) => &standard_render_res.render_pipeline_opaque_lit,
-        (false, true) => &standard_render_res.render_pipeline_opaque_unlit,
-        (true, false) => &standard_render_res.render_pipeline_transparent_lit,
-        (false, false) => &standard_render_res.render_pipeline_transparent_unlit,
-    };
-
-    (&render_pipeline, &material_native.bind_group)
+    Some((render_pipeline, &material_native.bind_group))
 }
 
 fn srgb_to_linear(color: Vec4<f32>) -> Vec4<f32> {

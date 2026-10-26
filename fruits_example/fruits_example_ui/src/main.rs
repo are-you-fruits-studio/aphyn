@@ -66,11 +66,11 @@ fn init(mut world: WorldDataMut) {
         .get_mut::<RenderApiResource>()
         .unwrap()
         .create_material(Default::default(), StandardMaterialAssetMetadata {
-            is_lit: false,
+            shader: StandardEngineShader::OpaqueUnlit.into(),
             space: RenderSpace::Window,
             color_tex: AssetHandle::EMPTY,
             color: Vec4::splat(1.0),
-            alpha_threshold: Some(0.5).into(),
+            alpha_threshold: 0.5,
             ..Default::default()
         });
 
@@ -90,11 +90,11 @@ fn init(mut world: WorldDataMut) {
                 ..Default::default()
             },
             StandardMaterialAssetMetadata {
-                is_lit: false,
+                shader: StandardEngineShader::OpaqueUnlit.into(),
                 space: RenderSpace::Window,
                 color_tex: texture_text_handle.clone(),
                 color: Vec4::splat(1.0),
-                alpha_threshold: Some(0.5).into(),
+                alpha_threshold: 0.5,
                 ..Default::default()
             },
         );

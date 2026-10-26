@@ -272,10 +272,10 @@ pub fn render_simulated_view(
                 ..Default::default()
             },
             StandardMaterialAssetMetadata {
-                is_lit: false,
+                shader: StandardEngineShader::OpaqueUnlit.into(),
                 space: RenderSpace::Window,
                 color: Vec4::splat(1.0),
-                alpha_threshold: Some(0.5).into(),
+                alpha_threshold: 0.5,
                 ..Default::default()
             },
         );

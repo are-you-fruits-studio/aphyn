@@ -5,7 +5,7 @@ use fruits_audio::{AudioClip, AudioStateResource};
 use fruits_ecs::ResourcesHolderMut;
 use fruits_ffi::FfiString;
 use fruits_prefab::{Prefab, Scene};
-use fruits_render_core::{RenderApiResource, StandardMaterial, StandardMesh, StandardTexture};
+use fruits_render_core::{RenderApiResource, StandardMaterial, StandardMesh, StandardShader, StandardTexture};
 use fruits_serialization::*;
 
 use crate::{AudioClipLoader, EntityIdDecoder, EntityIdEncoder, EntityTransSerializer, MaterialLoader, MeshLoader, PrefabLoader, SceneLoader, TextureLoader};
@@ -27,6 +27,7 @@ pub fn load_asset_single_from_world<R>(
             &mut *res.get_ptr::<AssetStorageResource<StandardMaterial>>()?,
             &mut *res.get_ptr::<AssetStorageResource<StandardMesh>>()?,
             &mut *res.get_ptr::<AssetStorageResource<AudioClip>>()?,
+            &mut *res.get_ptr::<AssetStorageResource<StandardShader>>()?,
             assets_dir_path,
             asset_key,
             f,
@@ -44,6 +45,7 @@ pub fn load_asset_single<R>(
     materials: &mut AssetStorageResource<StandardMaterial>,
     meshes: &mut AssetStorageResource<StandardMesh>,
     audio_clips: &mut AssetStorageResource<AudioClip>,
+    shaders: &mut AssetStorageResource<StandardShader>,
     assets_dir_path: impl AsRef<Path>,
     asset_key: &str,
     f: impl FnOnce(TransSerializerRegistry, &SerializersResource) -> R,
@@ -56,6 +58,7 @@ pub fn load_asset_single<R>(
         materials,
         meshes,
         audio_clips,
+        shaders,
     ) = (
         &Mutex::new(audio_state),
         &Mutex::new(prefabs),
@@ -64,6 +67,7 @@ pub fn load_asset_single<R>(
         &Mutex::new(materials),
         &Mutex::new(meshes),
         &Mutex::new(audio_clips),
+        &Mutex::new(shaders),
     );
 
     let assets_dir_path = assets_dir_path.as_ref();
@@ -76,6 +80,7 @@ pub fn load_asset_single<R>(
     serializer_local.register(SingleLoadTransSerializer { assets: materials });
     serializer_local.register(SingleLoadTransSerializer { assets: meshes });
     serializer_local.register(SingleLoadTransSerializer { assets: audio_clips });
+    serializer_local.register(SingleLoadTransSerializer { assets: shaders });
     // todo: font
     serializer_local.register(SingleLoadTransSerializer { assets: prefabs });
     serializer_local.register(SingleLoadTransSerializer { assets: scenes });

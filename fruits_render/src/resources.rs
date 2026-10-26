@@ -3,7 +3,7 @@ use fruits_math::{Mat4, Vec2, Vec3, Vec4};
 use fruits_render_core::{RenderSpace, StandardGenericLight, StandardVertex};
 use fruits_ffi::*;
 use fruits_utils::mem::AllBitsInit;
-use wgpu::{BindGroup, BindGroupLayout, Buffer, PipelineLayout, RenderPipeline, Sampler, Texture, TextureView};
+use wgpu::{BindGroup, BindGroupLayout, Buffer, RenderPipeline, Sampler, Texture, TextureView};
 
 use super::GizmoLine;
 
@@ -190,7 +190,6 @@ pub struct ColorGradingRenderResource {
 // todo: support ffi
 #[derive(Resource)]
 pub struct StandardRenderResource {
-    pub pipeline_layout: PipelineLayout,
     pub global_bind_group: BindGroup,
     pub global_uniform_buffer: Buffer,
     pub batched_vertex_buffer: Buffer,

@@ -11,8 +11,15 @@
 //! `asset_type` (`"texture"`, `"material"`, `"mesh"`, `"audio_clip"`, `"prefab"`, `"scene"`, or `"font"`)
 //! and the asset's settings, and usually points at a raw payload (image, `.obj`, `.wav`) by a
 //! further `assets/`-relative path; an empty payload path loads a placeholder asset. The module is part of the engine's default modules
-//! (`add_defult_modules_to`), which also registers the texture, material, mesh, and audio-clip
-//! storages it fills.
+//! (`add_defult_modules_to`), which also registers the texture, material, shader, mesh, and
+//! audio-clip storages it fills.
+//!
+//! **Shaders** are the exception: a shader asset is a `.wgsl` file itself, keyed by its own path
+//! (`"shaders/water.wgsl"`), with no `.asset` file. It may use `#include` and `#ifdef`-style
+//! directives (see `WgslComposer` in `fruits_render_core`). An include path is either an engine
+//! part (`fruits/standard_bindings.wgsl`, ...) or an `assets/`-relative file. Files ending in
+//! `.lib.wgsl` are include-only parts and never become shader assets on their own. Custom shaders
+//! are drawn in the opaque pass with the standard vertex/instance streams and bind groups.
 //!
 //! #### Using a loaded asset
 //!
@@ -57,7 +64,14 @@
 //! { "asset_type": "texture", "raw_texture": "textures/player.png" }
 //!
 //! // assets/materials/player.asset
-//! { "asset_type": "material", "is_lit": true, "color_tex": "textures/player.asset" }
+//! {
+//!     "asset_type": "material",
+//!     "shader": { "$enum_variant": "Engine", "0": { "$enum_variant": "OpaqueLit" } },
+//!     "color_tex": "textures/player.asset"
+//! }
+//!
+//! // assets/materials/water.asset, using assets/shaders/water.wgsl
+//! { "asset_type": "material", "shader": { "$enum_variant": "Custom", "0": "shaders/water.wgsl" } }
 //! ```
 //!
 //! #### Instantiating a prefab
@@ -117,7 +131,9 @@
 //! to the working directory; the editor points it at the opened project's `assets/`), which
 //! walks it recursively and, for every `.asset` file, reads the JSON, validates `asset_type`
 //! ([`AssetType`]), builds the key from the path, and deserializes that key *as an
-//! `AssetHandle<T>`* of the matching type. Failures are printed and the file is skipped; a
+//! `AssetHandle<T>`* of the matching type. Every file for which [`is_shader_asset_key`] holds
+//! (`.wgsl` but not `.lib.wgsl`) is deserialized as an `AssetHandle<StandardShader>` from its key
+//! directly; shaders have no [`AssetType`]. Failures are printed and the file is skipped; a
 //! `"font"` asset hits a `todo!()` and panics.
 //!
 //! #### Loading is driven by the serializers
@@ -129,6 +145,8 @@
 //! registered and still resolves returns the cached handle; a registered key whose asset was
 //! removed is unregistered; otherwise it reads `assets/<key>`, converts the JSON to a
 //! `SerializedValue`, runs the type's loader, and stores the result with `insert_and_register`.
+//! Shaders use [`ShaderTransitiveLoadTransSerializer`] instead, which has the same caching but
+//! hands the key to [`ShaderLoader`] rather than parsing the file as JSON.
 //! Because the loaders deserialize the asset file's metadata through the same context, any
 //! `AssetHandle` field inside it (for example a material's textures) is loaded transitively,
 //! and loading the same key again returns the same handle. The asset storages are wrapped in
@@ -161,6 +179,11 @@
 //! - **Audio clip** — [`AudioClipLoader`] reads the `raw_audio` `.wav` with `hound`. Integer
 //!   samples are normalized to `f32`, the buffer is forced to stereo, and it is resampled to
 //!   the engine's sample rate when the file's rate differs.
+//! - **Shader** — [`ShaderLoader`] reads the `.wgsl` source, starts a composer with the engine
+//!   libraries, and registers every other include path (found with `wgsl_include_paths`,
+//!   recursively through the registered files) by reading `assets/<path>`; an unreadable file is
+//!   skipped so composing reports it as an unknown include. It composes without defines and
+//!   creates the shader through `RenderApiResource::create_shader`, which fails on invalid WGSL.
 //!
 //! An empty payload path (`raw_texture`, `raw_mesh`, or `raw_audio` set to `""`) loads a
 //! placeholder instead of failing: a 1x1 white texture, a mesh without vertices and indices, or
@@ -207,13 +230,14 @@ mod scene;
 mod serialized_entities;
 mod audio_clip;
 mod serializers;
+mod shader;
 
 use std::{ffi::OsStr, path::{Path, PathBuf}};
 
 use fruits_asset_storage::{AssetHandle, AssetStorageResource};
 use fruits_audio::AudioClip;
 use fruits_prefab::{Prefab, Scene};
-use fruits_render_core::{StandardMaterial, StandardMesh, StandardTexture};
+use fruits_render_core::{StandardMaterial, StandardMesh, StandardShader, StandardTexture};
 use fruits_serialization::{SerializedPrimitive, SerializedValue, SerializerCtx};
 pub use material::*;
 pub use mesh::*;
@@ -223,6 +247,7 @@ pub use scene::*;
 pub use serialized_entities::*;
 pub use audio_clip::*;
 pub use serializers::*;
+pub use shader::*;
 
 use fruits_ecs::{Resource, ResourcesHolderMut, Schedule, WorldBuilderMut};
 use fruits_ffi::FfiString;
@@ -354,7 +379,10 @@ pub fn load_all_assets(mut res: ResourcesHolderMut, assets_dir_path: impl AsRef<
             let mut serializer_ctx = serializer_ctx_state.wrap_with_local(&serializers_local).into_ctx(&mut err_handler);
             
             traverse_files_in_dir_deep(&assets_dir_path, &mut |file_path| {
-                if file_path.extension() != Some(OsStr::new("asset")) {
+                let is_asset_file = file_path.extension() == Some(OsStr::new("asset"));
+                let is_shader_file = file_path.to_str().is_some_and(is_shader_asset_key);
+
+                if !is_asset_file && !is_shader_file {
                     return;
                 }
 
@@ -364,6 +392,12 @@ pub fn load_all_assets(mut res: ResourcesHolderMut, assets_dir_path: impl AsRef<
                 };
 
                 let asset_key = file_path.components().skip(assets_dir_path.as_ref().components().count()).map(|c| c.as_os_str().to_str().unwrap()).collect::<Vec<_>>().join("/");
+
+                if is_shader_file {
+                    let serialized_value = SerializedPrimitive::String(asset_key.into()).into();
+                    _ = serializer_ctx.deserialize_default::<AssetHandle<StandardShader>>("", &serialized_value);
+                    return;
+                }
 
                 let asset_json = match std::fs::read_to_string(&file_path) {
                     Ok(data) => data,

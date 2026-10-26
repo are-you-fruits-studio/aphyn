@@ -22,9 +22,9 @@ fn setup_scene(mut world: WorldDataMut) {
     let render_api_res = res.get::<RenderApiResource>().unwrap();
     let ground_material = render_api_res.create_material(Default::default(), StandardMaterialAssetMetadata {
         color: Vec4::splat(1.0),
-        alpha_threshold: 0.5.into(),
+        alpha_threshold: 0.5,
         emission_color: Vec4::splat(0.0),
-        is_lit: true,
+        shader: StandardEngineShader::OpaqueLit.into(),
         metallic: 0.0,
         roughness: 1.0,
         space: RenderSpace::World,
@@ -32,9 +32,9 @@ fn setup_scene(mut world: WorldDataMut) {
     });
     let light_material = render_api_res.create_material(Default::default(), StandardMaterialAssetMetadata {
         color: Vec4::splat(1.0),
-        alpha_threshold: 0.5.into(),
+        alpha_threshold: 0.5,
         emission_color: Vec4::new(1.0, 1.0, 1.0, 10.0),
-        is_lit: false,
+        shader: StandardEngineShader::OpaqueUnlit.into(),
         metallic: 0.0,
         roughness: 1.0,
         space: RenderSpace::World,

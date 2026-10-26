@@ -77,7 +77,7 @@ fn init(mut world: WorldDataMut) {
     let render_api = world.as_ref().resources().get::<RenderApiResource>().unwrap();
 
     let material = render_api.create_material(Default::default(), StandardMaterialAssetMetadata {
-        is_lit: false,
+        shader: StandardEngineShader::OpaqueUnlit.into(),
         ..Default::default()
     });
 
