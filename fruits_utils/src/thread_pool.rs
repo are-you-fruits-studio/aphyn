@@ -111,7 +111,7 @@ impl ThreadPool {
         let did_panic = self.did_panic.load(std::sync::atomic::Ordering::Relaxed);
 
         if did_panic {
-            panic!("ThreadPool worker thread had panicked");
+            panic!("ThreadPool worker thread panicked");
         }
     }
 }
@@ -321,8 +321,19 @@ impl Semaphore {
     }
 
     pub fn release(&self) {
-        {
-            *self.mutex.lock().unwrap() += 1;
+        let is_overflow = {
+            let mut count = self.mutex.lock().unwrap();
+
+            if let Some(new_count) = count.checked_add(1) {
+                *count = new_count;
+                false
+            } else {
+                true
+            }
+        };
+
+        if is_overflow {
+            panic!("semaphore overflow");
         }
 
         self.cvar.notify_one();

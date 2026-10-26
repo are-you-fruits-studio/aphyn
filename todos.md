@@ -1,6 +1,7 @@
 # Prioritized
 
 - implement systems scheduler where threadpool asks iterator for systems
+
 - improve playmode performance:
     - optimize update_hierarchy_window_system
 
@@ -26,6 +27,7 @@
 - implement shadows
 - implement Skybox
 - implement SSR (Screen-Space Reflections)
+- implement physics
 
 # Low-prio
 
