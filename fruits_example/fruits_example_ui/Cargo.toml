@@ -1,7 +1,0 @@
-[package]
-name = "fruits_example_ui"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-fruits_engine = { path = "../../../fruits_engine" }

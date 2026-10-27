@@ -1,0 +1,17 @@
+[package]
+name = "aphyn_serialization"
+version = "0.1.0"
+edition = "2024"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+aphyn_serialization_macros = { path = "../serialization_macros" }
+aphyn_ecs = { path = "../ecs" }
+aphyn_math = { path = "../math" }
+aphyn_ffi = { path = "../ffi" }
+serde = { version = "1" }
+serde_json = { version = "1", features = ["preserve_order"] }

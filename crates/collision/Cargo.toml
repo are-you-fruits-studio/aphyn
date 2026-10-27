@@ -1,0 +1,14 @@
+[package]
+name = "aphyn_collision"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+aphyn_ffi = { path = "../ffi" }
+aphyn_transform = { path = "../transform" }
+aphyn_math = { path = "../math" }
+aphyn_ecs = { path = "../ecs" }
+aphyn_serialization = { path = "../serialization" }

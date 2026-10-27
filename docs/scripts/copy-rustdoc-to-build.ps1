@@ -21,8 +21,8 @@ function Copy-RustdocTree {
 $repoRoot = Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..")
 $targetDocDir = Join-Path $repoRoot "target\doc"
 $buildApiDir = Join-Path $repoRoot "docs\build\api-reference"
-$mainCrateIndex = Join-Path $targetDocDir "fruits_engine\index.html"
-$buildMainCrateIndex = Join-Path $buildApiDir "fruits_engine\index.html"
+$mainCrateIndex = Join-Path $targetDocDir "aphyn\index.html"
+$buildMainCrateIndex = Join-Path $buildApiDir "aphyn\index.html"
 
 if (-not (Test-Path -LiteralPath $mainCrateIndex)) {
     throw "Main rustdoc entry was not found: $mainCrateIndex"

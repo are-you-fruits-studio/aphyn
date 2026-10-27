@@ -1,0 +1,22 @@
+[package]
+name = "aphyn_render"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+wgpu = "27"
+aphyn_math = { path = "../math" }
+aphyn_ecs = { path = "../ecs" }
+aphyn_utils = { path = "../utils" }
+aphyn_transform = { path = "../transform" }
+aphyn_render_core = { path = "../render_core" }
+aphyn_asset_storage = { path = "../asset_storage" }
+aphyn_ffi = { path = "../ffi" }
+aphyn_serialization = { path = "../serialization" }
+serde_json = { version = "1", features = ["preserve_order"] }
+
+[dev-dependencies]
+naga = { version = "27", features = ["wgsl-in"] }

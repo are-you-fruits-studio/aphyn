@@ -92,27 +92,27 @@ jobs:
           sudo apt-get install -y libasound2-dev libudev-dev pkg-config
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }} -p fruits_editor
+        run: cargo build --release --target ${{ matrix.target }} -p aphyn_editor
 
       - name: Package (Linux)
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          PKG="fruits-engine-${VERSION}-${{ matrix.target }}"
+          PKG="aphyn-${VERSION}-${{ matrix.target }}"
           OUT="dist/${PKG}"
           mkdir -p "$OUT"
-          cp "target/${{ matrix.target }}/release/fruits_editor" "$OUT/fruits_engine"
-          tar -C "dist/$PKG" -czf "dist/${PKG}.tar.gz" fruits_engine 
+          cp "target/${{ matrix.target }}/release/aphyn_editor" "$OUT/aphyn"
+          tar -C "dist/$PKG" -czf "dist/${PKG}.tar.gz" aphyn 
           sha256sum "dist/${PKG}.tar.gz" > "dist/${PKG}.tar.gz.sha256"
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $pkg = "fruits-engine-$env:VERSION-${{ matrix.target }}"
+          $pkg = "aphyn-$env:VERSION-${{ matrix.target }}"
           $out = "dist\$pkg"
           New-Item -ItemType Directory -Force -Path $out
-          Copy-Item "target\${{ matrix.target }}\release\fruits_editor.exe" "$out\fruits_engine.exe"
+          Copy-Item "target\${{ matrix.target }}\release\aphyn_editor.exe" "$out\aphyn.exe"
           Compress-Archive -Path "$out\*" -DestinationPath "dist\$pkg.zip"
           $hash = (Get-FileHash "dist\$pkg.zip" -Algorithm SHA256).Hash.ToLower()
           "$hash  $pkg.zip" | Out-File -FilePath "dist\$pkg.zip.sha256" -Encoding ascii

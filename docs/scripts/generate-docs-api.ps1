@@ -15,7 +15,7 @@ function Invoke-Native {
 
 $repoRoot = Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..")
 $targetDocDir = Join-Path $repoRoot "target\doc"
-$targetMainCrateIndex = Join-Path $targetDocDir "fruits_engine\index.html"
+$targetMainCrateIndex = Join-Path $targetDocDir "aphyn\index.html"
 
 Set-Location $repoRoot
 
@@ -23,7 +23,7 @@ $skipRustdoc = $env:SKIP_RUSTDOC -eq "1"
 if (-not $skipRustdoc) {
     Invoke-Native "cargo" @("+nightly", "doc", "--workspace", "--no-deps")
 } elseif (-not (Test-Path -LiteralPath $targetMainCrateIndex)) {
-    throw "Cannot skip rustdoc generation because target\doc\fruits_engine\index.html does not exist. Run .\docs\scripts\build-and-serve.ps1 without -SkipRustdoc once."
+    throw "Cannot skip rustdoc generation because target\doc\aphyn\index.html does not exist. Run .\docs\scripts\build-and-serve.ps1 without -SkipRustdoc once."
 }
 
 if (-not (Test-Path -LiteralPath $targetDocDir)) {

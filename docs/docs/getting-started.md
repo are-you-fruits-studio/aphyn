@@ -1,11 +1,11 @@
 ---
 title: Getting Started
-description: A first documentation page for the Fruits Engine Docusaurus preview.
+description: A first documentation page for the aphyn Docusaurus preview.
 ---
 
 # Getting Started
 
-Fruits Engine is a Rust game engine workspace. This page is a small preview of the future conceptual documentation.
+aphyn is a Rust game engine workspace. This page is a small preview of the future conceptual documentation.
 
 The full documentation should grow from the source code outward: public APIs first, then architecture notes, then guides for common extension points.
 

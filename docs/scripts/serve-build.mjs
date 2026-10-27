@@ -5,7 +5,7 @@
 // Why this exists instead of `docusaurus serve`:
 //   `docusaurus serve` applies `trailingSlash: false` cleanup to *every* request,
 //   which 301-redirects `*.html` URLs to extensionless paths AND strips the
-//   `/fruits_engine/` baseUrl prefix. That breaks rustdoc's relative `.html`
+//   `/aphyn/` baseUrl prefix. That breaks rustdoc's relative `.html`
 //   navigation (All Items, module/struct links, source view) by bouncing it to
 //   the Docusaurus home page. GitHub Pages does no such redirect: it serves
 //   `*.html` files verbatim. This server matches GitHub Pages, so local preview
@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const buildDir = path.resolve(scriptDir, '..', 'build');
-const baseUrl = '/fruits_engine/'; // must match docusaurus.config.js `baseUrl`
+const baseUrl = '/aphyn/'; // must match docusaurus.config.js `baseUrl`
 
 const args = process.argv.slice(2);
 const getArg = (name, fallback) => {
