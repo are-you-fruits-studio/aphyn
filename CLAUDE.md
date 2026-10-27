@@ -29,7 +29,7 @@ Rust edition 2024, Cargo workspace rooted at `Cargo.toml` (the root package `aph
 ```bash
 cargo build                                   # whole workspace
 cargo build --release -p aphyn_editor        # what CI release builds (.github/workflows/build.yml)
-cargo run -p aphyn_example_cubes             # run an example (others: aphyn_example_ecs, _boids, _ui, _text, _gizmos, _collisions, _normals, _bloom, aphyn_audio_screen_saver)
+cargo run -p aphyn_example_cubes             # run an example (others: aphyn_example_ecs, _boids, _ui, _text, _gizmos, _collisions, _normals, _bloom, _audio_screen_saver)
 cargo test -p aphyn_serialization            # tests are mostly doctests in crate-level //! docs
 cargo test -p aphyn_ecs --doc <name_filter>  # run a single doctest
 cargo fmt                                     # rustfmt.toml: max_width = 133, Unix newlines
@@ -49,12 +49,12 @@ Before working in or with a crate, read the `//!` doc block at the top of its `s
 - **`# How to use`** — purpose, main types, and usage examples (many run as doctests). Read this when *calling* the crate.
 - **`# How to maintain`** — internal design, invariants, cross-crate contracts, and known caveats. Read this before *changing* the crate.
 
-Every engine crate has one, including the `*_macros` crates, except: `aphyn_ui` (read `src/lib.rs` and its `components`/`systems`/`resources` modules directly), `aphyn_editor` (start at `src/main.rs`; see Editor below), `hlib_test`, and the root facade `src/lib.rs` (just re-exports). When you change a crate's behavior or public API, update its `//!` docs to match (see `AGENTS.md` for doc style).
+Every engine crate has one, including the `*_macros` crates, except: `aphyn_ui` (read `src/lib.rs` and its `components`/`systems`/`resources` modules directly), `aphyn_editor` (start at `src/main.rs`; see Editor below), `aphyn_draft_check`, and the root facade `src/lib.rs` (just re-exports). When you change a crate's behavior or public API, update its `//!` docs to match (see `AGENTS.md` for doc style).
 
 ## Architecture
 
 ### Crate layering
-- `aphyn` (root `src/lib.rs`) is a pure facade that `pub use`s every engine crate. Games, examples, the editor and `hlib_test` depend only on `aphyn` and `use aphyn::*`.
+- `aphyn` (root `src/lib.rs`) is a pure facade that `pub use`s every engine crate. Games, examples, the editor and `aphyn_draft_check` depend only on `aphyn` and `use aphyn::*`.
 - `aphyn_ffi` — FFI-safe replacements for std types (`vec`, `string`, `boxed`, `hash_map`, `option`, `closure`, `any`, `type_info`, ...). Engine data crosses a dynamic-library boundary, so types stored in the world must be ABI-stable; prefer these types in components/resources/APIs that may cross that boundary.
 - `aphyn_ecs` — the core: `WorldBuilder` → `World`, components/resources/events (derive macros from `aphyn_ecs_macros`), systems as plain functions whose parameters (`WorldQuery`, `WorldDataMut`, resources, ...) declare data usage so independent systems run in parallel. Systems are inserted per `Schedule` (`Start` or `Update`) and ordered with `order_system(..).before_system(..)` / `order_group(GROUP).before_group(..)`. Each subsystem crate exports a `SYSTEM_GROUP_*` constant for ordering.
 - Subsystem crates (`aphyn_transform`, `aphyn_collision`, `aphyn_render_core` + `aphyn_render` (wgpu), `aphyn_ui`, `aphyn_audio`, `aphyn_asset_storage`, `aphyn_asset_loading`, `aphyn_prefab`) each expose an `add_<x>_module_to(world)` function.
@@ -68,11 +68,11 @@ Every engine crate has one, including the `*_macros` crates, except: `aphyn_ui` 
 `aphyn_editor build <project>` uses this: it builds `<project>/launcher` and `<project>/scripts` (the game as a cdylib) with cargo, then copies the launcher exe, `lib_app` library, and `assets/` into `<project>/builds/`.
 
 ### Serialization
-`aphyn_serialization` converts values to/from an in-memory `SerializedValue` tree (projected to JSON). Types implement `Serializable` (usually via derive; requires `Default`). A `SerializerCtx` carries a state: `PureSerializerCtxState` dispatches statically, `TransSerializerCtxState` looks serializers up at runtime in a `TransSerializerRegistry` (the world's `SerializersResource`). Every type appearing in registry-driven data needs a registered serializer. Prefabs, assets (`aphyn_asset_loading/src/serializers`), and the editor inspector go through this layer. This area is under active rewrite — check recent commits before assuming an API shape.
+`aphyn_serialization` converts values to/from an in-memory `SerializedValue` tree (projected to JSON). Types implement `Serializable` (usually via derive; requires `Default`). A `SerializerCtx` carries a state: `PureSerializerCtxState` dispatches statically, `TransSerializerCtxState` looks serializers up at runtime in a `TransSerializerRegistry` (the world's `SerializersResource`). Every type appearing in registry-driven data needs a registered serializer. Prefabs, assets (`crates/asset_loading/src/serializers`), and the editor inspector go through this layer. This area is under active rewrite — check recent commits before assuming an API shape.
 
 ### Editor
 `aphyn_editor` is itself an engine app (UI built with `aphyn_ui`). Functionality lives in `src/features/*`, each exposing `register_feature(world)` called from `run_editor_app` in `main.rs`; editor systems run in the `"aphyn_editor"` group, ordered before render and transform.
 
 ### Other
 - `*_macros` crates are proc-macro companions of the crate with the same prefix.
-- `hlib_test` is a scratch binary for experiments (serialization macro checks, futures), not a test suite.
+- `aphyn_draft_check` is a scratch binary for experiments (serialization macro checks, futures), not a test suite.

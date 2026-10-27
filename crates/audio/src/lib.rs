@@ -1,6 +1,6 @@
 //! # aphyn_audio
 //!
-//! Audio playback for the Fruits engine: it turns sound clips attached to world entities into
+//! Audio playback for aphyn: it turns sound clips attached to world entities into
 //! mixed output on the machine's speakers.
 //!
 //! # How to use

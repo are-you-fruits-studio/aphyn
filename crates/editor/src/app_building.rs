@@ -114,7 +114,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-aphyn = { git = "https://github.com/are-you-fruits-studio/aphyn.git", tag = "v0.8.0" }
+aphyn = { git = "https://github.com/are-you-fruits-studio/aphyn.git", tag = "v0.17.0" }
             "#
         .replace("\r\n", "\n")
         .replace("\r", "\n")

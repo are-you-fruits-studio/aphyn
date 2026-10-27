@@ -2,7 +2,7 @@ const {themes} = require('prism-react-renderer');
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'Fruits Engine',
+  title: 'aphyn',
   tagline: 'Rust game engine documentation',
   url: 'https://are-you-fruits-studio.github.io',
   baseUrl: '/aphyn/',
@@ -42,7 +42,7 @@ const config = {
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
       navbar: {
-        title: 'Fruits Engine',
+        title: 'aphyn',
         items: [
           {
             type: 'docSidebar',

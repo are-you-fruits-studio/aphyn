@@ -1,4 +1,4 @@
-//! # aphyn_cs_macros
+//! # aphyn_ecs_macros
 //!
 //! Derive macros that implement the `aphyn_ecs` marker traits, so a plain data
 //! type can be registered with the ECS world without writing the empty `impl` by

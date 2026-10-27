@@ -1,6 +1,6 @@
 //! # aphyn_app
 //!
-//! The runtime entry point of the Fruits engine: it opens a window, drives the per-frame
+//! The runtime entry point of aphyn: it opens a window, drives the per-frame
 //! loop, and feeds keyboard, mouse, and gamepad input into the ECS world.
 //!
 //! # How to use

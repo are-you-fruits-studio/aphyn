@@ -1,6 +1,6 @@
 //! # aphyn_ecs
 //!
-//! The entity-component-system core of the Fruits engine. It stores game state as entities,
+//! The entity-component-system core of aphyn. It stores game state as entities,
 //! components, resources, and events, and runs game logic as systems that read and write that
 //! state.
 //!

@@ -39,9 +39,9 @@ the main page. That is the whole deliverable.
 
 Determine the scope of `.rs` files:
 
-- **Crate name** (e.g. `aphyn_collision`) → the whole crate under `<crate>/src/`.
-- **Folder / module path** (e.g. `aphyn_ecs/src/behavior`) → that folder, recursively.
-- **Single file** (e.g. `aphyn_ecs/src/world.rs`) → just that file.
+- **Crate name** (e.g. `aphyn_collision`) → the whole crate under `crates/<dir>/src/` (dir = crate name without the `aphyn_` prefix).
+- **Folder / module path** (e.g. `crates/ecs/src/behavior`) → that folder, recursively.
+- **Single file** (e.g. `crates/ecs/src/world.rs`) → just that file.
 
 Find the **owning crate** (nearest parent package `Cargo.toml`) for the verification step.
 
