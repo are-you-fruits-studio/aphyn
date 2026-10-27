@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-fruits_engine = { path = "../../fruits_engine" }
+fruits_engine = { path = "../../../fruits_engine" }
 serde_json = { version = "1", features = ["preserve_order"] }
 libloading = "0.9"
 arboard = { version = "3", default-features = false }

@@ -1,49 +1,49 @@
 [workspace]
 members = [
-    "fruits_alloc_monitor",
-    "fruits_audio",
-    "fruits_app",
-    "fruits_example/fruits_example_cubes",
-    "fruits_example/fruits_example_boids",
-    "fruits_math",
-    "fruits_modules",
-    "fruits_utils",
-    "hlib_test",
-    "fruits_ecs_macros",
-    "fruits_serialization",
-    "fruits_ecs",
-    "fruits_example/fruits_example_ecs",
-    "fruits_example/fruits_example_gizmos",
-    "fruits_swizzling",
-    "fruits_example/fruits_example_collisions",
-    "fruits_reflection",
-    "fruits_example/fruits_example_text",
-    "fruits_debug",
-    "fruits_example/fruits_example_ui",
-    "fruits_reflection_macros",
-    "fruits_editor",
-    "fruits_ffi",
-    "fruits_math_macros",
-    "fruits_entry_point",
-    "fruits_app_launcher",
-    "fruits_asset_loading",
-    "fruits_asset_storage",
-    "fruits_wavefront",
-    "fruits_control_flow_macros",
-    "fruits_render",
-    "fruits_transform",
-    "fruits_collision",
-    "fruits_asset_storage",
-    "fruits_render_core",
-    "fruits_prefab",
-    "fruits_serialization_macros",
-    "fruits_audio",
-    "fruits_example/fruits_audio_screen_saver",
-    "fruits_example/fruits_example_normals",
-    "fruits_example/fruits_example_bloom",
-    "fruits_ui",
-    "fruits_file_storage",
-    "fruits_window",
+    "crates/fruits_alloc_monitor",
+    "crates/fruits_audio",
+    "crates/fruits_app",
+    "crates/fruits_example/fruits_example_cubes",
+    "crates/fruits_example/fruits_example_boids",
+    "crates/fruits_math",
+    "crates/fruits_modules",
+    "crates/fruits_utils",
+    "crates/hlib_test",
+    "crates/fruits_ecs_macros",
+    "crates/fruits_serialization",
+    "crates/fruits_ecs",
+    "crates/fruits_example/fruits_example_ecs",
+    "crates/fruits_example/fruits_example_gizmos",
+    "crates/fruits_swizzling",
+    "crates/fruits_example/fruits_example_collisions",
+    "crates/fruits_reflection",
+    "crates/fruits_example/fruits_example_text",
+    "crates/fruits_debug",
+    "crates/fruits_example/fruits_example_ui",
+    "crates/fruits_reflection_macros",
+    "crates/fruits_editor",
+    "crates/fruits_ffi",
+    "crates/fruits_math_macros",
+    "crates/fruits_entry_point",
+    "crates/fruits_app_launcher",
+    "crates/fruits_asset_loading",
+    "crates/fruits_asset_storage",
+    "crates/fruits_wavefront",
+    "crates/fruits_control_flow_macros",
+    "crates/fruits_render",
+    "crates/fruits_transform",
+    "crates/fruits_collision",
+    "crates/fruits_asset_storage",
+    "crates/fruits_render_core",
+    "crates/fruits_prefab",
+    "crates/fruits_serialization_macros",
+    "crates/fruits_audio",
+    "crates/fruits_example/fruits_audio_screen_saver",
+    "crates/fruits_example/fruits_example_normals",
+    "crates/fruits_example/fruits_example_bloom",
+    "crates/fruits_ui",
+    "crates/fruits_file_storage",
+    "crates/fruits_window",
 ]
 
 [package]
@@ -57,26 +57,26 @@ crate-type = ["lib"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-fruits_app = { path = "./fruits_app" }
-fruits_audio = { path = "./fruits_audio" }
-fruits_ecs = { path = "./fruits_ecs" }
-fruits_modules = { path = "./fruits_modules" }
-fruits_utils = { path = "./fruits_utils" }
-fruits_math = { path = "./fruits_math" }
-fruits_math_macros = { path = "./fruits_math_macros" }
-fruits_serialization = { path = "./fruits_serialization" }
-fruits_reflection = { path = "./fruits_reflection" }
-fruits_entry_point = { path = "./fruits_entry_point" }
-fruits_app_launcher = { path = "./fruits_app_launcher" }
-fruits_asset_loading = { path = "./fruits_asset_loading" }
-fruits_asset_storage = { path = "./fruits_asset_storage" }
-fruits_ffi = { path = "./fruits_ffi" }
-fruits_control_flow_macros = { path = "./fruits_control_flow_macros" }
-fruits_transform = { path = "./fruits_transform" }
-fruits_render = { path = "./fruits_render" }
-fruits_render_core = { path = "./fruits_render_core" }
-fruits_collision = { path = "./fruits_collision" }
-fruits_prefab = { path = "./fruits_prefab" }
-fruits_ui = { path = "./fruits_ui" }
-fruits_file_storage = { path = "./fruits_file_storage" }
-fruits_window = { path = "./fruits_window" }
+fruits_app = { path = "./crates/fruits_app" }
+fruits_audio = { path = "./crates/fruits_audio" }
+fruits_ecs = { path = "./crates/fruits_ecs" }
+fruits_modules = { path = "./crates/fruits_modules" }
+fruits_utils = { path = "./crates/fruits_utils" }
+fruits_math = { path = "./crates/fruits_math" }
+fruits_math_macros = { path = "./crates/fruits_math_macros" }
+fruits_serialization = { path = "./crates/fruits_serialization" }
+fruits_reflection = { path = "./crates/fruits_reflection" }
+fruits_entry_point = { path = "./crates/fruits_entry_point" }
+fruits_app_launcher = { path = "./crates/fruits_app_launcher" }
+fruits_asset_loading = { path = "./crates/fruits_asset_loading" }
+fruits_asset_storage = { path = "./crates/fruits_asset_storage" }
+fruits_ffi = { path = "./crates/fruits_ffi" }
+fruits_control_flow_macros = { path = "./crates/fruits_control_flow_macros" }
+fruits_transform = { path = "./crates/fruits_transform" }
+fruits_render = { path = "./crates/fruits_render" }
+fruits_render_core = { path = "./crates/fruits_render_core" }
+fruits_collision = { path = "./crates/fruits_collision" }
+fruits_prefab = { path = "./crates/fruits_prefab" }
+fruits_ui = { path = "./crates/fruits_ui" }
+fruits_file_storage = { path = "./crates/fruits_file_storage" }
+fruits_window = { path = "./crates/fruits_window" }

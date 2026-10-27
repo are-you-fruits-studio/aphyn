@@ -6,6 +6,6 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-fruits_engine = { path = "../../fruits_engine" }
+fruits_engine = { path = "../../../fruits_engine" }
 serde_json = { version = "1", features = ["preserve_order"] }
 serde = { version = "1", features = ["derive"] }
