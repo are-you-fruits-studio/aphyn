@@ -10,18 +10,20 @@ use winit::{
     event::{DeviceEvent, DeviceId, ElementState, MouseScrollDelta, WindowEvent},
     event_loop::ActiveEventLoop,
     keyboard::PhysicalKey,
-    window::{Window, WindowAttributes, WindowId},
+    window::{Window, WindowId},
 };
 
 use crate::{
     GamepadInputStorage, InputResource, TextInputEvent,
     render_target::RenderTarget,
-    window_resources::{window_state_apply_changes, window_state_from_window, window_state_refresh_from_window},
+    window_resources::{
+        window_attributes_from_state, window_state_apply_changes, window_state_apply_cursor, window_state_refresh_from_window,
+    },
 };
 use fruits_window::{WindowResource, WindowState};
 
 enum EventLoopHandlerState {
-    Created(WorldBuilder),
+    Created(WorldBuilder, WindowState),
     Starting,
     Polling {
         world: World,
@@ -32,43 +34,43 @@ enum EventLoopHandlerState {
 }
 
 impl EventLoopHandlerState {
-    fn try_start_creating(&mut self) -> Option<WorldBuilder> {
+    fn try_start_creating(&mut self) -> Option<(WorldBuilder, WindowState)> {
         let EventLoopHandlerState::Created { .. } = self else {
             return None;
         };
 
-        let EventLoopHandlerState::Created(world) = std::mem::replace(self, EventLoopHandlerState::Starting) else {
+        let EventLoopHandlerState::Created(world, window_state) = std::mem::replace(self, EventLoopHandlerState::Starting) else {
             return None;
         };
 
-        Some(world)
+        Some((world, window_state))
     }
 }
 
 pub struct EventLoopHandler(EventLoopHandlerState);
 
 impl EventLoopHandler {
-    pub fn new(world: WorldBuilder) -> Self {
-        Self(EventLoopHandlerState::Created(world))
+    pub fn new(world: WorldBuilder, window_state: WindowState) -> Self {
+        Self(EventLoopHandlerState::Created(world, window_state))
     }
 }
 
 impl ApplicationHandler for EventLoopHandler {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let Some(mut world) = self.0.try_start_creating() else {
+        let Some((mut world, mut window_state)) = self.0.try_start_creating() else {
             return;
         };
 
-        let mut window_attr = WindowAttributes::default();
-        window_attr.title = "fruits_engine app".into();
+        let window_attr = window_attributes_from_state(&window_state, event_loop);
 
         let window = Arc::new(event_loop.create_window(window_attr).unwrap());
+
+        window_state_apply_cursor(&mut window_state, &window);
+        window_state_refresh_from_window(&mut window_state, &window);
 
         let state = RenderApiResource::new(Arc::clone(&window));
 
         let render_target = RenderTarget::new(&*unsafe { state.raw() });
-
-        let window_state = window_state_from_window(&window);
 
         world.data_mut().resources_mut().insert(state);
         world.data_mut().resources_mut().insert(InputResource::default());

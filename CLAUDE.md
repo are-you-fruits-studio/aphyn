@@ -63,7 +63,7 @@ Every engine crate has one, including the `*_macros` crates, except: `fruits_ui`
 
 ### Two ways to launch a game
 1. **Static**: build an `App`, call `add_defult_modules_to`, register systems, `app.run()` (all examples do this), or `launch_app_statically(|world| ...)`.
-2. **Dynamic** (`fruits_app_launcher::launch_app_dynamically`): the launcher exe loads `lib_app{.dll,.so}` from next to itself via `libloading`, resolves the C symbol `fruits_entry_point`, and passes an `AppInitCtxFfi` (raw world + type-registry pointers). The game library generates that symbol with the `fruits_entry_point!(setup)` proc macro (`fruits_entry_point` crate). Symbol name, ABI, and `AppInitCtxFfi` layout must change in lockstep on both sides — mismatches fail only at runtime. The library is kept loaded until `App::run` returns because the world holds its types and function pointers.
+2. **Dynamic** (`fruits_app_launcher::launch_app_dynamically`): the launcher exe loads `lib_app{.dll,.so}` from next to itself via `libloading`, resolves the C symbol `fruits_entry_point`, and passes an `AppInitCtxFfi` (raw world + type-registry + initial `WindowState` pointers; defined in `fruits_app`). The game library generates that symbol with the `fruits_entry_point!(setup)` proc macro (`fruits_entry_point` crate). Symbol name, ABI, and `AppInitCtxFfi` layout must change in lockstep on both sides — mismatches fail only at runtime. The library is kept loaded until `App::run` returns because the world holds its types and function pointers.
 
 `fruits_editor build <project>` uses this: it builds `<project>/launcher` and `<project>/scripts` (the game as a cdylib) with cargo, then copies the launcher exe, `lib_app` library, and `assets/` into `<project>/builds/`.
 

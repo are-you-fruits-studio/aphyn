@@ -35,6 +35,24 @@
 //! }
 //! ```
 //!
+//! #### Configuring the window before it opens
+//!
+//! [`App`] holds the initial [`WindowState`](fruits_window::WindowState) (its `Default`: windowed
+//! 800x600, titled "fruits_engine app"). [`init_ctx_mut`](App::init_ctx_mut) returns an
+//! [`AppInitCtx`] borrowing both the world builder and that state; whatever the state holds when
+//! [`run`](App::run) creates the window is used as the window's creation attributes. The same ctx
+//! is what `launch_app_statically` and a game library's `fruits_entry_point!` setup receive.
+//!
+//! ```ignore
+//! use fruits_engine::*;
+//!
+//! let mut app = App::new();
+//! let ctx = app.init_ctx_mut();
+//! ctx.window.title = "My game".into();
+//! ctx.window.fullscreen = FullscreenState::WindowedMaximized;
+//! app.run();
+//! ```
+//!
 //! #### Reading keyboard, mouse, and gamepad input
 //!
 //! [`InputResource`] is inserted into the world before the [`Start`](fruits_ecs::Schedule::Start) pass and
@@ -109,14 +127,18 @@
 //!
 //! #### The event loop
 //!
-//! [`App::run`] hands the world builder to an internal `EventLoopHandler` and runs it under
-//! `winit` with `ControlFlow::Poll`, so the loop keeps ticking even without OS events. The
-//! handler is a three-state machine: it starts holding only the unbuilt `WorldBuilder`, moves
-//! through a transient `Starting` state on the first `resumed` callback, and then stays in a
-//! `Polling` state owning the built [`World`](fruits_ecs::World), the window, and the optional
-//! gamepad host.
+//! [`App::run`] hands the world builder and the initial window state to an internal
+//! `EventLoopHandler` and runs it under `winit` with `ControlFlow::Poll`, so the loop keeps
+//! ticking even without OS events. The handler is a three-state machine: it starts holding only
+//! the unbuilt `WorldBuilder` and the `WindowState`, moves through a transient `Starting` state
+//! on the first `resumed` callback, and then stays in a `Polling` state owning the built
+//! [`World`](fruits_ecs::World), the window, and the optional gamepad host.
 //!
-//! On the first `resumed` the handler creates the window, builds the renderer's
+//! On the first `resumed` the handler creates the window from the window state
+//! (`window_attributes_from_state`: title, inner size, resizable, icon, maximized and fullscreen;
+//! exclusive fullscreen uses the primary monitor's first video mode, else borderless), applies
+//! cursor grab and visibility to the created window (no creation attributes exist for them),
+//! re-reads fullscreen mode and size from it, builds the renderer's
 //! `RenderApiResource`, inserts [`InputResource`] and [`WindowResource`](fruits_window::WindowResource) into the world,
 //! finalizes the world, runs the [`Schedule::Start`](fruits_ecs::Schedule) pass once, applies the
 //! window state it requested, and initializes `gilrs` for gamepad support. A `gilrs` failure is logged and leaves gamepads
@@ -168,25 +190,36 @@
 //! resource until the next frame start, where they are taken and moved into the state in place
 //! (through `WindowResource::state_mut`, so icon pixels are never cloned per frame), and then
 //! fullscreen mode and size are re-read from the real window (`window_state_refresh_from_window`)
-//! so the state reflects user resizes and requests the OS did not honor. The title and the
-//! resizable flag are read from the window only once at creation and afterwards kept from the
-//! last request, because `winit` cannot read them back on all platforms (the title on x11,
-//! Wayland, iOS, Android and Web; resizable on x11, iOS, Android and Web). The icon cannot be read
-//! back at all, so it starts as `None` (the platform default) and is likewise kept from the last
-//! request; an icon whose pixel buffer does not match its size is logged and falls back to the
-//! default. Cursor grab and visibility cannot be read back either, so they start as
-//! `CursorGrabState::None` and visible and are kept from the last request; a grab mode the
-//! platform rejects (`Locked` on Windows and x11, `Confined` on macOS, ...) is removed from the
-//! requests in `window_state_apply_changes`, so the state keeps the previous mode. Exclusive fullscreen uses the current monitor's first video mode and falls back to
-//! borderless when there is none.
+//! so the state reflects user resizes and requests the OS did not honor. The title, the
+//! resizable flag, the icon, and cursor grab and visibility are never read back from the window
+//! (`winit` cannot read the title on x11, Wayland, iOS, Android and Web, resizable on x11, iOS,
+//! Android and Web, and the icon and cursor state nowhere), so they start as the initial window
+//! state the window was created from and are afterwards kept from the last request. An icon whose
+//! pixel buffer does not match its size is logged and falls back to the platform default. A grab
+//! mode the platform rejects (`Locked` on Windows and x11, `Confined` on macOS, ...) is reset to
+//! `CursorGrabState::None` at creation and removed from the requests in
+//! `window_state_apply_changes` later, so the state keeps the previous mode. Exclusive fullscreen
+//! uses the current monitor's first video mode and falls back to borderless when there is none.
+//!
+//! #### Init ctx
+//!
+//! [`AppInitCtx`] lives here rather than in `fruits_ecs` because it carries a
+//! `fruits_window::WindowState`, and `fruits_window` depends on `fruits_ecs`. [`AppInitCtxFfi`] is
+//! its `#[repr(C)]` form for the dynamic-library boundary: raw pointers to the world builder, the
+//! type registry, and the window state. `AppInitCtx::into_ffi` packs them on the host side and
+//! `AppInitCtxFfi::init_app` unpacks them inside the game library (called by the
+//! `fruits_entry_point!` expansion). The pointers are only valid while the ctx's borrows are,
+//! and the layout must match on both sides of the boundary.
 
 mod app;
 mod event_loop_handler;
+mod init_ctx;
 mod render_target;
 mod input_resource;
 mod window_resources;
 mod window_events;
 
 pub use app::*;
+pub use init_ctx::*;
 pub use input_resource::*;
 pub use window_events::*;

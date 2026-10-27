@@ -6,7 +6,10 @@
 //!
 //! # How to use
 //!
-//! `fruits_app` inserts [`WindowResource`] into the world when the window is created.
+//! The window is created from an initial [`WindowState`] the app owns (starting from
+//! [`WindowState::default`]: windowed 800x600, titled "fruits_engine app", resizable, no icon,
+//! free visible cursor), which the game sets through `fruits_app`'s `AppInitCtx` before the
+//! window opens. `fruits_app` then inserts [`WindowResource`] into the world.
 //! [`state`](WindowResource::state) is the window state at the start of the frame; read it for
 //! the current window size:
 //!
@@ -76,6 +79,20 @@ pub struct WindowState {
     pub icon: FfiOption<WindowIcon>,
     pub cursor_grab: CursorGrabState,
     pub is_cursor_visible: bool,
+}
+
+impl Default for WindowState {
+    fn default() -> Self {
+        Self {
+            fullscreen: FullscreenState::Windowed,
+            size: [800, 600],
+            title: "fruits_engine app".into(),
+            is_resizable: true,
+            icon: FfiOption::None,
+            cursor_grab: CursorGrabState::None,
+            is_cursor_visible: true,
+        }
+    }
 }
 
 impl WindowState {

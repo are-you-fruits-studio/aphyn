@@ -12,8 +12,8 @@ fn check_all_assets_deserialization() {
         load_all_assets(world.resources_mut(), "D:/Projects/Hobby/how_many_slices/assets");
     }
 
-    fn init_app(mut world: WorldBuilderMut) {
-        world.behavior_mut().get_mut(Schedule::Start).insert_system(load_all_assets_system);
+    fn init_app(mut ctx: AppInitCtx) {
+        ctx.world.behavior_mut().get_mut(Schedule::Start).insert_system(load_all_assets_system);
     }
 
     launch_app_statically(init_app);

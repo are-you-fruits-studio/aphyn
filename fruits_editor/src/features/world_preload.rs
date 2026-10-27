@@ -133,8 +133,14 @@ fn build_simulated_world(
         SimulationMode::Play => add_defult_modules_to(world.as_mut()),
     }
 
+    let mut window_state = WindowState {
+        size: [1, 1],
+        title: "Scene".into(),
+        ..Default::default()
+    };
+
     if let Some(lib) = lib
-        && let Err(err) = unsafe { init_app_from_library(world.as_mut(), lib) }
+        && let Err(err) = unsafe { init_app_from_library(AppInitCtx { world: world.as_mut(), window: &mut window_state }, lib) }
     {
         println!("failed to init scripts lib: {err}");
     }
@@ -201,7 +207,7 @@ fn build_simulated_world(
         serializer.register(StandardSerializer::<FfiVec<EntityId>>::default());
 
         res.insert(render_api.clone());
-        res.insert(WindowResource::new(WindowState { fullscreen: FullscreenState::Windowed, size: [1, 1], title: "Scene".into(), is_resizable: true, icon: FfiOption::None, cursor_grab: CursorGrabState::None, is_cursor_visible: true }));
+        res.insert(WindowResource::new(window_state));
 
         match mode {
             SimulationMode::Edit => {

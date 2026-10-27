@@ -1,6 +1,10 @@
-use fruits_ffi::{FfiOption, FfiString};
+use fruits_ffi::FfiOption;
 use fruits_window::{CursorGrabState, FullscreenState, WindowChangeRequests, WindowIcon, WindowState};
-use winit::{dpi::PhysicalSize, window::{CursorGrabMode, Fullscreen, Icon, Window}};
+use winit::{
+    dpi::PhysicalSize,
+    event_loop::ActiveEventLoop,
+    window::{CursorGrabMode, Fullscreen, Icon, Window, WindowAttributes},
+};
 
 fn fullscreen_state_from_window(window: &Window) -> FullscreenState {
     match window.fullscreen() {
@@ -50,10 +54,6 @@ fn window_size_apply(size: [u32; 2], window: &Window) {
     _ = window.request_inner_size(winit::dpi::Size::Physical(PhysicalSize { width: size[0], height: size[1], }));
 }
 
-fn window_title_from_window(window: &Window) -> FfiString {
-    window.title().into()
-}
-
 fn window_icon_to_winit(icon: &WindowIcon) -> Option<Icon> {
     let [width, height] = icon.size;
 
@@ -70,16 +70,35 @@ fn cursor_grab_to_winit(cursor_grab: CursorGrabState) -> CursorGrabMode {
     }
 }
 
-pub(crate) fn window_state_from_window(window: &Window) -> WindowState {
-    WindowState {
-        fullscreen: fullscreen_state_from_window(window),
-        size: window_size_from_window(window),
-        title: window_title_from_window(window),
-        is_resizable: window.is_resizable(),
-        icon: FfiOption::None,
-        cursor_grab: CursorGrabState::None,
-        is_cursor_visible: true,
+pub(crate) fn window_attributes_from_state(state: &WindowState, event_loop: &ActiveEventLoop) -> WindowAttributes {
+    let fullscreen = match state.fullscreen {
+        FullscreenState::Windowed | FullscreenState::WindowedMaximized => None,
+        FullscreenState::Borderless => Some(Fullscreen::Borderless(None)),
+        FullscreenState::Exclusive => Some(
+            if let Some(monitor) = event_loop.primary_monitor() && let Some(video_mode) = monitor.video_modes().next() {
+                Fullscreen::Exclusive(video_mode)
+            } else {
+                Fullscreen::Borderless(None)
+            },
+        ),
+    };
+
+    let [width, height] = state.size;
+
+    WindowAttributes::default()
+        .with_title(state.title.as_str())
+        .with_inner_size(PhysicalSize { width, height })
+        .with_resizable(state.is_resizable)
+        .with_window_icon(state.icon.as_ref().and_then(window_icon_to_winit))
+        .with_maximized(state.fullscreen == FullscreenState::WindowedMaximized)
+        .with_fullscreen(fullscreen)
+}
+
+pub(crate) fn window_state_apply_cursor(state: &mut WindowState, window: &Window) {
+    if window.set_cursor_grab(cursor_grab_to_winit(state.cursor_grab)).is_err() {
+        state.cursor_grab = CursorGrabState::None;
     }
+    window.set_cursor_visible(state.is_cursor_visible);
 }
 
 pub(crate) fn window_state_refresh_from_window(state: &mut WindowState, window: &Window) {
