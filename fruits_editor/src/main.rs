@@ -158,11 +158,8 @@ fn init_system(mut world: WorldDataMut) {
     let font = standard_ui_assets.font_px_8_12.clone();
     let texture_text = standard_ui_assets.texture_text_px_8_8.clone();
 
-    let textures_res = res.get::<AssetStorageResource<StandardTexture>>().unwrap();
-
     let material_panel = StandardMaterialAssetMetadata {
-        shader: StandardEngineShader::OpaqueUnlit.into(),
-        space: RenderSpace::Window,
+        shader: StandardEngineShader::UiOpaqueUnlit.into(),
         color: Vec4::splat(1.0),
         color_tex: AssetHandle::EMPTY,
         alpha_threshold: 0.5,
@@ -170,28 +167,22 @@ fn init_system(mut world: WorldDataMut) {
     };
 
     let material_text = StandardMaterialAssetMetadata {
-        shader: StandardEngineShader::OpaqueUnlit.into(),
-        space: RenderSpace::Window,
+        shader: StandardEngineShader::UiOpaqueUnlit.into(),
         color: Vec4::splat(1.0),
         color_tex: texture_text.clone(),
         alpha_threshold: 0.5,
         ..Default::default()
     };
 
-    let texture_text_asset = textures_res.get(&texture_text);
-
     let material_panel = res.as_ref()
         .get::<RenderApiResource>()
         .unwrap()
-        .create_material(Default::default(), material_panel);
+        .create_material(material_panel);
 
     let material_text = res.as_ref()
         .get::<RenderApiResource>()
         .unwrap()
-        .create_material(StandardMaterialAssets {
-            color_texture: texture_text_asset,
-            ..Default::default()
-        }, material_text);
+        .create_material(material_text);
 
     let materials_res = res.get_mut::<AssetStorageResource<StandardMaterial>>().unwrap();
 

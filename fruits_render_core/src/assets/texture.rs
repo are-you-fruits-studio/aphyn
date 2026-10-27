@@ -64,6 +64,7 @@ impl Default for StandardTextureAssetMetadata {
 pub struct StandardTexture {
     native: FfiDroppable,
     meta: FfiOption<StandardTextureAssetMetadata>,
+    texture_id: u64,
 }
 
 impl StandardTexture {
@@ -225,12 +226,15 @@ impl StandardTexture {
             render_api.queue.submit([encoder.finish()]);
         }
 
+        let texture_id = render_api.next_texture_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
         Self {
             native: FfiDroppable::new(StandardTextureNative {
                 texture,
                 sampler,
             }),
             meta: meta.into(),
+            texture_id,
         }
     }
 
@@ -240,6 +244,10 @@ impl StandardTexture {
 
     pub fn meta(&self) -> Option<&StandardTextureAssetMetadata> {
         self.meta.as_ref()
+    }
+
+    pub fn id(&self) -> u64 {
+        self.texture_id
     }
 }
 

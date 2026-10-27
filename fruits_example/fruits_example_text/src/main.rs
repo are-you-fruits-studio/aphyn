@@ -70,28 +70,15 @@ fn init(mut world: WorldDataMut) {
 
     let material = StandardMaterialAssetMetadata {
         shader: StandardEngineShader::OpaqueUnlit.into(),
-        space: RenderSpace::World,
         color_tex: texture_text_handle.clone(),
         ..Default::default()
     };
-
-    let texture_text = world.as_ref()
-        .resources()
-        .get::<AssetStorageResource<StandardTexture>>()
-        .unwrap()
-        .get(&texture_text_handle);
 
     let material = world.as_ref()
         .resources()
         .get::<RenderApiResource>()
         .unwrap()
-        .create_material(
-            StandardMaterialAssets {
-                color_texture: texture_text,
-                ..Default::default()
-            },
-            material,
-        );
+        .create_material(material);
 
     let material = world.as_mut()
         .resources_mut()

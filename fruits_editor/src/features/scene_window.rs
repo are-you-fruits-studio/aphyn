@@ -266,27 +266,22 @@ pub fn render_simulated_view(
             },
         );
 
-        let material = render_api.create_material(
-            StandardMaterialAssets {
-                color_texture: Some(&texture),
-                ..Default::default()
-            },
-            StandardMaterialAssetMetadata {
-                shader: StandardEngineShader::OpaqueUnlit.into(),
-                space: RenderSpace::Window,
-                color: Vec4::splat(1.0),
-                alpha_threshold: 0.5,
-                ..Default::default()
-            },
-        );
-
         match (&view.texture, &view.material) {
-            (Some(texture_handle), Some(material_handle)) => {
+            (Some(texture_handle), Some(_)) => {
                 *textures.get_mut(texture_handle).unwrap() = texture;
-                *materials.get_mut(material_handle).unwrap() = material;
             }
             _ => {
-                view.texture = Some(textures.insert(texture));
+                let texture_handle = textures.insert(texture);
+
+                let material = render_api.create_material(StandardMaterialAssetMetadata {
+                    shader: StandardEngineShader::UiOpaqueUnlit.into(),
+                    color: Vec4::splat(1.0),
+                    alpha_threshold: 0.5,
+                    color_tex: texture_handle.clone(),
+                    ..Default::default()
+                });
+
+                view.texture = Some(texture_handle);
                 view.material = Some(materials.insert(material));
             }
         }

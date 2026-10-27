@@ -59,25 +59,28 @@
 //!
 //! #### Creating a material
 //!
-//! A [`StandardMaterial`] combines the PBR parameters in [`StandardMaterialAssetMetadata`] with up
-//! to five textures ([`StandardMaterialAssets`]); a missing texture falls back to a built-in
+//! A [`StandardMaterial`] is created from a [`StandardMaterialAssetMetadata`]: the PBR parameters
+//! plus up to five [`AssetHandle`](fruits_asset_storage::AssetHandle)s to textures stored in an
+//! `AssetStorageResource<StandardTexture>`; an empty or unresolved handle falls back to a built-in
 //! white texture (or a flat normal map for the normal slot). Its `shader` is a
-//! [`StandardMaterialShader`]: one of the four engine variants ([`StandardEngineShader`], opaque or
-//! transparent, lit or unlit), or `Custom` with a [`StandardShader`] handle. Opaque shaders
+//! [`StandardMaterialShader`]: one of the engine variants ([`StandardEngineShader`]: four world-space
+//! ones, opaque or transparent, lit or unlit, plus `UiOpaqueUnlit` / `UiTransparentUnlit`, which draw
+//! geometry given in window pixels), or `Custom` with a [`StandardShader`] handle. Opaque shaders
 //! discard fragments whose alpha is below `alpha_threshold`:
 //!
 //! ```ignore
 //! use fruits_render_core::*;
 //!
-//! let material = render_api.create_material(
-//!     StandardMaterialAssets { color_texture: Some(&texture), ..Default::default() },
-//!     StandardMaterialAssetMetadata {
-//!         shader: StandardEngineShader::OpaqueLit.into(),
-//!         metallic: 0.0,
-//!         roughness: 0.8,
-//!         ..Default::default()
-//!     },
-//! );
+//! // `textures` is the world's `AssetStorageResource<StandardTexture>`.
+//! let color_tex = textures.insert(texture);
+//!
+//! let material = render_api.create_material(StandardMaterialAssetMetadata {
+//!     shader: StandardEngineShader::OpaqueLit.into(),
+//!     metallic: 0.0,
+//!     roughness: 0.8,
+//!     color_tex,
+//!     ..Default::default()
+//! });
 //! ```
 //!
 //! #### Creating a custom shader
@@ -135,7 +138,9 @@
 //! [`with_engine_libraries`](WgslComposer::with_engine_libraries) registers the engine ones:
 //!
 //! - `fruits/standard_types.wgsl`: `GlobalData`, `MaterialData`, `GenericLight`, `VertexAttributes`,
-//!   `InstanceRawAttributes`, `InstanceAttributes`, and `map_instance_data`.
+//!   `InstanceRawAttributes`, `InstanceAttributes`, and `map_instance_data`. `GlobalData` carries
+//!   both `matrix_world_to_clip` (the camera) and `matrix_window_to_clip` (window pixels); a custom
+//!   shader multiplies by whichever fits the space its geometry is in.
 //! - `fruits/standard_bindings.wgsl`: the standard bind groups (`global_data`, `lights`,
 //!   `material_data`, and the five material texture/sampler pairs). Includes `standard_types`.
 //! - `fruits/pbr.wgsl`: `PI`, `FragmentLight`, `light_generic_to_fragment`, `cook_torrance_brdf`
@@ -278,11 +283,23 @@
 //! fullscreen triangle through `mip_fill_shader.wgsl`, submitting one command buffer per level.
 //!
 //! `StandardMaterial::new` creates a uniform buffer initialized with the default
-//! [`StandardUniformMaterial`] and a bind group against the material layout, with the textures
-//! resolved once at creation. `fruits_render` rewrites the uniform from the metadata each time
-//! it draws with the material, but the texture handles stored in the metadata are not
-//! re-resolved afterwards (see the `todo` in `create_material`). [`RenderSpace`]
-//! selects which space a material's geometry is drawn in, and [`StandardLight`] is the
+//! [`StandardUniformMaterial`] and an initial bind group against the material layout from the
+//! [`RenderAssets`] fallback textures, caches all-zero texture ids (real
+//! [`id`](StandardTexture::id)s start at 1, so the first update resolves the metadata handles and
+//! rebuilds the bind group), and starts dirty.
+//! [`meta_mut`](StandardMaterial::meta_mut) marks the material dirty.
+//! [`update_gpu_data_if_dirty`](StandardMaterial::update_gpu_data_if_dirty) resolves the five
+//! texture handles of the metadata on every call (falling back to the [`RenderAssets`] white
+//! texture, or the flat normal for the normal slot, when a handle doesn't resolve) and recreates
+//! the bind group if any resolved texture id differs from the cached one, so a texture replaced
+//! under the same handle is picked up without touching the material; only when dirty does it
+//! rewrite the uniform from the metadata (color and emission RGB raised to the power 2.2, sRGB to
+//! linear, alpha kept as is so the alpha test sees the authored value) and clear the flag. The
+//! `shader` field needs no tracking because it is read at draw time. `fruits_render` calls it
+//! lazily, right before drawing with a material. The material uniform holds no
+//! matrix: the world-to-clip and window-to-clip matrices live in [`StandardUniformGlobal`]
+//! (written by `fruits_render` once per rendering), and the shader decides which one to use.
+//! [`RenderSpace`] is only used by `fruits_render`'s gizmos. [`StandardLight`] is the
 //! serializable light description; it converts into the GPU-side [`StandardGenericLight`], whose
 //! `light_type` is `0` point, `1` spot, `2` directional. [`StandardUniformGlobal`],
 //! [`StandardUniformMaterial`], and [`StandardGenericLight`] are `#[repr(C)]` and marked

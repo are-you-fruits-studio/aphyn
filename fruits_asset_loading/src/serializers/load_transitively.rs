@@ -90,7 +90,7 @@ pub fn load_asset_transitively<R>(
             let asset_metadata = ctx.deserialize_default("", value);
             MaterialLoader {
                 render_api: render_api,
-            }.load_from_deserialized(asset_metadata, &*textures.lock().unwrap())
+            }.load_from_deserialized(asset_metadata)
         },
     });
     serializer_local.register(TransitiveLoadTransSerializer { 

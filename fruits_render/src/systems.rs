@@ -39,8 +39,8 @@ pub fn create_standard_render_resource(mut world: WorldDataMut) {
         push_constant_ranges: &[],
     });
 
-    let create_render_pipeline_fn = |is_lit: bool, is_transparent: bool| -> RenderPipeline {
-        let defs = [is_lit.then_some("LIT"), is_transparent.then_some("TRANSPARENT")];
+    let create_render_pipeline_fn = |is_lit: bool, is_transparent: bool, is_ui: bool| -> RenderPipeline {
+        let defs = [is_lit.then_some("LIT"), is_transparent.then_some("TRANSPARENT"), is_ui.then_some("UI")];
         let defs = defs.into_iter().flatten().collect::<Vec<_>>();
         let shader = create_engine_shader_module(
             render_state.device(),
@@ -94,10 +94,12 @@ pub fn create_standard_render_resource(mut world: WorldDataMut) {
         render_pipeline
     };
 
-    let render_pipeline_opaque_unlit = create_render_pipeline_fn(false, false);
-    let render_pipeline_opaque_lit = create_render_pipeline_fn(true, false);
-    let render_pipeline_transparent_unlit = create_render_pipeline_fn(false, true);
-    let render_pipeline_transparent_lit = create_render_pipeline_fn(true, true);
+    let render_pipeline_opaque_unlit = create_render_pipeline_fn(false, false, false);
+    let render_pipeline_opaque_lit = create_render_pipeline_fn(true, false, false);
+    let render_pipeline_transparent_unlit = create_render_pipeline_fn(false, true, false);
+    let render_pipeline_transparent_lit = create_render_pipeline_fn(true, true, false);
+    let render_pipeline_ui_opaque_unlit = create_render_pipeline_fn(false, false, true);
+    let render_pipeline_ui_transparent_unlit = create_render_pipeline_fn(false, true, true);
 
     let render_pipeline_transparent_shader = create_engine_shader_module(
         render_state.device(),
@@ -178,6 +180,8 @@ pub fn create_standard_render_resource(mut world: WorldDataMut) {
             render_pipeline_opaque_unlit,
             render_pipeline_transparent_lit,
             render_pipeline_transparent_unlit,
+            render_pipeline_ui_opaque_unlit,
+            render_pipeline_ui_transparent_unlit,
             render_pipeline_transparent_final,
             bind_group_layout_transparent_final,
             camera_pos: Vec3::default(),
@@ -1185,11 +1189,22 @@ pub fn update_lights_buffer(
 
 pub fn update_global_uniforms(
     render_api: Res<RenderApiResource>,
+    current_rendering: Res<CurrentRenderingResource>,
+    screen_space_res: Res<ScreenSpaceResource>,
     standard_render_res: Res<StandardRenderResource>,
 ) {
     let render_state = unsafe { render_api.raw() };
 
+    let target_size = current_rendering.target_size();
+
     let uniform = StandardUniformGlobal {
+        world_to_clip: standard_render_res.camera_proj_matrix,
+        window_to_clip: crate::utils::create_window_to_clip_matrix(
+            target_size[0] as f32,
+            target_size[1] as f32,
+            screen_space_res.near,
+            screen_space_res.far,
+        ),
         lights_count: standard_render_res.lights_count,
         camera_position_world: standard_render_res.camera_pos,
     };
@@ -1214,8 +1229,8 @@ pub fn render_opaque(
     )>>,
     render_api: Res<RenderApiResource>,
     current_rendering: Res<CurrentRenderingResource>,
-    screen_space_res: Res<ScreenSpaceResource>,
-    materials: Res<AssetStorageResource<StandardMaterial>>,
+    mut materials: ResMut<AssetStorageResource<StandardMaterial>>,
+    textures: Res<AssetStorageResource<StandardTexture>>,
     shaders: Res<AssetStorageResource<StandardShader>>,
     meshes: Res<AssetStorageResource<StandardMesh>>,
     standard_render_res: Res<StandardRenderResource>,
@@ -1230,15 +1245,6 @@ pub fn render_opaque(
     let render_state = unsafe { render_api.raw() };
 
     let view = &current_rendering.target_view;
-
-    let window_size = current_rendering.target_size();
-
-    let window_to_clip_mat = crate::utils::create_window_to_clip_matrix(
-        window_size[0] as f32,
-        window_size[1] as f32,
-        screen_space_res.near,
-        screen_space_res.far,
-    );
 
     // todo: try using single vec and ordering it based on materials/meshes/batching-or-instancing. Separate it while iterating. Reuse it as SystemData to avoid reallocation
     // order: material -> instance/batch -> mesh
@@ -1301,16 +1307,16 @@ pub fn render_opaque(
                 for material_chunk in mesh_ty_chunk.chunk_by(|l, r| l.0 == r.0) {
                     let material = &material_chunk[0].0;
 
-                    let Some(material) = materials.get(&material) else {
+                    let Some(material) = materials.get_mut(&material) else {
                         continue;
                     };
-                        
+
+                    material.update_gpu_data_if_dirty(&render_state, &textures);
+
                     let Some((render_pipeline, bind_group)) = crate::utils::get_render_data(
                         material,
                         &standard_render_res,
                         &shaders,
-                        &render_state,
-                        window_to_clip_mat,
                     ) else {
                         continue;
                     };
@@ -1404,16 +1410,16 @@ pub fn render_opaque(
                 for material_chunks in mesh_ty_chunk.chunk_by(|l, r| l.0 == r.0) {
                     let material = &material_chunks[0].0;
 
-                    let Some(material) = materials.get(&material) else {
+                    let Some(material) = materials.get_mut(&material) else {
                         continue;
                     };
+
+                    material.update_gpu_data_if_dirty(&render_state, &textures);
 
                     let Some((render_pipeline, bind_group)) = crate::utils::get_render_data(
                         material,
                         &standard_render_res,
                         &shaders,
-                        &render_state,
-                        window_to_clip_mat,
                     ) else {
                         continue;
                     };
@@ -1487,13 +1493,12 @@ pub fn render_transparent_instanced(
         Option<&GlobalDisableableComponent>,
     )>,
     render_api: Res<RenderApiResource>,
-    screen_space_res: Res<ScreenSpaceResource>,
     standard_render_res: Res<StandardRenderResource>,
     depth_res: Res<DepthTextureResource>,
     transparent_target_res: Res<TransparentTargetTextureResource>,
-    current_rendering: Res<CurrentRenderingResource>,
     meshes: Res<AssetStorageResource<StandardMesh>>,
-    materials: Res<AssetStorageResource<StandardMaterial>>,
+    mut materials: ResMut<AssetStorageResource<StandardMaterial>>,
+    textures: Res<AssetStorageResource<StandardTexture>>,
     shaders: Res<AssetStorageResource<StandardShader>>,
 ) {
     if query.len() == 0 {
@@ -1503,15 +1508,6 @@ pub fn render_transparent_instanced(
     let render_state = unsafe { render_api.raw() };
 
     let view = &transparent_target_res.texture_view;
-
-    let window_size = current_rendering.target_size();
-
-    let window_to_clip_mat = crate::utils::create_window_to_clip_matrix(
-        window_size[0] as f32,
-        window_size[1] as f32,
-        screen_space_res.near,
-        screen_space_res.far,
-    );
 
     let mut instanced_matrices = HashMap::new();
 
@@ -1542,7 +1538,7 @@ pub fn render_transparent_instanced(
         let Some(mesh) = meshes.get(&mesh) else {
             continue;
         };
-        let Some(material) = materials.get(&material) else {
+        let Some(material) = materials.get_mut(&material) else {
             continue;
         };
 
@@ -1552,12 +1548,12 @@ pub fn render_transparent_instanced(
             continue;
         }
 
+        material.update_gpu_data_if_dirty(&render_state, &textures);
+
         let Some((render_pipeline, bind_group)) = crate::utils::get_render_data(
             material,
             &standard_render_res,
             &shaders,
-            &render_state,
-            window_to_clip_mat,
         ) else {
             continue;
         };
@@ -1619,12 +1615,11 @@ pub fn render_transparent_batched(
         Option<&GlobalDisableableComponent>,
     )>,
     render_api: Res<RenderApiResource>,
-    screen_space_res: Res<ScreenSpaceResource>,
     standard_render_res: Res<StandardRenderResource>,
     depth_res: Res<DepthTextureResource>,
     transparent_target_res: Res<TransparentTargetTextureResource>,
-    current_rendering: Res<CurrentRenderingResource>,
-    materials: Res<AssetStorageResource<StandardMaterial>>,
+    mut materials: ResMut<AssetStorageResource<StandardMaterial>>,
+    textures: Res<AssetStorageResource<StandardTexture>>,
     shaders: Res<AssetStorageResource<StandardShader>>,
     mut batched_vertex_cpu_buffer: ResMut<BatchedVertexCpuBufferResource>,
 ) {
@@ -1635,15 +1630,6 @@ pub fn render_transparent_batched(
     let render_state = unsafe { render_api.raw() };
 
     let view = &transparent_target_res.texture_view;
-
-    let window_size = current_rendering.target_size();
-
-    let window_to_clip_mat = crate::utils::create_window_to_clip_matrix(
-        window_size[0] as f32,
-        window_size[1] as f32,
-        screen_space_res.near,
-        screen_space_res.far,
-    );
 
     let mut batched_meshes_by_material = HashMap::new();
 
@@ -1680,16 +1666,16 @@ pub fn render_transparent_batched(
     let batch_cpu_buffer = &mut batched_vertex_cpu_buffer.0;
 
     for (material, matrices_and_meshes) in &batched_meshes_by_material {
-        let Some(material) = materials.get(&material) else {
+        let Some(material) = materials.get_mut(&material) else {
             continue;
         };
+
+        material.update_gpu_data_if_dirty(&render_state, &textures);
 
         let Some((render_pipeline, bind_group)) = crate::utils::get_render_data(
             material,
             &standard_render_res,
             &shaders,
-            &render_state,
-            window_to_clip_mat,
         ) else {
             continue;
         };

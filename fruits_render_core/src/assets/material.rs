@@ -1,4 +1,4 @@
-use fruits_asset_storage::AssetHandle;
+use fruits_asset_storage::{AssetHandle, AssetStorageResource};
 use fruits_ffi::FfiDroppable;
 use fruits_math::{Mat4, Vec3, Vec4};
 use fruits_serialization::*;
@@ -46,6 +46,8 @@ impl Default for StandardGenericLight {
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct StandardUniformGlobal {
+    pub world_to_clip: Mat4<f32>,
+    pub window_to_clip: Mat4<f32>,
     pub camera_position_world: Vec3<f32>,
     pub lights_count: u32,
 }
@@ -56,6 +58,8 @@ unsafe impl AllBitsInit for StandardUniformGlobal {}
 impl Default for StandardUniformGlobal {
     fn default() -> Self {
         Self {
+            world_to_clip: Mat4::IDENTITY,
+            window_to_clip: Mat4::IDENTITY,
             camera_position_world: Vec3::splat(0.0),
             lights_count: 0,
         }
@@ -65,7 +69,6 @@ impl Default for StandardUniformGlobal {
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct StandardUniformMaterial {
-    pub world_to_clip: Mat4<f32>,
     pub color: Vec4<f32>,
     pub emission_color: Vec4<f32>,
     pub metallic: f32,
@@ -80,7 +83,6 @@ unsafe impl AllBitsInit for StandardUniformMaterial {}
 impl Default for StandardUniformMaterial {
     fn default() -> Self {
         Self {
-            world_to_clip: Mat4::IDENTITY,
             color: Vec4::splat(0.5),
             emission_color: Vec4::splat(0.0),
             metallic: 0.5,
@@ -163,6 +165,8 @@ pub enum StandardEngineShader {
     OpaqueLit,
     TransparentUnlit,
     TransparentLit,
+    UiOpaqueUnlit,
+    UiTransparentUnlit,
 }
 
 impl From<StandardEngineShader> for StandardMaterialShader {
@@ -187,8 +191,14 @@ impl Default for StandardMaterialShader {
 impl StandardMaterialShader {
     pub fn is_transparent(&self) -> bool {
         match self {
-            Self::Engine(StandardEngineShader::TransparentUnlit | StandardEngineShader::TransparentLit) => true,
-            Self::Engine(StandardEngineShader::OpaqueUnlit | StandardEngineShader::OpaqueLit) => false,
+            Self::Engine(
+                StandardEngineShader::TransparentUnlit
+                | StandardEngineShader::TransparentLit
+                | StandardEngineShader::UiTransparentUnlit,
+            ) => true,
+            Self::Engine(
+                StandardEngineShader::OpaqueUnlit | StandardEngineShader::OpaqueLit | StandardEngineShader::UiOpaqueUnlit,
+            ) => false,
             // todo: transparent custom shaders
             Self::Custom(_) => false,
         }
@@ -199,7 +209,6 @@ impl StandardMaterialShader {
 #[derive(Clone, Debug, PartialEq, PartialOrd, Serializable)]
 pub struct StandardMaterialAssetMetadata {
     pub shader: StandardMaterialShader,
-    pub space: RenderSpace,
     pub color: Vec4<f32>,
     pub emission_color: Vec4<f32>,
     pub metallic: f32,
@@ -216,7 +225,6 @@ impl Default for StandardMaterialAssetMetadata {
     fn default() -> Self {
         Self {
             shader: StandardMaterialShader::default(),
-            space: RenderSpace::World,
             color: Vec4::splat(1.0),
             emission_color: Vec4::splat(0.0),
             metallic: 0.0,
@@ -232,76 +240,35 @@ impl Default for StandardMaterialAssetMetadata {
 }
 
 #[repr(C)]
-#[derive(Default, Clone, Copy)]
-pub struct StandardMaterialAssets<T> {
-    pub color_texture: T,
-    pub roughness_texture: T,
-    pub metallic_texture: T,
-    pub normal_texture: T,
-    pub emission_texture: T,
-}
-
-impl<T> StandardMaterialAssets<T> {
-    pub fn map<U>(self, mut f: impl FnMut(T) -> U) -> StandardMaterialAssets<U> {
-        StandardMaterialAssets {
-            color_texture: f(self.color_texture),
-            roughness_texture: f(self.roughness_texture),
-            metallic_texture: f(self.metallic_texture),
-            normal_texture: f(self.normal_texture),
-            emission_texture: f(self.emission_texture),
-        }
-    }
-}
-
-#[repr(C)]
 pub struct StandardMaterial {
     meta: StandardMaterialAssetMetadata,
     native: FfiDroppable,
+    texture_ids: [u64; 5],
+    is_dirty: bool,
 }
 
 impl StandardMaterial {
-    pub(crate) fn new(
-        render_state: &RenderState,
-        assets: StandardMaterialAssets<&StandardTexture>,
-        meta: StandardMaterialAssetMetadata,
-    ) -> Self {
+    pub(crate) fn new(render_state: &RenderState, meta: StandardMaterialAssetMetadata) -> Self {
         let buffer_uniform = render_state.device().create_buffer_init(&BufferInitDescriptor {
             label: Some("Standard Material Uniform Buffer"),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             contents: fruits_utils::mem::as_bytes(&[StandardUniformMaterial::default()]),
         });
 
-        let tex_color = unsafe { texture_to_view_and_sampler(assets.color_texture) };
-        let tex_roughness = unsafe { texture_to_view_and_sampler(assets.roughness_texture) };
-        let tex_metallic = unsafe { texture_to_view_and_sampler(assets.metallic_texture) };
-        let tex_normal = unsafe { texture_to_view_and_sampler(assets.normal_texture) };
-        let tex_emission = unsafe { texture_to_view_and_sampler(assets.emission_texture) };
+        let render_assets = render_state.render_assets();
+        let white = &render_assets.texture_white;
+        let textures = [white, white, white, &render_assets.texture_normal_default, white];
 
-        let bind_group = crate::utils::create_bind_group(
-            render_state.device(),
-            Some("Standard Material Bind Group"),
-            &render_state.render_data().bind_group_layout_material,
-            &[
-                CreateBindGroupEntry::Buffer(&buffer_uniform),
-                CreateBindGroupEntry::Texture(&tex_color.0),
-                CreateBindGroupEntry::Sampler(tex_color.1),
-                CreateBindGroupEntry::Texture(&tex_roughness.0),
-                CreateBindGroupEntry::Sampler(tex_roughness.1),
-                CreateBindGroupEntry::Texture(&tex_metallic.0),
-                CreateBindGroupEntry::Sampler(tex_metallic.1),
-                CreateBindGroupEntry::Texture(&tex_normal.0),
-                CreateBindGroupEntry::Sampler(tex_normal.1),
-                CreateBindGroupEntry::Texture(&tex_emission.0),
-                CreateBindGroupEntry::Sampler(tex_emission.1),
-            ],
-        );
+        let bind_group = create_material_bind_group(render_state, &buffer_uniform, textures);
 
         Self {
             native: FfiDroppable::new(StandardMaterialNative {
                 buffer_uniform,
                 bind_group,
             }),
-            meta: meta.into(),
+            meta,
+            texture_ids: [0; 5],
+            is_dirty: true,
         }
     }
 
@@ -309,17 +276,91 @@ impl StandardMaterial {
         &self.meta
     }
 
+    pub fn meta_mut(&mut self) -> &mut StandardMaterialAssetMetadata {
+        self.is_dirty = true;
+        &mut self.meta
+    }
+
+    pub fn update_gpu_data_if_dirty(&mut self, render_state: &RenderState, textures: &AssetStorageResource<StandardTexture>) {
+        let render_assets = render_state.render_assets();
+        let white = &render_assets.texture_white;
+        let resolve = |handle, fallback| textures.get(handle).unwrap_or(fallback);
+
+        let resolved = [
+            resolve(&self.meta.color_tex, white),
+            resolve(&self.meta.roughness_tex, white),
+            resolve(&self.meta.metallic_tex, white),
+            resolve(&self.meta.normal_tex, &render_assets.texture_normal_default),
+            resolve(&self.meta.emission_tex, white),
+        ];
+
+        let texture_ids = resolved.map(|t| t.id());
+
+        if texture_ids != self.texture_ids {
+            let native = unsafe { self.native_mut() };
+            native.bind_group = create_material_bind_group(render_state, &native.buffer_uniform, resolved);
+            self.texture_ids = texture_ids;
+        }
+
+        if self.is_dirty {
+            let uniform = StandardUniformMaterial {
+                color: srgb_to_linear(self.meta.color),
+                emission_color: srgb_to_linear(self.meta.emission_color),
+                metallic: self.meta.metallic,
+                roughness: self.meta.roughness,
+                alpha_threshold: self.meta.alpha_threshold,
+                _padding: Default::default(),
+            };
+
+            let native = unsafe { self.native() };
+            render_state.queue().write_buffer(&native.buffer_uniform, 0, fruits_utils::mem::as_bytes(&[uniform]));
+
+            self.is_dirty = false;
+        }
+    }
+
     pub unsafe fn native(&self) -> &StandardMaterialNative {
         unsafe { &*(self.native.get() as *const StandardMaterialNative) }
+    }
+
+    unsafe fn native_mut(&mut self) -> &mut StandardMaterialNative {
+        unsafe { &mut *(self.native.get() as *mut StandardMaterialNative) }
     }
 }
 
 unsafe impl Send for StandardMaterial where StandardMaterialNative: Send {}
 unsafe impl Sync for StandardMaterial where StandardMaterialNative: Sync {}
 
+fn create_material_bind_group(render_state: &RenderState, buffer_uniform: &Buffer, textures: [&StandardTexture; 5]) -> BindGroup {
+    let [color, roughness, metallic, normal, emission] = textures.map(|t| unsafe { texture_to_view_and_sampler(t) });
+
+    crate::utils::create_bind_group(
+        render_state.device(),
+        Some("Standard Material Bind Group"),
+        &render_state.render_data().bind_group_layout_material,
+        &[
+            CreateBindGroupEntry::Buffer(buffer_uniform),
+            CreateBindGroupEntry::Texture(&color.0),
+            CreateBindGroupEntry::Sampler(color.1),
+            CreateBindGroupEntry::Texture(&roughness.0),
+            CreateBindGroupEntry::Sampler(roughness.1),
+            CreateBindGroupEntry::Texture(&metallic.0),
+            CreateBindGroupEntry::Sampler(metallic.1),
+            CreateBindGroupEntry::Texture(&normal.0),
+            CreateBindGroupEntry::Sampler(normal.1),
+            CreateBindGroupEntry::Texture(&emission.0),
+            CreateBindGroupEntry::Sampler(emission.1),
+        ],
+    )
+}
+
 unsafe fn texture_to_view_and_sampler(texture: &StandardTexture) -> (TextureView, &Sampler) {
     let texture_view = unsafe { texture.native().texture.create_view(&Default::default()) };
     let sampler = unsafe { &texture.native().sampler };
 
     (texture_view, sampler)
+}
+
+fn srgb_to_linear(color: Vec4<f32>) -> Vec4<f32> {
+    Vec4::new(color.x.powf(2.2), color.y.powf(2.2), color.z.powf(2.2), color.w)
 }

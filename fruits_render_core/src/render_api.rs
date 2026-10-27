@@ -1,11 +1,11 @@
-use std::{ffi::c_void, sync::{Arc, Mutex}};
+use std::{ffi::c_void, sync::{Arc, Mutex, atomic::AtomicU64}};
 
 use fruits_ecs::Resource;
 use fruits_ffi::{FfiDroppable, FfiOption, FfiSliceRef, FfiStaticRef};
 use wgpu::*;
 use winit::window::Window;
 
-use crate::{StandardMaterial, StandardMaterialAssetMetadata, StandardMaterialAssets, StandardMesh, StandardShader, StandardMeshAssetMetadata, StandardTexture, StandardTextureAssetMetadata, StandardTextureFormat, StandardVertex};
+use crate::{StandardMaterial, StandardMaterialAssetMetadata, StandardMesh, StandardShader, StandardMeshAssetMetadata, StandardTexture, StandardTextureAssetMetadata, StandardTextureFormat, StandardVertex};
 
 // todo: ffi?
 
@@ -19,6 +19,8 @@ pub struct RenderApi {
     pub queue: Queue,
     pub surface: Surface<'static>,
     pub window: Arc<Window>,
+    // todo: ids for other assets (meshes, shaders, materials)
+    pub next_texture_id: AtomicU64,
     surface_config: Mutex<SurfaceConfigCache>,
 }
 
@@ -84,6 +86,7 @@ impl RenderApi {
             surface,
             window,
             surface_config,
+            next_texture_id: AtomicU64::new(1),
         }
     }
 
@@ -271,6 +274,10 @@ impl RenderState {
         &self.render_data
     }
 
+    pub fn render_assets(&self) -> &RenderAssets {
+        &self.render_assets
+    }
+
     //
 
     pub fn resize(&self, new_size: [u32; 2]) {
@@ -296,24 +303,8 @@ impl RenderState {
         self.api.create_mesh(vertices, indices, meta)
     }
 
-    pub fn create_material(
-        &self,
-        assets: StandardMaterialAssets<Option<&StandardTexture>>,
-        meta: StandardMaterialAssetMetadata,
-    ) -> StandardMaterial {
-        // todo: use asset-handles as a single source of truth - probably add an is_dirty flag to the material and update the gpu-side data every frame (if dirty)
-        let assets = StandardMaterialAssets {
-            color_texture: assets.color_texture.unwrap_or_else(|| &self.render_assets.texture_white),
-            roughness_texture: assets.roughness_texture.unwrap_or_else(|| &self.render_assets.texture_white),
-            metallic_texture: assets.metallic_texture.unwrap_or_else(|| &self.render_assets.texture_white),
-            normal_texture: assets.normal_texture.unwrap_or_else(|| &self.render_assets.texture_normal_default),
-            emission_texture: assets.emission_texture.unwrap_or_else(|| &self.render_assets.texture_white),
-        };
-        StandardMaterial::new(
-            self,
-            assets,
-            meta,
-        )
+    pub fn create_material(&self, meta: StandardMaterialAssetMetadata) -> StandardMaterial {
+        StandardMaterial::new(self, meta)
     }
 
     pub fn create_shader(&self, name: &str, source: &str) -> Option<StandardShader> {
@@ -329,7 +320,7 @@ struct RenderApiVTable {
     size_fn: unsafe extern "C-unwind" fn(*const c_void, size_dst: *mut u32),
     create_texture_fn: unsafe extern "C-unwind" fn(*const c_void, filter_mode: FilterMode, dimensions: *const u32, data: FfiSliceRef<u8>, meta: StandardTextureAssetMetadata) -> StandardTexture,
     create_mesh_fn: unsafe extern "C-unwind" fn(*const c_void, vertices: FfiSliceRef<StandardVertex>, indices: FfiSliceRef<u16>, meta: FfiOption<StandardMeshAssetMetadata>) -> StandardMesh,
-    create_material_fn: unsafe extern "C-unwind" fn(*const c_void, StandardMaterialAssets<FfiOption<&StandardTexture>>, meta: StandardMaterialAssetMetadata) -> StandardMaterial,
+    create_material_fn: unsafe extern "C-unwind" fn(*const c_void, meta: StandardMaterialAssetMetadata) -> StandardMaterial,
     create_shader_fn: unsafe extern "C-unwind" fn(*const c_void, name: FfiSliceRef<u8>, source: FfiSliceRef<u8>) -> FfiOption<StandardShader>,
     clone_fn: unsafe extern "C-unwind" fn(*const c_void) -> FfiDroppable,
 }
@@ -389,15 +380,11 @@ impl RenderApiResource {
                 this.create_mesh(vertices, indices, meta.into())
             }
         }
-        unsafe extern "C-unwind" fn ffi_create_material(
-            this: *const c_void,
-            assets: StandardMaterialAssets<FfiOption<&StandardTexture>>,
-            meta: StandardMaterialAssetMetadata,
-        ) -> StandardMaterial {
+        unsafe extern "C-unwind" fn ffi_create_material(this: *const c_void, meta: StandardMaterialAssetMetadata) -> StandardMaterial {
             unsafe {
                 let this = &*(this as *const Arc<RenderState>);
 
-                this.create_material(assets.map(|o| o.into_option()), meta)
+                this.create_material(meta)
             }
         }
         unsafe extern "C-unwind" fn ffi_create_shader(
@@ -478,11 +465,11 @@ impl RenderApiResource {
         }
     }
 
-    pub fn create_material(&self, assets: StandardMaterialAssets<Option<&StandardTexture>>, meta: StandardMaterialAssetMetadata) -> StandardMaterial {
+    pub fn create_material(&self, meta: StandardMaterialAssetMetadata) -> StandardMaterial {
         unsafe {
             let this = self.data.get();
 
-            (self.vtable.create_material_fn)(this, assets.map(|t| t.into()), meta)
+            (self.vtable.create_material_fn)(this, meta)
         }
     }
 

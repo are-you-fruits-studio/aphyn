@@ -29,7 +29,7 @@ fn customer_vertex(vertex: VertexAttributes, instance: InstanceAttributes) -> Ve
 
     var position_world = instance.local_to_world * vec4<f32>(vertex.position, 1.0);
 
-    out.position_clip = material_data.matrix_world_to_clip * position_world;
+    out.position_clip = global_data.matrix_world_to_clip * position_world;
     out.color = vertex.color * material_data.color;
     out.normal_world = (instance.local_to_world * vec4<f32>(vertex.normal, 0.0)).xyz;
     out.tangent_world = vec4<f32>((instance.local_to_world * vec4<f32>(vertex.tangent.xyz, 0.0)).xyz, vertex.tangent.w);
@@ -50,7 +50,11 @@ fn customer_vertex(vertex: VertexAttributes, instance: InstanceAttributes) -> Ve
 
     var position_world = instance.local_to_world * vec4<f32>(vertex.position, 1.0);
 
-    out.position_clip = material_data.matrix_world_to_clip * position_world;
+#ifdef UI
+    out.position_clip = global_data.matrix_window_to_clip * position_world;
+#else
+    out.position_clip = global_data.matrix_world_to_clip * position_world;
+#endif
     out.color = vertex.color * material_data.color;
     out.uv = vertex.uv;
 

@@ -202,6 +202,8 @@ pub struct StandardRenderResource {
     pub render_pipeline_opaque_unlit: RenderPipeline,
     pub render_pipeline_transparent_lit: RenderPipeline,
     pub render_pipeline_transparent_unlit: RenderPipeline,
+    pub render_pipeline_ui_opaque_unlit: RenderPipeline,
+    pub render_pipeline_ui_transparent_unlit: RenderPipeline,
     pub render_pipeline_transparent_final: RenderPipeline,
     pub bind_group_layout_transparent_final: BindGroupLayout,
 }

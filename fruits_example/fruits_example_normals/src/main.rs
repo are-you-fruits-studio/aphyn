@@ -59,26 +59,19 @@ fn init_scene_system(mut world: WorldDataMut) {
     let render_api = world.resources().get::<RenderApiResource>().unwrap();
     let textures = world.resources().get::<AssetStorageResource<StandardTexture>>().unwrap();
 
-    let texture_normal = textures.get_registered("normal_map.asset");
-    let texture_normal = textures.get(&texture_normal.cloned().unwrap_or_default());
+    let texture_normal = textures.get_registered("normal_map.asset").cloned().unwrap_or_default();
 
-    let material = render_api.create_material(
-        StandardMaterialAssets {
-            color_texture: texture_normal,
-            normal_texture: texture_normal,
-            ..Default::default()
-        },
-        StandardMaterialAssetMetadata {
-            shader: StandardEngineShader::OpaqueLit.into(),
-            alpha_threshold: 0.0,
-            color: Vec4::splat(1.0),
-            metallic: 0.0,
-            roughness: 1.0,
-            space: RenderSpace::World,
-            emission_color: Vec4::splat(0.0),
-            ..Default::default()
-        },
-    );
+    let material = render_api.create_material(StandardMaterialAssetMetadata {
+        shader: StandardEngineShader::OpaqueLit.into(),
+        alpha_threshold: 0.0,
+        color: Vec4::splat(1.0),
+        metallic: 0.0,
+        roughness: 1.0,
+        emission_color: Vec4::splat(0.0),
+        color_tex: texture_normal.clone(),
+        normal_tex: texture_normal,
+        ..Default::default()
+    });
 
     let materials = world.resources_mut().into_get_mut::<AssetStorageResource<StandardMaterial>>().unwrap();
 

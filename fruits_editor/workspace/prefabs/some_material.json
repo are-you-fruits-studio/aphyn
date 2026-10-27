@@ -1,8 +1,5 @@
 {
   "asset_type": "material",
-  "space": {
-    "$enum_variant": "Clip"
-  },
   "color": {
     "x": 0.0,
     "y": 0.0,

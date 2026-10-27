@@ -168,8 +168,8 @@
 //! - **Texture** — [`TextureLoader`] decodes `raw_texture` with the `image` crate into RGBA8
 //!   and creates it through `RenderApiResource::create_texture` with `FilterMode::Nearest`,
 //!   passing the metadata along.
-//! - **Material** — [`MaterialLoader`] creates the material from its metadata, looking the
-//!   color, roughness, metallic, normal, and emission texture handles up in the texture storage.
+//! - **Material** — [`MaterialLoader`] creates the material from its metadata alone; its texture
+//!   handles are resolved by the material itself when it is first drawn.
 //! - **Mesh** — [`MeshLoader`] parses `raw_mesh` as Wavefront `.obj` with `fruits_wavefront`.
 //!   Faces are flattened into a non-indexed vertex list (a face missing a position, normal, or
 //!   UV fails the load), each face gets a tangent with handedness, and the vertices are fixed
@@ -478,8 +478,7 @@ const _MATERIAL_FILE_EXAMPLE: &str = r##"
     "color": "#ffa641ff",
     "color_texture": "path/to/texture.asset",
     "metallic": 0.95,
-    "roughness": 0.1,
-    "space": "world"
+    "roughness": 0.1
 }
 "##;
 

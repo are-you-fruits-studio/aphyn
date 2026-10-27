@@ -80,15 +80,15 @@
 //! the opaque engine variants and custom shaders draw an opaque surface alpha-tested against
 //! `alpha_threshold`, the transparent engine variants a blended transparent one. A custom shader
 //! is a `StandardShader` from the `AssetStorageResource<StandardShader>` (usually a `.wgsl` asset
-//! loaded by `fruits_asset_loading`). `space` selects the coordinate space the geometry is
-//! interpreted in (`World`, `Window` in pixels, or `Clip`):
+//! loaded by `fruits_asset_loading`). Engine variants draw in world space through the camera,
+//! except `UiOpaqueUnlit` / `UiTransparentUnlit`, which interpret the geometry in window pixels
+//! (used for UI); a custom shader picks its matrix itself from `GlobalData`:
 //!
 //! ```ignore
 //! use fruits_engine::*;
 //!
 //! let render_api = res.get::<RenderApiResource>().unwrap();
-//! let material = render_api.create_material(Default::default(), StandardMaterialAssetMetadata {
-//!     space: RenderSpace::World,
+//! let material = render_api.create_material(StandardMaterialAssetMetadata {
 //!     color: Vec4::new(1.0, 0.5, 0.2, 1.0),
 //!     shader: StandardEngineShader::OpaqueLit.into(),
 //!     alpha_threshold: 0.5,
@@ -170,7 +170,7 @@
 //! `Rgba16Float` HDR target the size of the surface, clears it every frame, and hands it to the
 //! `RenderCamera` systems through `CurrentRenderingResource::target_texture` / `target_view`;
 //! after the schedule it copies the target onto the surface and presents it. Everything here
-//! draws into that target, with a `Depth32Float` [`DepthTextureResource`]. Window-space matrices,
+//! draws into that target, with a `Depth32Float` [`DepthTextureResource`]. Window-to-clip matrices,
 //! the camera aspect, and the bloom viewports use the target size, not the window size. The
 //! `recreate_*` systems compare each intermediate texture against the target size and only
 //! rebuild when it changed, replacing the resource in place; the exposure, bloom, and color
@@ -220,23 +220,30 @@
 //! `fruits/bloom.wgsl` (the bloom uniform, layer storage, and their bindings, shared by the four
 //! bloom shaders). The fullscreen passes use `fruits/fullscreen.wgsl`. The standard shader,
 //! `shader_standard.wgsl`, includes `fruits/standard_bindings.wgsl` and `fruits/pbr.wgsl` and is
-//! composed four times with the defines `LIT` and `TRANSPARENT` against the standard pipeline
-//! layout from `RenderData`; [`StandardRenderResource`] holds the four resulting pipelines plus
+//! composed six times against the standard pipeline layout from `RenderData`: the four
+//! combinations of the defines `LIT` and `TRANSPARENT`, plus `UI` and `UI` + `TRANSPARENT` for the
+//! two UI variants. `UI` only switches the vertex transform from `global_data.matrix_world_to_clip`
+//! to `global_data.matrix_window_to_clip`; the UI pipelines share the unlit pipelines' state.
+//! [`StandardRenderResource`] holds the six resulting pipelines plus
 //! the transparent-composite one. The opaque variants' pipeline state must match the one
 //! `StandardShader::new` in `fruits_render_core` builds for custom shaders. The
 //! `render_shaders_are_valid` unit test validates every shader and standard variant with `naga`.
 //! Bind group 0 is the global group (the
-//! `StandardUniformGlobal` with the camera position and light count, plus the lights storage
-//! buffer); bind group 1 is the material's. `get_render_data` picks the pipeline from the
+//! `StandardUniformGlobal` with the world-to-clip and window-to-clip matrices, the camera
+//! position, and the light count, plus the lights storage buffer); bind group 1 is the
+//! material's. [`update_global_uniforms`] writes the global uniform once per rendering: the
+//! world-to-clip matrix is the camera matrix, the window-to-clip matrix comes from
+//! [`create_window_to_clip_matrix`] for the target size (pixel coordinates with the near/far from
+//! [`ScreenSpaceResource`], `-10_000` to `10_000` by default, lower z in front).
+//! Before drawing with a material, the three geometry systems call
+//! `StandardMaterial::update_gpu_data_if_dirty` (which is why they take the material storage
+//! mutably and the texture storage): it rebuilds the material's bind group when a resolved texture
+//! changed and rewrites its uniform (color and emission converted from sRGB to linear) only when
+//! the metadata was touched through `meta_mut`. Because `RenderCamera` runs once per camera, later
+//! cameras in the same frame see a no-op update. `get_render_data` then picks the pipeline from the
 //! material's `shader` (an engine variant's pipeline, or the custom `StandardShader`'s own one;
-//! a custom handle that doesn't resolve skips the draw) and rewrites the material uniform before
-//! every draw: color and
-//! emission color RGB are raised to the power 2.2 (sRGB to linear, alpha kept as is so the alpha
-//! test sees the authored value), and the world-to-clip matrix
-//! comes from the material's `RenderSpace` — `World` uses the camera matrix, `Window` uses
-//! [`create_window_to_clip_matrix`] (pixel coordinates with the near/far from
-//! [`ScreenSpaceResource`], `-10_000` to `10_000` by default, lower z in front), and `Clip`
-//! uses the identity. The lit path samples the normal map through a TBN matrix, scales metallic and roughness by their textures, starts from the
+//! a custom handle that doesn't resolve skips the draw) and returns it with the material's bind
+//! group. The lit path samples the normal map through a TBN matrix, scales metallic and roughness by their textures, starts from the
 //! emission term, and adds a Cook-Torrance BRDF contribution per light; there is no ambient
 //! term. The unlit path outputs the textured color and ignores emission.
 //!

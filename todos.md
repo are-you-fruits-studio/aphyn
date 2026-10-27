@@ -1,6 +1,12 @@
 # Prioritized
 
 - Make material updateable at runtime and optimize its gpu-buffer writes to dirty-only
+    - (already implemented for textures) add id to texture and other assets (another level of indirection to know when a wgpu texture has changed even when AssetHandle is the same).
+    - separate ui render space into separate engine shaders. Remove it from asset metadata. Move world_to_clip and window_to_clip as 2 distinct matrices to global uniform. Make shaders use different matrices based on whether they are ui or non-ui shaders. The new shaders are UiOpaqueUnlit, UiTransparentUnlit - no need for the lit ui.
+    - implement change detection on Material asset metadata. Shader field doesn't need change detection. Asset Handles change-detection should be based on u64 ids of Textures. Other fields's change detection should be implemented using simple is_dirty flag (meta_mut() method automatically triggers the is_dirty flag).
+    - rewrite Material uniform buffer only on changes to uniforms in asset metadata and recreate Material bind group only on changes to the textures in asset metadata. Probably, it's better to move this to Material (new method update_gpu_data_if_dirty - if is_dirty it writes the uniform buffer, recreates the bind group and resets the is_dirty flag).
+    - remove StandardMaterialAssets from StandardMaterial::new()
+
 - make sure prefab root entity is the first one serialized
 
 # Default

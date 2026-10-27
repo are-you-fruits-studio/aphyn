@@ -1,10 +1,11 @@
 struct GlobalData {
+    matrix_world_to_clip: mat4x4<f32>,
+    matrix_window_to_clip: mat4x4<f32>,
     camera_position_world: vec3<f32>,
     lights_count: u32,
 }
 
 struct MaterialData {
-    matrix_world_to_clip: mat4x4<f32>,
     color: vec4<f32>,
     emission_color: vec4<f32>,
     metallic: f32,

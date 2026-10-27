@@ -65,39 +65,25 @@ fn init(mut world: WorldDataMut) {
         .resources_mut()
         .get_mut::<RenderApiResource>()
         .unwrap()
-        .create_material(Default::default(), StandardMaterialAssetMetadata {
-            shader: StandardEngineShader::OpaqueUnlit.into(),
-            space: RenderSpace::Window,
+        .create_material(StandardMaterialAssetMetadata {
+            shader: StandardEngineShader::UiOpaqueUnlit.into(),
             color_tex: AssetHandle::EMPTY,
             color: Vec4::splat(1.0),
             alpha_threshold: 0.5,
             ..Default::default()
         });
 
-    let texture_text = world.as_ref()
-        .resources()
-        .get::<AssetStorageResource<StandardTexture>>()
-        .unwrap()
-        .get(&texture_text_handle);
-
     let material_text = world.as_ref()
         .resources()
         .get::<RenderApiResource>()
         .unwrap()
-        .create_material(
-            StandardMaterialAssets {
-                color_texture: texture_text,
-                ..Default::default()
-            },
-            StandardMaterialAssetMetadata {
-                shader: StandardEngineShader::OpaqueUnlit.into(),
-                space: RenderSpace::Window,
-                color_tex: texture_text_handle.clone(),
-                color: Vec4::splat(1.0),
-                alpha_threshold: 0.5,
-                ..Default::default()
-            },
-        );
+        .create_material(StandardMaterialAssetMetadata {
+            shader: StandardEngineShader::UiOpaqueUnlit.into(),
+            color_tex: texture_text_handle.clone(),
+            color: Vec4::splat(1.0),
+            alpha_threshold: 0.5,
+            ..Default::default()
+        });
 
     let material_white = world.as_mut()
         .resources_mut()

@@ -269,7 +269,7 @@ struct VertexOutput {
 fn vs_main(vertex: VertexAttributes, instance_raw: InstanceRawAttributes) -> VertexOutput {
     let instance = map_instance_data(instance_raw);
     var out: VertexOutput;
-    out.position_clip = material_data.matrix_world_to_clip * instance.local_to_world * vec4<f32>(vertex.position, 1.0);
+    out.position_clip = global_data.matrix_world_to_clip * instance.local_to_world * vec4<f32>(vertex.position, 1.0);
     out.color = vertex.color;
     return out;
 }
