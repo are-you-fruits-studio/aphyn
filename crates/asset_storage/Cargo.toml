@@ -1,0 +1,12 @@
+[package]
+name = "aphyn_asset_storage"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+aphyn_ecs = { path = "../ecs" }
+aphyn_ffi = { path = "../ffi" }
+aphyn_utils = { path = "../utils" }

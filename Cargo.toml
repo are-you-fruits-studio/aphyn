@@ -1,49 +1,48 @@
 [workspace]
 members = [
-    "crates/aphyn_alloc_monitor",
-    "crates/aphyn_audio",
-    "crates/aphyn_app",
-    "crates/aphyn_example/aphyn_example_cubes",
-    "crates/aphyn_example/aphyn_example_boids",
-    "crates/aphyn_math",
-    "crates/aphyn_modules",
-    "crates/aphyn_utils",
-    "crates/aphyn_draft_check",
-    "crates/aphyn_ecs_macros",
-    "crates/aphyn_serialization",
-    "crates/aphyn_ecs",
-    "crates/aphyn_example/aphyn_example_ecs",
-    "crates/aphyn_example/aphyn_example_gizmos",
-    "crates/aphyn_swizzling",
-    "crates/aphyn_example/aphyn_example_collisions",
-    "crates/aphyn_reflection",
-    "crates/aphyn_example/aphyn_example_text",
-    "crates/aphyn_debug",
-    "crates/aphyn_example/aphyn_example_ui",
-    "crates/aphyn_reflection_macros",
-    "crates/aphyn_editor",
-    "crates/aphyn_ffi",
-    "crates/aphyn_math_macros",
-    "crates/aphyn_entry_point",
-    "crates/aphyn_app_launcher",
-    "crates/aphyn_asset_loading",
-    "crates/aphyn_asset_storage",
-    "crates/aphyn_wavefront",
-    "crates/aphyn_control_flow_macros",
-    "crates/aphyn_render",
-    "crates/aphyn_transform",
-    "crates/aphyn_collision",
-    "crates/aphyn_asset_storage",
-    "crates/aphyn_render_core",
-    "crates/aphyn_prefab",
-    "crates/aphyn_serialization_macros",
-    "crates/aphyn_audio",
-    "crates/aphyn_example/aphyn_example_audio_screen_saver",
-    "crates/aphyn_example/aphyn_example_normals",
-    "crates/aphyn_example/aphyn_example_bloom",
-    "crates/aphyn_ui",
-    "crates/aphyn_file_storage",
-    "crates/aphyn_window",
+    "crates/alloc_monitor",
+    "crates/audio",
+    "crates/app",
+    "crates/math",
+    "crates/modules",
+    "crates/utils",
+    "crates/draft_check",
+    "crates/ecs_macros",
+    "crates/serialization",
+    "crates/ecs",
+    "crates/swizzling",
+    "crates/reflection",
+    "crates/reflection_macros",
+    "crates/editor",
+    "crates/ffi",
+    "crates/math_macros",
+    "crates/entry_point",
+    "crates/app_launcher",
+    "crates/asset_loading",
+    "crates/asset_storage",
+    "crates/wavefront",
+    "crates/control_flow_macros",
+    "crates/render",
+    "crates/transform",
+    "crates/collision",
+    "crates/asset_storage",
+    "crates/render_core",
+    "crates/prefab",
+    "crates/serialization_macros",
+    "crates/audio",
+    "crates/example/cubes",
+    "crates/example/boids",
+    "crates/example/ecs",
+    "crates/example/gizmos",
+    "crates/example/collisions",
+    "crates/example/text",
+    "crates/example/ui",
+    "crates/example/audio_screen_saver",
+    "crates/example/normals",
+    "crates/example/bloom",
+    "crates/ui",
+    "crates/file_storage",
+    "crates/window",
 ]
 
 [package]
@@ -57,26 +56,26 @@ crate-type = ["lib"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-aphyn_app = { path = "./crates/aphyn_app" }
-aphyn_audio = { path = "./crates/aphyn_audio" }
-aphyn_ecs = { path = "./crates/aphyn_ecs" }
-aphyn_modules = { path = "./crates/aphyn_modules" }
-aphyn_utils = { path = "./crates/aphyn_utils" }
-aphyn_math = { path = "./crates/aphyn_math" }
-aphyn_math_macros = { path = "./crates/aphyn_math_macros" }
-aphyn_serialization = { path = "./crates/aphyn_serialization" }
-aphyn_reflection = { path = "./crates/aphyn_reflection" }
-aphyn_entry_point = { path = "./crates/aphyn_entry_point" }
-aphyn_app_launcher = { path = "./crates/aphyn_app_launcher" }
-aphyn_asset_loading = { path = "./crates/aphyn_asset_loading" }
-aphyn_asset_storage = { path = "./crates/aphyn_asset_storage" }
-aphyn_ffi = { path = "./crates/aphyn_ffi" }
-aphyn_control_flow_macros = { path = "./crates/aphyn_control_flow_macros" }
-aphyn_transform = { path = "./crates/aphyn_transform" }
-aphyn_render = { path = "./crates/aphyn_render" }
-aphyn_render_core = { path = "./crates/aphyn_render_core" }
-aphyn_collision = { path = "./crates/aphyn_collision" }
-aphyn_prefab = { path = "./crates/aphyn_prefab" }
-aphyn_ui = { path = "./crates/aphyn_ui" }
-aphyn_file_storage = { path = "./crates/aphyn_file_storage" }
-aphyn_window = { path = "./crates/aphyn_window" }
+aphyn_app = { path = "./crates/app" }
+aphyn_audio = { path = "./crates/audio" }
+aphyn_ecs = { path = "./crates/ecs" }
+aphyn_modules = { path = "./crates/modules" }
+aphyn_utils = { path = "./crates/utils" }
+aphyn_math = { path = "./crates/math" }
+aphyn_math_macros = { path = "./crates/math_macros" }
+aphyn_serialization = { path = "./crates/serialization" }
+aphyn_reflection = { path = "./crates/reflection" }
+aphyn_entry_point = { path = "./crates/entry_point" }
+aphyn_app_launcher = { path = "./crates/app_launcher" }
+aphyn_asset_loading = { path = "./crates/asset_loading" }
+aphyn_asset_storage = { path = "./crates/asset_storage" }
+aphyn_ffi = { path = "./crates/ffi" }
+aphyn_control_flow_macros = { path = "./crates/control_flow_macros" }
+aphyn_transform = { path = "./crates/transform" }
+aphyn_render = { path = "./crates/render" }
+aphyn_render_core = { path = "./crates/render_core" }
+aphyn_collision = { path = "./crates/collision" }
+aphyn_prefab = { path = "./crates/prefab" }
+aphyn_ui = { path = "./crates/ui" }
+aphyn_file_storage = { path = "./crates/file_storage" }
+aphyn_window = { path = "./crates/window" }
