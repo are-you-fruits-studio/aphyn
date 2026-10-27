@@ -1,7 +1,7 @@
 ---
 name: implementing-task-lists
 description: >-
-  Use when the user hands over a list or bulk of tasks to implement in the fruits_engine workspace (pasted
+  Use when the user hands over a list or bulk of tasks to implement in the aphyn workspace (pasted
   in chat, a file path, or a section of todos.md), such as "implement these tasks", "do this list",
   "work through the Prioritized section". Invoke as /implementing-task-lists <tasks | file | section>.
 ---

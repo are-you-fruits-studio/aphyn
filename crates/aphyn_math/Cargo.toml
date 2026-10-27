@@ -1,0 +1,14 @@
+[package]
+name = "aphyn_math"
+version = "0.1.0"
+edition = "2024"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+aphyn_swizzling = { path = "../aphyn_swizzling" }
+aphyn_utils = { path = "../aphyn_utils" }
+serde = { version = "1", features = ["derive"] }

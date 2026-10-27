@@ -1,0 +1,24 @@
+[package]
+name = "aphyn_modules"
+version = "0.1.0"
+edition = "2024"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+aphyn_ecs = { path = "../aphyn_ecs" }
+aphyn_render = { path = "../aphyn_render" }
+aphyn_audio = { path = "../aphyn_audio" }
+aphyn_render_core = { path = "../aphyn_render_core" }
+aphyn_ui = { path = "../aphyn_ui" }
+aphyn_transform = { path = "../aphyn_transform" }
+aphyn_collision = { path = "../aphyn_collision" }
+aphyn_prefab = { path = "../aphyn_prefab" }
+aphyn_asset_storage = { path = "../aphyn_asset_storage" }
+aphyn_asset_loading = { path = "../aphyn_asset_loading" }
+aphyn_serialization = { path = "../aphyn_serialization" }
+aphyn_math = { path = "../aphyn_math" }
+aphyn_ffi = { path = "../aphyn_ffi" }

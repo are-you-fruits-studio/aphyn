@@ -1,0 +1,8 @@
+[package]
+name = "aphyn_example_audio_screen_saver"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aphyn = { path = "../../../" }
+rand = "*"

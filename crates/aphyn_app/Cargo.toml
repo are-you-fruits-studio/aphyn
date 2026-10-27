@@ -1,0 +1,21 @@
+[package]
+name = "aphyn_app"
+version = "0.1.0"
+edition = "2024"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+pollster = "0.4"
+winit = "0.30"
+wgpu = "27"
+gilrs = "0.11.0"
+aphyn_ecs = { path = "../aphyn_ecs" }
+aphyn_render_core = { path = "../aphyn_render_core" }
+aphyn_render = { path = "../aphyn_render" }
+aphyn_transform = { path = "../aphyn_transform" }
+aphyn_ffi = { path = "../aphyn_ffi" }
+aphyn_window = { path = "../aphyn_window" }

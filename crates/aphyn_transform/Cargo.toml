@@ -1,0 +1,17 @@
+[package]
+name = "aphyn_transform"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+aphyn_ecs = { path = "../aphyn_ecs" }
+aphyn_ffi = { path = "../aphyn_ffi" }
+aphyn_math = { path = "../aphyn_math" }
+aphyn_render_core = { path = "../aphyn_render_core" }
+aphyn_window = { path = "../aphyn_window" }
+aphyn_serialization = { path = "../aphyn_serialization" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }

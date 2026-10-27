@@ -1,0 +1,21 @@
+[package]
+name = "aphyn_render_core"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+aphyn_ecs = { path = "../aphyn_ecs" }
+aphyn_ffi = { path = "../aphyn_ffi" }
+aphyn_utils = { path = "../aphyn_utils" }
+aphyn_serialization = { path = "../aphyn_serialization" }
+aphyn_math = { path = "../aphyn_math" }
+aphyn_asset_storage = { path = "../aphyn_asset_storage" }
+wgpu = "27"
+winit = "0.30"
+pollster = "0.4"
+
+[dev-dependencies]
+naga = { version = "27", features = ["wgsl-in"] }

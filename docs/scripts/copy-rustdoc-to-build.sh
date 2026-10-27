@@ -6,8 +6,8 @@ cd "$repo_root"
 
 target_doc_dir="target/doc"
 build_api_dir="docs/build/api-reference"
-main_crate_index="$target_doc_dir/fruits_engine/index.html"
-build_main_crate_index="$build_api_dir/fruits_engine/index.html"
+main_crate_index="$target_doc_dir/aphyn/index.html"
+build_main_crate_index="$build_api_dir/aphyn/index.html"
 
 if [[ ! -f "$main_crate_index" ]]; then
   echo "Main rustdoc entry was not found: $main_crate_index" >&2

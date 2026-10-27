@@ -1,16 +1,16 @@
 # AGENTS.md
 
 ## Project Overview
-This repository contains a Rust game engine. The documentation site is built with Docusaurus and published through GitHub Pages at `https://are-you-fruits-studio.github.io/fruits_engine/`.
+This repository contains a Rust game engine. The documentation site is built with Docusaurus and published through GitHub Pages at `https://are-you-fruits-studio.github.io/aphyn/`.
 
 Documentation is split into two independent tracks:
 
 1. **Guides & tutorials** — conceptual, architectural, and how-to content written
    by hand as Markdown under `docs/docs/` and served by Docusaurus (the
-   `/fruits_engine/docs/...` routes).
+   `/aphyn/docs/...` routes).
 2. **API reference** — generated from Rust doc comments as **native rustdoc HTML**
    via `cargo +nightly doc`. The output is copied verbatim into the Docusaurus
-   build and served as a static subtree at `/fruits_engine/api-reference/...`.
+   build and served as a static subtree at `/aphyn/api-reference/...`.
 
 These two tracks are produced and styled differently on purpose: guides use the
 Docusaurus theme; the API reference uses rustdoc's own native HTML/CSS/JS. We do
@@ -115,7 +115,7 @@ For local verification on Windows, prefer:
 
 This script regenerates native rustdoc HTML, builds the Docusaurus static site, copies rustdoc verbatim into `docs/build/api-reference/`, and serves `docs/build` in the current terminal session.
 
-The local server is `docs/scripts/serve-build.mjs`, a small static server that emulates GitHub Pages exactly (serves `*.html` verbatim under the `/fruits_engine/` baseUrl). It is used instead of `docusaurus serve`, which 301-redirects `*.html` URLs and breaks rustdoc's relative navigation. rustdoc HTML is self-contained with relative links, so no path rewriting is performed during the copy.
+The local server is `docs/scripts/serve-build.mjs`, a small static server that emulates GitHub Pages exactly (serves `*.html` verbatim under the `/aphyn/` baseUrl). It is used instead of `docusaurus serve`, which 301-redirects `*.html` URLs and breaks rustdoc's relative navigation. rustdoc HTML is self-contained with relative links, so no path rewriting is performed during the copy.
 
 Useful options:
 - `-SkipRustdoc` - reuse existing `target/doc` rustdoc HTML

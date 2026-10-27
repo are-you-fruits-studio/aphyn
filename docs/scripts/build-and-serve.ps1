@@ -105,7 +105,7 @@ if ($NoServe) {
     exit 0
 }
 
-$docsUrl = "http://$HostName`:$Port/fruits_engine/"
+$docsUrl = "http://$HostName`:$Port/aphyn/"
 
 $existingProcessId = Get-ListeningProcessOnPort $Port
 if ($existingProcessId) {

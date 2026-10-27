@@ -1,0 +1,18 @@
+[package]
+name = "aphyn_prefab"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+aphyn_ecs = { path = "../aphyn_ecs" }
+aphyn_asset_storage = { path = "../aphyn_asset_storage" }
+aphyn_render_core = { path = "../aphyn_render_core" }
+aphyn_ui = { path = "../aphyn_ui" }
+aphyn_audio = { path = "../aphyn_audio" }
+aphyn_serialization = { path = "../aphyn_serialization" }
+aphyn_ffi = { path = "../aphyn_ffi" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }

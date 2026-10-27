@@ -5,10 +5,10 @@ const config = {
   title: 'Fruits Engine',
   tagline: 'Rust game engine documentation',
   url: 'https://are-you-fruits-studio.github.io',
-  baseUrl: '/fruits_engine/',
+  baseUrl: '/aphyn/',
   favicon: 'img/favicon.png',
   organizationName: 'are-you-fruits-studio',
-  projectName: 'fruits_engine',
+  projectName: 'aphyn',
   trailingSlash: false,
   onBrokenLinks: 'warn',
   markdown: {
@@ -57,10 +57,10 @@ const config = {
             // internal route, fails to match it, and renders the SPA 404.
             type: 'html',
             position: 'left',
-            value: '<a class="navbar__item navbar__link" href="/fruits_engine/api-reference/fruits_engine/index.html">API Reference</a>',
+            value: '<a class="navbar__item navbar__link" href="/aphyn/api-reference/aphyn/index.html">API Reference</a>',
           },
           {
-            href: 'https://github.com/are-you-fruits-studio/fruits_engine',
+            href: 'https://github.com/are-you-fruits-studio/aphyn',
             label: 'GitHub',
             position: 'right',
           },
@@ -83,7 +83,7 @@ const config = {
             items: [
               {
                 label: 'GitHub',
-                href: 'https://github.com/are-you-fruits-studio/fruits_engine',
+                href: 'https://github.com/are-you-fruits-studio/aphyn',
               },
             ],
           },
