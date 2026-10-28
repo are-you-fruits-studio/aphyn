@@ -6,7 +6,7 @@ use aphyn_ecs::*;
 use aphyn_math::*;
 use aphyn_render_core::*;
 use wgpu::{
-    util::{BufferInitDescriptor, DeviceExt}, wgt::TextureViewDescriptor, *,
+    util::{BufferInitDescriptor, DeviceExt}, *,
 };
 
 use aphyn_transform::*;
@@ -31,75 +31,11 @@ pub fn create_standard_render_resource(mut world: WorldDataMut) {
         ],
     );
 
-    let pipeline_layout_standard = &render_state.render_data().pipeline_layout_standard;
-
     let pipeline_layout_transparent_final = render_state.device().create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Transparent Final Pipeline Layout"),
         bind_group_layouts: &[&bind_group_layout_transparent_final],
         push_constant_ranges: &[],
     });
-
-    let create_render_pipeline_fn = |is_lit: bool, is_transparent: bool, is_ui: bool| -> RenderPipeline {
-        let defs = [is_lit.then_some("LIT"), is_transparent.then_some("TRANSPARENT"), is_ui.then_some("UI")];
-        let defs = defs.into_iter().flatten().collect::<Vec<_>>();
-        let shader = create_engine_shader_module(
-            render_state.device(),
-            "shader_standard.wgsl",
-            include_str!("./assets/shader_standard.wgsl"),
-            &defs,
-        );
-
-        let color_target_state = match is_transparent {
-            false => wgpu::ColorTargetState {
-                format: RENDER_TARGET_FORMAT,
-                blend: Some(wgpu::BlendState::REPLACE),
-                write_mask: wgpu::ColorWrites::ALL,
-            },
-            true => wgpu::ColorTargetState {
-                format: TRANSPARENT_TARGET_FORMAT,
-                blend: Some(wgpu::BlendState {
-                    color: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::SrcAlpha,
-                        dst_factor: wgpu::BlendFactor::One,
-                        operation: wgpu::BlendOperation::Add,
-                    },
-                    alpha: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::One,
-                        dst_factor: wgpu::BlendFactor::One,
-                        operation: wgpu::BlendOperation::Add,
-                    },
-                }),
-                write_mask: wgpu::ColorWrites::ALL,
-            },
-        };
-
-        let render_pipeline = create_render_pipeline(
-            render_state.device(),
-            Some("Standard Render Pipeline"),
-            pipeline_layout_standard,
-            &shader,
-            &[StandardVertex::desc(), StandardInstance::desc()],
-            color_target_state,
-            Some(DepthStencilState {
-                bias: Default::default(),
-                depth_compare: wgpu::CompareFunction::LessEqual,
-                depth_write_enabled: !is_transparent,
-                format: DEPTH_TEXTURE_FORMAT,
-                stencil: Default::default(),
-            }),
-            wgpu::PrimitiveTopology::TriangleList,
-            Some(wgpu::Face::Back),
-        );
-
-        render_pipeline
-    };
-
-    let render_pipeline_opaque_unlit = create_render_pipeline_fn(false, false, false);
-    let render_pipeline_opaque_lit = create_render_pipeline_fn(true, false, false);
-    let render_pipeline_transparent_unlit = create_render_pipeline_fn(false, true, false);
-    let render_pipeline_transparent_lit = create_render_pipeline_fn(true, true, false);
-    let render_pipeline_ui_opaque_unlit = create_render_pipeline_fn(false, false, true);
-    let render_pipeline_ui_transparent_unlit = create_render_pipeline_fn(false, true, true);
 
     let render_pipeline_transparent_shader = create_engine_shader_module(
         render_state.device(),
@@ -124,81 +60,33 @@ pub fn create_standard_render_resource(mut world: WorldDataMut) {
         Some(wgpu::Face::Back),
     );
 
-    let instance_cpu_buffer =
-        vec![Mat4::<f32>::IDENTITY; INSTANCES_PER_DRAW_MAX].into_boxed_slice();
+    let instances = render_state.create_instance_buffer(INSTANCES_PER_DRAW_MAX as u32);
 
-    let instance_buffer = render_state.device().create_buffer_init(&BufferInitDescriptor {
-        label: Some("Instance Buffer"),
-        usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
-        contents: aphyn_utils::mem::as_bytes_slice(&instance_cpu_buffer),
-    });
+    let identity_instance = render_state.create_instance_buffer(1);
+    render_state.write_instances(&identity_instance, 0, &[Mat4::IDENTITY]);
 
-    let batched_vertex_cpu_buffer =
-        vec![StandardVertex::default(); TRIANGLES_PER_BATCHED_DRAW_MAX * 3].into_boxed_slice();
-
-    let batched_vertex_buffer = render_state.device().create_buffer_init(&BufferInitDescriptor {
+    let batched_vertex_buffer = render_state.device().create_buffer(&BufferDescriptor {
         label: Some("Batch vertex buffer"),
         usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
-        contents: aphyn_utils::mem::as_bytes_slice(&batched_vertex_cpu_buffer),
+        size: (TRIANGLES_PER_BATCHED_DRAW_MAX * 3 * size_of::<StandardVertex>()) as u64,
+        mapped_at_creation: false,
     });
 
-    let lights_cpu_buffer =
-        vec![StandardGenericLight::default(); LIGHTS_COUNT_MAX].into_boxed_slice();
-
-    let lights_buffer = render_state.device().create_buffer_init(&BufferInitDescriptor {
-        label: Some("Lights buffer"),
-        usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-        contents: aphyn_utils::mem::as_bytes_slice(&lights_cpu_buffer),
-    });
-
-    let global_uniform_buffer = render_state.device().create_buffer_init(&BufferInitDescriptor {
-        label: Some("Standard Global Uniform Buffer"),
-        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-        contents: aphyn_utils::mem::as_bytes(&[StandardUniformGlobal::default()]),
-    });
-
-    let global_bind_group = create_bind_group(
-        render_state.device(),
-        Some("Standard Global Bind Group"),
-        &render_state.render_data().bind_group_layout_global, 
-        &[
-            CreateBindGroupEntry::Buffer(&global_uniform_buffer),
-            CreateBindGroupEntry::Buffer(&lights_buffer),
-        ],
-    );
+    let globals = render_state.create_global_bindings();
 
     world.as_mut()
         .resources_mut()
         .insert(StandardRenderResource {
-            global_uniform_buffer,
-            global_bind_group,
-            instance_buffer,
+            globals,
+            instances,
+            identity_instance,
             batched_vertex_buffer,
-            lights_buffer,
             lights_count: 0,
-            render_pipeline_opaque_lit,
-            render_pipeline_opaque_unlit,
-            render_pipeline_transparent_lit,
-            render_pipeline_transparent_unlit,
-            render_pipeline_ui_opaque_unlit,
-            render_pipeline_ui_transparent_unlit,
             render_pipeline_transparent_final,
             bind_group_layout_transparent_final,
             camera_pos: Vec3::default(),
             camera_proj_matrix: Mat4::IDENTITY,
         });
-
-    world.as_mut()
-        .resources_mut()
-        .insert(BatchedVertexCpuBufferResource(batched_vertex_cpu_buffer));
-
-    world.as_mut()
-        .resources_mut()
-        .insert(InstancedInstanceCpuBufferResource(instance_cpu_buffer));
-
-    world.as_mut()
-        .resources_mut()
-        .insert(LightsCpuBufferResource(lights_cpu_buffer));
 }
 
 pub fn recreate_depth_texture_resource(mut world: WorldDataMut) {
@@ -215,50 +103,22 @@ pub fn recreate_depth_texture_resource(mut world: WorldDataMut) {
     if let Some(depth_res) = world.as_ref().resources().get::<DepthTextureResource>() {
         contains_depth = true;
 
-        let are_same_size =
-            { depth_res.texture.size().width == screen_size[0] && depth_res.texture.size().height == screen_size[1] };
-
-        if are_same_size {
+        if depth_res.texture.size() == screen_size {
             return;
         }
     }
 
-    let texture = render_state.device().create_texture(&TextureDescriptor {
-        label: Some("Depth Buffer"),
-        size: Extent3d {
-            width: screen_size[0],
-            height: screen_size[1],
-            depth_or_array_layers: 1,
+    let texture = render_state.create_texture(
+        FilterMode::Nearest,
+        screen_size,
+        &[],
+        StandardTextureAssetMetadata {
+            format: StandardTextureFormat::Depth32Float,
+            ..Default::default()
         },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: TextureDimension::D2,
-        format: DEPTH_TEXTURE_FORMAT,
-        usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
-        view_formats: &[],
-    });
+    );
 
-    let texture_view = texture.create_view(&TextureViewDescriptor::default());
-
-    let sampler = render_state.device().create_sampler(&SamplerDescriptor {
-        label: Some("Depth Sampler"),
-        address_mode_u: wgpu::AddressMode::ClampToEdge,
-        address_mode_v: wgpu::AddressMode::ClampToEdge,
-        address_mode_w: wgpu::AddressMode::ClampToEdge,
-        mag_filter: FilterMode::Linear,
-        min_filter: FilterMode::Linear,
-        mipmap_filter: FilterMode::Nearest,
-        compare: Some(wgpu::CompareFunction::LessEqual),
-        lod_min_clamp: 0.0,
-        lod_max_clamp: 100.0,
-        ..Default::default()
-    });
-
-    let depth_res = DepthTextureResource {
-        texture,
-        texture_view,
-        sampler,
-    };
+    let depth_res = DepthTextureResource { texture };
 
     if contains_depth {
         *world.resources_mut().get_mut().unwrap() = depth_res;
@@ -281,46 +141,20 @@ pub fn recreate_transparent_target_resource(mut world: WorldDataMut) {
     if let Some(transparent_target_res) = world.as_ref().resources().get::<TransparentTargetTextureResource>() {
         contains_transparent_target = true;
 
-        let are_same_size = {
-            transparent_target_res.texture.size().width == screen_size[0]
-                && transparent_target_res.texture.size().height == screen_size[1]
-        };
-
-        if are_same_size {
+        if transparent_target_res.texture.size() == screen_size {
             return;
         }
     }
 
-    let texture = render_state.device().create_texture(&TextureDescriptor {
-        label: Some("Transparent Target Buffer"),
-        size: Extent3d {
-            width: screen_size[0],
-            height: screen_size[1],
-            depth_or_array_layers: 1,
+    let texture = render_state.create_texture(
+        FilterMode::Nearest,
+        screen_size,
+        &[],
+        StandardTextureAssetMetadata {
+            format: StandardTextureFormat::Rgba16Float,
+            ..Default::default()
         },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: TextureDimension::D2,
-        format: TRANSPARENT_TARGET_FORMAT,
-        usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
-        view_formats: &[],
-    });
-
-    let texture_view = texture.create_view(&TextureViewDescriptor::default());
-
-    let sampler = render_state.device().create_sampler(&SamplerDescriptor {
-        label: Some("Transparent Target Sampler"),
-        address_mode_u: wgpu::AddressMode::ClampToEdge,
-        address_mode_v: wgpu::AddressMode::ClampToEdge,
-        address_mode_w: wgpu::AddressMode::ClampToEdge,
-        mag_filter: FilterMode::Nearest,
-        min_filter: FilterMode::Nearest,
-        mipmap_filter: FilterMode::Nearest,
-        compare: None,
-        lod_min_clamp: 0.0,
-        lod_max_clamp: 100.0,
-        ..Default::default()
-    });
+    );
 
     let standard_render_res = world.as_ref().resources().get::<StandardRenderResource>().unwrap();
 
@@ -329,15 +163,13 @@ pub fn recreate_transparent_target_resource(mut world: WorldDataMut) {
         Some("Transparent Target Bind Group"),
         &standard_render_res.bind_group_layout_transparent_final,
         &[
-            CreateBindGroupEntry::Texture(&texture_view),
-            CreateBindGroupEntry::Sampler(&sampler),
+            CreateBindGroupEntry::Texture(unsafe { &texture.native().view }),
+            CreateBindGroupEntry::Sampler(unsafe { &texture.native().sampler }),
         ],
     );
 
     let transparent_target_res = TransparentTargetTextureResource {
         texture,
-        texture_view,
-        sampler,
         bind_group,
     };
 
@@ -366,7 +198,7 @@ pub fn recreate_exposure_render_resource(mut world: WorldDataMut) {
             && render_res.texture.size().width == screen_size[0]
             && render_res.texture.size().height == screen_size[1];
 
-        if are_same_size && render_res.target_texture == current_rendering.target_texture {
+        if are_same_size && render_res.target_texture == unsafe { current_rendering.target.native() }.texture {
             return;
         }
     }
@@ -423,7 +255,7 @@ pub fn recreate_exposure_render_resource(mut world: WorldDataMut) {
         Some("Exposure Bind Group"),
         &bind_group_layout,
         &[
-            CreateBindGroupEntry::Texture(&current_rendering.target_view),
+            CreateBindGroupEntry::Texture(unsafe { &current_rendering.target.native().view }),
             CreateBindGroupEntry::Sampler(&sampler),
             CreateBindGroupEntry::Buffer(&buffer_uniform),
         ],
@@ -459,7 +291,7 @@ pub fn recreate_exposure_render_resource(mut world: WorldDataMut) {
     );
 
     let render_res = ExposureRenderResource {
-        target_texture: current_rendering.target_texture.clone(),
+        target_texture: unsafe { current_rendering.target.native() }.texture.clone(),
         buffer_uniform,
         texture,
         texture_view,
@@ -497,7 +329,7 @@ pub fn recreate_bloom_render_resource(mut world: WorldDataMut) {
             are_same_size &= texture.size().height == screen_size[1];
         }
 
-        if are_same_size && render_res.target_texture == current_rendering.target_texture {
+        if are_same_size && render_res.target_texture == unsafe { current_rendering.target.native() }.texture {
             return;
         }
     }
@@ -604,7 +436,7 @@ pub fn recreate_bloom_render_resource(mut world: WorldDataMut) {
         Some("Bloom Gather Threshold Bind Group"),
         &bind_group_layout_gather,
         &[
-            CreateBindGroupEntry::Texture(&current_rendering.target_view),
+            CreateBindGroupEntry::Texture(unsafe { &current_rendering.target.native().view }),
             CreateBindGroupEntry::Sampler(&sampler_nearest),
             CreateBindGroupEntry::Buffer(&buffer_uniform),
             CreateBindGroupEntry::Buffer(&buffer_storage_layers),
@@ -856,7 +688,7 @@ pub fn recreate_bloom_render_resource(mut world: WorldDataMut) {
     );
 
     let render_res = BloomRenderResource {
-        target_texture: current_rendering.target_texture.clone(),
+        target_texture: unsafe { current_rendering.target.native() }.texture.clone(),
         buffer_storage_layers,
         buffer_uniform,
         textures,
@@ -899,7 +731,7 @@ pub fn recreate_color_grading_render_resource(mut world: WorldDataMut) {
             && render_res.texture.size().width == screen_size[0]
             && render_res.texture.size().height == screen_size[1];
 
-        if are_same_size && render_res.target_texture == current_rendering.target_texture {
+        if are_same_size && render_res.target_texture == unsafe { current_rendering.target.native() }.texture {
             return;
         }
     }
@@ -949,7 +781,7 @@ pub fn recreate_color_grading_render_resource(mut world: WorldDataMut) {
         Some("Color Grading Bind Group"),
         &bind_group_layout,
         &[
-            CreateBindGroupEntry::Texture(&current_rendering.target_view),
+            CreateBindGroupEntry::Texture(unsafe { &current_rendering.target.native().view }),
             CreateBindGroupEntry::Sampler(&sampler),
         ],
     );
@@ -984,7 +816,7 @@ pub fn recreate_color_grading_render_resource(mut world: WorldDataMut) {
     );
 
     let render_res = ColorGradingRenderResource {
-        target_texture: current_rendering.target_texture.clone(),
+        target_texture: unsafe { current_rendering.target.native() }.texture.clone(),
         texture,
         texture_view,
         sampler,
@@ -1003,19 +835,18 @@ pub fn recreate_color_grading_render_resource(mut world: WorldDataMut) {
 pub fn create_gizmos_render_resource(mut world: WorldDataMut) {
     let render_state = unsafe { world.as_ref().resources().get::<RenderApiResource>().unwrap().raw() };
 
-    let vertices_cpu_buffer = vec![[Vec4::splat(0.0); 2]; GIZMO_LINES_PER_DRAW_MAX].into_boxed_slice();
-    let colors_cpu_buffer = vec![Vec4::splat(0.0); GIZMO_LINES_PER_DRAW_MAX].into_boxed_slice();
-
-    let vertex_buffer = render_state.device().create_buffer_init(&BufferInitDescriptor {
+    let vertex_buffer = render_state.device().create_buffer(&BufferDescriptor {
         label: Some("Gizmos Vertex Buffer"),
         usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-        contents: aphyn_utils::mem::as_bytes_slice(&vertices_cpu_buffer),
+        size: (GIZMO_LINES_PER_DRAW_MAX * size_of::<[Vec4<f32>; 2]>()) as u64,
+        mapped_at_creation: false,
     });
 
-    let color_buffer = render_state.device().create_buffer_init(&BufferInitDescriptor {
+    let color_buffer = render_state.device().create_buffer(&BufferDescriptor {
         label: Some("Gizmos Color Buffer"),
         usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-        contents: aphyn_utils::mem::as_bytes_slice(&colors_cpu_buffer),
+        size: (GIZMO_LINES_PER_DRAW_MAX * size_of::<Vec4<f32>>()) as u64,
+        mapped_at_creation: false,
     });
 
     let transform_buffer = render_state.device().create_buffer_init(&BufferInitDescriptor {
@@ -1082,8 +913,6 @@ pub fn create_gizmos_render_resource(mut world: WorldDataMut) {
             transform_buffer,
             bind_group,
             pipeline,
-            vertices_cpu_buffer,
-            colors_cpu_buffer,
             frame_lines: Vec::new(),
         });
 }
@@ -1108,7 +937,7 @@ pub fn clear_depth(render_api: Res<RenderApiResource>, depth_res: Res<DepthTextu
             label: Some("Clear Depth Pass"),
             color_attachments: &[],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &depth_res.texture_view,
+                view: unsafe { &depth_res.texture.native().view },
                 depth_ops: Some(Operations {
                     load: LoadOp::Clear(1.0),
                     store: StoreOp::Store,
@@ -1133,7 +962,7 @@ pub fn clear_transparent_target(render_api: Res<RenderApiResource>, transparent_
         let mut _render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("Clear Transparent Target Pass"),
             color_attachments: &[Some(RenderPassColorAttachment {
-                view: &transparent_target_res.texture_view,
+                view: unsafe { &transparent_target_res.texture.native().view },
                 depth_slice: None,
                 resolve_target: None,
                 ops: Operations {
@@ -1157,34 +986,24 @@ pub fn update_lights_buffer(
     render_api: Res<RenderApiResource>,
     current_rendering: Res<CurrentRenderingResource>,
     mut standard_render_res: ResMut<StandardRenderResource>,
-    mut lights_cpu_buffer: ResMut<LightsCpuBufferResource>,
 ) {
-    let render_state = unsafe { render_api.raw() };
+    let mut lights = light_q
+        .iter()
+        .map(|(light_transform, light_c)| {
+            let light_transform = light_transform.copied().unwrap_or_default();
 
-    let component_lights = light_q.iter().map(|(light_transform, light_c)| {
-        let light_transform = light_transform.copied().unwrap_or_default();
+            utils::light_from_components(light_c, &light_transform)
+        })
+        .chain(current_rendering.light);
 
-        utils::light_from_components(light_c, &light_transform)
+    let lights_count = (light_q.len() as usize + current_rendering.light.is_some() as usize).min(LIGHTS_COUNT_MAX) as u32;
+
+    // elements are written in index order, so the iterator can be consumed sequentially
+    render_api.write_lights_with(&standard_render_res.globals, lights_count, |_| {
+        lights.next().map(Into::into).unwrap_or_default()
     });
 
-    let lights = component_lights.chain(current_rendering.light).take(LIGHTS_COUNT_MAX);
-
-    let mut lights_count = 0;
-
-    for (i, light) in lights.enumerate() {
-        lights_cpu_buffer.0[i] = light.into();
-        lights_count += 1;
-    }
-
     standard_render_res.lights_count = lights_count;
-
-    let lights_bytes = aphyn_utils::mem::as_bytes_slice(&lights_cpu_buffer.0);
-
-    render_state
-        .queue()
-        .write_buffer(&standard_render_res.lights_buffer, 0, lights_bytes);
-
-    render_state.queue().submit([]);
 }
 
 pub fn update_global_uniforms(
@@ -1193,8 +1012,6 @@ pub fn update_global_uniforms(
     screen_space_res: Res<ScreenSpaceResource>,
     standard_render_res: Res<StandardRenderResource>,
 ) {
-    let render_state = unsafe { render_api.raw() };
-
     let target_size = current_rendering.target_size();
 
     let uniform = StandardUniformGlobal {
@@ -1209,11 +1026,7 @@ pub fn update_global_uniforms(
         camera_position_world: standard_render_res.camera_pos,
     };
 
-    render_state.queue().write_buffer(
-        &standard_render_res.global_uniform_buffer,
-        0,
-        aphyn_utils::mem::as_bytes(&[uniform]),
-    );
+    render_api.write_global_uniform(&standard_render_res.globals, uniform);
 }
 
 pub fn render_opaque(
@@ -1235,8 +1048,6 @@ pub fn render_opaque(
     meshes: Res<AssetStorageResource<StandardMesh>>,
     standard_render_res: Res<StandardRenderResource>,
     depth_res: Res<DepthTextureResource>,
-    mut batched_vertex_cpu_buffer: ResMut<BatchedVertexCpuBufferResource>,
-    mut instanced_instance_cpu_buffer: ResMut<InstancedInstanceCpuBufferResource>,
 ) {
     if mesh_q.len() == 0 {
         return;
@@ -1244,7 +1055,7 @@ pub fn render_opaque(
 
     let render_state = unsafe { render_api.raw() };
 
-    let view = &current_rendering.target_view;
+    let view = unsafe { &current_rendering.target.native().view };
 
     // todo: try using single vec and ordering it based on materials/meshes/batching-or-instancing. Separate it while iterating. Reuse it as SystemData to avoid reallocation
     // order: material -> instance/batch -> mesh
@@ -1305,21 +1116,13 @@ pub fn render_opaque(
         match mesh_ty_chunk[0].1 {
             MeshTy::Instanced(_) => {
                 for material_chunk in mesh_ty_chunk.chunk_by(|l, r| l.0 == r.0) {
-                    let material = &material_chunk[0].0;
-
-                    let Some(material) = materials.get_mut(&material) else {
+                    let Some(material) = materials.get_mut(&material_chunk[0].0) else {
                         continue;
                     };
 
                     material.update_gpu_data_if_dirty(&render_state, &textures);
 
-                    let Some((render_pipeline, bind_group)) = crate::utils::get_render_data(
-                        material,
-                        &standard_render_res,
-                        &shaders,
-                    ) else {
-                        continue;
-                    };
+                    let custom_shader = crate::utils::custom_shader(material, &shaders);
 
                     let mesh_chunks = material_chunk.chunk_by(|l, r| {
                         let MeshTy::Instanced(l_mesh) = &l.1 else {
@@ -1338,145 +1141,56 @@ pub fn render_opaque(
                         let Some(mesh) = meshes.get(&mesh) else {
                             continue;
                         };
-                        
-                        let mesh = unsafe { mesh.native() };
-
-                        if mesh.indices_count == 0 {
-                            continue;
-                        }
 
                         for matrix_chunk in mesh_chunk.chunks(INSTANCES_PER_DRAW_MAX) {
-                            for (i, (_, _, matrix)) in matrix_chunk.iter().enumerate() {
-                                instanced_instance_cpu_buffer.0[i] = *matrix;
-                            }
+                            let instance_count = matrix_chunk.len() as u32;
 
-                            let matrices_bytes = aphyn_utils::mem::as_bytes_slice(&instanced_instance_cpu_buffer.0[..matrix_chunk.len()]);
+                            render_api.write_instances_with(&standard_render_res.instances, 0, instance_count, |i| matrix_chunk[i as usize].2);
 
-                            render_state
-                                .queue()
-                                .write_buffer(&standard_render_res.instance_buffer, 0, matrices_bytes);
-                            
-                            let mut encoder = render_state.device().create_command_encoder(&CommandEncoderDescriptor {
-                                label: Some("Render Encoder"),
+                            render_api.draw_instanced(&StandardInstancedDraw {
+                                target: &current_rendering.target,
+                                depth: &depth_res.texture,
+                                globals: &standard_render_res.globals,
+                                material,
+                                custom_shader,
+                                mesh,
+                                instances: &standard_render_res.instances,
+                                instance_start: 0,
+                                instance_count,
                             });
-
-                            {
-                                let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                                    label: Some("Render Pass"),
-                                    color_attachments: &[Some(RenderPassColorAttachment {
-                                        view: view,
-                                        resolve_target: None,
-                                        ops: Operations {
-                                            load: LoadOp::Load,
-                                            store: StoreOp::Store,
-                                        },
-                                        depth_slice: None,
-                                    })],
-                                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                                        view: &depth_res.texture_view,
-                                        depth_ops: Some(Operations {
-                                            load: LoadOp::Load,
-                                            store: StoreOp::Store,
-                                        }),
-                                        stencil_ops: None,
-                                    }),
-                                    ..Default::default()
-                                });
-
-                                render_pass.set_pipeline(render_pipeline);
-                                render_pass.set_bind_group(0, &standard_render_res.global_bind_group, &[]);
-                                render_pass.set_bind_group(1, bind_group, &[]);
-                                render_pass.set_vertex_buffer(1, standard_render_res.instance_buffer.slice(..));
-                                render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                                render_pass.set_index_buffer(mesh.index_buffer.slice(..), IndexFormat::Uint16);
-                                render_pass.draw_indexed(0..(mesh.indices_count as u32), 0, 0..(matrix_chunk.len() as u32));
-                            }
-
-                            render_state.queue().submit(std::iter::once(encoder.finish()));
                         }
                     }
                 }
             },
             MeshTy::Batched(_) => {
-                render_state.queue().write_buffer(
-                    &standard_render_res.instance_buffer,
-                    0,
-                    aphyn_utils::mem::as_bytes(&Mat4::<f32>::IDENTITY),
-                );
-                render_state.queue().submit([]);
-
-                let batch_cpu_buffer = &mut batched_vertex_cpu_buffer.0;
-
-                for material_chunks in mesh_ty_chunk.chunk_by(|l, r| l.0 == r.0) {
-                    let material = &material_chunks[0].0;
-
-                    let Some(material) = materials.get_mut(&material) else {
+                for material_chunk in mesh_ty_chunk.chunk_by(|l, r| l.0 == r.0) {
+                    let Some(material) = materials.get_mut(&material_chunk[0].0) else {
                         continue;
                     };
 
                     material.update_gpu_data_if_dirty(&render_state, &textures);
 
-                    let Some((render_pipeline, bind_group)) = crate::utils::get_render_data(
-                        material,
-                        &standard_render_res,
-                        &shaders,
-                    ) else {
+                    let Some(render_pipeline) = render_state.material_pipeline(material, crate::utils::custom_shader(material, &shaders)) else {
                         continue;
                     };
+                    let bind_group = unsafe { &material.native().bind_group };
 
-                    let mut batch_buffer_i = 0;
+                    let mut flush = |vertex_count| {
+                        submit_render_batched(&render_state, &standard_render_res, vertex_count, view, &depth_res, render_pipeline, bind_group);
+                    };
 
-                    // todo: to Image/Text components, the gamma curve should not be here with batching
-                    let srgb_to_linear = |x: f32| x.powf(2.2);
-                    for (_, batched_mesh, mat) in material_chunks {
+                    let mut batch_len = 0;
+
+                    for (_, batched_mesh, mat) in material_chunk {
                         let MeshTy::Batched(batched_mesh) = batched_mesh else {
                             unreachable!();
                         };
 
-                        for &i in &batched_mesh.indices {
-                            let mut vertex = batched_mesh.vertices[i as u64];
-
-                            vertex.position = mat.mul_with_projection(Vec3::from_array(vertex.position)).into_array();
-                            vertex.normal = mat.mul_with_projection_as_dir(Vec3::from_array(vertex.normal)).into_array();
-                            vertex.color = [
-                                srgb_to_linear(vertex.color[0]),
-                                srgb_to_linear(vertex.color[1]),
-                                srgb_to_linear(vertex.color[2]),
-                                vertex.color[3],
-                            ];
-
-                            batch_cpu_buffer[batch_buffer_i] = vertex;
-
-                            batch_buffer_i += 1;
-
-                            if batch_buffer_i < batch_cpu_buffer.len() {
-                                continue;
-                            }
-
-                            batch_buffer_i = 0;
-
-                            submit_render_batched(
-                                &render_state,
-                                &standard_render_res,
-                                &batch_cpu_buffer[..],
-                                view,
-                                &depth_res,
-                                render_pipeline,
-                                bind_group,
-                            );
-                        }
+                        write_batched_mesh(&render_state, &standard_render_res, batched_mesh, mat, &mut batch_len, &mut flush);
                     }
 
-                    if batch_buffer_i > 0 {
-                        submit_render_batched(
-                            &render_state,
-                            &standard_render_res,
-                            &batch_cpu_buffer[..batch_buffer_i],
-                            view,
-                            &depth_res,
-                            render_pipeline,
-                            bind_group,
-                        );
+                    if batch_len > 0 {
+                        flush(batch_len as u32);
                     }
                 }
             },
@@ -1506,8 +1220,6 @@ pub fn render_transparent_instanced(
     }
 
     let render_state = unsafe { render_api.raw() };
-
-    let view = &transparent_target_res.texture_view;
 
     let mut instanced_matrices = HashMap::new();
 
@@ -1542,66 +1254,26 @@ pub fn render_transparent_instanced(
             continue;
         };
 
-        let mesh = unsafe { mesh.native() };
-
-        if mesh.indices_count == 0 {
-            continue;
-        }
-
         material.update_gpu_data_if_dirty(&render_state, &textures);
 
-        let Some((render_pipeline, bind_group)) = crate::utils::get_render_data(
-            material,
-            &standard_render_res,
-            &shaders,
-        ) else {
-            continue;
-        };
+        let custom_shader = crate::utils::custom_shader(material, &shaders);
 
         for matrices in matrices.chunks(INSTANCES_PER_DRAW_MAX) {
-            let matrices_bytes = aphyn_utils::mem::as_bytes_slice(matrices);
+            let instance_count = matrices.len() as u32;
 
-            render_state
-                .queue()
-                .write_buffer(&standard_render_res.instance_buffer, 0, matrices_bytes);
+            render_api.write_instances(&standard_render_res.instances, 0, matrices);
 
-            let mut encoder = render_state.device().create_command_encoder(&CommandEncoderDescriptor {
-                label: Some("Render Encoder"),
+            render_api.draw_instanced(&StandardInstancedDraw {
+                target: &transparent_target_res.texture,
+                depth: &depth_res.texture,
+                globals: &standard_render_res.globals,
+                material,
+                custom_shader,
+                mesh,
+                instances: &standard_render_res.instances,
+                instance_start: 0,
+                instance_count,
             });
-
-            {
-                let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                    label: Some("Render Pass"),
-                    color_attachments: &[Some(RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: Operations {
-                            load: LoadOp::Load,
-                            store: StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    })],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: &depth_res.texture_view,
-                        depth_ops: Some(Operations {
-                            load: LoadOp::Load,
-                            store: StoreOp::Store,
-                        }),
-                        stencil_ops: None,
-                    }),
-                    ..Default::default()
-                });
-
-                render_pass.set_pipeline(render_pipeline);
-                render_pass.set_bind_group(0, &standard_render_res.global_bind_group, &[]);
-                render_pass.set_bind_group(1, bind_group, &[]);
-                render_pass.set_vertex_buffer(1, standard_render_res.instance_buffer.slice(..));
-                render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(mesh.index_buffer.slice(..), IndexFormat::Uint16);
-                render_pass.draw_indexed(0..(mesh.indices_count as u32), 0, 0..(matrices.len() as u32));
-            }
-
-            render_state.queue().submit(std::iter::once(encoder.finish()));
         }
     }
 }
@@ -1621,7 +1293,6 @@ pub fn render_transparent_batched(
     mut materials: ResMut<AssetStorageResource<StandardMaterial>>,
     textures: Res<AssetStorageResource<StandardTexture>>,
     shaders: Res<AssetStorageResource<StandardShader>>,
-    mut batched_vertex_cpu_buffer: ResMut<BatchedVertexCpuBufferResource>,
 ) {
     if query.len() == 0 {
         return;
@@ -1629,7 +1300,7 @@ pub fn render_transparent_batched(
 
     let render_state = unsafe { render_api.raw() };
 
-    let view = &transparent_target_res.texture_view;
+    let view = unsafe { &transparent_target_res.texture.native().view };
 
     let mut batched_meshes_by_material = HashMap::new();
 
@@ -1656,15 +1327,6 @@ pub fn render_transparent_batched(
             .push((mat, batched_mesh));
     }
 
-    render_state.queue().write_buffer(
-        &standard_render_res.instance_buffer,
-        0,
-        aphyn_utils::mem::as_bytes(&Mat4::<f32>::IDENTITY),
-    );
-    render_state.queue().submit([]);
-
-    let batch_cpu_buffer = &mut batched_vertex_cpu_buffer.0;
-
     for (material, matrices_and_meshes) in &batched_meshes_by_material {
         let Some(material) = materials.get_mut(&material) else {
             continue;
@@ -1672,62 +1334,23 @@ pub fn render_transparent_batched(
 
         material.update_gpu_data_if_dirty(&render_state, &textures);
 
-        let Some((render_pipeline, bind_group)) = crate::utils::get_render_data(
-            material,
-            &standard_render_res,
-            &shaders,
-        ) else {
+        let Some(render_pipeline) = render_state.material_pipeline(material, crate::utils::custom_shader(material, &shaders)) else {
             continue;
         };
+        let bind_group = unsafe { &material.native().bind_group };
 
-        let mut batch_buffer_i = 0;
+        let mut flush = |vertex_count| {
+            submit_render_batched(&render_state, &standard_render_res, vertex_count, view, &depth_res, render_pipeline, bind_group);
+        };
 
-        let srgb_to_linear = |x: f32| x.powf(2.2);
+        let mut batch_len = 0;
+
         for (mat, batched_mesh) in matrices_and_meshes {
-            for &i in &batched_mesh.indices {
-                let mut vertex = batched_mesh.vertices[i as u64];
-
-                vertex.position = mat.mul_with_projection(Vec3::from_array(vertex.position)).into_array();
-                vertex.normal = mat.mul_with_projection_as_dir(Vec3::from_array(vertex.normal)).into_array();
-                vertex.color = [
-                    srgb_to_linear(vertex.color[0]),
-                    srgb_to_linear(vertex.color[1]),
-                    srgb_to_linear(vertex.color[2]),
-                    vertex.color[3],
-                ];
-
-                batch_cpu_buffer[batch_buffer_i] = vertex;
-
-                batch_buffer_i += 1;
-
-                if batch_buffer_i < batch_cpu_buffer.len() {
-                    continue;
-                }
-
-                batch_buffer_i = 0;
-
-                submit_render_batched(
-                    &render_state,
-                    &standard_render_res,
-                    &batch_cpu_buffer[..],
-                    &view,
-                    &depth_res,
-                    render_pipeline,
-                    bind_group,
-                );
-            }
+            write_batched_mesh(&render_state, &standard_render_res, batched_mesh, mat, &mut batch_len, &mut flush);
         }
 
-        if batch_buffer_i > 0 {
-            submit_render_batched(
-                &render_state,
-                &standard_render_res,
-                &batch_cpu_buffer[..batch_buffer_i],
-                &view,
-                &depth_res,
-                render_pipeline,
-                bind_group,
-            );
+        if batch_len > 0 {
+            flush(batch_len as u32);
         }
     }
 }
@@ -1740,7 +1363,7 @@ pub fn render_transparent_final_system(
 ) {
     let render_state = unsafe { render_api.raw() };
 
-    let view = &current_rendering.target_view;
+    let view = unsafe { &current_rendering.target.native().view };
 
     let mut encoder = render_state.device().create_command_encoder(&CommandEncoderDescriptor {
         label: Some("Transparent Final Render Encoder"),
@@ -1824,7 +1447,7 @@ pub fn render_exposure_system(
                 aspect: TextureAspect::All,
             },
             TexelCopyTextureInfo {
-                texture: &current_rendering.target_texture,
+                texture: &unsafe { current_rendering.target.native() }.texture,
                 mip_level: 0,
                 origin: Origin3d {
                     x: 0,
@@ -1833,7 +1456,7 @@ pub fn render_exposure_system(
                 },
                 aspect: TextureAspect::All,
             },
-            current_rendering.target_texture.size(),
+            unsafe { current_rendering.target.native() }.texture.size(),
         );
     }
 
@@ -2024,7 +1647,7 @@ pub fn render_bloom_system(
             let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
                 label: Some("Apply Bloom Render Pass"),
                 color_attachments: &[Some(RenderPassColorAttachment {
-                    view: &current_rendering.target_view,
+                    view: unsafe { &current_rendering.target.native().view },
                     resolve_target: None,
                     ops: Operations {
                         load: LoadOp::Load,
@@ -2097,7 +1720,7 @@ pub fn render_color_grading_system(
                 aspect: TextureAspect::All,
             },
             TexelCopyTextureInfo {
-                texture: &current_rendering.target_texture,
+                texture: &unsafe { current_rendering.target.native() }.texture,
                 mip_level: 0,
                 origin: Origin3d {
                     x: 0,
@@ -2106,7 +1729,7 @@ pub fn render_color_grading_system(
                 },
                 aspect: TextureAspect::All,
             },
-            current_rendering.target_texture.size(),
+            unsafe { current_rendering.target.native() }.texture.size(),
         );
     }
 
@@ -2129,7 +1752,7 @@ pub fn render_gizmos(
     standard_render_res: Res<StandardRenderResource>,
     render_api: Res<RenderApiResource>,
 ) {
-    let view = &current_rendering.target_view;
+    let view = unsafe { &current_rendering.target.native().view };
 
     let render_state = unsafe { render_api.raw() };
 
@@ -2141,8 +1764,6 @@ pub fn render_gizmos(
         transform_buffer,
         pipeline,
         bind_group,
-        vertices_cpu_buffer,
-        colors_cpu_buffer,
         frame_lines,
     } = &mut *gizmos_render_res;
 
@@ -2171,24 +1792,14 @@ pub fn render_gizmos(
         for lines in lines.chunks(GIZMO_LINES_PER_DRAW_MAX) {
             let count = lines.len();
 
-            for (i, line) in lines.iter().enumerate() {
-                vertices_cpu_buffer[i] = [
+            write_buffer_elements_with(render_state.queue(), vertex_buffer, 0, count as u64, |i| {
+                let line = &lines[i as usize];
+                [
                     Vec4::new(line.start.x, line.start.y, line.start.z, 1.0),
                     Vec4::new(line.end.x, line.end.y, line.end.z, 1.0),
-                ];
-                colors_cpu_buffer[i] = line.color;
-            }
-
-            render_state.queue().write_buffer(
-                vertex_buffer,
-                0,
-                aphyn_utils::mem::as_bytes_slice(&vertices_cpu_buffer[..count]),
-            );
-            render_state.queue().write_buffer(
-                color_buffer,
-                0,
-                aphyn_utils::mem::as_bytes_slice(&colors_cpu_buffer[..count]),
-            );
+                ]
+            });
+            write_buffer_elements_with(render_state.queue(), color_buffer, 0, count as u64, |i| lines[i as usize].color);
 
             let mut encoder = render_state.device().create_command_encoder(&CommandEncoderDescriptor {
                 label: Some("Gizmos Encoder"),
@@ -2222,21 +1833,64 @@ pub fn render_gizmos(
 
 //
 
+fn write_batched_mesh(
+    render_state: &RenderState,
+    standard_render_res: &StandardRenderResource,
+    batched_mesh: &BatchedMeshComponent,
+    mat: &Mat4<f32>,
+    batch_len: &mut usize,
+    mut flush: impl FnMut(u32),
+) {
+    const BATCH_CAPACITY: usize = TRIANGLES_PER_BATCHED_DRAW_MAX * 3;
+
+    // todo: to Image/Text components, the gamma curve should not be here with batching
+    let srgb_to_linear = |x: f32| x.powf(2.2);
+
+    let mut indices = batched_mesh.indices.as_slice();
+
+    while !indices.is_empty() {
+        let count = indices.len().min(BATCH_CAPACITY - *batch_len);
+
+        write_buffer_elements_with(
+            render_state.queue(),
+            &standard_render_res.batched_vertex_buffer,
+            *batch_len as u64,
+            count as u64,
+            |i| {
+                let mut vertex = batched_mesh.vertices[indices[i as usize] as u64];
+
+                vertex.position = mat.mul_with_projection(Vec3::from_array(vertex.position)).into_array();
+                vertex.normal = mat.mul_with_projection_as_dir(Vec3::from_array(vertex.normal)).into_array();
+                vertex.color = [
+                    srgb_to_linear(vertex.color[0]),
+                    srgb_to_linear(vertex.color[1]),
+                    srgb_to_linear(vertex.color[2]),
+                    vertex.color[3],
+                ];
+
+                vertex
+            },
+        );
+
+        *batch_len += count;
+        indices = &indices[count..];
+
+        if *batch_len == BATCH_CAPACITY {
+            flush(BATCH_CAPACITY as u32);
+            *batch_len = 0;
+        }
+    }
+}
+
 fn submit_render_batched(
     render_state: &RenderState,
     standard_render_res: &StandardRenderResource,
-    batched_cpu_slice: &[StandardVertex],
+    vertex_count: u32,
     render_target_view: &TextureView,
     depth_res: &DepthTextureResource,
     render_pipeline: &RenderPipeline,
     bind_group: &BindGroup,
 ) {
-    render_state.queue().write_buffer(
-        &standard_render_res.batched_vertex_buffer,
-        0,
-        aphyn_utils::mem::as_bytes_slice(batched_cpu_slice),
-    );
-
     let mut encoder = render_state.device().create_command_encoder(&CommandEncoderDescriptor {
         label: Some("Render Encoder"),
     });
@@ -2254,7 +1908,7 @@ fn submit_render_batched(
                 depth_slice: None,
             })],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &depth_res.texture_view,
+                view: unsafe { &depth_res.texture.native().view },
                 depth_ops: Some(Operations {
                     load: LoadOp::Load,
                     store: StoreOp::Store,
@@ -2265,11 +1919,11 @@ fn submit_render_batched(
         });
 
         render_pass.set_pipeline(render_pipeline);
-        render_pass.set_bind_group(0, &standard_render_res.global_bind_group, &[]);
+        render_pass.set_bind_group(0, unsafe { &standard_render_res.globals.native().bind_group }, &[]);
         render_pass.set_bind_group(1, bind_group, &[]);
-        render_pass.set_vertex_buffer(1, standard_render_res.instance_buffer.slice(..));
+        render_pass.set_vertex_buffer(1, unsafe { standard_render_res.identity_instance.native() }.buffer.slice(..));
         render_pass.set_vertex_buffer(0, standard_render_res.batched_vertex_buffer.slice(..));
-        render_pass.draw(0..(batched_cpu_slice.len() as u32), 0..1);
+        render_pass.draw(0..vertex_count, 0..1);
     }
 
     render_state.queue().submit(std::iter::once(encoder.finish()));

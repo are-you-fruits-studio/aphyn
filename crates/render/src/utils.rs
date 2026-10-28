@@ -1,24 +1,17 @@
 use aphyn_asset_storage::AssetStorageResource;
 use aphyn_math::Mat4;
 use aphyn_math::Vec3;
-use aphyn_render_core::StandardEngineShader;
 use aphyn_render_core::StandardLight;
 use aphyn_render_core::StandardMaterialShader;
 use aphyn_render_core::StandardShader;
 use aphyn_transform::GlobalTransform;
-use wgpu::*;
 
 use crate::StandardLightComponent;
-use crate::{
-    StandardMaterial, StandardRenderResource,
-};
+use crate::StandardMaterial;
 
 pub const GIZMO_LINES_PER_DRAW_MAX: usize = 1024 * 16;
 pub const INSTANCES_PER_DRAW_MAX: usize = 1024 * 8;
 pub const TRIANGLES_PER_BATCHED_DRAW_MAX: usize = 1024 * 32;
-pub const LIGHTS_COUNT_MAX: usize = 1024;
-
-pub const TRANSPARENT_TARGET_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 
 pub fn create_window_to_clip_matrix(width: f32, height: f32, near: f32, far: f32) -> Mat4<f32> {
     let z_near_to_far_inv = 1.0 / (far - near);
@@ -33,27 +26,11 @@ pub fn create_window_to_clip_matrix(width: f32, height: f32, near: f32, far: f32
     ])
 }
 
-// todo
-pub(crate) fn get_render_data<'a, 'b>(
-    material: &'b StandardMaterial,
-    standard_render_res: &'a StandardRenderResource,
-    shaders: &'a AssetStorageResource<StandardShader>,
-) -> Option<(&'a RenderPipeline, &'b BindGroup)> {
-    let material_native = unsafe { material.native() };
-
-    let render_pipeline = match &material.meta().shader {
-        StandardMaterialShader::Engine(shader) => match shader {
-            StandardEngineShader::OpaqueLit => &standard_render_res.render_pipeline_opaque_lit,
-            StandardEngineShader::OpaqueUnlit => &standard_render_res.render_pipeline_opaque_unlit,
-            StandardEngineShader::TransparentLit => &standard_render_res.render_pipeline_transparent_lit,
-            StandardEngineShader::TransparentUnlit => &standard_render_res.render_pipeline_transparent_unlit,
-            StandardEngineShader::UiOpaqueUnlit => &standard_render_res.render_pipeline_ui_opaque_unlit,
-            StandardEngineShader::UiTransparentUnlit => &standard_render_res.render_pipeline_ui_transparent_unlit,
-        }
-        StandardMaterialShader::Custom(shader) => unsafe { &shaders.get(shader)?.native().render_pipeline },
-    };
-
-    Some((render_pipeline, &material_native.bind_group))
+pub(crate) fn custom_shader<'a>(material: &StandardMaterial, shaders: &'a AssetStorageResource<StandardShader>) -> Option<&'a StandardShader> {
+    match &material.meta().shader {
+        StandardMaterialShader::Engine(_) => None,
+        StandardMaterialShader::Custom(shader) => shaders.get(shader),
+    }
 }
 
 pub fn light_from_components(light: &StandardLightComponent, transform: &GlobalTransform) -> StandardLight {

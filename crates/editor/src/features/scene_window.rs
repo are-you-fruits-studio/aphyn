@@ -295,10 +295,9 @@ pub fn render_simulated_view(
 
     material_c.material = material_handle.clone();
 
-    let target_texture = unsafe { textures.get(texture_handle).unwrap().native() }.texture.clone();
-    let target_view = target_texture.create_view(&Default::default());
+    let target = textures.get(texture_handle).unwrap().clone();
 
-    clear_color_target(&*unsafe { render_api.raw() }, &target_view, CLEAR_COLOR);
+    clear_color_target(&*unsafe { render_api.raw() }, unsafe { &target.native().view }, CLEAR_COLOR);
 
     return_if_not!(Some(camera) = camera);
 
@@ -307,8 +306,7 @@ pub fn render_simulated_view(
         camera_scale_rotation: camera.scale_rotation,
         camera: camera.camera,
         light: camera.light,
-        target_texture,
-        target_view,
+        target,
     });
 
     world.execute_iteration(Schedule::RenderCamera);

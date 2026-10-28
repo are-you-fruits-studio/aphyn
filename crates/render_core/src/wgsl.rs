@@ -252,6 +252,16 @@ mod tests {
             "mip_fill_shader.wgsl",
             include_str!("./assets/mip_fill_shader.wgsl"),
         );
+
+        let standard_defs: &[&[&str]] = &[&[], &["LIT"], &["TRANSPARENT"], &["LIT", "TRANSPARENT"], &["UI"], &["UI", "TRANSPARENT"]];
+
+        for defs in standard_defs {
+            let code = composer.compose("shader_standard.wgsl", include_str!("./assets/wgsl/shader_standard.wgsl"), defs).unwrap();
+            let module = naga::front::wgsl::parse_str(&code).unwrap_or_else(|error| panic!("{defs:?}\n{}", error.emit_to_string(&code)));
+            naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::all())
+                .validate(&module)
+                .unwrap_or_else(|error| panic!("{defs:?}\n{}", error.emit_to_string(&code)));
+        }
     }
 
     #[test]

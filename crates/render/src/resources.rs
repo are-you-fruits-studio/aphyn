@@ -1,10 +1,9 @@
 use aphyn_ecs::Resource;
 use aphyn_math::{Mat4, Vec2, Vec3, Vec4};
-use aphyn_render_core::{RenderSpace, StandardGenericLight, StandardVertex};
+use aphyn_render_core::{RenderSpace, StandardGlobalBindings, StandardInstanceBuffer, StandardTexture};
 use aphyn_ffi::*;
 use aphyn_utils::mem::AllBitsInit;
 use wgpu::{BindGroup, BindGroupLayout, Buffer, RenderPipeline, Sampler, Texture, TextureView};
-
 use super::GizmoLine;
 
 #[repr(C)]
@@ -41,25 +40,19 @@ pub struct GizmosRenderResource {
     pub transform_buffer: Buffer,
     pub pipeline: RenderPipeline,
     pub bind_group: BindGroup,
-    pub vertices_cpu_buffer: Box<[[Vec4<f32>; 2]]>,
-    pub colors_cpu_buffer: Box<[Vec4<f32>]>,
     pub frame_lines: Vec<(RenderSpace, Vec<GizmoLine>)>,
 }
 
 // todo: support ffi
 #[derive(Resource)]
 pub struct DepthTextureResource {
-    pub texture: Texture,
-    pub texture_view: TextureView,
-    pub sampler: Sampler,
+    pub texture: StandardTexture,
 }
 
 // todo: support ffi
 #[derive(Resource)]
 pub struct TransparentTargetTextureResource {
-    pub texture: Texture,
-    pub texture_view: TextureView,
-    pub sampler: Sampler,
+    pub texture: StandardTexture,
     pub bind_group: BindGroup,
 }
 
@@ -190,34 +183,16 @@ pub struct ColorGradingRenderResource {
 // todo: support ffi
 #[derive(Resource)]
 pub struct StandardRenderResource {
-    pub global_bind_group: BindGroup,
-    pub global_uniform_buffer: Buffer,
+    pub globals: StandardGlobalBindings,
+    pub instances: StandardInstanceBuffer,
+    pub identity_instance: StandardInstanceBuffer,
     pub batched_vertex_buffer: Buffer,
-    pub lights_buffer: Buffer,
     pub lights_count: u32,
-    pub instance_buffer: Buffer,
     pub camera_pos: Vec3<f32>,
     pub camera_proj_matrix: Mat4<f32>,
-    pub render_pipeline_opaque_lit: RenderPipeline,
-    pub render_pipeline_opaque_unlit: RenderPipeline,
-    pub render_pipeline_transparent_lit: RenderPipeline,
-    pub render_pipeline_transparent_unlit: RenderPipeline,
-    pub render_pipeline_ui_opaque_unlit: RenderPipeline,
-    pub render_pipeline_ui_transparent_unlit: RenderPipeline,
     pub render_pipeline_transparent_final: RenderPipeline,
     pub bind_group_layout_transparent_final: BindGroupLayout,
 }
-
-// todo: support ffi
-#[derive(Resource)]
-pub struct BatchedVertexCpuBufferResource(pub Box<[StandardVertex]>);
-// todo: support ffi
-#[derive(Resource)]
-pub struct InstancedInstanceCpuBufferResource(pub Box<[Mat4<f32>]>);
-
-// todo: support ffi
-#[derive(Resource)]
-pub struct LightsCpuBufferResource(pub Box<[StandardGenericLight]>);
 
 pub struct MaterialStandardRenderResourceData {
     pub render_pipeline: RenderPipeline,

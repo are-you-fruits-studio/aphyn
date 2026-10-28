@@ -1,4 +1,4 @@
-use aphyn_utils::stack_vec::StackVec;
+use aphyn_utils::{mem::AllBitsInit, stack_vec::StackVec};
 use crate::RenderState;
 use wgpu::*;
 
@@ -164,4 +164,20 @@ pub fn clear_color_target(render_state: &RenderState, view: &TextureView, color:
     }
 
     render_state.queue().submit(std::iter::once(encoder.finish()));
+}
+
+pub fn write_buffer_elements_with<T: AllBitsInit>(queue: &Queue, buffer: &Buffer, start: u64, count: u64, mut f: impl FnMut(u64) -> T) {
+    let element_size = size_of::<T>() as u64;
+
+    let Some(size) = BufferSize::new(count * element_size) else {
+        return;
+    };
+    let Some(mut view) = queue.write_buffer_with(buffer, start * element_size, size) else {
+        return;
+    };
+
+    // byte copies: the staging view has no alignment guarantee for T
+    for (i, chunk) in view.chunks_exact_mut(element_size as usize).enumerate() {
+        chunk.copy_from_slice(aphyn_utils::mem::as_bytes(&f(i as u64)));
+    }
 }

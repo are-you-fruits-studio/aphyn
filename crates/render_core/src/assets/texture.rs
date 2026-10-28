@@ -4,15 +4,17 @@ use aphyn_ffi::{FfiDroppable, FfiOption, FfiString};
 use aphyn_serialization::*;
 use wgpu::{
     AddressMode, Extent3d, Origin3d, Sampler, SamplerDescriptor, Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
+    TextureView,
 };
 
 use crate::{CreateBindGroupEntry, RenderApi, RenderData};
 
 pub use wgpu::FilterMode;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StandardTextureNative {
     pub texture: Texture,
+    pub view: TextureView,
     pub sampler: Sampler,
 }
 
@@ -23,6 +25,7 @@ pub enum StandardTextureFormat {
     #[default]
     Rgba8UnormSrgb,
     Rgba16Float,
+    Depth32Float,
 }
 
 impl StandardTextureFormat {
@@ -31,12 +34,13 @@ impl StandardTextureFormat {
             Self::Rgba8Unorm => TextureFormat::Rgba8Unorm,
             Self::Rgba8UnormSrgb => TextureFormat::Rgba8UnormSrgb,
             Self::Rgba16Float => TextureFormat::Rgba16Float,
+            Self::Depth32Float => TextureFormat::Depth32Float,
         }
     }
 
     fn bytes_per_pixel(self) -> u32 {
         match self {
-            Self::Rgba8Unorm | Self::Rgba8UnormSrgb => 4,
+            Self::Rgba8Unorm | Self::Rgba8UnormSrgb | Self::Depth32Float => 4,
             Self::Rgba16Float => 8,
         }
     }
@@ -78,6 +82,9 @@ impl StandardTexture {
     ) -> Self {
         dimensions = dimensions.map(|x| x.max(1));
 
+        let is_depth = meta.format == StandardTextureFormat::Depth32Float;
+        let data = if is_depth { &[] } else { data };
+
         let format_bytes_per_pixel = meta.format.bytes_per_pixel();
         let bytes_per_row = dimensions[0] * format_bytes_per_pixel;
 
@@ -104,9 +111,14 @@ impl StandardTexture {
 
         let format = meta.format.to_wgpu();
 
-        let mipmaps_count = match meta.should_generate_mipmaps {
+        let mipmaps_count = match meta.should_generate_mipmaps && !is_depth {
             false => 1,
             true => dimensions[0].max(dimensions[1]).ilog2() + 1
+        };
+
+        let usage = match is_depth {
+            false => TextureUsages::COPY_SRC | TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
+            true => TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
         };
 
         let texture = render_api.device.create_texture(&TextureDescriptor {
@@ -120,10 +132,7 @@ impl StandardTexture {
             sample_count: 1,
             dimension: TextureDimension::D2,
             format: format,
-            usage: TextureUsages::COPY_SRC
-                | TextureUsages::COPY_DST
-                | TextureUsages::TEXTURE_BINDING
-                | TextureUsages::RENDER_ATTACHMENT,
+            usage,
             view_formats: &[format],
         });
         if !data.is_empty() {
@@ -228,9 +237,12 @@ impl StandardTexture {
 
         let texture_id = render_api.next_texture_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
+        let view = texture.create_view(&Default::default());
+
         Self {
             native: FfiDroppable::new(StandardTextureNative {
                 texture,
+                view,
                 sampler,
             }),
             meta: meta.into(),
@@ -246,8 +258,23 @@ impl StandardTexture {
         self.meta.as_ref()
     }
 
+    pub fn size(&self) -> [u32; 2] {
+        let size = unsafe { self.native() }.texture.size();
+        [size.width, size.height]
+    }
+
     pub fn id(&self) -> u64 {
         self.texture_id
+    }
+}
+
+impl Clone for StandardTexture {
+    fn clone(&self) -> Self {
+        Self {
+            native: FfiDroppable::new(unsafe { self.native() }.clone()),
+            meta: self.meta.clone(),
+            texture_id: self.texture_id,
+        }
     }
 }
 

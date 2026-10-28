@@ -56,7 +56,7 @@
 //! #### Lighting the scene
 //!
 //! Lit materials are shaded by every entity carrying a [`StandardLightComponent`] (up to
-//! [`LIGHTS_COUNT_MAX`]). A point or spot light sits at its transform's position; spot and
+//! [`LIGHTS_COUNT_MAX`](aphyn_render_core::LIGHTS_COUNT_MAX)). A point or spot light sits at its transform's position; spot and
 //! directional lights point along their transform's local `-Y` axis:
 //!
 //! ```ignore
@@ -147,10 +147,9 @@
 //! the user-facing resources ([`GizmosResource`], [`ScreenSpaceResource`], [`BloomResource`],
 //! [`ExposureResource`], [`ColorGradingResource`]), and registers its systems under the
 //! [`SYSTEM_GROUP_RENDER`] group in three schedules. [`Schedule::Start`] builds the
-//! [`StandardRenderResource`] and the gizmo resources; pipelines are created against the fixed
-//! [`RENDER_TARGET_FORMAT`](aphyn_render_core::RENDER_TARGET_FORMAT),
-//! [`DEPTH_TEXTURE_FORMAT`](aphyn_render_core::DEPTH_TEXTURE_FORMAT),
-//! and [`TRANSPARENT_TARGET_FORMAT`] since no render target exists yet. [`Schedule::Update`] only
+//! [`StandardRenderResource`] and the gizmo resources; the crate's own pipelines are created against
+//! the fixed [`RENDER_TARGET_FORMAT`](aphyn_render_core::RENDER_TARGET_FORMAT) since no render
+//! target exists yet. [`Schedule::Update`] only
 //! runs the per-frame work that does not depend on the camera: [`prepare_gizmos`]. Keeping the
 //! group in `Update` lets other modules and games keep ordering their systems
 //! `before_group(SYSTEM_GROUP_RENDER)`.
@@ -168,9 +167,9 @@
 //!
 //! This crate does not own the color target or present the surface. `aphyn_app` owns one
 //! `Rgba16Float` HDR target the size of the surface, clears it every frame, and hands it to the
-//! `RenderCamera` systems through `CurrentRenderingResource::target_texture` / `target_view`;
+//! `RenderCamera` systems as the `StandardTexture` `CurrentRenderingResource::target`;
 //! after the schedule it copies the target onto the surface and presents it. Everything here
-//! draws into that target, with a `Depth32Float` [`DepthTextureResource`]. Window-to-clip matrices,
+//! draws into that target, with the `Depth32Float` `StandardTexture` of [`DepthTextureResource`]. Window-to-clip matrices,
 //! the camera aspect, and the bloom viewports use the target size, not the window size. The
 //! `recreate_*` systems compare each intermediate texture against the target size and only
 //! rebuild when it changed, replacing the resource in place; the exposure, bloom, and color
@@ -180,24 +179,26 @@
 //! #### Two geometry paths: instanced and batched
 //!
 //! Geometry reaches the GPU two ways. The **instanced** path groups entities by their
-//! ([`StandardMeshComponent`], [`StandardMaterialComponent`]) pair and issues indexed instanced
-//! draws, writing the per-instance model matrices into a reused instance buffer in chunks of
-//! [`INSTANCES_PER_DRAW_MAX`]. The **batched** path is for [`BatchedMeshComponent`]: it groups
-//! entities by material, transforms each indexed vertex on the CPU into world space (and converts
-//! vertex colors from sRGB to linear), writes them into a shared non-indexed vertex buffer, and
-//! flushes whenever the buffer fills ([`TRIANGLES_PER_BATCHED_DRAW_MAX`] triangles); it first
-//! writes an identity matrix into instance 0 of the instance buffer, which the batched draws read.
-//! Both paths skip entities whose `GlobalDisableableComponent` is set, treat a missing transform as
-//! the identity, and skip entities whose mesh or material handle does not resolve. The instanced
-//! path also skips meshes without indices, since wgpu panics on slicing their empty buffers. An
-//! entity with both mesh components is drawn by both paths.
+//! ([`StandardMeshComponent`], [`StandardMaterialComponent`]) pair and goes through the
+//! `aphyn_render_core` instanced draw API: per chunk of [`INSTANCES_PER_DRAW_MAX`] it fills
+//! `StandardRenderResource::instances` (a `StandardInstanceBuffer` of that length) from index 0 and
+//! calls `RenderApiResource::draw_instanced` for that range. The **batched** path is for
+//! [`BatchedMeshComponent`]: it groups entities by material, transforms each indexed vertex on the
+//! CPU into world space (and converts vertex colors from sRGB to linear), writes them straight into
+//! the shared non-indexed vertex buffer through `write_buffer_elements_with` (`write_batched_mesh`),
+//! and flushes whenever the buffer fills ([`TRIANGLES_PER_BATCHED_DRAW_MAX`] triangles). Batched
+//! draws bind `StandardRenderResource::identity_instance`, a one-element buffer holding the
+//! identity. Both paths skip entities whose `GlobalDisableableComponent` is set, treat a missing
+//! transform as the identity, and skip entities whose mesh or material handle does not resolve;
+//! `draw_instanced` itself skips meshes without indices. An entity with both mesh components is
+//! drawn by both paths. No per-frame CPU staging arrays are kept: every upload of per-frame data
+//! (instances, batched vertices, lights, gizmo lines) is written into `write_buffer_with` views.
 //!
 //! Opaque geometry is drawn by a single system, [`render_opaque`]. It queries entities with either
 //! mesh component, collects one `(material, mesh, model matrix)` request per mesh component into a
 //! per-frame `Vec`, sorts it (all instanced requests before all batched ones; instanced requests by
 //! material, then mesh handle), and walks it with `chunk_by` so every run of equal material/mesh
-//! becomes one draw group. Instanced matrices are staged in [`InstancedInstanceCpuBufferResource`]
-//! and batched vertices in [`BatchedVertexCpuBufferResource`]. Transparent geometry still uses two
+//! becomes one draw group. Transparent geometry still uses two
 //! separate, near-duplicate systems ([`render_transparent_instanced`],
 //! [`render_transparent_batched`]) that group with `HashMap`s (see the `todo` notes).
 //! [`StandardRenderComponent`] is defined but not read by any system.
@@ -207,8 +208,8 @@
 //! [`StandardMaterialShader::is_transparent`](aphyn_render_core::StandardMaterialShader::is_transparent)
 //! splits the two: opaque materials (opaque engine variants and every custom shader) are drawn
 //! into the render target (depth-write on, `REPLACE` blend, alpha-tested with `discard` against
-//! `alpha_threshold` in the engine shader); transparent engine variants are transparent. Transparent draws target an offscreen `Rgba16Float`
-//! [`TransparentTargetTextureResource`] with additive blending and depth-test but no
+//! `alpha_threshold` in the engine shader); transparent engine variants are transparent. Transparent draws target the offscreen `Rgba16Float`
+//! `StandardTexture` of [`TransparentTargetTextureResource`] with additive blending and depth-test but no
 //! depth-write, and [`render_transparent_final_system`] then composites that target over the
 //! render target with a fullscreen triangle (`shader_transparent_final.wgsl`) using alpha
 //! blending.
@@ -218,20 +219,14 @@
 //! All shaders here are `.wgsl` files in `src/assets/`, composed with
 //! [`render_wgsl_composer`]: the `aphyn_render_core` engine libraries plus the crate-local
 //! `aphyn/bloom.wgsl` (the bloom uniform, layer storage, and their bindings, shared by the four
-//! bloom shaders). The fullscreen passes use `aphyn/fullscreen.wgsl`. The standard shader,
-//! `shader_standard.wgsl`, includes `aphyn/standard_bindings.wgsl` and `aphyn/pbr.wgsl` and is
-//! composed six times against the standard pipeline layout from `RenderData`: the four
-//! combinations of the defines `LIT` and `TRANSPARENT`, plus `UI` and `UI` + `TRANSPARENT` for the
-//! two UI variants. `UI` only switches the vertex transform from `global_data.matrix_world_to_clip`
-//! to `global_data.matrix_window_to_clip`; the UI pipelines share the unlit pipelines' state.
-//! [`StandardRenderResource`] holds the six resulting pipelines plus
-//! the transparent-composite one. The opaque variants' pipeline state must match the one
-//! `StandardShader::new` in `aphyn_render_core` builds for custom shaders. The
-//! `render_shaders_are_valid` unit test validates every shader and standard variant with `naga`.
-//! Bind group 0 is the global group (the
-//! `StandardUniformGlobal` with the world-to-clip and window-to-clip matrices, the camera
-//! position, and the light count, plus the lights storage buffer); bind group 1 is the
-//! material's. [`update_global_uniforms`] writes the global uniform once per rendering: the
+//! bloom shaders). The fullscreen passes use `aphyn/fullscreen.wgsl`. The standard shader and its
+//! six engine pipelines live in `aphyn_render_core` (`StandardEnginePipelines` in `RenderData`);
+//! [`StandardRenderResource`] only holds the transparent-composite pipeline. The
+//! `render_shaders_are_valid` unit test validates every shader of this crate with `naga`.
+//! Bind group 0 is the global group, `StandardRenderResource::globals` (a
+//! `StandardGlobalBindings`: the `StandardUniformGlobal` with the world-to-clip and window-to-clip
+//! matrices, the camera position, and the light count, plus the lights storage buffer); bind group
+//! 1 is the material's. [`update_global_uniforms`] writes the global uniform once per rendering: the
 //! world-to-clip matrix is the camera matrix, the window-to-clip matrix comes from
 //! [`create_window_to_clip_matrix`] for the target size (pixel coordinates with the near/far from
 //! [`ScreenSpaceResource`], `-10_000` to `10_000` by default, lower z in front).
@@ -240,17 +235,18 @@
 //! mutably and the texture storage): it rebuilds the material's bind group when a resolved texture
 //! changed and rewrites its uniform (color and emission converted from sRGB to linear) only when
 //! the metadata was touched through `meta_mut`. Because `RenderCamera` runs once per camera, later
-//! cameras in the same frame see a no-op update. `get_render_data` then picks the pipeline from the
-//! material's `shader` (an engine variant's pipeline, or the custom `StandardShader`'s own one;
-//! a custom handle that doesn't resolve skips the draw) and returns it with the material's bind
-//! group. The lit path samples the normal map through a TBN matrix, scales metallic and roughness by their textures, starts from the
+//! cameras in the same frame see a no-op update. `utils::custom_shader` resolves a `Custom` shader
+//! handle, and `RenderState::material_pipeline` (directly for batched draws, inside
+//! `draw_instanced` otherwise) picks the pipeline from the material's `shader`; a custom handle
+//! that doesn't resolve skips the draw. The lit path samples the normal map through a TBN matrix, scales metallic and roughness by their textures, starts from the
 //! emission term, and adds a Cook-Torrance BRDF contribution per light; there is no ambient
 //! term. The unlit path outputs the textured color and ignores emission.
 //!
 //! [`update_lights_buffer`] converts every [`StandardLightComponent`] with its transform (a
 //! missing transform is the identity) into a `StandardGenericLight` via
 //! [`light_from_components`], appends `CurrentRenderingResource::light` if there is one, and
-//! uploads up to [`LIGHTS_COUNT_MAX`] of them. It runs in `RenderCamera` because that light belongs
+//! uploads up to [`LIGHTS_COUNT_MAX`](aphyn_render_core::LIGHTS_COUNT_MAX) of them with
+//! `write_lights_with`. It runs in `RenderCamera` because that light belongs
 //! to the current rendering, so `StandardRenderResource::lights_count` describes that rendering.
 //! [`update_camera_uniform`] copies the camera matrix
 //! ([`CurrentRenderingResource::world_to_clip`](aphyn_render_core::CurrentRenderingResource::world_to_clip))

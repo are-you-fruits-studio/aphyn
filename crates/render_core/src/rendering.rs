@@ -1,12 +1,13 @@
 use aphyn_ecs::Resource;
 use aphyn_math::{Mat3, Mat4, Vec3};
 use aphyn_serialization::*;
-use wgpu::{Texture, TextureFormat, TextureView};
+use wgpu::TextureFormat;
 
-use crate::StandardLight;
+use crate::{StandardLight, StandardTexture};
 
 pub const RENDER_TARGET_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 pub const DEPTH_TEXTURE_FORMAT: TextureFormat = TextureFormat::Depth32Float;
+pub const TRANSPARENT_TARGET_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Serializable)]
@@ -53,14 +54,12 @@ pub struct CurrentRenderingResource {
     pub camera_scale_rotation: Mat3<f32>,
     pub camera: Camera,
     pub light: Option<StandardLight>,
-    pub target_texture: Texture,
-    pub target_view: TextureView,
+    pub target: StandardTexture,
 }
 
 impl CurrentRenderingResource {
     pub fn target_size(&self) -> [u32; 2] {
-        let size = self.target_texture.size();
-        [size.width, size.height]
+        self.target.size()
     }
 
     pub fn world_to_clip(&self) -> Mat4<f32> {

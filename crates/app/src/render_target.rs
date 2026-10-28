@@ -1,12 +1,11 @@
 use aphyn_render_core::{
-    CreateBindGroupEntry, CreateBindGroupLayoutEntry, RENDER_TARGET_FORMAT, RenderState, WgslComposer, clear_color_target,
-    create_bind_group, create_bind_group_layout, create_render_pipeline,
+    CreateBindGroupEntry, CreateBindGroupLayoutEntry, RenderState, StandardTexture, StandardTextureAssetMetadata, StandardTextureFormat,
+    WgslComposer, clear_color_target, create_bind_group, create_bind_group_layout, create_render_pipeline,
 };
 use wgpu::*;
 
 pub(crate) struct RenderTarget {
-    pub texture: Texture,
-    pub texture_view: TextureView,
+    pub texture: StandardTexture,
     bind_group: BindGroup,
     render_pipeline: RenderPipeline,
 }
@@ -15,22 +14,15 @@ impl RenderTarget {
     pub fn new(render_state: &RenderState) -> Self {
         let size = render_state.size();
 
-        let texture = render_state.device().create_texture(&TextureDescriptor {
-            label: Some("Main Render Target"),
-            size: Extent3d {
-                width: size[0],
-                height: size[1],
-                depth_or_array_layers: 1,
+        let texture = render_state.create_texture(
+            FilterMode::Nearest,
+            size,
+            &[],
+            StandardTextureAssetMetadata {
+                format: StandardTextureFormat::Rgba16Float,
+                ..Default::default()
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: RENDER_TARGET_FORMAT,
-            usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-
-        let texture_view = texture.create_view(&TextureViewDescriptor::default());
+        );
 
         let sampler = render_state.device().create_sampler(&SamplerDescriptor {
             label: Some("Render Surface Sampler"),
@@ -60,7 +52,7 @@ impl RenderTarget {
             Some("Render Surface Bind Group"),
             &bind_group_layout,
             &[
-                CreateBindGroupEntry::Texture(&texture_view),
+                CreateBindGroupEntry::Texture(unsafe { &texture.native().view }),
                 CreateBindGroupEntry::Sampler(&sampler),
             ],
         );
@@ -98,19 +90,18 @@ impl RenderTarget {
 
         Self {
             texture,
-            texture_view,
             bind_group,
             render_pipeline,
         }
     }
 
     pub fn size(&self) -> [u32; 2] {
-        let size = self.texture.size();
+        let size = unsafe { self.texture.native() }.texture.size();
         [size.width, size.height]
     }
 
     pub fn clear(&self, render_state: &RenderState) {
-        clear_color_target(render_state, &self.texture_view, [0.0; 4]);
+        clear_color_target(render_state, unsafe { &self.texture.native().view }, [0.0; 4]);
     }
 
     pub fn render_to_surface(&self, render_state: &RenderState) {

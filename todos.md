@@ -1,5 +1,7 @@
 # Prioritized
 
+- expose new VertexBuffer and InstanceBuffer structs and api for rendering them
+- make sure inspector values are updated if the simulated world is updated (now it's not)
 - performance profiler window
 
 # Default

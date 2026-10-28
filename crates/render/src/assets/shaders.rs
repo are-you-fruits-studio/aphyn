@@ -22,24 +22,6 @@ mod tests {
         let composer = render_wgsl_composer();
 
         let shaders: &[(&str, &str, &[&str])] = &[
-            ("shader_standard.wgsl", include_str!("./shader_standard.wgsl"), &[]),
-            ("shader_standard.wgsl", include_str!("./shader_standard.wgsl"), &["LIT"]),
-            (
-                "shader_standard.wgsl",
-                include_str!("./shader_standard.wgsl"),
-                &["TRANSPARENT"],
-            ),
-            (
-                "shader_standard.wgsl",
-                include_str!("./shader_standard.wgsl"),
-                &["LIT", "TRANSPARENT"],
-            ),
-            ("shader_standard.wgsl", include_str!("./shader_standard.wgsl"), &["UI"]),
-            (
-                "shader_standard.wgsl",
-                include_str!("./shader_standard.wgsl"),
-                &["UI", "TRANSPARENT"],
-            ),
             (
                 "shader_transparent_final.wgsl",
                 include_str!("./shader_transparent_final.wgsl"),
