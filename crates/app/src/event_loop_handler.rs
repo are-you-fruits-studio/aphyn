@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use aphyn_ecs::{ResourcesHolderMut, Schedule, World, WorldBuilder, WorldDataMut};
-use aphyn_render::CameraComponent;
-use aphyn_render_core::{CurrentRenderingResource, RenderApiResource};
+use aphyn_render_ecs::CameraComponent;
+use aphyn_render::{CurrentRenderingResource, RenderApiResource};
 use aphyn_transform::GlobalTransform;
 use gilrs::Gilrs;
 use winit::{

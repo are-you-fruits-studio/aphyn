@@ -54,10 +54,10 @@ Every engine crate has one, including the `*_macros` crates, except: `aphyn_ui` 
 ## Architecture
 
 ### Crate layering
-- `aphyn` (root `src/lib.rs`) is a pure facade that `pub use`s every engine crate. Games, examples, the editor and `aphyn_draft_check` depend only on `aphyn` and `use aphyn::*`.
+- `aphyn` (root `src/lib.rs`) is a pure facade that `pub use`s every engine crate except the work-in-progress `aphyn_render_core`. Games, examples, the editor and `aphyn_draft_check` depend only on `aphyn` and `use aphyn::*`.
 - `aphyn_ffi` — FFI-safe replacements for std types (`vec`, `string`, `boxed`, `hash_map`, `option`, `closure`, `any`, `type_info`, ...). Engine data crosses a dynamic-library boundary, so types stored in the world must be ABI-stable; prefer these types in components/resources/APIs that may cross that boundary.
 - `aphyn_ecs` — the core: `WorldBuilder` → `World`, components/resources/events (derive macros from `aphyn_ecs_macros`), systems as plain functions whose parameters (`WorldQuery`, `WorldDataMut`, resources, ...) declare data usage so independent systems run in parallel. Systems are inserted per `Schedule` (`Start` or `Update`) and ordered with `order_system(..).before_system(..)` / `order_group(GROUP).before_group(..)`. Each subsystem crate exports a `SYSTEM_GROUP_*` constant for ordering.
-- Subsystem crates (`aphyn_transform`, `aphyn_collision`, `aphyn_render_core` + `aphyn_render` (wgpu), `aphyn_ui`, `aphyn_audio`, `aphyn_asset_storage`, `aphyn_asset_loading`, `aphyn_prefab`) each expose an `add_<x>_module_to(world)` function.
+- Subsystem crates (`aphyn_transform`, `aphyn_collision`, `aphyn_render_core` + `aphyn_render` + `aphyn_render_ecs` (wgpu), `aphyn_ui`, `aphyn_audio`, `aphyn_asset_storage`, `aphyn_asset_loading`, `aphyn_prefab`) each expose an `add_<x>_module_to(world)` function.
 - `aphyn_modules::add_defult_modules_to` (note the existing misspelling — keep it, callers depend on it) registers all subsystem modules, inserts `SerializersResource` pre-filled with common serializers, and fixes the cross-module ordering collision → transform → render.
 - `aphyn_app` owns the winit event loop, window, input, and wgpu surface; `App::new()` / `app.ecs_mut()` / `app.run()`.
 

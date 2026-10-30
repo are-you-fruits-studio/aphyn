@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use aphyn_render_core::{RenderApiResource, StandardShader, WgslComposer, wgsl_include_paths};
+use aphyn_render::{RenderApiResource, StandardShader, WgslComposer, wgsl_include_paths};
 
 pub fn is_shader_asset_key(key: &str) -> bool {
     key.ends_with(".wgsl") && !key.ends_with(".lib.wgsl")

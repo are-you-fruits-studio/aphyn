@@ -1,5 +1,13 @@
-mod gizmo_line;
-mod shaders;
+mod instance;
+mod mesh;
+mod texture;
+mod material;
+mod shader;
+mod global_bindings;
 
-pub use gizmo_line::*;
-pub use shaders::*;
+pub use instance::*;
+pub use mesh::*;
+pub use texture::*;
+pub use material::*;
+pub use shader::*;
+pub use global_bindings::*;

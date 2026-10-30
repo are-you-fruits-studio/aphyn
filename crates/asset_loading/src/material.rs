@@ -1,6 +1,6 @@
 use aphyn_asset_storage::AssetStorageResource;
 use aphyn_ecs::{ResourcesHolderMut, ResourcesHolderRef};
-use aphyn_render_core::{RenderApiResource, StandardMaterial, StandardMaterialAssetMetadata};
+use aphyn_render::{RenderApiResource, StandardMaterial, StandardMaterialAssetMetadata};
 use aphyn_serialization::{SerializedValue, SerializerCtx, SerializerCtxState};
 
 pub struct MaterialHandleLoader<'a> {

@@ -1,6 +1,6 @@
 use aphyn_ecs::Resource;
 use aphyn_math::{Mat4, Vec2, Vec3, Vec4};
-use aphyn_render_core::{RenderSpace, StandardGlobalBindings, StandardInstanceBuffer, StandardTexture};
+use aphyn_render::{RenderSpace, StandardGlobalBindings, StandardInstanceBuffer, StandardTexture};
 use aphyn_ffi::*;
 use aphyn_utils::mem::AllBitsInit;
 use wgpu::{BindGroup, BindGroupLayout, Buffer, RenderPipeline, Sampler, Texture, TextureView};

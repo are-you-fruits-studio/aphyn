@@ -4,7 +4,7 @@ use aphyn_asset_storage::{AssetHandle, AssetStorageResource};
 use aphyn_audio::{AudioClip, AudioStateResource};
 use aphyn_ecs::ResourcesHolderMut;
 use aphyn_prefab::{Prefab, Scene};
-use aphyn_render_core::{RenderApiResource, StandardMaterial, StandardMesh, StandardShader, StandardTexture, StandardTextureAssetMetadata};
+use aphyn_render::{RenderApiResource, StandardMaterial, StandardMesh, StandardShader, StandardTexture, StandardTextureAssetMetadata};
 use aphyn_serialization::*;
 
 use crate::{AudioClipLoader, EntityIdDecoder, EntityIdEncoder, EntityTransSerializer, MaterialLoader, MeshLoader, PrefabLoader, SceneLoader, ShaderLoader, TextureLoader};

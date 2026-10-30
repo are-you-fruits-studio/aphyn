@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use aphyn_asset_storage::AssetHandle;
 use aphyn_math::Vec2;
-use aphyn_render_core::StandardTexture;
+use aphyn_render::StandardTexture;
 
 // todo: ffi?
 pub struct Font {

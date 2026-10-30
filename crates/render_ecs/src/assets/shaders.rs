@@ -1,4 +1,4 @@
-use aphyn_render_core::WgslComposer;
+use aphyn_render::WgslComposer;
 use wgpu::{Device, ShaderModule};
 
 pub fn render_wgsl_composer() -> WgslComposer {

@@ -9,7 +9,7 @@ crate-type = ["lib"]
 [dependencies]
 aphyn_ecs = { path = "../ecs" }
 aphyn_asset_storage = { path = "../asset_storage" }
-aphyn_render_core = { path = "../render_core" }
+aphyn_render = { path = "../render" }
 aphyn_ui = { path = "../ui" }
 aphyn_audio = { path = "../audio" }
 aphyn_serialization = { path = "../serialization" }

@@ -10,10 +10,10 @@ crate-type = ["lib"]
 aphyn_ecs = { path = "../ecs" }
 aphyn_asset_storage = { path = "../asset_storage" }
 aphyn_math = { path = "../math" }
-aphyn_render_core = { path = "../render_core" }
+aphyn_render = { path = "../render" }
 aphyn_window = { path = "../window" }
 aphyn_ffi = { path = "../ffi" }
 aphyn_transform = { path = "../transform" }
-aphyn_render = { path = "../render" }
+aphyn_render_ecs = { path = "../render_ecs" }
 aphyn_serialization = { path = "../serialization" }
 image = "0.25"

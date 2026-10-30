@@ -2,7 +2,7 @@ use aphyn_asset_storage::AssetHandle;
 use aphyn_ecs::Component;
 use aphyn_ffi::FfiVec;
 use aphyn_math::Vec3;
-use aphyn_render_core::{Camera, StandardMaterial, StandardMesh, StandardVertex};
+use aphyn_render::{Camera, StandardMaterial, StandardMesh, StandardVertex};
 use aphyn_serialization::*;
 
 #[repr(C)]

@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use aphyn_asset_storage::{AssetHandle, AssetStorageResource};
 use aphyn_ecs::*;
 use aphyn_math::*;
-use aphyn_render::BatchedMeshComponent;
-use aphyn_render_core::*;
+use aphyn_render_ecs::BatchedMeshComponent;
+use aphyn_render::*;
 
 use aphyn_transform::*;
 use aphyn_window::WindowResource;

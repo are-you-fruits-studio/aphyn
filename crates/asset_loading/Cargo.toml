@@ -13,8 +13,8 @@ aphyn_math = { path = "../math" }
 aphyn_ffi = { path = "../ffi" }
 aphyn_transform = { path = "../transform" }
 aphyn_wavefront = { path = "../wavefront" }
-aphyn_render_core = { path = "../render_core" }
 aphyn_render = { path = "../render" }
+aphyn_render_ecs = { path = "../render_ecs" }
 aphyn_asset_storage = { path = "../asset_storage" }
 aphyn_audio = { path = "../audio" }
 aphyn_prefab = { path = "../prefab" }

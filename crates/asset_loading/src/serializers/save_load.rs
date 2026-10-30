@@ -3,7 +3,7 @@ use aphyn_audio::{AudioClip, AudioClipAssetMetadata};
 use aphyn_ecs::ResourcesHolderRef;
 use aphyn_ffi::FfiString;
 use aphyn_prefab::{Prefab, Scene};
-use aphyn_render_core::{CoordinateSpaceType, StandardMaterial, StandardMesh, StandardMeshAssetMetadata, StandardShader, StandardTexture};
+use aphyn_render::{CoordinateSpaceType, StandardMaterial, StandardMesh, StandardMeshAssetMetadata, StandardShader, StandardTexture};
 use aphyn_serialization::*;
 
 use crate::{EntityIdDecoder, EntityIdEncoder, EntityTransSerializer, serialize_entities_no_deps};

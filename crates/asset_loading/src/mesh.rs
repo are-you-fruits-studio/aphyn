@@ -3,7 +3,7 @@ use std::path::Path;
 use aphyn_asset_storage::AssetStorageResource;
 use aphyn_ecs::{ResourcesHolderMut, ResourcesHolderRef};
 use aphyn_math::{Vec2, Vec3, Vec4};
-use aphyn_render_core::{CoordinateSpaceType, RenderApiResource, StandardMesh, StandardMeshAssetMetadata, StandardVertex};
+use aphyn_render::{CoordinateSpaceType, RenderApiResource, StandardMesh, StandardMeshAssetMetadata, StandardVertex};
 use aphyn_serialization::*;
 
 use crate::AssetLoader;

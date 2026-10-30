@@ -16,7 +16,7 @@
 //!
 //! **Shaders** are the exception: a shader asset is a `.wgsl` file itself, keyed by its own path
 //! (`"shaders/water.wgsl"`), with no `.asset` file. It may use `#include` and `#ifdef`-style
-//! directives (see `WgslComposer` in `aphyn_render_core`). An include path is either an engine
+//! directives (see `WgslComposer` in `aphyn_render`). An include path is either an engine
 //! part (`aphyn/standard_bindings.wgsl`, ...) or an `assets/`-relative file. Files ending in
 //! `.lib.wgsl` are include-only parts and never become shader assets on their own. Custom shaders
 //! are drawn in the opaque pass with the standard vertex/instance streams and bind groups.
@@ -237,7 +237,7 @@ use std::{ffi::OsStr, path::{Path, PathBuf}};
 use aphyn_asset_storage::{AssetHandle, AssetStorageResource};
 use aphyn_audio::AudioClip;
 use aphyn_prefab::{Prefab, Scene};
-use aphyn_render_core::{StandardMaterial, StandardMesh, StandardShader, StandardTexture};
+use aphyn_render::{StandardMaterial, StandardMesh, StandardShader, StandardTexture};
 use aphyn_serialization::{SerializedPrimitive, SerializedValue, SerializerCtx};
 pub use material::*;
 pub use mesh::*;

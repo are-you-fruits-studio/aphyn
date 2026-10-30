@@ -67,7 +67,7 @@
 //! then constrains the [`Update`](aphyn_ecs::Schedule::Update) schedule so the
 //! [`SYSTEM_GROUP_COLLISION`](aphyn_collision::SYSTEM_GROUP_COLLISION) group runs before
 //! [`SYSTEM_GROUP_TRANSFORM`](aphyn_transform::SYSTEM_GROUP_TRANSFORM), which runs before
-//! [`SYSTEM_GROUP_RENDER`](aphyn_render::SYSTEM_GROUP_RENDER): colliders settle, transforms
+//! [`SYSTEM_GROUP_RENDER`](aphyn_render_ecs::SYSTEM_GROUP_RENDER): colliders settle, transforms
 //! propagate, the frame renders. The name carries an upstream misspelling (`defult`);
 //! callers must match it exactly.
 //!
@@ -106,8 +106,8 @@ use aphyn_collision::{CollisionAabb, CollisionBox, CollisionLine, CollisionShape
 use aphyn_ecs::{Component, Schedule, WorldBuilderMut};
 use aphyn_ffi::{FfiOption, FfiSmallString, FfiString, FfiVec};
 use aphyn_math::{Mat, Mat3, Quat, Vec2, Vec3, Vec4};
-use aphyn_render::{BatchedMeshComponent, CameraComponent, StandardLightComponent, StandardMaterialComponent, StandardMeshComponent, StandardRenderComponent};
-use aphyn_render_core::{
+use aphyn_render_ecs::{BatchedMeshComponent, CameraComponent, StandardLightComponent, StandardMaterialComponent, StandardMeshComponent, StandardRenderComponent};
+use aphyn_render::{
     Camera, CameraProjection, CoordinateSpaceType, RenderSpace, StandardEngineShader, StandardMaterialAssetMetadata, StandardMaterialShader, StandardMeshAssetMetadata, StandardTextureAssetMetadata,
     StandardTextureFormat, StandardVertex,
 };
@@ -124,7 +124,7 @@ pub fn add_defult_modules_to(mut world: WorldBuilderMut) {
     aphyn_collision::add_collision_module_to(world.as_mut());
     aphyn_transform::add_transform_module_to(world.as_mut());
     aphyn_ui::add_ui_module_to(world.as_mut());
-    aphyn_render::add_render_module_to(world.as_mut());
+    aphyn_render_ecs::add_render_module_to(world.as_mut());
     aphyn_audio::add_audio_module_to(world.as_mut());
     aphyn_asset_loading::add_asset_module_to(world.as_mut());
 
@@ -139,7 +139,7 @@ pub fn add_defult_modules_to(mut world: WorldBuilderMut) {
         .get_mut(Schedule::Update)
         .order_group(aphyn_collision::SYSTEM_GROUP_COLLISION)
         .before_group(aphyn_transform::SYSTEM_GROUP_TRANSFORM)
-        .before_group(aphyn_render::SYSTEM_GROUP_RENDER);
+        .before_group(aphyn_render_ecs::SYSTEM_GROUP_RENDER);
 }
 
 pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry) {

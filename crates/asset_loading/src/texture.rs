@@ -2,7 +2,7 @@ use std::path::Path;
 
 use aphyn_asset_storage::AssetStorageResource;
 use aphyn_ecs::{ResourcesHolderMut, ResourcesHolderRef};
-use aphyn_render_core::{FilterMode, RenderApiResource, StandardTexture, StandardTextureAssetMetadata};
+use aphyn_render::{FilterMode, RenderApiResource, StandardTexture, StandardTextureAssetMetadata};
 
 use aphyn_serialization::{PureSerializerCtxState, SerializedValue, SerializerCtx, SerializerCtxState};
 use image::EncodableLayout;

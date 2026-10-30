@@ -7,15 +7,8 @@ edition = "2024"
 crate-type = ["lib"]
 
 [dependencies]
-aphyn_ecs = { path = "../ecs" }
 aphyn_ffi = { path = "../ffi" }
 aphyn_utils = { path = "../utils" }
-aphyn_serialization = { path = "../serialization" }
-aphyn_math = { path = "../math" }
-aphyn_asset_storage = { path = "../asset_storage" }
 wgpu = "27"
-winit = "0.30"
 pollster = "0.4"
-
-[dev-dependencies]
 naga = { version = "27", features = ["wgsl-in"] }

@@ -22,10 +22,11 @@ members = [
     "crates/asset_storage",
     "crates/wavefront",
     "crates/control_flow_macros",
-    "crates/render",
+    "crates/render_ecs",
     "crates/transform",
     "crates/collision",
     "crates/asset_storage",
+    "crates/render",
     "crates/render_core",
     "crates/prefab",
     "crates/serialization_macros",
@@ -72,8 +73,8 @@ aphyn_asset_storage = { path = "./crates/asset_storage" }
 aphyn_ffi = { path = "./crates/ffi" }
 aphyn_control_flow_macros = { path = "./crates/control_flow_macros" }
 aphyn_transform = { path = "./crates/transform" }
+aphyn_render_ecs = { path = "./crates/render_ecs" }
 aphyn_render = { path = "./crates/render" }
-aphyn_render_core = { path = "./crates/render_core" }
 aphyn_collision = { path = "./crates/collision" }
 aphyn_prefab = { path = "./crates/prefab" }
 aphyn_ui = { path = "./crates/ui" }

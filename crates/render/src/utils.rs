@@ -1,55 +1,183 @@
-use aphyn_asset_storage::AssetStorageResource;
-use aphyn_math::Mat4;
-use aphyn_math::Vec3;
-use aphyn_render_core::StandardLight;
-use aphyn_render_core::StandardMaterialShader;
-use aphyn_render_core::StandardShader;
-use aphyn_transform::GlobalTransform;
+use aphyn_utils::{mem::AllBitsInit, stack_vec::StackVec};
+use crate::RenderState;
+use wgpu::*;
 
-use crate::StandardLightComponent;
-use crate::StandardMaterial;
+const MAX_ENTRIES: usize = 16;
 
-pub const GIZMO_LINES_PER_DRAW_MAX: usize = 1024 * 16;
-pub const INSTANCES_PER_DRAW_MAX: usize = 1024 * 8;
-pub const TRIANGLES_PER_BATCHED_DRAW_MAX: usize = 1024 * 32;
-
-pub fn create_window_to_clip_matrix(width: f32, height: f32, near: f32, far: f32) -> Mat4<f32> {
-    let z_near_to_far_inv = 1.0 / (far - near);
-
-    // todo: make window space bottom-to-top (not inverted like it is right now compared to the clip and world space)
-
-    Mat4::from_array([
-        [2.0 / width, 0.0, 0.0, 0.0],
-        [0.0, -2.0 / height, 0.0, 0.0],
-        [0.0, 0.0, z_near_to_far_inv, 0.0],
-        [-1.0, 1.0, -near * z_near_to_far_inv, 1.0],
-    ])
+pub enum CreateBindGroupLayoutEntry {
+    BufferUniform,
+    BufferStorage,
+    BufferStorageMut,
+    Texture,
+    SamplerFiltering,
+    SamplerNonFiltering,
 }
 
-pub(crate) fn custom_shader<'a>(material: &StandardMaterial, shaders: &'a AssetStorageResource<StandardShader>) -> Option<&'a StandardShader> {
-    match &material.meta().shader {
-        StandardMaterialShader::Engine(_) => None,
-        StandardMaterialShader::Custom(shader) => shaders.get(shader),
+pub enum CreateBindGroupEntry<'a> {
+    Buffer(&'a Buffer),
+    Texture(&'a TextureView),
+    Sampler(&'a Sampler),
+}
+
+pub fn create_bind_group_layout(
+    device: &Device,
+    label: Option<&str>,
+    entries: &[CreateBindGroupLayoutEntry],
+) -> BindGroupLayout {
+    fn create_biniding_type_buffer(ty: BufferBindingType) -> BindingType {
+        BindingType::Buffer {
+            ty,
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        }
     }
+
+    if entries.len() > MAX_ENTRIES {
+        panic!("too many entries in a bind group. {} > {}", entries.len(), MAX_ENTRIES);
+    }
+
+    let mut descriptor_entries = StackVec::<BindGroupLayoutEntry, MAX_ENTRIES>::new();
+
+    for (binding, entry) in entries.iter().enumerate() {
+        descriptor_entries.push(BindGroupLayoutEntry {
+            binding: binding as u32,
+            count: None,
+            visibility: ShaderStages::VERTEX_FRAGMENT,
+            ty: match entry {
+                CreateBindGroupLayoutEntry::BufferUniform => create_biniding_type_buffer(BufferBindingType::Uniform),
+                CreateBindGroupLayoutEntry::BufferStorage => create_biniding_type_buffer(BufferBindingType::Storage { read_only: true }),
+                CreateBindGroupLayoutEntry::BufferStorageMut => create_biniding_type_buffer(BufferBindingType::Storage { read_only: false }),
+                CreateBindGroupLayoutEntry::Texture => BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                CreateBindGroupLayoutEntry::SamplerFiltering => BindingType::Sampler(SamplerBindingType::Filtering),
+                CreateBindGroupLayoutEntry::SamplerNonFiltering => BindingType::Sampler(SamplerBindingType::NonFiltering),
+            },
+        }).unwrap();
+    }
+
+    device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+        label,
+        entries: &descriptor_entries,
+    })
 }
 
-pub fn light_from_components(light: &StandardLightComponent, transform: &GlobalTransform) -> StandardLight {
-    match light {
-        StandardLightComponent::Point { color, range } => StandardLight::Point {
-            color: *color,
-            range: *range,
-            center: transform.position,
+pub fn create_bind_group(
+    device: &Device,
+    label: Option<&str>,
+    layout: &BindGroupLayout,
+    entries: &[CreateBindGroupEntry],
+) -> BindGroup {
+    if entries.len() > MAX_ENTRIES {
+        panic!("too many entries in a bind group. {} > {}", entries.len(), MAX_ENTRIES);
+    }
+
+    let mut descriptor_entries = StackVec::<BindGroupEntry, MAX_ENTRIES>::new();
+
+    for (binding, entry) in entries.iter().enumerate() {
+        descriptor_entries.push(BindGroupEntry {
+            binding: binding as u32,
+            resource: match entry {
+                CreateBindGroupEntry::Buffer(buffer) => buffer.as_entire_binding(),
+                CreateBindGroupEntry::Texture(texture) => BindingResource::TextureView(texture),
+                CreateBindGroupEntry::Sampler(sampler) => BindingResource::Sampler(sampler),
+            },
+        }).unwrap();
+    }
+
+    device.create_bind_group(&BindGroupDescriptor {
+        label,
+        layout,
+        entries: &descriptor_entries,
+    })
+}
+
+pub fn create_render_pipeline(
+    device: &Device,
+    label: Option<&str>,
+    layout: &PipelineLayout,
+    shader: &ShaderModule,
+    vertex_buffers: &[VertexBufferLayout],
+    color_target_state: ColorTargetState,
+    depth_stencil: Option<DepthStencilState>,
+    topology: PrimitiveTopology,
+    cull_mode: Option<Face>,
+) -> RenderPipeline {
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label,
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_main"),
+            buffers: vertex_buffers,
+            compilation_options: Default::default(),
         },
-        StandardLightComponent::Spot { color, range, fov } => StandardLight::Spot {
-            color: *color,
-            range: *range,
-            fov: *fov,
-            center: transform.position,
-            direction_dst: (transform.scale_rotation * Vec3::new(0.0, -1.0, 0.0)).normalized(),
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_main"),
+            targets: &[Some(color_target_state)],
+            compilation_options: Default::default(),
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology,
+            strip_index_format: None,
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode,
+            polygon_mode: wgpu::PolygonMode::Fill,
+            unclipped_depth: false,
+            conservative: false,
         },
-        StandardLightComponent::Directional { color } => StandardLight::Directional {
-            color: *color,
-            direction_dst: (transform.scale_rotation * Vec3::new(0.0, -1.0, 0.0)).normalized(),
+        depth_stencil,
+        multisample: wgpu::MultisampleState {
+            count: 1,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
         },
+        multiview: None,
+        cache: None,
+    })
+}
+pub fn clear_color_target(render_state: &RenderState, view: &TextureView, color: [f64; 4]) {
+    let mut encoder = render_state.device().create_command_encoder(&CommandEncoderDescriptor {
+        label: Some("Clear Color Target Encoder"),
+    });
+
+    {
+        let [r, g, b, a] = color;
+
+        let mut _render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("Clear Color Target Pass"),
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: Operations {
+                    load: LoadOp::Clear(Color { r, g, b, a }),
+                    store: StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            ..Default::default()
+        });
+    }
+
+    render_state.queue().submit(std::iter::once(encoder.finish()));
+}
+
+pub fn write_buffer_elements_with<T: AllBitsInit>(queue: &Queue, buffer: &Buffer, start: u64, count: u64, mut f: impl FnMut(u64) -> T) {
+    let element_size = size_of::<T>() as u64;
+
+    let Some(size) = BufferSize::new(count * element_size) else {
+        return;
+    };
+    let Some(mut view) = queue.write_buffer_with(buffer, start * element_size, size) else {
+        return;
+    };
+
+    // byte copies: the staging view has no alignment guarantee for T
+    for (i, chunk) in view.chunks_exact_mut(element_size as usize).enumerate() {
+        chunk.copy_from_slice(aphyn_utils::mem::as_bytes(&f(i as u64)));
     }
 }

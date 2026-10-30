@@ -5,7 +5,7 @@ use aphyn_audio::AudioClip;
 use aphyn_ecs::*;
 use aphyn_ffi::{FfiIndexMap, FfiString};
 use aphyn_prefab::{Prefab, Scene, SerializedEntities, deserialize_component, deserialize_entity_components, serialize_components};
-use aphyn_render_core::{StandardMaterial, StandardMesh, StandardShader, StandardTexture};
+use aphyn_render::{StandardMaterial, StandardMesh, StandardShader, StandardTexture};
 use aphyn_serialization::*;
 use aphyn_ui::Font;
 

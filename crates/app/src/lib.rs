@@ -159,7 +159,7 @@
 //! #### Rendering
 //!
 //! The handler owns the frame's color target outside the world: an `Rgba16Float` texture
-//! (`RENDER_TARGET_FORMAT` from `aphyn_render_core`) the size of the surface, rebuilt whenever the
+//! (`RENDER_TARGET_FORMAT` from `aphyn_render`) the size of the surface, rebuilt whenever the
 //! `RenderApiResource` size changes, plus the pipeline that copies it onto the surface
 //! (`assets/copy_texture.wgsl`, nearest sampling, `REPLACE` blend). Each frame the render
 //! core system clears the target, takes the first entity with a `GlobalTransform` and a

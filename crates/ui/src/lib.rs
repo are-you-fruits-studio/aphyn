@@ -1,6 +1,6 @@
 use aphyn_asset_storage::AssetStorageResource;
 use aphyn_ecs::{Schedule, WorldBuilderMut};
-use aphyn_render::SYSTEM_GROUP_RENDER;
+use aphyn_render_ecs::SYSTEM_GROUP_RENDER;
 use aphyn_transform::SYSTEM_GROUP_TRANSFORM;
 
 mod assets;

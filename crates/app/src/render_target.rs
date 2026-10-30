@@ -1,4 +1,4 @@
-use aphyn_render_core::{
+use aphyn_render::{
     CreateBindGroupEntry, CreateBindGroupLayoutEntry, RenderState, StandardTexture, StandardTextureAssetMetadata, StandardTextureFormat,
     WgslComposer, clear_color_target, create_bind_group, create_bind_group_layout, create_render_pipeline,
 };

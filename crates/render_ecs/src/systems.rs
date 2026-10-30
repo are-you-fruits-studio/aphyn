@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use aphyn_asset_storage::AssetHandle;
 use aphyn_ecs::*;
 use aphyn_math::*;
-use aphyn_render_core::*;
+use aphyn_render::*;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt}, *,
 };
@@ -22,7 +22,7 @@ use super::{
 pub fn create_standard_render_resource(mut world: WorldDataMut) {
     let render_state = unsafe { world.as_ref().resources().get::<RenderApiResource>().unwrap().raw() };
 
-    let bind_group_layout_transparent_final = aphyn_render_core::create_bind_group_layout(
+    let bind_group_layout_transparent_final = aphyn_render::create_bind_group_layout(
         render_state.device(),
         Some("Transparent Target Bind Group Layout"),
         &[
@@ -240,7 +240,7 @@ pub fn recreate_exposure_render_resource(mut world: WorldDataMut) {
         ..Default::default()
     });
 
-    let bind_group_layout = aphyn_render_core::create_bind_group_layout(
+    let bind_group_layout = aphyn_render::create_bind_group_layout(
         render_state.device(),
         Some("Exposure Bind Group Layout"),
         &[
@@ -420,7 +420,7 @@ pub fn recreate_bloom_render_resource(mut world: WorldDataMut) {
         ..Default::default()
     });
 
-    let bind_group_layout_gather = aphyn_render_core::create_bind_group_layout(
+    let bind_group_layout_gather = aphyn_render::create_bind_group_layout(
         render_state.device(),
         Some("Bloom Gather Bind Group Layout"),
         &[
@@ -443,7 +443,7 @@ pub fn recreate_bloom_render_resource(mut world: WorldDataMut) {
         ],
     );
 
-    let bind_group_layout_blur = aphyn_render_core::create_bind_group_layout(
+    let bind_group_layout_blur = aphyn_render::create_bind_group_layout(
         render_state.device(),
         Some("Bloom Blur Bind Group Layout"),
         &[
@@ -490,7 +490,7 @@ pub fn recreate_bloom_render_resource(mut world: WorldDataMut) {
         ],
     );
 
-    let bind_group_layout_downscale = aphyn_render_core::create_bind_group_layout(
+    let bind_group_layout_downscale = aphyn_render::create_bind_group_layout(
         render_state.device(),
         Some("Bloom Downscale Bind Group Layout"),
         &[
@@ -525,7 +525,7 @@ pub fn recreate_bloom_render_resource(mut world: WorldDataMut) {
         ],
     );
 
-    let bind_group_layout_apply = aphyn_render_core::create_bind_group_layout(
+    let bind_group_layout_apply = aphyn_render::create_bind_group_layout(
         render_state.device(),
         Some("Bloom Apply Bind Group Layout"),
         &[
@@ -767,7 +767,7 @@ pub fn recreate_color_grading_render_resource(mut world: WorldDataMut) {
         ..Default::default()
     });
 
-    let bind_group_layout = aphyn_render_core::create_bind_group_layout(
+    let bind_group_layout = aphyn_render::create_bind_group_layout(
         render_state.device(),
         Some("Color Grading Bind Group Layout"),
         &[
@@ -855,7 +855,7 @@ pub fn create_gizmos_render_resource(mut world: WorldDataMut) {
         contents: aphyn_utils::mem::as_bytes(Mat4::<f32>::IDENTITY.as_array()),
     });
 
-    let bind_group_layout = aphyn_render_core::create_bind_group_layout(
+    let bind_group_layout = aphyn_render::create_bind_group_layout(
         render_state.device(),
         Some("Gizmos Bind Group Layout"),
         &[

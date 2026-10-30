@@ -14,8 +14,8 @@ winit = "0.30"
 wgpu = "27"
 gilrs = "0.11.0"
 aphyn_ecs = { path = "../ecs" }
-aphyn_render_core = { path = "../render_core" }
 aphyn_render = { path = "../render" }
+aphyn_render_ecs = { path = "../render_ecs" }
 aphyn_transform = { path = "../transform" }
 aphyn_ffi = { path = "../ffi" }
 aphyn_window = { path = "../window" }

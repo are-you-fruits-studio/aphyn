@@ -10,7 +10,7 @@ crate-type = ["lib"]
 aphyn_ecs = { path = "../ecs" }
 aphyn_ffi = { path = "../ffi" }
 aphyn_math = { path = "../math" }
-aphyn_render_core = { path = "../render_core" }
+aphyn_render = { path = "../render" }
 aphyn_window = { path = "../window" }
 aphyn_serialization = { path = "../serialization" }
 serde = { version = "1", features = ["derive"] }
