@@ -54,6 +54,8 @@ These change the shape of the whole API, so do them first. None of them is decid
 
 ### 2. Decide how `RenderApiNew` is shared
 
+**Done.** All `RenderApiNew` methods and the buffer and texture writes take `&`. One `Mutex` guards resources and caches, because wgpu's error scope stack is per device; a second guards the surface from acquire to present. `writer` closures run with no lock held. See "Locking" in the crate docs.
+
 **Problem.** Every `RenderApiNew` method takes `&mut self`. The engine shares the renderer: `RenderApiResource` is `Send + Sync`, all of its methods take `&self`, systems take `Res<RenderApiResource>` and can run in parallel, and `aphyn_asset_loading` holds `&RenderApiResource` while loading.
 
 **Recommendation.** Switch `RenderApiNew` to `&self` with interior locking around `RenderApiResources` and `RenderApiCache`, so that parallel systems and all existing call sites keep working. Do not hold a lock while calling the user's `writer` closure in the `write_*_buffer_with` methods if that closure can call back into the API (the `*_with` writers in `aphyn_render` run user callbacks).

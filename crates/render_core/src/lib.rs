@@ -13,7 +13,7 @@
 //! and display handles, such as `Arc<winit::window::Window>`:
 //!
 //! ```ignore
-//! let mut api = RenderApiNew::new(window, [1280, 720]).unwrap();
+//! let api = RenderApiNew::new(window, [1280, 720]).unwrap();
 //!
 //! let shader = api.create_shader(wgsl, GpuShaderDesc::default()).unwrap();
 //! let target = api.create_texture([256, 256], GpuTextureFormat::Rgba8UnormSrgb, 1);
@@ -37,6 +37,10 @@
 //! ```
 //!
 //! Failed operations return `None` or `false`, and shader and validation errors are printed.
+//!
+//! All [`RenderApiNew`] methods and buffer writes take shared references, and the API is
+//! `Send + Sync`, so it can be used from several threads. Draws run one at a time. The `writer` closure
+//! of a `write_*_buffer_with` method runs without any lock held, so it may call back into the API.
 //!
 //! [`RenderApiNew::draw_to_surface`] draws into the window and presents the frame, so it is one draw
 //! per frame. Its pass must have no `target`, and the load operation is passed separately. It returns
@@ -68,6 +72,15 @@
 //! value in `RenderApiCache`. Resources cannot be destroyed yet, so cached entries are never evicted.
 //! Pipelines are keyed by the shader, the target formats, and the vertex buffer layouts of the pass,
 //! so one shader can be drawn with differently laid out buffers.
+//!
+//! #### Locking
+//!
+//! One `Mutex` guards `RenderApiResources` and `RenderApiCache`. wgpu keeps a single error scope stack
+//! per device, not per thread, so this lock must be held from `push_error_scope` to `pop_error_scope`,
+//! or errors get reported to the wrong operation. That covers `create_shader`, pipeline creation, and
+//! all of `encode_pass`. A second `Mutex` guards the surface and is held from acquire to present, so
+//! waiting for a frame does not block other threads from creating resources, and a resize cannot
+//! reconfigure the surface while a frame is acquired. Always lock the surface first, then the state.
 //!
 //! #### Surface
 //!

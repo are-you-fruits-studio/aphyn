@@ -4,7 +4,7 @@
 // todo: use Results instead of Option / bool
 // todo: destroy resources (and evict cached bind groups, pipelines)
 
-use std::{borrow::Borrow, collections::HashMap, hash::Hash, num::NonZeroU64, ops::Range};
+use std::{borrow::Borrow, collections::HashMap, hash::Hash, num::NonZeroU64, ops::Range, sync::Mutex};
 
 use aphyn_utils::index_version_collection::{VersionCollection, VersionIndex};
 use wgpu::{
@@ -190,6 +190,12 @@ struct RenderApiCache {
     bind_groups: HashMap<BindGroupEntries, wgpu::BindGroup>,
     pipeline_layouts: HashMap<Vec<BindGroupLayoutEntries>, wgpu::PipelineLayout>,
     pipelines: HashMap<PipelineKey, wgpu::RenderPipeline>,
+}
+
+#[derive(Default)]
+struct RenderApiState {
+    cache: RenderApiCache,
+    resources: RenderApiResources,
 }
 
 impl RenderApiCache {
@@ -599,9 +605,10 @@ fn request_device(adapter: &wgpu::Adapter) -> Option<(wgpu::Device, wgpu::Queue)
 pub struct RenderApiNew {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    surface: Option<RenderSurface>,
-    cache: RenderApiCache,
-    resources: RenderApiResources,
+    // lock order: surface, then state
+    surface: Option<Mutex<RenderSurface>>,
+    // error scopes are one stack per device, so a scope must only be open while this is locked
+    state: Mutex<RenderApiState>,
 }
 
 impl RenderApiNew {
@@ -646,9 +653,8 @@ impl RenderApiNew {
         Some(Self {
             device,
             queue,
-            surface: Some(RenderSurface { surface, config, size }),
-            cache: Default::default(),
-            resources: Default::default(),
+            surface: Some(Mutex::new(RenderSurface { surface, config, size })),
+            state: Default::default(),
         })
     }
 
@@ -661,23 +667,24 @@ impl RenderApiNew {
             device,
             queue,
             surface: None,
-            cache: Default::default(),
-            resources: Default::default(),
+            state: Default::default(),
         })
     }
 
     pub fn surface_size(&self) -> [usize; 2] {
-        self.surface.as_ref().map_or([0, 0], |surface| surface.size)
+        self.surface.as_ref().map_or([0, 0], |surface| surface.lock().unwrap().size)
     }
 
-    pub fn resize_surface(&mut self, size: [usize; 2]) {
+    pub fn resize_surface(&self, size: [usize; 2]) {
         if size[0] == 0 || size[1] == 0 {
             return;
         }
 
-        let Some(surface) = &mut self.surface else {
+        let Some(surface) = &self.surface else {
             return;
         };
+
+        let mut surface = surface.lock().unwrap();
 
         surface.size = size;
         surface.config.width = size[0] as u32;
@@ -686,13 +693,13 @@ impl RenderApiNew {
         surface.surface.configure(&self.device, &surface.config);
     }
 
-    pub fn create_vertex_buffer(&mut self, len: usize, layout: GpuVertexBufferLayout) -> GpuVertexBuffer {
+    pub fn create_vertex_buffer(&self, len: usize, layout: GpuVertexBufferLayout) -> GpuVertexBuffer {
         let id = self.create_buffer_resource("aphyn vertex buffer", len * layout.total_size(), wgpu::BufferUsages::VERTEX);
 
         GpuVertexBuffer { id, layout, len }
     }
 
-    pub fn create_uniform_storage_buffer(&mut self, size: usize) -> GpuUniformStorageBuffer {
+    pub fn create_uniform_storage_buffer(&self, size: usize) -> GpuUniformStorageBuffer {
         let id = self.create_buffer_resource(
             "aphyn uniform storage buffer",
             size,
@@ -702,13 +709,13 @@ impl RenderApiNew {
         GpuUniformStorageBuffer { id, size }
     }
 
-    pub fn create_index_buffer(&mut self, len: usize, format: GpuIndexFormat) -> GpuIndexBuffer {
+    pub fn create_index_buffer(&self, len: usize, format: GpuIndexFormat) -> GpuIndexBuffer {
         let id = self.create_buffer_resource("aphyn index buffer", len * format.gpu_size(), wgpu::BufferUsages::INDEX);
 
         GpuIndexBuffer { id, format, len }
     }
 
-    fn create_buffer_resource(&mut self, label: &str, size: usize, usage: wgpu::BufferUsages) -> VersionIndex {
+    fn create_buffer_resource(&self, label: &str, size: usize, usage: wgpu::BufferUsages) -> VersionIndex {
         let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(label),
             size: size as u64,
@@ -716,10 +723,10 @@ impl RenderApiNew {
             mapped_at_creation: false,
         });
 
-        self.resources.buffers.insert(BufferResource { buffer })
+        self.state.lock().unwrap().resources.buffers.insert(BufferResource { buffer })
     }
 
-    pub fn create_texture(&mut self, mut size: [usize; 2], format: GpuTextureFormat, mip_level_count: usize) -> GpuTexture {
+    pub fn create_texture(&self, mut size: [usize; 2], format: GpuTextureFormat, mip_level_count: usize) -> GpuTexture {
         size = size.map(|x| x.max(1));
         let mip_level_count = mip_level_count.max(1);
 
@@ -755,20 +762,20 @@ impl RenderApiNew {
             mip_level_count,
         };
 
-        let id = self.resources.textures.insert(texture_resource);
+        let id = self.state.lock().unwrap().resources.textures.insert(texture_resource);
 
         GpuTexture { id, format, size }
     }
 
-    pub fn create_sampler(&mut self, filter: GpuFilterMode) -> GpuSampler {
+    pub fn create_sampler(&self, filter: GpuFilterMode) -> GpuSampler {
         self.create_sampler_inner(filter, None)
     }
 
-    pub fn create_comparison_sampler(&mut self, filter: GpuFilterMode, compare: GpuCompareFunction) -> GpuSampler {
+    pub fn create_comparison_sampler(&self, filter: GpuFilterMode, compare: GpuCompareFunction) -> GpuSampler {
         self.create_sampler_inner(filter, Some(compare))
     }
 
-    fn create_sampler_inner(&mut self, filter: GpuFilterMode, compare: Option<GpuCompareFunction>) -> GpuSampler {
+    fn create_sampler_inner(&self, filter: GpuFilterMode, compare: Option<GpuCompareFunction>) -> GpuSampler {
         let wgpu_filter = filter.to_wgpu();
 
         let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
@@ -783,7 +790,7 @@ impl RenderApiNew {
             ..Default::default()
         });
 
-        let id = self.resources.samplers.insert(SamplerResource {
+        let id = self.state.lock().unwrap().resources.samplers.insert(SamplerResource {
             sampler,
             comparison: compare.is_some(),
         });
@@ -791,10 +798,12 @@ impl RenderApiNew {
         GpuSampler { id }
     }
 
-    pub fn create_shader(&mut self, wgsl: &str, desc: GpuShaderDesc) -> Option<GpuShader> {
+    pub fn create_shader(&self, wgsl: &str, desc: GpuShaderDesc) -> Option<GpuShader> {
         let parsed_module = parse_shader(wgsl)?;
         let bind_group_layouts = reflect_bind_group_layouts(&parsed_module)?;
         let vertex_attributes = reflect_vertex_attributes(&parsed_module)?;
+
+        let mut state = self.state.lock().unwrap();
 
         self.device.push_error_scope(wgpu::ErrorFilter::Validation);
 
@@ -808,7 +817,7 @@ impl RenderApiNew {
             return None;
         }
 
-        let id = self.resources.shaders.insert(ShaderResource {
+        let id = state.resources.shaders.insert(ShaderResource {
             module,
             desc,
             bind_group_layouts,
@@ -819,8 +828,8 @@ impl RenderApiNew {
     }
 
     pub fn write_vertex_buffer_with(
-        &mut self,
-        buffer: &mut GpuVertexBuffer,
+        &self,
+        buffer: &GpuVertexBuffer,
         offset: usize,
         size: usize,
         writer: impl FnOnce(&mut [u8]),
@@ -829,8 +838,8 @@ impl RenderApiNew {
     }
 
     pub fn write_uniform_storage_buffer_with(
-        &mut self,
-        buffer: &mut GpuUniformStorageBuffer,
+        &self,
+        buffer: &GpuUniformStorageBuffer,
         offset: usize,
         size: usize,
         writer: impl FnOnce(&mut [u8]),
@@ -839,8 +848,8 @@ impl RenderApiNew {
     }
 
     pub fn write_index_buffer_with(
-        &mut self,
-        buffer: &mut GpuIndexBuffer,
+        &self,
+        buffer: &GpuIndexBuffer,
         offset: usize,
         size: usize,
         writer: impl FnOnce(&mut [u8]),
@@ -849,16 +858,19 @@ impl RenderApiNew {
     }
 
     fn write_buffer_resource_with(
-        &mut self,
+        &self,
         id: VersionIndex,
         buffer_size: usize,
         offset: usize,
         mut size: usize,
         writer: impl FnOnce(&mut [u8]),
     ) -> bool {
-        let Some(buffer_resource) = self.resources.buffers.get(id) else {
+        let state = self.state.lock().unwrap();
+
+        let Some(buffer_resource) = state.resources.buffers.get(id) else {
             return false;
         };
+        let buffer = buffer_resource.buffer.clone();
 
         if offset >= buffer_size {
             return false;
@@ -870,17 +882,22 @@ impl RenderApiNew {
             return false;
         };
 
-        let Some(mut buffer_view) = self.queue.write_buffer_with(&buffer_resource.buffer, offset as u64, size) else {
+        let Some(mut buffer_view) = self.queue.write_buffer_with(&buffer, offset as u64, size) else {
             return false;
         };
+
+        // the writer may call back into the API
+        drop(state);
 
         writer(&mut buffer_view);
 
         true
     }
 
-    pub fn write_texture(&mut self, texture: &mut GpuTexture, mip_level: usize, data: &[u8]) -> bool {
-        let Some(texture) = self.resources.textures.get(texture.id) else {
+    pub fn write_texture(&self, texture: &GpuTexture, mip_level: usize, data: &[u8]) -> bool {
+        let state = self.state.lock().unwrap();
+
+        let Some(texture) = state.resources.textures.get(texture.id) else {
             return false;
         };
 
@@ -918,7 +935,7 @@ impl RenderApiNew {
         true
     }
 
-    pub fn draw(&mut self, pass: &GpuRenderPass, vertices: Range<usize>, instances: Range<usize>) -> bool {
+    pub fn draw(&self, pass: &GpuRenderPass, vertices: Range<usize>, instances: Range<usize>) -> bool {
         self.encode_pass(pass, None, None, |render_pass| {
             render_pass.draw(to_u32_range(vertices), to_u32_range(instances));
         })
@@ -926,7 +943,7 @@ impl RenderApiNew {
 
     // todo: allow several draws per frame
     pub fn draw_to_surface(
-        &mut self,
+        &self,
         pass: &GpuRenderPass,
         ops: GpuPassOps<[f32; 4]>,
         vertices: Range<usize>,
@@ -939,6 +956,9 @@ impl RenderApiNew {
         let Some(surface) = &self.surface else {
             return false;
         };
+
+        // held until present, so that a resize can't reconfigure the surface while a frame is acquired
+        let surface = surface.lock().unwrap();
 
         let format = surface.config.format;
 
@@ -966,7 +986,7 @@ impl RenderApiNew {
     }
 
     pub fn draw_indexed(
-        &mut self,
+        &self,
         pass: &GpuRenderPass,
         index_buffer: &GpuIndexBuffer,
         indices: Range<usize>,
@@ -1000,19 +1020,16 @@ impl RenderApiNew {
     }
 
     fn encode_pass(
-        &mut self,
+        &self,
         pass: &GpuRenderPass,
         index_buffer: Option<&GpuIndexBuffer>,
         surface_target: Option<SurfaceDrawTarget>,
         draw: impl FnOnce(&mut wgpu::RenderPass),
     ) -> bool {
-        let Self {
-            device,
-            queue,
-            cache,
-            resources,
-            ..
-        } = self;
+        let Self { device, queue, .. } = self;
+
+        let mut state = self.state.lock().unwrap();
+        let RenderApiState { cache, resources } = &mut *state;
 
         let Some(shader) = resources.shaders.get(pass.shader.id) else {
             return false;
@@ -1493,7 +1510,7 @@ mod tests {
 
     #[test]
     fn draws_into_a_texture_without_a_surface() {
-        let Some(mut api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApiNew::new_headless() else {
             return;
         };
 
@@ -1513,7 +1530,7 @@ mod tests {
 
     #[test]
     fn surface_operations_without_a_surface_do_nothing() {
-        let Some(mut api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApiNew::new_headless() else {
             return;
         };
 
@@ -1523,6 +1540,62 @@ mod tests {
 
         assert_eq!(api.surface_size(), [0, 0]);
         assert!(!api.draw_to_surface(&pass_without_target(&shader), GpuPassOps::Load, 0..3, 0..1));
+    }
+
+    #[test]
+    fn api_is_shareable_between_threads() {
+        fn assert_send_sync<T: Send + Sync>() {}
+
+        assert_send_sync::<RenderApiNew>();
+    }
+
+    #[test]
+    fn draws_and_writes_from_several_threads() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                scope.spawn(|| {
+                    let shader = api.create_shader(FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
+                    let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+                    let buffer = api.create_uniform_storage_buffer(16);
+
+                    let pass = GpuRenderPass {
+                        target: Some(GpuRenderPassTarget {
+                            view: &target,
+                            ops: GpuPassOps::Clear([0.0; 4]),
+                        }),
+                        ..pass_without_target(&shader)
+                    };
+
+                    for _ in 0..16 {
+                        assert!(api.write_uniform_storage_buffer_with(&buffer, 0, 16, |bytes| bytes.fill(1)));
+                        assert!(api.draw(&pass, 0..3, 0..1));
+                    }
+                });
+            }
+        });
+    }
+
+    #[test]
+    fn writer_can_call_back_into_the_api() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let buffer = api.create_uniform_storage_buffer(16);
+
+        let is_written = api.write_uniform_storage_buffer_with(&buffer, 0, 16, |bytes| {
+            let other = api.create_uniform_storage_buffer(16);
+
+            assert!(api.write_uniform_storage_buffer_with(&other, 0, 16, |other_bytes| other_bytes.fill(2)));
+
+            bytes.fill(1);
+        });
+
+        assert!(is_written);
     }
 
     #[test]
