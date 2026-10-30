@@ -1,18 +1,19 @@
 //! # aphyn_render_core
 //!
 //! A work-in-progress, ECS-independent GPU API on top of wgpu. [`RenderApiNew`] owns the device,
-//! the queue, and every GPU resource, and hands out [`GpuVertexBuffer`], [`GpuUniformStorageBuffer`],
+//! the queue, the window surface, and every GPU resource, and hands out [`GpuVertexBuffer`], [`GpuUniformStorageBuffer`],
 //! [`GpuIndexBuffer`], [`GpuTexture`], [`GpuSampler`],
 //! and [`GpuShader`] handles. It is not used by the rest of the engine yet, and the `aphyn` facade
 //! does not export it, because its `GpuVertexBuffer` would clash with the one in `aphyn_render`.
 //!
 //! # How to use
 //!
-//! Create a [`RenderApiNew`] from a `wgpu::Device` and `wgpu::Queue`, create resources through it,
-//! and describe each draw with a [`GpuRenderPass`]:
+//! Create a [`RenderApiNew`] from a window and its size in pixels, create resources through it,
+//! and describe each draw with a [`GpuRenderPass`]. The window is anything that provides raw window
+//! and display handles, such as `Arc<winit::window::Window>`:
 //!
 //! ```ignore
-//! let mut api = RenderApiNew::new(device, queue);
+//! let mut api = RenderApiNew::new(window, [1280, 720]).unwrap();
 //!
 //! let shader = api.create_shader(wgsl, GpuShaderDesc::default()).unwrap();
 //! let target = api.create_texture([256, 256], GpuTextureFormat::Rgba8UnormSrgb, 1);
@@ -36,6 +37,12 @@
 //! ```
 //!
 //! Failed operations return `None` or `false`, and shader and validation errors are printed.
+//!
+//! [`RenderApiNew::draw_to_surface`] draws into the window and presents the frame, so it is one draw
+//! per frame. Its pass must have no `target`, and the load operation is passed separately. It returns
+//! `false` without presenting if the frame cannot be acquired or the draw fails.
+//! [`RenderApiNew::resize_surface`] ignores zero sizes, and [`RenderApiNew::surface_size`] returns the
+//! last accepted size.
 //!
 //! [`GpuVertexBuffer`] holds vertices or instances, as set by its [`GpuVertexBufferLayout`], which
 //! computes tightly packed
@@ -61,6 +68,15 @@
 //! value in `RenderApiCache`. Resources cannot be destroyed yet, so cached entries are never evicted.
 //! Pipelines are keyed by the shader, the target formats, and the vertex buffer layouts of the pass,
 //! so one shader can be drawn with differently laid out buffers.
+//!
+//! #### Surface
+//!
+//! `RenderApiNew::new` creates a DX12-only instance, an adapter compatible with the surface, the
+//! device, and the queue. It picks the first sRGB surface format if there is one, because the format
+//! is only known at runtime and is often not a [`GpuTextureFormat`]; this is why `PipelineKey::target`
+//! stores a `wgpu::TextureFormat`. Only tests build the API without a surface, through `new_headless`.
+//! The window bound uses `raw-window-handle` traits so that this crate does not depend on winit and
+//! callers do not need wgpu.
 //!
 //! #### Shader reflection
 //!

@@ -39,6 +39,8 @@ These change the shape of the whole API, so do them first. None of them is decid
 
 ### 1. Own the device and the surface in `render_core`
 
+**Done.** `RenderApiNew::new` takes a window and a size. `surface_size`, `resize_surface` and `draw_to_surface` cover the rest. `draw_to_surface` acquires, draws once and presents, so a second draw per frame needs an API change (`todo` in the code). `aphyn_render` and `aphyn_app` still create their own device and surface until items 15-17.
+
 **Problem.** `RenderApiNew::new(device: wgpu::Device, queue: wgpu::Queue)` has wgpu types in its public signature, so a crate without a wgpu dependency cannot call it. Core has no surface at all. The device, queue and surface are created by `RenderApi::new` in `crates/render/src/render_api.rs`, and `RenderTarget::render_to_surface` in `crates/app/src/render_target.rs` does the acquire, draw and present.
 
 **Needed in core:**

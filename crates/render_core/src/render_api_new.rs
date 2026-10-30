@@ -7,7 +7,10 @@
 use std::{borrow::Borrow, collections::HashMap, hash::Hash, num::NonZeroU64, ops::Range};
 
 use aphyn_utils::index_version_collection::{VersionCollection, VersionIndex};
-use wgpu::LoadOp;
+use wgpu::{
+    LoadOp,
+    rwh::{HasDisplayHandle, HasWindowHandle},
+};
 
 use crate::buffers::{
     BufferResource, GpuIndexBuffer, GpuIndexFormat, GpuUniformStorageBuffer, GpuVertexBuffer, GpuVertexBufferLayout, GpuVertexBufferLayoutEntryTy,
@@ -136,9 +139,21 @@ type VertexAttributeEntry = (usize, GpuVertexBufferLayoutEntryTy);
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 struct PipelineKey {
     shader: VersionIndex,
-    target: Option<GpuTextureFormat>,
+    target: Option<wgpu::TextureFormat>,
     depth: Option<GpuTextureFormat>,
     vertex_buffers: Vec<GpuVertexBufferLayout>,
+}
+
+struct RenderSurface {
+    surface: wgpu::Surface<'static>,
+    config: wgpu::SurfaceConfiguration,
+    size: [usize; 2],
+}
+
+struct SurfaceDrawTarget<'a> {
+    view: &'a wgpu::TextureView,
+    format: wgpu::TextureFormat,
+    ops: GpuPassOps<[f32; 4]>,
 }
 
 struct TextureResource {
@@ -311,7 +326,7 @@ impl RenderApiCache {
         let color_targets = key
             .target
             .map(|format| wgpu::ColorTargetState {
-                format: format.to_wgpu(),
+                format,
                 blend: desc.blend.to_wgpu(),
                 write_mask: wgpu::ColorWrites::ALL,
             })
@@ -537,24 +552,138 @@ fn unsupported_binding<T>(binding: &naga::ResourceBinding) -> Option<T> {
     None
 }
 
+fn create_instance() -> wgpu::Instance {
+    wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        // todo: use primary, not only dx12
+        backends: wgpu::Backends::DX12,
+        ..Default::default()
+    })
+}
+
+fn request_adapter(instance: &wgpu::Instance, surface: Option<&wgpu::Surface>) -> Option<wgpu::Adapter> {
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::default(),
+        compatible_surface: surface,
+        force_fallback_adapter: false,
+    }));
+
+    match adapter {
+        Ok(adapter) => Some(adapter),
+        Err(err) => {
+            println!("failed to request adapter: {err}");
+            None
+        }
+    }
+}
+
+fn request_device(adapter: &wgpu::Adapter) -> Option<(wgpu::Device, wgpu::Queue)> {
+    let device = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        required_features: wgpu::Features::empty(),
+        required_limits: wgpu::Limits::default(),
+        label: None,
+        memory_hints: wgpu::MemoryHints::Performance,
+        ..Default::default()
+    }));
+
+    match device {
+        Ok(device) => Some(device),
+        Err(err) => {
+            println!("failed to request device: {err}");
+            None
+        }
+    }
+}
+
 // todo: rename
 #[repr(C)]
 pub struct RenderApiNew {
     device: wgpu::Device,
     queue: wgpu::Queue,
+    surface: Option<RenderSurface>,
     cache: RenderApiCache,
     resources: RenderApiResources,
 }
 
 impl RenderApiNew {
-    // todo: create the device and the surface here, and allow rendering into the surface
-    pub fn new(device: wgpu::Device, queue: wgpu::Queue) -> Self {
-        Self {
+    pub fn new(window: impl HasWindowHandle + HasDisplayHandle + Send + Sync + 'static, size: [usize; 2]) -> Option<Self> {
+        let size = size.map(|x| x.max(1));
+
+        let instance = create_instance();
+
+        let surface = match instance.create_surface(window) {
+            Ok(surface) => surface,
+            Err(err) => {
+                println!("failed to create surface: {err}");
+                return None;
+            }
+        };
+
+        let adapter = request_adapter(&instance, Some(&surface))?;
+        let (device, queue) = request_device(&adapter)?;
+
+        let capabilities = surface.get_capabilities(&adapter);
+
+        let format = capabilities
+            .formats
+            .iter()
+            .copied()
+            .find(|format| format.is_srgb())
+            .or(capabilities.formats.first().copied())?;
+
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width: size[0] as u32,
+            height: size[1] as u32,
+            present_mode: *capabilities.present_modes.first()?,
+            alpha_mode: *capabilities.alpha_modes.first()?,
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+
+        surface.configure(&device, &config);
+
+        Some(Self {
             device,
             queue,
+            surface: Some(RenderSurface { surface, config, size }),
             cache: Default::default(),
             resources: Default::default(),
+        })
+    }
+
+    #[cfg(test)]
+    fn new_headless() -> Option<Self> {
+        let adapter = request_adapter(&create_instance(), None)?;
+        let (device, queue) = request_device(&adapter)?;
+
+        Some(Self {
+            device,
+            queue,
+            surface: None,
+            cache: Default::default(),
+            resources: Default::default(),
+        })
+    }
+
+    pub fn surface_size(&self) -> [usize; 2] {
+        self.surface.as_ref().map_or([0, 0], |surface| surface.size)
+    }
+
+    pub fn resize_surface(&mut self, size: [usize; 2]) {
+        if size[0] == 0 || size[1] == 0 {
+            return;
         }
+
+        let Some(surface) = &mut self.surface else {
+            return;
+        };
+
+        surface.size = size;
+        surface.config.width = size[0] as u32;
+        surface.config.height = size[1] as u32;
+
+        surface.surface.configure(&self.device, &surface.config);
     }
 
     pub fn create_vertex_buffer(&mut self, len: usize, layout: GpuVertexBufferLayout) -> GpuVertexBuffer {
@@ -790,9 +919,50 @@ impl RenderApiNew {
     }
 
     pub fn draw(&mut self, pass: &GpuRenderPass, vertices: Range<usize>, instances: Range<usize>) -> bool {
-        self.encode_pass(pass, None, |render_pass| {
+        self.encode_pass(pass, None, None, |render_pass| {
             render_pass.draw(to_u32_range(vertices), to_u32_range(instances));
         })
+    }
+
+    // todo: allow several draws per frame
+    pub fn draw_to_surface(
+        &mut self,
+        pass: &GpuRenderPass,
+        ops: GpuPassOps<[f32; 4]>,
+        vertices: Range<usize>,
+        instances: Range<usize>,
+    ) -> bool {
+        if pass.target.is_some() {
+            return false;
+        }
+
+        let Some(surface) = &self.surface else {
+            return false;
+        };
+
+        let format = surface.config.format;
+
+        let Ok(frame) = surface.surface.get_current_texture() else {
+            return false;
+        };
+
+        let view = frame.texture.create_view(&Default::default());
+
+        let surface_target = SurfaceDrawTarget {
+            view: &view,
+            format,
+            ops,
+        };
+
+        let is_drawn = self.encode_pass(pass, None, Some(surface_target), |render_pass| {
+            render_pass.draw(to_u32_range(vertices), to_u32_range(instances));
+        });
+
+        if is_drawn {
+            frame.present();
+        }
+
+        is_drawn
     }
 
     pub fn draw_indexed(
@@ -802,7 +972,7 @@ impl RenderApiNew {
         indices: Range<usize>,
         instances: Range<usize>,
     ) -> bool {
-        self.encode_pass(pass, Some(index_buffer), |render_pass| {
+        self.encode_pass(pass, Some(index_buffer), None, |render_pass| {
             render_pass.draw_indexed(to_u32_range(indices), 0, to_u32_range(instances));
         })
     }
@@ -833,6 +1003,7 @@ impl RenderApiNew {
         &mut self,
         pass: &GpuRenderPass,
         index_buffer: Option<&GpuIndexBuffer>,
+        surface_target: Option<SurfaceDrawTarget>,
         draw: impl FnOnce(&mut wgpu::RenderPass),
     ) -> bool {
         let Self {
@@ -840,6 +1011,7 @@ impl RenderApiNew {
             queue,
             cache,
             resources,
+            ..
         } = self;
 
         let Some(shader) = resources.shaders.get(pass.shader.id) else {
@@ -869,10 +1041,12 @@ impl RenderApiNew {
             bind_groups.push(bind_group);
         }
 
-        let target = match &pass.target {
-            None => None,
-            Some(target) => match resources.textures.get(target.view.id) {
-                Some(texture) => Some((texture, target.ops)),
+        let target = match (surface_target, &pass.target) {
+            (Some(_), Some(_)) => return false,
+            (Some(surface), None) => Some((surface.view, surface.format, surface.ops)),
+            (None, None) => None,
+            (None, Some(target)) => match resources.textures.get(target.view.id) {
+                Some(texture) => Some((&texture.texture_view, texture.format.to_wgpu(), target.ops)),
                 None => return false,
             },
         };
@@ -886,7 +1060,7 @@ impl RenderApiNew {
 
         let pipeline_key = PipelineKey {
             shader: pass.shader.id,
-            target: target.map(|(texture, _)| texture.format),
+            target: target.map(|(_, format, _)| format),
             depth: depth.map(|(texture, _)| texture.format),
             // todo: avoid cloning the layouts into the key on every draw
             vertex_buffers: vertex_layouts.iter().map(|&layout| layout.clone()).collect(),
@@ -913,8 +1087,8 @@ impl RenderApiNew {
         };
 
         let color_attachments = target
-            .map(|(texture, ops)| wgpu::RenderPassColorAttachment {
-                view: &texture.texture_view,
+            .map(|(view, _, ops)| wgpu::RenderPassColorAttachment {
+                view,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: ops.to_wgpu(),
@@ -1291,6 +1465,65 @@ impl GpuFilterMode {
 mod tests {
     use super::*;
     use crate::buffers::GpuVertexStepMode;
+
+    const FULLSCREEN_WGSL: &str = r#"
+        @vertex
+        fn vs_main(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
+            let uv = vec2f(f32((index << 1) & 2), f32(index & 2));
+            return vec4f(uv * 2.0 - 1.0, 0.0, 1.0);
+        }
+
+        @fragment
+        fn fs_main() -> @location(0) vec4f {
+            return vec4f(1.0);
+        }
+    "#;
+
+    fn pass_without_target(shader: &GpuShader) -> GpuRenderPass<'_> {
+        GpuRenderPass {
+            shader,
+            target: None,
+            depth: None,
+            bind_groups: &[],
+            vertex_buffers: &[],
+            viewport: None,
+            scissor: None,
+        }
+    }
+
+    #[test]
+    fn draws_into_a_texture_without_a_surface() {
+        let Some(mut api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let shader = api.create_shader(FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
+        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+
+        let pass = GpuRenderPass {
+            target: Some(GpuRenderPassTarget {
+                view: &target,
+                ops: GpuPassOps::Clear([0.0; 4]),
+            }),
+            ..pass_without_target(&shader)
+        };
+
+        assert!(api.draw(&pass, 0..3, 0..1));
+    }
+
+    #[test]
+    fn surface_operations_without_a_surface_do_nothing() {
+        let Some(mut api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let shader = api.create_shader(FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
+
+        api.resize_surface([4, 4]);
+
+        assert_eq!(api.surface_size(), [0, 0]);
+        assert!(!api.draw_to_surface(&pass_without_target(&shader), GpuPassOps::Load, 0..3, 0..1));
+    }
 
     #[test]
     fn reflects_bind_group_layouts() {
