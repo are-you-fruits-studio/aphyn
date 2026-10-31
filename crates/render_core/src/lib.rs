@@ -38,6 +38,9 @@
 //!
 //! Failed operations return `None` or `false`, and shader and validation errors are printed.
 //!
+//! Dropping a handle releases its GPU resource. Handles are not `Clone`, so each resource has one
+//! owner. A handle may outlive the [`RenderApiNew`] that created it, and dropping it then does nothing.
+//!
 //! All [`RenderApiNew`] methods and buffer writes take shared references, and the API is
 //! `Send + Sync`, so it can be used from several threads. Draws run one at a time. The `writer` closure
 //! of a `write_*_buffer_with` method runs without any lock held, so it may call back into the API.
@@ -69,9 +72,15 @@
 //!
 //! Handles store a `VersionIndex` into the collections of `RenderApiResources`. Bind group
 //! layouts, bind groups, pipeline layouts, and pipelines are created on first use and cached by
-//! value in `RenderApiCache`. Resources cannot be destroyed yet, so cached entries are never evicted.
-//! Pipelines are keyed by the shader, the target formats, and the vertex buffer layouts of the pass,
-//! so one shader can be drawn with differently laid out buffers.
+//! value in `RenderApiCache`. Pipelines are keyed by the shader, the target formats, and the vertex
+//! buffer layouts of the pass, so one shader can be drawn with differently laid out buffers.
+//!
+//! Each handle holds a `ResourceGuard` with a `Weak` reference to the state. Its drop removes the
+//! resource and evicts what keeps the wgpu object alive: the bind groups that use a texture, sampler,
+//! or buffer, or the pipelines of a shader. Bind group layouts and pipeline layouts stay cached,
+//! because they are keyed by value and reference no resources. wgpu keeps resources alive for work
+//! already submitted, so releasing right after a draw is safe. The guard is stored in an
+//! `FfiTypedDroppable`, so it drops through a function pointer into the binary that created it.
 //!
 //! #### Locking
 //!
@@ -81,6 +90,8 @@
 //! all of `encode_pass`. A second `Mutex` guards the surface and is held from acquire to present, so
 //! waiting for a frame does not block other threads from creating resources, and a resize cannot
 //! reconfigure the surface while a frame is acquired. Always lock the surface first, then the state.
+//! `ResourceGuard` locks the state on drop, so no handle may be dropped while the state lock is held.
+//! Removing a resource only drops wgpu objects, and `writer` closures run unlocked, so neither does this.
 //!
 //! #### Surface
 //!

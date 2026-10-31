@@ -64,6 +64,8 @@ The handles also currently take `&mut` in the write methods (`buffer: &mut GpuVe
 
 ### 3. Decide how GPU resources are released
 
+**Done.** Dropping a handle releases the resource and evicts its cached bind groups or pipelines, immediately and under the state lock. Handles are single-owner and not `Clone`, unlike the recommendation below: sharing belongs above core (see item 15). Each handle holds its release guard in an `FfiTypedDroppable`. See "Resources and caches" in the crate docs.
+
 **Problem.** Resources cannot be destroyed (`todo: destroy resources` at the top of `render_api_new.rs`). The engine depends on automatic release:
 
 - `recreate_*` systems in `crates/render_ecs/src/systems.rs` create new textures on every resize.
@@ -183,7 +185,7 @@ Things that cannot cross as they are:
 
 `aphyn_ffi` provides `FfiOption`, `FfiSliceRef`, `FfiFnMutMut` and others. `VersionIndex` and `FfiVec` are already `#[repr(C)]`.
 
-**Decide** whether core gets its own vtable, or whether the vtable stays in `aphyn_render` with FFI-safe descriptors defined in core. Handles from item 3 must also be safe to drop from another binary.
+**Decide** whether core gets its own vtable, or whether the vtable stays in `aphyn_render` with FFI-safe descriptors defined in core. Handles from item 3 are already safe to drop from another binary, because their guard drops through `FfiTypedDroppable`.
 
 The vtable can stay as it is while `aphyn_render_ecs` still reaches `RenderState` directly through `raw()`; those direct paths are what items 15-17 remove. Decide then whether `raw()` survives at all.
 
@@ -205,7 +207,7 @@ The engine compares textures:
 - `recreate_exposure_render_resource`, `recreate_bloom_render_resource` and `recreate_color_grading_render_resource` in `systems.rs` compare `render_res.target_texture == current_rendering.target.native().texture` to detect a different target.
 - `StandardMaterial::update_gpu_data_if_dirty` in `crates/render/src/assets/material.rs` compares `StandardTexture::id()` values to detect a replaced texture.
 
-Add `PartialEq`, or a public id, to `GpuTexture`. `VersionIndex` already supports equality, but a stale index in a reused slot differs only by version, so compare the whole `VersionIndex`. Keep it consistent with the `Clone` from item 3: clones must compare equal.
+Add `PartialEq`, or a public id, to `GpuTexture`. `VersionIndex` already supports equality, but a stale index in a reused slot differs only by version, so compare the whole `VersionIndex`.
 
 The material's dirty tracking of bind groups may become unnecessary, because core resolves bind groups by value on each draw. The uniform upload still needs the dirty flag.
 
@@ -214,6 +216,7 @@ The material's dirty tracking of bind groups may become unnecessary, because cor
 ### 15. Migrate `aphyn_render`
 
 - Replace the wgpu fields of `StandardTextureNative`, `StandardMeshNative`, `StandardMaterialNative`, `StandardShaderNative`, `StandardInstanceBufferNative` and `StandardGlobalBindingsNative` with core handles. Remove the `native()` accessors. Each `StandardTexture` keeps its own `GpuSampler` beside its `GpuTexture`, since materials bind texture and sampler pairs.
+- Core handles are not `Clone`, so `StandardTexture`'s shallow `Clone` cannot stay as it is. Its only direct uses are `crates/app/src/event_loop_handler.rs:260` and `crates/editor/src/features/scene_window.rs:298`, which fill `CurrentRenderingResource::target`. Replace them with an `AssetHandle`, or with a shared pointer in `aphyn_render`.
 - `StandardVertex::desc` and `StandardInstance::desc` return `wgpu::VertexBufferLayout`. Change them to `GpuVertexBufferLayout`, using the layouts under "Already verified".
 - Replace `pub use wgpu::FilterMode` in `assets/texture.rs` with `GpuFilterMode`. It is used through this re-export in `crates/asset_loading/src/texture.rs`, `crates/ui/src/systems.rs`, `crates/editor/src/features/scene_window.rs` and `crates/app/src/render_target.rs`. Re-exporting it as `FilterMode` avoids changing them.
 - `RENDER_TARGET_FORMAT`, `DEPTH_TEXTURE_FORMAT` and `TRANSPARENT_TARGET_FORMAT` in `rendering.rs` become `GpuTextureFormat`. `StandardTextureFormat` is `Serializable` and maps directly to `GpuTextureFormat`; keep it for asset metadata and add a conversion.

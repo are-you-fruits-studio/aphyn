@@ -1,8 +1,10 @@
 use std::hash::{Hash, Hasher};
 
-use aphyn_ffi::FfiVec;
+use aphyn_ffi::{FfiTypedDroppable, FfiVec};
 use aphyn_utils::index_version_collection::VersionIndex;
 use wgpu::{VertexAttribute, VertexFormat, VertexStepMode};
+
+use crate::render_api_new::ResourceGuard;
 
 pub(crate) struct BufferResource {
     pub(crate) buffer: wgpu::Buffer,
@@ -13,6 +15,7 @@ pub struct GpuVertexBuffer {
     pub(crate) id: VersionIndex,
     pub(crate) layout: GpuVertexBufferLayout,
     pub(crate) len: usize,
+    pub(crate) _guard: FfiTypedDroppable<ResourceGuard>,
 }
 
 impl GpuVertexBuffer {
@@ -33,6 +36,7 @@ impl GpuVertexBuffer {
 pub struct GpuUniformStorageBuffer {
     pub(crate) id: VersionIndex,
     pub(crate) size: usize,
+    pub(crate) _guard: FfiTypedDroppable<ResourceGuard>,
 }
 
 impl GpuUniformStorageBuffer {
@@ -46,6 +50,7 @@ pub struct GpuIndexBuffer {
     pub(crate) id: VersionIndex,
     pub(crate) format: GpuIndexFormat,
     pub(crate) len: usize,
+    pub(crate) _guard: FfiTypedDroppable<ResourceGuard>,
 }
 
 impl GpuIndexBuffer {
@@ -165,7 +170,10 @@ impl Hash for GpuVertexBufferLayout {
 }
 
 impl GpuVertexBufferLayout {
-    pub fn new(step_mode: GpuVertexStepMode, layout: impl IntoIterator<Item = (usize, GpuVertexBufferLayoutEntryTy)>) -> Option<Self> {
+    pub fn new(
+        step_mode: GpuVertexStepMode,
+        layout: impl IntoIterator<Item = (usize, GpuVertexBufferLayoutEntryTy)>,
+    ) -> Option<Self> {
         let mut offset = 0_usize;
         let mut max_align = 1;
         let mut entries = FfiVec::<GpuVertexBufferLayoutEntry>::new();
@@ -243,7 +251,10 @@ mod tests {
     fn vertex_layout_is_tightly_packed_and_rejects_duplicate_locations() {
         let layout = GpuVertexBufferLayout::new(
             GpuVertexStepMode::Instance,
-            [(0, GpuVertexBufferLayoutEntryTy::Float3), (1, GpuVertexBufferLayoutEntryTy::UInt)],
+            [
+                (0, GpuVertexBufferLayoutEntryTy::Float3),
+                (1, GpuVertexBufferLayoutEntryTy::UInt),
+            ],
         )
         .unwrap();
 
