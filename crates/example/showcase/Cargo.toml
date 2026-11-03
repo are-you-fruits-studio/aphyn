@@ -1,0 +1,10 @@
+[package]
+name = "aphyn_example_showcase"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+[dependencies]
+aphyn = { path = "../../../" }
+png = "0.18"
+wgpu = "27"

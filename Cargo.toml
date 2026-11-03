@@ -40,6 +40,7 @@ members = [
     "crates/example/audio_screen_saver",
     "crates/example/normals",
     "crates/example/bloom",
+    "crates/example/showcase",
     "crates/ui",
     "crates/file_storage",
     "crates/window",
