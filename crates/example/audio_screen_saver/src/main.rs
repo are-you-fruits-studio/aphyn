@@ -1,54 +1,42 @@
-use std::{panic::catch_unwind, thread, time::{Duration, Instant}};
+use std::time::{Duration, Instant};
 
 use aphyn::*;
 
 fn main() {
-    let result = catch_unwind(|| {
-        run_samples_visualization_app();
-    });
-
-    if let Err(err) = result {
-        if let Some(err) = err.downcast_ref::<&'static str>() {
-            eprintln!("{}", err);
-        } else if let Some(err) = err.downcast_ref::<String>() {
-            eprintln!("{}", err);
-        }
-        thread::park();
-    }
-}
-
-fn run_samples_visualization_app() {
     let mut app = App::new();
 
     let ecs = app.ecs_mut();
 
-    add_render_module_to(ecs.as_mut());
-    add_asset_module_to(ecs.as_mut());
+    add_defult_modules_to(ecs.as_mut());
 
     ecs.data_mut().resources_mut().insert(SamplesResource(Vec::new()));
 
-    let clip = ecs.data_mut().resources_mut().get::<AssetStorageResource<AudioClip>>().unwrap().get_registered("Through space.asset").unwrap().clone();
-   
-    let mut data = ecs.data_mut();
-    let mut ent = data.entities_mut();
-    let audio_ent = ent.create_entity();
-    ent.add_component(audio_ent, AudioSource {
-        clip: clip.clone(),
-        playback_time: 0.0,
-        is_playing: true,
-        should_force_playback_time: true,
-        is_looped: true,
-        volume: 1.0,
-    }).ok().unwrap();
-
     let mut beh = ecs.behavior_mut();
 
+    beh.get_mut(aphyn::Schedule::Start).insert_system(spawn_audio_source);
+    beh.get_mut(aphyn::Schedule::Start).order_group(SYSTEM_GROUP_ASSETS).before_system(spawn_audio_source);
     beh.get_mut(aphyn::Schedule::Start).insert_system(generate_samples);
     beh.get_mut(aphyn::Schedule::Update).insert_system(visualize_samples);
     beh.get_mut(aphyn::Schedule::Update).insert_system(try_restart_audio_sources);
     beh.get_mut(aphyn::Schedule::Update).order_system(visualize_samples).before_group(SYSTEM_GROUP_RENDER);
 
     app.run();
+}
+
+fn spawn_audio_source(mut world: WorldDataMut) {
+    let (res, mut ent, _evt) = world.as_tuple_mut();
+
+    let clip = res.get::<AssetStorageResource<AudioClip>>().unwrap().get_registered("Through space.asset").unwrap().clone();
+
+    let audio_ent = ent.create_entity();
+    ent.add_component(audio_ent, AudioSource {
+        clip,
+        playback_time: 0.0,
+        is_playing: true,
+        should_force_playback_time: true,
+        is_looped: true,
+        volume: 1.0,
+    }).ok().unwrap();
 }
 
 fn try_restart_audio_sources(
