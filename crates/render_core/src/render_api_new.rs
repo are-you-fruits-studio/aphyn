@@ -828,12 +828,7 @@ impl RenderApiNew {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu_format,
-            // todo: STORAGE_BINDING is not allowed on sRGB formats, so creating an Rgba8UnormSrgb texture panics
-            usage: wgpu::TextureUsages::COPY_SRC
-                | wgpu::TextureUsages::COPY_DST
-                | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::STORAGE_BINDING
-                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: format.usages(),
             view_formats: &[wgpu_format],
         });
 
@@ -996,6 +991,10 @@ impl RenderApiNew {
         let Some(texture) = state.resources.textures.get(texture.id) else {
             return false;
         };
+
+        if texture.format == GpuTextureFormat::Depth32Float {
+            return false;
+        }
 
         if mip_level >= texture.mip_level_count {
             return false;
@@ -1552,6 +1551,20 @@ impl GpuTextureFormat {
             Self::Rgba16Float => 8,
         }
     }
+    // storage textures are rejected by reflection, and depth formats can't be copy destinations
+    fn usages(self) -> wgpu::TextureUsages {
+        match self {
+            Self::Rgba8Unorm | Self::Rgba8UnormSrgb | Self::Rgba16Float => {
+                wgpu::TextureUsages::COPY_SRC
+                    | wgpu::TextureUsages::COPY_DST
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT
+            }
+            Self::Depth32Float => {
+                wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT
+            }
+        }
+    }
 }
 
 #[repr(C)]
@@ -1625,6 +1638,59 @@ mod tests {
         };
 
         assert!(api.draw(&pass, 0..3, 0..1));
+    }
+
+    const COLOR_FORMATS: [GpuTextureFormat; 3] = [
+        GpuTextureFormat::Rgba8Unorm,
+        GpuTextureFormat::Rgba8UnormSrgb,
+        GpuTextureFormat::Rgba16Float,
+    ];
+
+    #[test]
+    fn creates_and_draws_into_textures_of_all_formats() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let shader = api.create_shader(FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
+        let depth = api.create_texture([4, 4], GpuTextureFormat::Depth32Float, 1);
+
+        for format in COLOR_FORMATS {
+            let _with_mips = api.create_texture([4, 4], format, 3);
+            let target = api.create_texture([4, 4], format, 1);
+
+            let pass = GpuRenderPass {
+                target: Some(GpuRenderPassTarget {
+                    view: &target,
+                    ops: GpuPassOps::Clear([0.0; 4]),
+                }),
+                depth: Some(GpuRenderPassDepth {
+                    view: &depth,
+                    ops: GpuPassOps::Clear(1.0),
+                }),
+                ..pass_without_target(&shader)
+            };
+
+            assert!(api.draw(&pass, 0..3, 0..1));
+        }
+    }
+
+    #[test]
+    fn writes_color_textures_but_not_depth() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        for format in COLOR_FORMATS {
+            let texture = api.create_texture([4, 4], format, 1);
+            let data = vec![0; 4 * 4 * format.bytes_per_pixel() as usize];
+
+            assert!(api.write_texture(&texture, 0, &data));
+        }
+
+        let depth = api.create_texture([4, 4], GpuTextureFormat::Depth32Float, 1);
+
+        assert!(!api.write_texture(&depth, 0, &[0; 4 * 4 * 4]));
     }
 
     #[test]

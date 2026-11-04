@@ -21,7 +21,7 @@ Items 1-14 are prerequisites in `render_core`. Items 15-18 are the migration its
 
 ## Already verified
 
-These were checked with a throwaway headless test on DX12 (Intel UHD Graphics) that used only the public `render_core` API. The test was deleted. It validated API calls and did not inspect rendered pixels. Lit, transparent and depth-tested draws were not run, because depth textures cannot be created yet (item 4).
+These were checked with a throwaway headless test on DX12 (Intel UHD Graphics) that used only the public `render_core` API. The test was deleted. It validated API calls and did not inspect rendered pixels. Lit, transparent and depth-tested draws were not run, because depth textures could not be created then (fixed by item 4).
 
 Working:
 
@@ -81,6 +81,8 @@ Without release, every resize leaks its textures. Entries in `RenderApiCache::bi
 ## Prerequisites: missing or broken features
 
 ### 4. `create_texture` panics for sRGB and depth formats (confirmed)
+
+**Done.** `GpuTextureFormat::usages` picks usages by format. No format gets `STORAGE_BINDING`. Color formats get `COPY_SRC | COPY_DST | TEXTURE_BINDING | RENDER_ATTACHMENT`, and `Depth32Float` gets `COPY_SRC | TEXTURE_BINDING | RENDER_ATTACHMENT`. `write_texture` returns `false` for a depth texture. Tests create every format and draw into each color format with a depth attachment.
 
 `RenderApiNew::create_texture` always requests `COPY_SRC | COPY_DST | TEXTURE_BINDING | STORAGE_BINDING | RENDER_ATTACHMENT`. wgpu rejects this with a panic:
 
