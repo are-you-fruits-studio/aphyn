@@ -6,10 +6,6 @@ use wgpu::{VertexAttribute, VertexFormat, VertexStepMode};
 
 use crate::render_api_new::{GpuResourceId, ResourceGuard, ResourceKey};
 
-pub(crate) struct BufferResource {
-    pub(crate) buffer: wgpu::Buffer,
-}
-
 #[repr(C)]
 pub struct GpuVertexBuffer {
     pub(crate) id: VersionIndex,

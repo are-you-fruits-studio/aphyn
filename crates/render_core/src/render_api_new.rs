@@ -4,7 +4,6 @@
 
 use std::{
     borrow::Borrow,
-    collections::HashMap,
     ffi::c_void,
     hash::Hash,
     num::NonZeroU64,
@@ -13,19 +12,19 @@ use std::{
 };
 
 use aphyn_ffi::{FfiDroppable, FfiFnMutMut, FfiOption, FfiSliceMut, FfiSliceRef, FfiStaticRef, FfiStrSliceRef, FfiTypedDroppable};
-use aphyn_utils::index_version_collection::{VersionCollection, VersionIndex};
+use aphyn_utils::index_version_collection::VersionIndex;
 use wgpu::{
     LoadOp,
     rwh::{HasDisplayHandle, HasWindowHandle},
 };
 
-use crate::buffers::{
-    BufferResource, GpuIndexBuffer, GpuIndexFormat, GpuUniformStorageBuffer, GpuVertexBuffer, GpuVertexBufferLayout,
+use crate::{BufferResource, RenderApiResources, RenderApiState, SamplerResource, ShaderResource, TextureResource, buffers::{
+    GpuIndexBuffer, GpuIndexFormat, GpuUniformStorageBuffer, GpuVertexBuffer, GpuVertexBufferLayout,
     GpuVertexBufferLayoutEntryTy,
-};
+}};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-enum TextureSampleKind {
+pub(crate) enum TextureSampleKind {
     Float,
     Sint,
     Uint,
@@ -33,7 +32,7 @@ enum TextureSampleKind {
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-enum BindGroupBindingTy {
+pub(crate) enum BindGroupBindingTy {
     Texture(TextureSampleKind),
     Sampler,
     ComparisonSampler,
@@ -43,7 +42,7 @@ enum BindGroupBindingTy {
 }
 
 impl BindGroupBindingTy {
-    fn to_wgpu(self) -> wgpu::BindingType {
+    pub(crate) fn to_wgpu(self) -> wgpu::BindingType {
         match self {
             Self::Texture(kind) => wgpu::BindingType::Texture {
                 sample_type: match kind {
@@ -70,7 +69,7 @@ impl BindGroupBindingTy {
         }
     }
 
-    fn visibility(self) -> wgpu::ShaderStages {
+    pub(crate) fn visibility(self) -> wgpu::ShaderStages {
         match self {
             // writable storage in the vertex stage needs `Features::VERTEX_WRITABLE_STORAGE`
             Self::StorageBuffer { read_only: false } => wgpu::ShaderStages::FRAGMENT,
@@ -82,7 +81,7 @@ impl BindGroupBindingTy {
         match (self, binding) {
             (Self::Texture(kind), BindGroupBinding::Texture(texture, mip_level)) => match resources.textures.get(texture) {
                 Some(texture) => {
-                    let is_kind_matching = match texture.format {
+                    let is_kind_matching = match texture.format() {
                         GpuTextureFormat::Depth32Float => kind == TextureSampleKind::Depth,
                         _ => kind == TextureSampleKind::Float,
                     };
@@ -92,7 +91,7 @@ impl BindGroupBindingTy {
                 None => false,
             },
             (Self::Sampler | Self::ComparisonSampler, BindGroupBinding::Sampler(sampler)) => match resources.samplers.get(sampler) {
-                Some(sampler) => sampler.comparison == (self == Self::ComparisonSampler),
+                Some(sampler) => sampler.comparison() == (self == Self::ComparisonSampler),
                 None => false,
             },
             (Self::UniformBuffer | Self::StorageBuffer { .. }, BindGroupBinding::Buffer(buffer)) => {
@@ -103,10 +102,10 @@ impl BindGroupBindingTy {
     }
 }
 
-type BindGroupLayoutEntry = (usize, BindGroupBindingTy);
+pub(crate) type BindGroupLayoutEntry = (usize, BindGroupBindingTy);
 
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-struct BindGroupLayoutEntries {
+pub(crate) struct BindGroupLayoutEntries {
     entries: Vec<BindGroupLayoutEntry>,
 }
 
@@ -116,15 +115,27 @@ impl Borrow<[BindGroupLayoutEntry]> for BindGroupLayoutEntries {
     }
 }
 
+impl BindGroupLayoutEntries {
+    pub fn new(entries: Vec<BindGroupLayoutEntry>) -> Self {
+        Self {
+            entries,
+        }
+    }
+
+    pub fn entries(&self) -> &Vec<BindGroupLayoutEntry> {
+        &self.entries
+    }
+}
+
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-enum BindGroupBinding {
+pub(crate) enum BindGroupBinding {
     Texture(VersionIndex, Option<usize>),
     Sampler(VersionIndex),
     Buffer(VersionIndex),
 }
 
 impl BindGroupBinding {
-    fn refers_to(self, key: ResourceKey) -> bool {
+    pub(crate) fn refers_to(self, key: ResourceKey) -> bool {
         match (self, key) {
             (Self::Texture(id, _), ResourceKey::Texture(key_id))
             | (Self::Sampler(id), ResourceKey::Sampler(key_id))
@@ -133,22 +144,22 @@ impl BindGroupBinding {
         }
     }
 
-    fn to_wgpu<'a>(self, resources: &'a RenderApiResources) -> Option<wgpu::BindingResource<'a>> {
+    pub(crate) fn to_wgpu<'a>(self, resources: &'a RenderApiResources) -> Option<wgpu::BindingResource<'a>> {
         Some(match self {
             Self::Texture(texture, mip_level) => {
                 wgpu::BindingResource::TextureView(resources.textures.get(texture)?.view(mip_level)?)
             }
-            Self::Sampler(sampler) => wgpu::BindingResource::Sampler(&resources.samplers.get(sampler)?.sampler),
+            Self::Sampler(sampler) => wgpu::BindingResource::Sampler(resources.samplers.get(sampler)?.sampler()),
             Self::Buffer(buffer) => resources.buffers.get(buffer)?.buffer.as_entire_binding(),
         })
     }
 }
 
-type BindGroupEntry = (usize, BindGroupBindingTy, BindGroupBinding);
+pub(crate) type BindGroupEntry = (usize, BindGroupBindingTy, BindGroupBinding);
 
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-struct BindGroupEntries {
-    entries: Vec<BindGroupEntry>,
+pub(crate) struct BindGroupEntries {
+    pub(crate) entries: Vec<BindGroupEntry>,
 }
 
 impl Borrow<[BindGroupEntry]> for BindGroupEntries {
@@ -157,14 +168,14 @@ impl Borrow<[BindGroupEntry]> for BindGroupEntries {
     }
 }
 
-type VertexAttributeEntry = (usize, GpuVertexBufferLayoutEntryTy);
+pub(crate) type VertexAttributeEntry = (usize, GpuVertexBufferLayoutEntryTy);
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-struct PipelineKey {
-    shader: VersionIndex,
-    target: Option<wgpu::TextureFormat>,
-    depth: Option<GpuTextureFormat>,
-    vertex_buffers: Vec<GpuVertexBufferLayout>,
+pub(crate) struct PipelineKey {
+    pub(crate) shader: VersionIndex,
+    pub(crate) target: Option<wgpu::TextureFormat>,
+    pub(crate) depth: Option<GpuTextureFormat>,
+    pub(crate) vertex_buffers: Vec<GpuVertexBufferLayout>,
 }
 
 struct RenderSurface {
@@ -177,85 +188,6 @@ struct SurfaceDrawTarget<'a> {
     view: &'a wgpu::TextureView,
     format: wgpu::TextureFormat,
     ops: GpuPassOps<[f32; 4]>,
-}
-
-struct TextureResource {
-    texture: wgpu::Texture,
-    texture_view: wgpu::TextureView,
-    mip_views: Vec<wgpu::TextureView>,
-    format: GpuTextureFormat,
-    size: [usize; 2],
-    mip_level_count: usize,
-}
-
-impl TextureResource {
-    fn view(&self, mip_level: Option<usize>) -> Option<&wgpu::TextureView> {
-        match mip_level {
-            None => Some(&self.texture_view),
-            Some(mip_level) => self.mip_views.get(mip_level),
-        }
-    }
-}
-
-struct SamplerResource {
-    sampler: wgpu::Sampler,
-    comparison: bool,
-}
-
-struct ShaderResource {
-    module: wgpu::ShaderModule,
-    desc: GpuShaderDesc,
-    bind_group_layouts: Vec<Vec<BindGroupLayoutEntry>>,
-    vertex_attributes: Vec<VertexAttributeEntry>,
-}
-
-#[derive(Default)]
-struct RenderApiResources {
-    textures: VersionCollection<TextureResource>,
-    buffers: VersionCollection<BufferResource>,
-    samplers: VersionCollection<SamplerResource>,
-    shaders: VersionCollection<ShaderResource>,
-}
-
-#[derive(Default)]
-struct RenderApiCache {
-    bind_group_layouts: HashMap<BindGroupLayoutEntries, wgpu::BindGroupLayout>,
-    bind_groups: HashMap<BindGroupEntries, wgpu::BindGroup>,
-    pipeline_layouts: HashMap<Vec<BindGroupLayoutEntries>, wgpu::PipelineLayout>,
-    pipelines: HashMap<PipelineKey, Option<wgpu::RenderPipeline>>,
-}
-
-#[derive(Default)]
-struct RenderApiState {
-    cache: RenderApiCache,
-    resources: RenderApiResources,
-}
-
-impl RenderApiState {
-    fn release(&mut self, key: ResourceKey) {
-        let Self { cache, resources } = self;
-
-        match key {
-            ResourceKey::Texture(id) => {
-                resources.textures.remove(id);
-            }
-            ResourceKey::Sampler(id) => {
-                resources.samplers.remove(id);
-            }
-            ResourceKey::Buffer(id) => {
-                resources.buffers.remove(id);
-            }
-            ResourceKey::Shader(id) => {
-                resources.shaders.remove(id);
-                cache.pipelines.retain(|key, _| key.shader != id);
-                return;
-            }
-        }
-
-        cache
-            .bind_groups
-            .retain(|entries, _| !entries.entries.iter().any(|&(_, _, entry)| entry.refers_to(key)));
-    }
 }
 
 #[repr(C)]
@@ -286,204 +218,6 @@ impl Drop for ResourceGuard {
         if let Ok(mut state) = state.lock() {
             state.release(self.key);
         }
-    }
-}
-
-impl RenderApiCache {
-    fn get_or_create_bind_group_layout(
-        &mut self,
-        device: &wgpu::Device,
-        bindings: &[BindGroupLayoutEntry],
-    ) -> wgpu::BindGroupLayout {
-        if let Some(layout) = self.bind_group_layouts.get(bindings) {
-            return layout.clone();
-        }
-
-        // todo: reuse a single buffer
-        let wgpu_bindings = bindings
-            .iter()
-            .copied()
-            .map(|(i, ty)| wgpu::BindGroupLayoutEntry {
-                count: None,
-                visibility: ty.visibility(),
-                binding: i as u32,
-                ty: ty.to_wgpu(),
-            })
-            .collect::<Vec<_>>();
-
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("aphyn bind group layout"),
-            entries: &wgpu_bindings,
-        });
-
-        let owned_bindings = bindings.to_vec();
-        self.bind_group_layouts
-            .insert(BindGroupLayoutEntries { entries: owned_bindings }, layout.clone());
-
-        layout
-    }
-
-    fn get_or_create_bind_group(
-        &mut self,
-        device: &wgpu::Device,
-        resources: &RenderApiResources,
-        bindings: &[BindGroupEntry],
-    ) -> Option<wgpu::BindGroup> {
-        if let Some(bind_group) = self.bind_groups.get(bindings) {
-            return Some(bind_group.clone());
-        }
-
-        let binding_types = bindings.iter().map(|&(i, ty, _)| (i, ty)).collect::<Vec<_>>();
-        let bind_group_layout = self.get_or_create_bind_group_layout(device, &binding_types);
-
-        // todo: reuse a single buffer
-        let wgpu_bindings = bindings
-            .iter()
-            .map(|&(i, _, binding)| {
-                Some(wgpu::BindGroupEntry {
-                    binding: i as u32,
-                    resource: binding.to_wgpu(resources)?,
-                })
-            })
-            .collect::<Option<Vec<_>>>()?;
-
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("aphyn bind group"),
-            entries: &wgpu_bindings,
-            layout: &bind_group_layout,
-        });
-
-        let owned_bindings = bindings.to_vec();
-        self.bind_groups
-            .insert(BindGroupEntries { entries: owned_bindings }, bind_group.clone());
-
-        Some(bind_group)
-    }
-
-    fn get_or_create_pipeline_layout(
-        &mut self,
-        device: &wgpu::Device,
-        groups: &[Vec<BindGroupLayoutEntry>],
-    ) -> wgpu::PipelineLayout {
-        let key = groups
-            .iter()
-            .map(|entries| BindGroupLayoutEntries {
-                entries: entries.clone(),
-            })
-            .collect::<Vec<_>>();
-
-        if let Some(layout) = self.pipeline_layouts.get(&key) {
-            return layout.clone();
-        }
-
-        let bind_group_layouts = groups
-            .iter()
-            .map(|entries| self.get_or_create_bind_group_layout(device, entries))
-            .collect::<Vec<_>>();
-        let bind_group_layout_refs = bind_group_layouts.iter().collect::<Vec<_>>();
-
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("aphyn pipeline layout"),
-            bind_group_layouts: &bind_group_layout_refs,
-            push_constant_ranges: &[],
-        });
-
-        self.pipeline_layouts.insert(key, layout.clone());
-
-        layout
-    }
-
-    fn get_or_create_pipeline(
-        &mut self,
-        device: &wgpu::Device,
-        resources: &RenderApiResources,
-        key: PipelineKey,
-    ) -> Option<wgpu::RenderPipeline> {
-        if let Some(pipeline) = self.pipelines.get(&key) {
-            return pipeline.clone();
-        }
-
-        let shader = resources.shaders.get(key.shader)?;
-        let desc = &shader.desc;
-
-        let layout = self.get_or_create_pipeline_layout(device, &shader.bind_group_layouts);
-
-        let vertex_attributes = key
-            .vertex_buffers
-            .iter()
-            .map(|layout| layout.to_wgpu_attributes())
-            .collect::<Vec<_>>();
-        let vertex_buffers = key
-            .vertex_buffers
-            .iter()
-            .zip(&vertex_attributes)
-            .map(|(layout, attributes)| layout.desc(attributes))
-            .collect::<Vec<_>>();
-
-        let color_targets = key
-            .target
-            .map(|format| wgpu::ColorTargetState {
-                format,
-                blend: desc.blend.to_wgpu(),
-                write_mask: desc.write_mask.to_wgpu(),
-            })
-            .into_iter()
-            .map(Some)
-            .collect::<Vec<_>>();
-
-        let depth_stencil = key.depth.map(|format| wgpu::DepthStencilState {
-            format: format.to_wgpu(),
-            depth_write_enabled: desc.depth_write,
-            depth_compare: desc.depth_compare.to_wgpu(),
-            stencil: Default::default(),
-            bias: Default::default(),
-        });
-
-        device.push_error_scope(wgpu::ErrorFilter::Validation);
-
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("aphyn render pipeline"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader.module,
-                entry_point: Some("vs_main"),
-                buffers: &vertex_buffers,
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader.module,
-                entry_point: Some("fs_main"),
-                targets: &color_targets,
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: desc.topology.to_wgpu(),
-                strip_index_format: None,
-                front_face: desc.front_face.to_wgpu(),
-                cull_mode: desc.cull_mode.to_wgpu(),
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-            cache: None,
-        });
-
-        if let Some(err) = pollster::block_on(device.pop_error_scope()) {
-            println!("failed to create render pipeline: {err}");
-            self.pipelines.insert(key, None);
-            return None;
-        }
-
-        self.pipelines.insert(key, Some(pipeline.clone()));
-
-        Some(pipeline)
     }
 }
 
@@ -937,14 +671,14 @@ impl RenderApiInner {
             })
             .collect();
 
-        let texture_resource = TextureResource {
+        let texture_resource = TextureResource::new(
             texture,
             texture_view,
             mip_views,
             format,
             size,
             mip_level_count,
-        };
+        );
 
         let id = self.state.lock().unwrap().resources.textures.insert(texture_resource);
 
@@ -972,10 +706,10 @@ impl RenderApiInner {
             ..Default::default()
         });
 
-        let id = self.state.lock().unwrap().resources.samplers.insert(SamplerResource {
+        let id = self.state.lock().unwrap().resources.samplers.insert(SamplerResource::new(
             sampler,
-            comparison: compare.is_some(),
-        });
+            compare.is_some(),
+        ));
 
         GpuSampler {
             id,
@@ -1003,12 +737,12 @@ impl RenderApiInner {
             return None;
         }
 
-        let id = state.resources.shaders.insert(ShaderResource {
+        let id = state.resources.shaders.insert(ShaderResource::new(
             module,
             desc,
             bind_group_layouts,
             vertex_attributes,
-        });
+        ));
 
         Some(GpuShader {
             id,
@@ -1066,16 +800,16 @@ impl RenderApiInner {
             return false;
         };
 
-        if texture.format == GpuTextureFormat::Depth32Float {
+        if texture.format() == GpuTextureFormat::Depth32Float {
             return false;
         }
 
-        if mip_level >= texture.mip_level_count {
+        if mip_level >= texture.mip_level_count() {
             return false;
         }
 
-        let [width, height] = texture.size.map(|x| (x >> mip_level).max(1));
-        let bytes_per_row = width * texture.format.bytes_per_pixel() as usize;
+        let [width, height] = texture.size().map(|x| (x >> mip_level).max(1));
+        let bytes_per_row = width * texture.format().bytes_per_pixel() as usize;
 
         if data.len() < bytes_per_row * height {
             return false;
@@ -1083,7 +817,7 @@ impl RenderApiInner {
 
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfoBase {
-                texture: &texture.texture,
+                texture: &texture.texture(),
                 mip_level: mip_level as u32,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -1166,7 +900,7 @@ impl RenderApiInner {
         let Some(texture) = state.resources.textures.get(texture.id) else {
             return false;
         };
-        let Some(view) = texture.mip_views.get(mip_level) else {
+        let Some(view) = texture.mip_views().get(mip_level) else {
             return false;
         };
 
@@ -1199,23 +933,23 @@ impl RenderApiInner {
             return false;
         };
 
-        if src.format == GpuTextureFormat::Depth32Float || dst.format == GpuTextureFormat::Depth32Float {
+        if src.format() == GpuTextureFormat::Depth32Float || dst.format() == GpuTextureFormat::Depth32Float {
             return false;
         }
 
-        if !src.format.is_copy_compatible(dst.format) || src.size != dst.size {
+        if !src.format().is_copy_compatible(dst.format()) || src.size() != dst.size() {
             return false;
         }
 
-        let [width, height] = src.size;
+        let [width, height] = src.size();
 
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("aphyn copy encoder"),
         });
 
         encoder.copy_texture_to_texture(
-            src.texture.as_image_copy(),
-            dst.texture.as_image_copy(),
+            src.texture().as_image_copy(),
+            dst.texture().as_image_copy(),
             wgpu::Extent3d {
                 width: width as u32,
                 height: height as u32,
@@ -1336,7 +1070,7 @@ impl RenderApiInner {
             return false;
         };
 
-        if bind_group_count < shader.bind_group_layouts.len() {
+        if bind_group_count < shader.bind_group_layouts().len() {
             return false;
         }
 
@@ -1352,13 +1086,13 @@ impl RenderApiInner {
 
         let vertex_layouts = pass_vertex_buffers.iter().map(|buffer| buffer.layout()).collect::<Vec<_>>();
 
-        if !vertex_layouts_satisfy_attributes(&shader.vertex_attributes, &vertex_layouts) {
+        if !vertex_layouts_satisfy_attributes(&shader.vertex_attributes(), &vertex_layouts) {
             return false;
         }
 
-        let mut bind_groups = Vec::with_capacity(shader.bind_group_layouts.len());
+        let mut bind_groups = Vec::with_capacity(shader.bind_group_layouts().len());
 
-        for (group, layout) in shader.bind_group_layouts.iter().enumerate() {
+        for (group, layout) in shader.bind_group_layouts().iter().enumerate() {
             let Some(entries) = Self::resolve_bind_group_entries(resources, layout, group, bind_group_entries) else {
                 return false;
             };
@@ -1377,11 +1111,11 @@ impl RenderApiInner {
                 let Some(texture) = resources.textures.get(target.view.id) else {
                     return false;
                 };
-                let Some(view) = texture.mip_views.get(target.mip_level) else {
+                let Some(view) = texture.mip_views().get(target.mip_level) else {
                     return false;
                 };
 
-                Some((view, texture.format.to_wgpu(), target.ops))
+                Some((view, texture.format().to_wgpu(), target.ops))
             }
         };
         let depth = match pass_depth {
@@ -1390,11 +1124,11 @@ impl RenderApiInner {
                 let Some(texture) = resources.textures.get(depth.view.id) else {
                     return false;
                 };
-                let Some(view) = texture.mip_views.get(depth.mip_level) else {
+                let Some(view) = texture.mip_views().get(depth.mip_level) else {
                     return false;
                 };
 
-                Some((view, texture.format, depth.ops))
+                Some((view, texture.format(), depth.ops))
             }
         };
 
@@ -2006,7 +1740,7 @@ pub enum GpuPrimitiveTopology {
 }
 
 impl GpuPrimitiveTopology {
-    fn to_wgpu(self) -> wgpu::PrimitiveTopology {
+    pub(crate) fn to_wgpu(self) -> wgpu::PrimitiveTopology {
         match self {
             Self::PointList => wgpu::PrimitiveTopology::PointList,
             Self::LineList => wgpu::PrimitiveTopology::LineList,
@@ -2026,7 +1760,7 @@ pub enum GpuFrontFace {
 }
 
 impl GpuFrontFace {
-    fn to_wgpu(self) -> wgpu::FrontFace {
+    pub(crate) fn to_wgpu(self) -> wgpu::FrontFace {
         match self {
             Self::Ccw => wgpu::FrontFace::Ccw,
             Self::Cw => wgpu::FrontFace::Cw,
@@ -2044,7 +1778,7 @@ pub enum GpuCullMode {
 }
 
 impl GpuCullMode {
-    fn to_wgpu(self) -> Option<wgpu::Face> {
+    pub(crate) fn to_wgpu(self) -> Option<wgpu::Face> {
         match self {
             Self::None => None,
             Self::Front => Some(wgpu::Face::Front),
@@ -2080,7 +1814,7 @@ impl GpuBlendState {
         alpha: GpuBlendComponent::OVER,
     };
 
-    fn to_wgpu(self) -> Option<wgpu::BlendState> {
+    pub(crate) fn to_wgpu(self) -> Option<wgpu::BlendState> {
         Some(wgpu::BlendState {
             color: self.color.to_wgpu(),
             alpha: self.alpha.to_wgpu(),
@@ -2191,7 +1925,7 @@ pub enum GpuColorWrites {
 }
 
 impl GpuColorWrites {
-    fn to_wgpu(self) -> wgpu::ColorWrites {
+    pub(crate) fn to_wgpu(self) -> wgpu::ColorWrites {
         match self {
             Self::All => wgpu::ColorWrites::ALL,
             Self::Color => wgpu::ColorWrites::COLOR,
@@ -2214,7 +1948,7 @@ pub enum GpuCompareFunction {
 }
 
 impl GpuCompareFunction {
-    fn to_wgpu(self) -> wgpu::CompareFunction {
+    pub(crate) fn to_wgpu(self) -> wgpu::CompareFunction {
         match self {
             Self::Never => wgpu::CompareFunction::Never,
             Self::Less => wgpu::CompareFunction::Less,
@@ -2392,7 +2126,7 @@ pub enum GpuTextureFormat {
 }
 
 impl GpuTextureFormat {
-    fn to_wgpu(self) -> wgpu::TextureFormat {
+    pub(crate) fn to_wgpu(self) -> wgpu::TextureFormat {
         match self {
             Self::Rgba8Unorm => wgpu::TextureFormat::Rgba8Unorm,
             Self::Rgba8UnormSrgb => wgpu::TextureFormat::Rgba8UnormSrgb,
@@ -2620,7 +2354,7 @@ mod tests {
             encoder.copy_texture_to_buffer(
                 wgpu::TexelCopyTextureInfo {
                     mip_level: mip_level as u32,
-                    ..texture.texture.as_image_copy()
+                    ..texture.texture().as_image_copy()
                 },
                 wgpu::TexelCopyBufferInfo {
                     buffer: &buffer,
@@ -3046,7 +2780,7 @@ mod tests {
         let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
         let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 2);
 
-        let bind_group_count = |api: &RenderApiNew| api.inner().state.lock().unwrap().cache.bind_groups.len();
+        let bind_group_count = |api: &RenderApiNew| api.inner().state.lock().unwrap().cache.bind_groups().len();
 
         for mip_level in [None, Some(0), Some(1)] {
             assert!(draw_sampling_mip(&api, &shader, &target, 0, &texture, mip_level, &sampler));
@@ -3490,7 +3224,7 @@ mod tests {
         let buffer = api.create_uniform_storage_buffer(16);
         let other_buffer = api.create_uniform_storage_buffer(16);
 
-        let bind_group_count = |api: &RenderApiNew| api.inner().state.lock().unwrap().cache.bind_groups.len();
+        let bind_group_count = |api: &RenderApiNew| api.inner().state.lock().unwrap().cache.bind_groups().len();
 
         assert!(draw_with_bindings(&api, &shader, &target, &texture, &sampler, &buffer));
         assert!(draw_with_bindings(&api, &shader, &target, &other_texture, &sampler, &buffer));
@@ -3549,7 +3283,7 @@ mod tests {
             assert!(api.draw(&pass, 0..3, 0..1));
         }
 
-        let pipeline_count = |api: &RenderApiNew| api.inner().state.lock().unwrap().cache.pipelines.len();
+        let pipeline_count = |api: &RenderApiNew| api.inner().state.lock().unwrap().cache.pipelines().len();
 
         assert_eq!(pipeline_count(&api), 2);
 
@@ -3685,7 +3419,7 @@ mod tests {
         assert_eq!(texture.id.index, old_id.index);
         assert_ne!(texture.id.version, old_id.version);
         assert!(draw_with_bindings(&api, &shader, &target, &texture, &sampler, &buffer));
-        assert_eq!(api.inner().state.lock().unwrap().cache.bind_groups.len(), 1);
+        assert_eq!(api.inner().state.lock().unwrap().cache.bind_groups().len(), 1);
     }
 
     #[test]
@@ -3726,7 +3460,7 @@ mod tests {
         let state = api.inner().state.lock().unwrap();
 
         assert_eq!(state.resources.textures.len(), 0);
-        assert_eq!(state.cache.bind_groups.len(), 0);
+        assert_eq!(state.cache.bind_groups().len(), 0);
     }
 
     #[test]
@@ -3989,13 +3723,13 @@ mod tests {
         {
             let state = api.inner().state.lock().unwrap();
 
-            assert_eq!(state.cache.pipelines.len(), 1);
-            assert!(state.cache.pipelines.values().all(Option::is_none));
+            assert_eq!(state.cache.pipelines().len(), 1);
+            assert!(state.cache.pipelines().values().all(Option::is_none));
         }
 
         drop(shader);
 
-        assert_eq!(api.inner().state.lock().unwrap().cache.pipelines.len(), 0);
+        assert_eq!(api.inner().state.lock().unwrap().cache.pipelines().len(), 0);
     }
 
     #[test]
