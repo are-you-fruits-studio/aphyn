@@ -39,6 +39,10 @@
 //!
 //! Failed operations return `None` or `false`, and shader and validation errors are printed.
 //!
+//! [`RenderApiNew::create_shader`] returns `None` unless every `@location` input of `fs_main` is a
+//! `@location` output of `vs_main` with the same type. Extra outputs are allowed. Pipeline errors,
+//! such as a fragment output that does not fit the target format, only show at the first draw.
+//!
 //! Draws and clears work on one mip level at a time: [`GpuRenderPassTarget`] and
 //! [`GpuRenderPassDepth`] name the `mip_level` they render into. A [`GpuBinding::Texture`] samples
 //! either all mip levels (`mip_level: None`) or only one (`Some(level)`), so a pass can render mip
@@ -71,7 +75,12 @@
 //! computes tightly packed
 //! attribute offsets and rejects duplicate shader locations. [`GpuUniformStorageBuffer`] holds
 //! untyped bytes for bind groups, and [`GpuIndexBuffer`] stores its [`GpuIndexFormat`]. The
-//! `write_*_buffer_with` methods take byte offsets and sizes.
+//! `write_*_buffer_with` methods take byte offsets and sizes; the size is clamped to the end of the
+//! buffer, and the write returns `false` if the offset or the clamped size is not a multiple of 4.
+//!
+//! Buffers may be empty, and writes to an empty buffer return `false`. A draw with an empty vertex
+//! or index buffer returns `false`, even when its ranges are empty. An empty [`GpuUniformStorageBuffer`]
+//! can be bound where the shader's binding fits into 4 bytes; a larger binding makes the draw fail.
 //!
 //! A draw fails unless the pass's vertex buffers supply every attribute the shader declares, with
 //! the same type, and no two of them supply the same location. Attributes the shader does not read
@@ -90,6 +99,8 @@
 //! layouts, bind groups, pipeline layouts, and pipelines are created on first use and cached by
 //! value in `RenderApiCache`. Pipelines are keyed by the shader, the target formats, and the vertex
 //! buffer layouts of the pass, so one shader can be drawn with differently laid out buffers.
+//! A failed pipeline is cached as `None`, so its error prints once and later draws with the same key
+//! fail without retrying. It is evicted with its shader, like a successful one.
 //!
 //! Each `TextureResource` has a view of all mip levels and one view per level, all created with the
 //! texture. Render attachments always use a per-level view, because wgpu only renders into single-mip
@@ -127,12 +138,23 @@
 //!
 //! `create_shader` parses the WGSL with naga to derive the bind group layouts and the `@location`
 //! attributes of `vs_main`, from its arguments and struct members. Entry points must be
-//! named `vs_main` and `fs_main`. Storage textures and non-2D textures are rejected.
+//! named `vs_main` and `fs_main`, and both must exist. Storage textures and non-2D textures are rejected.
+//! The `@location` inputs of `fs_main` are checked against the outputs of `vs_main` by location and
+//! naga `TypeInner`; builtins and interpolation are not compared.
 //!
 //! #### Draws
 //!
 //! Every draw encodes and submits its own command encoder, and resolves its bind groups and
-//! pipeline through the caches.
+//! pipeline through the caches. `encode_pass` rejects empty vertex and index buffers before any wgpu
+//! call, because wgpu panics on slices of empty buffers.
+//!
+//! #### Buffer sizes
+//!
+//! Vertex and index buffers are allocated with their exact size. A uniform or storage buffer is
+//! allocated rounded up to `COPY_BUFFER_ALIGNMENT` and at least that, because a binding cannot be empty,
+//! while its handle reports and writes stay within the requested size. `Queue::write_buffer_with`
+//! panics on writes whose offset or size is not a multiple of 4, so `write_buffer_resource_with`
+//! rejects them first.
 
 mod buffers;
 pub use buffers::*;

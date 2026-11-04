@@ -1,5 +1,5 @@
 // todo: update to the latest wgpu
-// todo: expose labels
+// todo: expose labels in the APIs of all GPU resources
 // todo: ffi
 // todo: use Results instead of Option / bool
 
@@ -222,7 +222,7 @@ struct RenderApiCache {
     bind_group_layouts: HashMap<BindGroupLayoutEntries, wgpu::BindGroupLayout>,
     bind_groups: HashMap<BindGroupEntries, wgpu::BindGroup>,
     pipeline_layouts: HashMap<Vec<BindGroupLayoutEntries>, wgpu::PipelineLayout>,
-    pipelines: HashMap<PipelineKey, wgpu::RenderPipeline>,
+    pipelines: HashMap<PipelineKey, Option<wgpu::RenderPipeline>>,
 }
 
 #[derive(Default)]
@@ -395,7 +395,7 @@ impl RenderApiCache {
         key: PipelineKey,
     ) -> Option<wgpu::RenderPipeline> {
         if let Some(pipeline) = self.pipelines.get(&key) {
-            return Some(pipeline.clone());
+            return pipeline.clone();
         }
 
         let shader = resources.shaders.get(key.shader)?;
@@ -472,10 +472,11 @@ impl RenderApiCache {
 
         if let Some(err) = pollster::block_on(device.pop_error_scope()) {
             println!("failed to create render pipeline: {err}");
+            self.pipelines.insert(key, None);
             return None;
         }
 
-        self.pipelines.insert(key, pipeline.clone());
+        self.pipelines.insert(key, Some(pipeline.clone()));
 
         Some(pipeline)
     }
@@ -568,6 +569,71 @@ fn vertex_attribute_ty(ty: &naga::TypeInner) -> Option<GpuVertexBufferLayoutEntr
         (naga::ScalarKind::Sint, 4) => GpuVertexBufferLayoutEntryTy::Int4,
         _ => return None,
     })
+}
+
+fn check_stage_interface(module: &naga::Module) -> Option<()> {
+    let find_entry_point = |stage, name| {
+        module
+            .entry_points
+            .iter()
+            .find(|entry_point| entry_point.stage == stage && entry_point.name == name)
+    };
+
+    let Some(vertex) = find_entry_point(naga::ShaderStage::Vertex, "vs_main") else {
+        println!("shader has no vs_main vertex entry point");
+        return None;
+    };
+    let Some(fragment) = find_entry_point(naga::ShaderStage::Fragment, "fs_main") else {
+        println!("shader has no fs_main fragment entry point");
+        return None;
+    };
+
+    let mut outputs = Vec::new();
+
+    if let Some(result) = &vertex.function.result {
+        push_stage_locations(module, &mut outputs, result.binding.as_ref(), result.ty);
+    }
+
+    let mut inputs = Vec::new();
+
+    for argument in &fragment.function.arguments {
+        push_stage_locations(module, &mut inputs, argument.binding.as_ref(), argument.ty);
+    }
+
+    for (location, ty) in inputs {
+        match outputs.iter().find(|&&(output_location, _)| output_location == location) {
+            None => {
+                println!("fs_main reads @location({location}), which vs_main does not output");
+                return None;
+            }
+            Some(&(_, output_ty)) if output_ty != ty => {
+                println!("fs_main reads @location({location}) with a different type than vs_main outputs");
+                return None;
+            }
+            Some(_) => {}
+        }
+    }
+
+    Some(())
+}
+
+fn push_stage_locations<'a>(
+    module: &'a naga::Module,
+    locations: &mut Vec<(u32, &'a naga::TypeInner)>,
+    binding: Option<&naga::Binding>,
+    ty: naga::Handle<naga::Type>,
+) {
+    match (binding, &module.types[ty].inner) {
+        (Some(naga::Binding::Location { location, .. }), inner) => locations.push((*location, inner)),
+        (None, naga::TypeInner::Struct { members, .. }) => {
+            for member in members {
+                if let Some(naga::Binding::Location { location, .. }) = &member.binding {
+                    locations.push((*location, &module.types[member.ty].inner));
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 fn vertex_layouts_satisfy_attributes(attributes: &[VertexAttributeEntry], layouts: &[&GpuVertexBufferLayout]) -> bool {
@@ -798,9 +864,12 @@ impl RenderApiNew {
     }
 
     pub fn create_uniform_storage_buffer(&self, size: usize) -> GpuUniformStorageBuffer {
+        let alignment = wgpu::COPY_BUFFER_ALIGNMENT as usize;
+
+        // a binding cannot be empty, so the GPU buffer gets at least one aligned word
         let id = self.create_buffer_resource(
             "aphyn uniform storage buffer",
-            size,
+            size.next_multiple_of(alignment).max(alignment),
             wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::STORAGE,
         );
 
@@ -923,6 +992,7 @@ impl RenderApiNew {
         let parsed_module = parse_shader(wgsl)?;
         let bind_group_layouts = reflect_bind_group_layouts(&parsed_module)?;
         let vertex_attributes = reflect_vertex_attributes(&parsed_module)?;
+        check_stage_interface(&parsed_module)?;
 
         let mut state = self.state.lock().unwrap();
 
@@ -1001,6 +1071,12 @@ impl RenderApiNew {
         }
 
         size = size.min(buffer_size - offset);
+
+        // wgpu panics on unaligned writes instead of reporting a validation error
+        let alignment = wgpu::COPY_BUFFER_ALIGNMENT as usize;
+        if offset % alignment != 0 || size % alignment != 0 {
+            return false;
+        }
 
         let Some(size) = NonZeroU64::new(size as u64) else {
             return false;
@@ -1273,6 +1349,11 @@ impl RenderApiNew {
         draw: impl FnOnce(&mut wgpu::RenderPass),
     ) -> bool {
         let Self { device, queue, .. } = self;
+
+        // wgpu panics on slices of empty buffers
+        if pass.vertex_buffers.iter().any(|buffer| buffer.size() == 0) || index_buffer.is_some_and(|buffer| buffer.size() == 0) {
+            return false;
+        }
 
         let mut state = self.state.lock().unwrap();
         let RenderApiState { cache, resources } = &mut *state;
@@ -2558,6 +2639,180 @@ mod tests {
         api.draw(&pass, 0..3, 0..1)
     }
 
+    const VERTEX_INPUT_WGSL: &str = r#"
+        @vertex
+        fn vs_main(@location(0) position: vec2f) -> @builtin(position) vec4f {
+            return vec4f(position, 0.0, 1.0);
+        }
+
+        @fragment
+        fn fs_main() -> @location(0) vec4f {
+            return vec4f(1.0);
+        }
+    "#;
+
+    fn vertex_input_layout() -> GpuVertexBufferLayout {
+        GpuVertexBufferLayout::new(GpuVertexStepMode::Vertex, [(0, GpuVertexBufferLayoutEntryTy::Float2)]).unwrap()
+    }
+
+    #[test]
+    fn creates_empty_buffers() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let vertices = api.create_vertex_buffer(0, vertex_input_layout());
+        let uniforms = api.create_uniform_storage_buffer(0);
+        let indices = api.create_index_buffer(0, GpuIndexFormat::U16);
+
+        assert_eq!([vertices.size(), uniforms.size(), indices.size()], [0, 0, 0]);
+        assert_eq!(api.state.lock().unwrap().resources.buffers.len(), 3);
+
+        assert!(!api.write_vertex_buffer_with(&vertices, 0, 8, |_| unreachable!()));
+        assert!(!api.write_uniform_storage_buffer_with(&uniforms, 0, 4, |_| unreachable!()));
+        assert!(!api.write_index_buffer_with(&indices, 0, 2, |_| unreachable!()));
+    }
+
+    #[test]
+    fn uniform_storage_buffer_writes_stay_within_the_requested_size() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let buffer = api.create_uniform_storage_buffer(6);
+
+        assert_eq!(buffer.size(), 6);
+        assert!(!api.write_uniform_storage_buffer_with(&buffer, 6, 2, |_| unreachable!()));
+        assert!(api.write_uniform_storage_buffer_with(&buffer, 0, 4, |bytes| assert_eq!(bytes.len(), 4)));
+    }
+
+    #[test]
+    fn unaligned_writes_fail() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let uniforms = api.create_uniform_storage_buffer(6);
+        let indices = api.create_index_buffer(3, GpuIndexFormat::U16);
+
+        assert!(!api.write_uniform_storage_buffer_with(&uniforms, 4, 2, |_| unreachable!()));
+        assert!(!api.write_uniform_storage_buffer_with(&uniforms, 0, 6, |_| unreachable!()));
+        assert!(!api.write_uniform_storage_buffer_with(&uniforms, 2, 2, |_| unreachable!()));
+        assert!(!api.write_index_buffer_with(&indices, 0, 6, |_| unreachable!()));
+        assert!(api.write_index_buffer_with(&indices, 0, 4, |bytes| assert_eq!(bytes.len(), 4)));
+    }
+
+    #[test]
+    fn draw_with_an_empty_vertex_buffer_fails() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let shader = api.create_shader(VERTEX_INPUT_WGSL, GpuShaderDesc::default()).unwrap();
+        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let empty = api.create_vertex_buffer(0, vertex_input_layout());
+        let filled = api.create_vertex_buffer(3, vertex_input_layout());
+
+        let draw = |vertex_buffers: &[&GpuVertexBuffer], vertices| {
+            let pass = GpuRenderPass {
+                target: Some(GpuRenderPassTarget {
+                    view: &target,
+                    mip_level: 0,
+                    ops: GpuPassOps::Clear([0.0; 4]),
+                }),
+                vertex_buffers,
+                ..pass_without_target(&shader)
+            };
+
+            api.draw(&pass, vertices, 0..1)
+        };
+
+        assert!(draw(&[&filled], 0..3));
+        assert!(!draw(&[&empty], 0..0));
+        assert!(!draw(&[&empty], 0..3));
+    }
+
+    #[test]
+    fn draw_indexed_with_an_empty_index_buffer_fails() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let shader = api.create_shader(VERTEX_INPUT_WGSL, GpuShaderDesc::default()).unwrap();
+        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let vertices = api.create_vertex_buffer(3, vertex_input_layout());
+        let empty = api.create_index_buffer(0, GpuIndexFormat::U16);
+        let filled = api.create_index_buffer(3, GpuIndexFormat::U16);
+
+        let vertex_buffers = [&vertices];
+        let pass = GpuRenderPass {
+            target: Some(GpuRenderPassTarget {
+                view: &target,
+                mip_level: 0,
+                ops: GpuPassOps::Clear([0.0; 4]),
+            }),
+            vertex_buffers: &vertex_buffers,
+            ..pass_without_target(&shader)
+        };
+
+        assert!(api.draw_indexed(&pass, &filled, 0..3, 0..1));
+        assert!(!api.draw_indexed(&pass, &empty, 0..0, 0..1));
+        assert!(!api.draw_indexed(&pass, &empty, 0..3, 0..1));
+    }
+
+    #[test]
+    fn empty_uniform_storage_buffers_can_be_bound_where_they_fit() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let fitting_wgsl = r#"
+            @group(0) @binding(0) var<uniform> scale: f32;
+            @group(0) @binding(1) var<storage, read> values: array<f32>;
+
+            @vertex
+            fn vs_main(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
+                let uv = vec2f(f32((index << 1) & 2), f32(index & 2));
+                return vec4f(uv * 2.0 - 1.0, 0.0, 1.0);
+            }
+
+            @fragment
+            fn fs_main() -> @location(0) vec4f {
+                return vec4f(scale * values[0]);
+            }
+        "#;
+
+        let fitting_shader = api.create_shader(fitting_wgsl, GpuShaderDesc::default()).unwrap();
+        let larger_shader = api.create_shader(BINDINGS_WGSL, GpuShaderDesc::default()).unwrap();
+        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let sampler = api.create_sampler(GpuFilterMode::Linear);
+        let uniform = api.create_uniform_storage_buffer(0);
+        let storage = api.create_uniform_storage_buffer(0);
+
+        let bindings = [(0, GpuBinding::Buffer(&uniform)), (1, GpuBinding::Buffer(&storage))];
+        let bind_groups: [&[(usize, GpuBinding)]; 1] = [&bindings];
+        let pass = GpuRenderPass {
+            target: Some(GpuRenderPassTarget {
+                view: &target,
+                mip_level: 0,
+                ops: GpuPassOps::Clear([0.0; 4]),
+            }),
+            bind_groups: &bind_groups,
+            ..pass_without_target(&fitting_shader)
+        };
+
+        assert!(api.draw(&pass, 0..3, 0..1));
+        assert!(!draw_with_bindings(
+            &api,
+            &larger_shader,
+            &target,
+            &texture,
+            &sampler,
+            &uniform
+        ));
+    }
+
     #[test]
     fn dropping_handles_releases_resources() {
         let Some(api) = RenderApiNew::new_headless() else {
@@ -2902,5 +3157,150 @@ mod tests {
         assert!(!vertex_layouts_satisfy_attributes(&attributes, &[&vertices]));
         assert!(!vertex_layouts_satisfy_attributes(&attributes, &[&vertices, &wrong_type]));
         assert!(!vertex_layouts_satisfy_attributes(&attributes, &[&vertices, &duplicate]));
+    }
+
+    #[test]
+    fn rejects_fragment_inputs_the_vertex_stage_does_not_output() {
+        let wgsl = r#"
+            @vertex
+            fn vs_main(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
+                return vec4f(0.0);
+            }
+
+            @fragment
+            fn fs_main(@location(0) color: vec4f) -> @location(0) vec4f {
+                return color;
+            }
+        "#;
+
+        assert_eq!(check_stage_interface(&parse_shader(wgsl).unwrap()), None);
+
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        assert!(api.create_shader(wgsl, GpuShaderDesc::default()).is_none());
+    }
+
+    #[test]
+    fn accepts_matching_stage_interfaces_through_structs() {
+        let wgsl = r#"
+            struct VertexOutput {
+                @builtin(position) position: vec4f,
+                @location(0) color: vec4f,
+                @location(1) uv: vec2f,
+                @location(2) @interpolate(flat) id: u32,
+                @location(3) unused: vec3f,
+            }
+
+            struct FragmentInput {
+                @builtin(position) position: vec4f,
+                @location(1) uv: vec2f,
+                @location(2) @interpolate(flat) id: u32,
+            }
+
+            @vertex
+            fn vs_main(@builtin(vertex_index) index: u32) -> VertexOutput {
+                return VertexOutput(vec4f(0.0), vec4f(1.0), vec2f(0.0), index, vec3f(0.0));
+            }
+
+            @fragment
+            fn fs_main(input: FragmentInput, @location(0) color: vec4f) -> @location(0) vec4f {
+                return color * input.uv.x * f32(input.id);
+            }
+        "#;
+
+        assert_eq!(check_stage_interface(&parse_shader(wgsl).unwrap()), Some(()));
+
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        assert!(api.create_shader(wgsl, GpuShaderDesc::default()).is_some());
+    }
+
+    #[test]
+    fn rejects_stage_interface_type_mismatches() {
+        let wgsl = r#"
+            struct VertexOutput {
+                @builtin(position) position: vec4f,
+                @location(0) color: vec3f,
+            }
+
+            @vertex
+            fn vs_main() -> VertexOutput {
+                return VertexOutput(vec4f(0.0), vec3f(1.0));
+            }
+
+            @fragment
+            fn fs_main(@location(0) color: vec4f) -> @location(0) vec4f {
+                return color;
+            }
+        "#;
+
+        assert_eq!(check_stage_interface(&parse_shader(wgsl).unwrap()), None);
+
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        assert!(api.create_shader(wgsl, GpuShaderDesc::default()).is_none());
+    }
+
+    #[test]
+    fn rejects_shaders_without_a_fragment_entry_point() {
+        let wgsl = r#"
+            @vertex
+            fn vs_main() -> @builtin(position) vec4f {
+                return vec4f(0.0);
+            }
+        "#;
+
+        assert_eq!(check_stage_interface(&parse_shader(wgsl).unwrap()), None);
+    }
+
+    #[test]
+    fn failed_pipelines_are_created_once_and_evicted_with_the_shader() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let wgsl = r#"
+            @vertex
+            fn vs_main(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
+                return vec4f(0.0);
+            }
+
+            @fragment
+            fn fs_main() -> @location(0) vec4u {
+                return vec4u(1);
+            }
+        "#;
+
+        let shader = api.create_shader(wgsl, GpuShaderDesc::default()).unwrap();
+        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+
+        let pass = GpuRenderPass {
+            target: Some(GpuRenderPassTarget {
+                view: &target,
+                mip_level: 0,
+                ops: GpuPassOps::Clear([0.0; 4]),
+            }),
+            ..pass_without_target(&shader)
+        };
+
+        assert!(!api.draw(&pass, 0..3, 0..1));
+        assert!(!api.draw(&pass, 0..3, 0..1));
+
+        {
+            let state = api.state.lock().unwrap();
+
+            assert_eq!(state.cache.pipelines.len(), 1);
+            assert!(state.cache.pipelines.values().all(Option::is_none));
+        }
+
+        drop(shader);
+
+        assert_eq!(api.state.lock().unwrap().cache.pipelines.len(), 0);
     }
 }
