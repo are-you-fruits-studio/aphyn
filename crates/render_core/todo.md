@@ -190,6 +190,8 @@ Today a custom `StandardShader` is built against the fixed `pipeline_layout_stan
 
 ### 12. Make the API work across the FFI boundary
 
+**Done.** Core has its own vtable: `RenderApiNew` is `#[repr(C)] { data: FfiDroppable, vtable: FfiStaticRef<RenderApiVTable> }` over an `Arc<RenderApiInner>`, the pattern of `RenderApiResource`, and `RenderApiNew::clone` shares the inner API. Public signatures are unchanged: the wrappers convert to private `#[repr(C)]` mirrors (`FfiRenderPass` with `Option<&T>` fields and flat bind group entries tagged with their group, `FfiRange`, `FfiArray`, `FfiOption`, `FfiSliceRef`, `FfiStrSliceRef`), and buffer writers cross as `FfiFnMutMut<FfiSliceMut<u8>, ()>`. The two `GpuPassOps` instantiations are ABI-stable as they are. All tests now run through the vtable; new tests cover clones sharing resources, handles outliving every clone, and equal binding indices in different groups. Whether `raw()` survives is still decided in items 15-17. See "FFI" in the crate docs.
+
 The FFI requirement is not met (`todo: ffi` in `render_api_new.rs`). Engine data crosses a dynamic library boundary. `RenderApiResource` in `crates/render/src/render_api.rs` is `#[repr(C)]`, holds an `FfiDroppable` plus a static vtable of `extern "C-unwind"` functions, and marshals arguments with `aphyn_ffi` types.
 
 Things that cannot cross as they are:

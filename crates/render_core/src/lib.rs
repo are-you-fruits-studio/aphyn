@@ -65,6 +65,10 @@
 //! `Send + Sync`, so it can be used from several threads. Draws run one at a time. The `writer` closure
 //! of a `write_*_buffer_with` method runs without any lock held, so it may call back into the API.
 //!
+//! [`RenderApiNew::clone`] returns another handle to the same device and resources, so resources
+//! created through one clone can be drawn through any other. The API and its handles can be passed to
+//! a dynamically loaded library and used from there.
+//!
 //! [`RenderApiNew::draw_to_surface`] draws into the window and presents the frame, so it is one draw
 //! per frame. Its pass must have no `target`, and the load operation is passed separately. It returns
 //! `false` without presenting if the frame cannot be acquired or the draw fails.
@@ -98,6 +102,23 @@
 //!
 //! This crate sits below `aphyn_render`, which re-exports [`GpuVertexBufferLayout`] and its entry
 //! types from here. It must not depend on `aphyn_render` or on the ECS.
+//!
+//! #### FFI
+//!
+//! [`RenderApiNew`] is an `FfiDroppable` holding an `Arc<RenderApiInner>` plus a static vtable of
+//! `extern "C-unwind"` functions, the same pattern as `RenderApiResource` in `aphyn_render`, so all
+//! wgpu work runs in the binary that created the API. `RenderApiInner` holds the device, queue,
+//! surface and state, and implements every operation. The public methods keep Rust signatures and
+//! convert their arguments to private `#[repr(C)]` mirrors before calling the vtable: `FfiRenderPass`
+//! for [`GpuRenderPass`], `FfiRange` for ranges, `FfiArray` for arrays passed by value, `FfiOption`,
+//! `FfiSliceRef` and `FfiStrSliceRef`. Bind groups cross as one flat slice of entries tagged with their
+//! group, plus the group count, because nested `FfiSliceRef`s can't be read through a reference; this
+//! costs one `Vec` per draw. `Option<&T>` fields are ABI-stable as they are. Buffer writers cross as an
+//! `FfiFnMutMut` taking an `FfiSliceMut`, whose `'static` lifetime is a lie the wrapper keeps safe by
+//! only passing the slice on to the caller's `FnOnce(&mut [u8])`. `RenderApiNew::new` is generic over
+//! the window, so it only runs in the creating binary. Handle accessors such as [`GpuTexture::size`]
+//! read `#[repr(C)]` fields directly, and handles release through `FfiTypedDroppable`. Every new
+//! method needs a vtable entry and an `ffi_*` function in `RenderApiNew::from_inner`.
 //!
 //! #### Resources and caches
 //!
