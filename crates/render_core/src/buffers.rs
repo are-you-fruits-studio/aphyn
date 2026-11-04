@@ -117,7 +117,7 @@ impl GpuVertexBufferLayoutEntryTy {
         4
     }
 
-    pub fn wgpu_format(&self) -> VertexFormat {
+    pub(crate) fn wgpu_format(&self) -> VertexFormat {
         // todo: more variants
         match self {
             GpuVertexBufferLayoutEntryTy::Float => VertexFormat::Float32,
@@ -220,7 +220,7 @@ impl GpuVertexBufferLayout {
         self.total_align
     }
 
-    pub fn to_wgpu_attributes(&self) -> Vec<VertexAttribute> {
+    pub(crate) fn to_wgpu_attributes(&self) -> Vec<VertexAttribute> {
         self.entries
             .iter()
             .map(|e| VertexAttribute {
@@ -231,7 +231,7 @@ impl GpuVertexBufferLayout {
             .collect()
     }
 
-    pub fn desc<'a>(&self, attributes: &'a [VertexAttribute]) -> wgpu::VertexBufferLayout<'a> {
+    pub(crate) fn desc<'a>(&self, attributes: &'a [VertexAttribute]) -> wgpu::VertexBufferLayout<'a> {
         wgpu::VertexBufferLayout {
             array_stride: self.total_size as u64,
             step_mode: match self.step_mode {

@@ -157,8 +157,7 @@
 //! A [`GpuVertexBuffer`] has no CPU copy: [`write_vertices_with`](RenderApiResource::write_vertices_with)
 //! hands a [`GpuVertexWriter`] per element (clamped to the buffer length) that writes attributes by
 //! shader location straight into the upload staging memory; unset attributes are zero. Its
-//! [`GpuVertexBufferLayout`] carries the step mode, so the same type serves as an instance buffer,
-//! and builds the pipeline's `wgpu::VertexBufferLayout`:
+//! [`GpuVertexBufferLayout`] carries the step mode, so the same type serves as an instance buffer:
 //!
 //! ```ignore
 //! use aphyn_render::*;
@@ -168,8 +167,6 @@
 //!     [(5, GpuVertexBufferLayoutEntryTy::Float3), (6, GpuVertexBufferLayoutEntryTy::UInt)],
 //! )
 //! .unwrap(); // `None` on a duplicate location
-//! let attributes = layout.wgpu_attributes();
-//! let desc = layout.desc(&attributes);
 //!
 //! let instances = render_api.create_vertex_buffer(1024, layout);
 //! render_api.write_vertices_with(&instances, 0, 2, |w| {

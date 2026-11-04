@@ -211,6 +211,8 @@ The vtable can stay as it is while `aphyn_render_ecs` still reaches `RenderState
 
 ### 13. Remove wgpu from the public API
 
+**Done.** `wgpu_format`, `to_wgpu_attributes` and `desc` are `pub(crate)`; the pipeline builder in `render_api_new.rs` is their only caller. `RenderApiNew::new` (item 1) is bounded on raw-window-handle's `HasWindowHandle + HasDisplayHandle`, which winit windows implement, so callers need no wgpu dependency; core does not re-export these traits. The `ignore`d vertex buffer example in `aphyn_render`'s crate docs no longer calls these methods.
+
 These public items expose wgpu types, and a crate without a wgpu dependency cannot use them:
 
 - In `src/buffers.rs`: `GpuVertexBufferLayoutEntryTy::wgpu_format`, `GpuVertexBufferLayout::to_wgpu_attributes`, `GpuVertexBufferLayout::desc`. Make them `pub(crate)`. `use wgpu::{VertexAttribute, VertexFormat, VertexStepMode}` stays as an internal import.
