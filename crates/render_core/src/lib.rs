@@ -61,6 +61,11 @@
 //! Dropping a handle releases its GPU resource. Handles are not `Clone`, so each resource has one
 //! owner. A handle may outlive the [`RenderApiNew`] that created it, and dropping it then does nothing.
 //!
+//! Every handle has an `id()` method returning a [`GpuResourceId`], such as [`GpuTexture::id`], to tell
+//! whether two handles name the same resource. Ids are equal only for the same resource, are not reused
+//! after it is released, and differ between kinds, so a texture and a sampler never share one. They are
+//! unique only within one [`RenderApiNew`] and its clones; separately created APIs may produce equal ids.
+//!
 //! All [`RenderApiNew`] methods and buffer writes take shared references, and the API is
 //! `Send + Sync`, so it can be used from several threads. Draws run one at a time. The `writer` closure
 //! of a `write_*_buffer_with` method runs without any lock held, so it may call back into the API.
@@ -122,9 +127,11 @@
 //!
 //! #### Resources and caches
 //!
-//! Handles store a `VersionIndex` into the collections of `RenderApiResources`. Bind group
-//! layouts, bind groups, pipeline layouts, and pipelines are created on first use and cached by
-//! value in `RenderApiCache`. Pipelines are keyed by the shader, the target formats, and the vertex
+//! Handles store a `VersionIndex` into the collections of `RenderApiResources`. [`GpuResourceId`]
+//! wraps a `ResourceKey`, the kind of the resource plus its whole `VersionIndex`, so a slot reused
+//! after a release gets a new version and a new id. All buffer kinds share one collection and map to
+//! `ResourceKey::Buffer`. Bind group layouts, bind groups, pipeline layouts, and pipelines are created
+//! on first use and cached by value in `RenderApiCache`. Pipelines are keyed by the shader, the target formats, and the vertex
 //! buffer layouts of the pass, so one shader can be drawn with differently laid out buffers.
 //! A failed pipeline is cached as `None`, so its error prints once and later draws with the same key
 //! fail without retrying. It is evicted with its shader, like a successful one.

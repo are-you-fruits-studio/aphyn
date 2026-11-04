@@ -258,13 +258,18 @@ impl RenderApiState {
     }
 }
 
-#[derive(Copy, Clone)]
-enum ResourceKey {
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum ResourceKey {
     Texture(VersionIndex),
     Sampler(VersionIndex),
     Buffer(VersionIndex),
     Shader(VersionIndex),
 }
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct GpuResourceId(pub(crate) ResourceKey);
 
 pub(crate) struct ResourceGuard {
     state: Weak<Mutex<RenderApiState>>,
@@ -1957,6 +1962,12 @@ pub struct GpuShader {
     _guard: FfiTypedDroppable<ResourceGuard>,
 }
 
+impl GpuShader {
+    pub fn id(&self) -> GpuResourceId {
+        GpuResourceId(ResourceKey::Shader(self.id))
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Debug, PartialEq)]
 pub struct GpuShaderDesc {
@@ -2353,6 +2364,10 @@ pub struct GpuTexture {
 }
 
 impl GpuTexture {
+    pub fn id(&self) -> GpuResourceId {
+        GpuResourceId(ResourceKey::Texture(self.id))
+    }
+
     pub fn format(&self) -> GpuTextureFormat {
         self.format
     }
@@ -2414,6 +2429,12 @@ impl GpuTextureFormat {
 pub struct GpuSampler {
     id: VersionIndex,
     _guard: FfiTypedDroppable<ResourceGuard>,
+}
+
+impl GpuSampler {
+    pub fn id(&self) -> GpuResourceId {
+        GpuResourceId(ResourceKey::Sampler(self.id))
+    }
 }
 
 #[repr(C)]
@@ -3975,5 +3996,83 @@ mod tests {
         drop(shader);
 
         assert_eq!(api.inner().state.lock().unwrap().cache.pipelines.len(), 0);
+    }
+
+    #[test]
+    fn resource_id_is_stable_for_the_same_handle() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+
+        assert_eq!(texture.id(), texture.id());
+    }
+
+    #[test]
+    fn live_textures_have_different_resource_ids() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let first = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let second = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+
+        assert_ne!(first.id(), second.id());
+    }
+
+    #[test]
+    fn resource_id_is_not_reused_after_release() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let dropped = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let dropped_index = dropped.id;
+        let dropped_id = dropped.id();
+        drop(dropped);
+
+        let reused = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+
+        assert_eq!(reused.id.index, dropped_index.index);
+        assert_ne!(reused.id(), dropped_id);
+    }
+
+    #[test]
+    fn resource_ids_differ_between_kinds() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let sampler = api.create_sampler(GpuFilterMode::Nearest);
+        let shader = api.create_shader(FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
+        let buffer = api.create_uniform_storage_buffer(4);
+
+        assert_eq!(texture.id, sampler.id);
+        assert_eq!(texture.id, shader.id);
+        assert_eq!(texture.id, buffer.id);
+
+        let ids = [texture.id(), sampler.id(), shader.id(), buffer.id()];
+
+        for (i, a) in ids.iter().enumerate() {
+            for b in &ids[i + 1..] {
+                assert_ne!(a, b);
+            }
+        }
+    }
+
+    #[test]
+    fn resource_ids_are_shared_between_api_clones() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+        let clone = api.clone();
+
+        let original = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let through_clone = clone.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+
+        assert_ne!(original.id(), through_clone.id());
+        assert_eq!(through_clone.id.index, original.id.index + 1);
     }
 }

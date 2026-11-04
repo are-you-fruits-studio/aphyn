@@ -4,7 +4,7 @@ use aphyn_ffi::{FfiTypedDroppable, FfiVec};
 use aphyn_utils::index_version_collection::VersionIndex;
 use wgpu::{VertexAttribute, VertexFormat, VertexStepMode};
 
-use crate::render_api_new::ResourceGuard;
+use crate::render_api_new::{GpuResourceId, ResourceGuard, ResourceKey};
 
 pub(crate) struct BufferResource {
     pub(crate) buffer: wgpu::Buffer,
@@ -19,6 +19,10 @@ pub struct GpuVertexBuffer {
 }
 
 impl GpuVertexBuffer {
+    pub fn id(&self) -> GpuResourceId {
+        GpuResourceId(ResourceKey::Buffer(self.id))
+    }
+
     pub fn layout(&self) -> &GpuVertexBufferLayout {
         &self.layout
     }
@@ -40,6 +44,10 @@ pub struct GpuUniformStorageBuffer {
 }
 
 impl GpuUniformStorageBuffer {
+    pub fn id(&self) -> GpuResourceId {
+        GpuResourceId(ResourceKey::Buffer(self.id))
+    }
+
     pub fn size(&self) -> usize {
         self.size
     }
@@ -54,6 +62,10 @@ pub struct GpuIndexBuffer {
 }
 
 impl GpuIndexBuffer {
+    pub fn id(&self) -> GpuResourceId {
+        GpuResourceId(ResourceKey::Buffer(self.id))
+    }
+
     pub fn format(&self) -> GpuIndexFormat {
         self.format
     }

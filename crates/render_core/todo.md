@@ -222,6 +222,8 @@ These public items expose wgpu types, and a crate without a wgpu dependency cann
 
 ### 14. Add texture identity
 
+**Done.** By decision, not only textures: all six handles (`GpuTexture`, `GpuSampler`, `GpuShader`, `GpuVertexBuffer`, `GpuUniformStorageBuffer`, `GpuIndexBuffer`) have `id()` returning an opaque `GpuResourceId`, which wraps the private `ResourceKey` and derives `Copy`, `Eq` and `Hash`. The handles themselves have no `PartialEq`. The id includes the kind, so a texture and a sampler with the same `VersionIndex` differ, and the whole `VersionIndex`, so a resource created in a reused slot gets a new id. Ids are unique within one `RenderApiNew` and its clones only; separately created APIs may produce equal ids. Tests cover a stable id for one handle, different ids for two live textures, a new id after a slot is reused, pairwise different ids for the first texture, sampler, shader and buffer of a fresh API, and shared collections between API clones. In item 15, `next_texture_id` and the all-zero "never resolved" value can become `Option<GpuResourceId>`.
+
 The engine compares textures:
 
 - `recreate_exposure_render_resource`, `recreate_bloom_render_resource` and `recreate_color_grading_render_resource` in `systems.rs` compare `render_res.target_texture == current_rendering.target.native().texture` to detect a different target.
