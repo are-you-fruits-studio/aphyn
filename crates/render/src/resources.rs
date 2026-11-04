@@ -187,6 +187,22 @@ pub struct ColorGradingRenderResource {
     pub render_pipeline: RenderPipeline,
 }
 
+#[repr(C)]
+#[derive(Resource, Default)]
+pub struct FxaaResource {
+    pub is_enabled: bool,
+}
+
+// todo: support ffi
+#[derive(Resource)]
+pub struct FxaaRenderResource {
+    pub target_texture: Texture,
+    pub texture: Texture,
+    pub texture_view: TextureView,
+    pub bind_group: BindGroup,
+    pub render_pipeline: RenderPipeline,
+}
+
 // todo: support ffi
 #[derive(Resource)]
 pub struct StandardRenderResource {

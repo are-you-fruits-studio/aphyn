@@ -1000,6 +1000,127 @@ pub fn recreate_color_grading_render_resource(mut world: WorldDataMut) {
     }
 }
 
+pub fn recreate_fxaa_render_resource(mut world: WorldDataMut) {
+    if !world.as_ref().resources().get::<FxaaResource>().unwrap().is_enabled {
+        return;
+    }
+
+    let render_api = world.as_ref().resources().get::<RenderApiResource>().unwrap();
+
+    let current_rendering = world.as_ref().resources().get::<CurrentRenderingResource>().unwrap();
+
+    let screen_size = current_rendering.target_size();
+
+    let render_state = unsafe { render_api.raw() };
+
+    let mut contains_render_res = false;
+
+    if let Some(render_res) = world.as_ref().resources().get::<FxaaRenderResource>() {
+        contains_render_res = true;
+
+        let are_same_size = true
+            && render_res.texture.size().width == screen_size[0]
+            && render_res.texture.size().height == screen_size[1];
+
+        if are_same_size && render_res.target_texture == current_rendering.target_texture {
+            return;
+        }
+    }
+
+    let texture = render_state.device().create_texture(&TextureDescriptor {
+        label: Some("FXAA Temp Texture"),
+        size: Extent3d {
+            width: screen_size[0],
+            height: screen_size[1],
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: TextureDimension::D2,
+        format: RENDER_TARGET_FORMAT,
+        usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+
+    let texture_view = texture.create_view(&Default::default());
+
+    let sampler = render_state.device().create_sampler(&SamplerDescriptor {
+        label: Some("FXAA Sampler"),
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        address_mode_w: wgpu::AddressMode::ClampToEdge,
+        mag_filter: FilterMode::Linear,
+        min_filter: FilterMode::Linear,
+        mipmap_filter: FilterMode::Nearest,
+        compare: None,
+        lod_min_clamp: 0.0,
+        lod_max_clamp: 100.0,
+        ..Default::default()
+    });
+
+    let bind_group_layout = aphyn_render_core::create_bind_group_layout(
+        render_state.device(),
+        Some("FXAA Bind Group Layout"),
+        &[
+            CreateBindGroupLayoutEntry::Texture,
+            CreateBindGroupLayoutEntry::SamplerFiltering,
+        ],
+    );
+
+    let bind_group = create_bind_group(
+        render_state.device(),
+        Some("FXAA Bind Group"),
+        &bind_group_layout,
+        &[
+            CreateBindGroupEntry::Texture(&current_rendering.target_view),
+            CreateBindGroupEntry::Sampler(&sampler),
+        ],
+    );
+
+    let render_pipeline_layout = render_state.device().create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("FXAA Pipeline Layout"),
+        bind_group_layouts: &[&bind_group_layout],
+        push_constant_ranges: &[],
+    });
+
+    let shader = create_engine_shader_module(
+        render_state.device(),
+        "shader_fxaa.wgsl",
+        include_str!("./assets/shader_fxaa.wgsl"),
+        &[],
+    );
+
+    let render_pipeline = create_render_pipeline(
+        render_state.device(),
+        Some("FXAA Render Pipeline"),
+        &render_pipeline_layout,
+        &shader,
+        &[],
+        wgpu::ColorTargetState {
+            format: RENDER_TARGET_FORMAT,
+            blend: Some(wgpu::BlendState::REPLACE),
+            write_mask: wgpu::ColorWrites::ALL,
+        },
+        None,
+        wgpu::PrimitiveTopology::TriangleList,
+        Some(wgpu::Face::Back),
+    );
+
+    let render_res = FxaaRenderResource {
+        target_texture: current_rendering.target_texture.clone(),
+        texture,
+        texture_view,
+        bind_group,
+        render_pipeline,
+    };
+
+    if contains_render_res {
+        *world.resources_mut().get_mut().unwrap() = render_res;
+    } else {
+        world.resources_mut().insert(render_res);
+    }
+}
+
 pub fn create_gizmos_render_resource(mut world: WorldDataMut) {
     let render_state = unsafe { world.as_ref().resources().get::<RenderApiResource>().unwrap().raw() };
 
@@ -2109,6 +2230,56 @@ pub fn render_color_grading_system(
             current_rendering.target_texture.size(),
         );
     }
+
+    render_state.queue().submit([encoder.finish()]);
+}
+
+pub fn render_fxaa_system(
+    render_api: Res<RenderApiResource>,
+    fxaa_res: Res<FxaaResource>,
+    fxaa_render_res: Option<Res<FxaaRenderResource>>,
+    current_rendering: Res<CurrentRenderingResource>,
+) {
+    if !fxaa_res.is_enabled {
+        return;
+    }
+
+    let Some(fxaa_render_res) = fxaa_render_res else {
+        return;
+    };
+
+    let render_state = unsafe { render_api.raw() };
+
+    let mut encoder = render_state.device().create_command_encoder(&CommandEncoderDescriptor {
+        label: Some("FXAA Render Encoder"),
+    });
+
+    {
+        let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("FXAA Render Pass"),
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view: &fxaa_render_res.texture_view,
+                resolve_target: None,
+                ops: Operations {
+                    load: LoadOp::Clear(Color::BLACK),
+                    store: StoreOp::Store,
+                },
+                depth_slice: None,
+            })],
+            depth_stencil_attachment: None,
+            ..Default::default()
+        });
+
+        render_pass.set_pipeline(&fxaa_render_res.render_pipeline);
+        render_pass.set_bind_group(0, &fxaa_render_res.bind_group, &[]);
+        render_pass.draw(0..3, 0..1);
+    }
+
+    encoder.copy_texture_to_texture(
+        fxaa_render_res.texture.as_image_copy(),
+        current_rendering.target_texture.as_image_copy(),
+        current_rendering.target_texture.size(),
+    );
 
     render_state.queue().submit([encoder.finish()]);
 }

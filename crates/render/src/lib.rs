@@ -1,9 +1,9 @@
 //! # aphyn_render
 //!
 //! Draws the contents of the world to the screen — lit and unlit meshes with PBR materials,
-//! CPU-built batched geometry, and debug gizmo lines — followed by optional HDR
-//! post-processing (exposure, bloom, ACES color grading), making up the engine's standard
-//! rendering subsystem.
+//! CPU-built batched geometry, and debug gizmo lines — followed by optional post-processing
+//! (exposure, bloom, ACES color grading, FXAA), making up the engine's standard rendering
+//! subsystem.
 //!
 //! # How to use
 //!
@@ -100,7 +100,7 @@
 //!
 //! #### Turning on post-processing
 //!
-//! Exposure, bloom, and color grading are off by default. Enable them by editing their
+//! Exposure, bloom, color grading, and FXAA are off by default. Enable them by editing their
 //! resources, from setup code or from a system at runtime:
 //!
 //! ```ignore
@@ -110,6 +110,7 @@
 //!     mut exposure: ResMut<ExposureResource>,
 //!     mut bloom: ResMut<BloomResource>,
 //!     mut color_grading: ResMut<ColorGradingResource>,
+//!     mut fxaa: ResMut<FxaaResource>,
 //! ) {
 //!     exposure.is_enabled = true;
 //!     exposure.exposure = 0.5; // in stops: the image is multiplied by 2^exposure
@@ -118,6 +119,8 @@
 //!     bloom.threshold = 1.0;
 //!
 //!     color_grading.ty = Some(ColorGradingType::Aces);
+//!
+//!     fxaa.is_enabled = true;
 //! }
 //! ```
 //!
@@ -145,7 +148,7 @@
 //!
 //! [`add_render_module_to`] inserts the asset storages for materials, shaders, meshes, and textures and
 //! the user-facing resources ([`GizmosResource`], [`ScreenSpaceResource`], [`BloomResource`],
-//! [`ExposureResource`], [`ColorGradingResource`]), and registers its systems under the
+//! [`ExposureResource`], [`ColorGradingResource`], [`FxaaResource`]), and registers its systems under the
 //! [`SYSTEM_GROUP_RENDER`] group in three schedules. [`Schedule::Start`] builds the
 //! [`StandardRenderResource`] and the gizmo resources; pipelines are created against the fixed
 //! [`RENDER_TARGET_FORMAT`](aphyn_render_core::RENDER_TARGET_FORMAT),
@@ -158,10 +161,10 @@
 //! Everything else runs in [`Schedule::RenderCamera`], which `aphyn_app` executes after `Update`
 //! with a [`CurrentRenderingResource`](aphyn_render_core::CurrentRenderingResource) present. The
 //! explicit order is: recreate any intermediate target that no longer matches the current render
-//! target (depth, transparent, exposure, bloom, color grading), clear the depth and transparent
+//! target (depth, transparent, exposure, bloom, color grading, FXAA), clear the depth and transparent
 //! targets, update the camera matrix, upload the lights, update the global
 //! uniform, draw opaque geometry (one system, instanced then batched), draw transparent geometry (instanced then
-//! batched), composite the transparent target, apply exposure, bloom, and color grading, and
+//! batched), composite the transparent target, apply exposure, bloom, color grading, and FXAA, and
 //! finally draw gizmos. Every pass records its own command encoder and submits it immediately.
 //!
 //! #### Render targets and presentation
@@ -173,8 +176,8 @@
 //! draws into that target, with a `Depth32Float` [`DepthTextureResource`]. Window-to-clip matrices,
 //! the camera aspect, and the bloom viewports use the target size, not the window size. The
 //! `recreate_*` systems compare each intermediate texture against the target size and only
-//! rebuild when it changed, replacing the resource in place; the exposure, bloom, and color
-//! grading resources bind the target view, so they also keep a clone of the target texture and
+//! rebuild when it changed, replacing the resource in place; the exposure, bloom, color
+//! grading, and FXAA resources bind the target view, so they also keep a clone of the target texture and
 //! rebuild when a different target is passed.
 //!
 //! #### Two geometry paths: instanced and batched
@@ -270,6 +273,12 @@
 //! [`render_color_grading_system`] applies the ACES filmic curve
 //! (`shader_color_grading_aces.wgsl`) into its own texture and copies it back. Without color
 //! grading the HDR values are written to the surface unmapped.
+//! [`render_fxaa_system`] runs last so it judges edges on the tone-mapped image: it blends each
+//! high-contrast pixel across its edge (`shader_fxaa.wgsl`) into its own texture and copies it back.
+//! Luma is clamped to `0..=1`, so without color grading all values above 1 count as equally bright.
+//! UI is drawn into the same target, so FXAA softens it too. Unlike the other effects,
+//! [`recreate_fxaa_render_resource`] does nothing while FXAA is disabled, so
+//! [`FxaaRenderResource`] only exists once FXAA has been enabled during a rendering.
 //!
 //! #### Gizmos
 //!
@@ -310,6 +319,7 @@ pub fn add_render_module_to(mut world: WorldBuilderMut) {
     res.insert(BloomResource::default());
     res.insert(ExposureResource::default());
     res.insert(ColorGradingResource::default());
+    res.insert(FxaaResource::default());
 
     let mut world_behavior = world.behavior_mut();
 
@@ -337,6 +347,7 @@ pub fn add_render_module_to(mut world: WorldBuilderMut) {
         .insert_child_system(recreate_exposure_render_resource)
         .insert_child_system(recreate_bloom_render_resource)
         .insert_child_system(recreate_color_grading_render_resource)
+        .insert_child_system(recreate_fxaa_render_resource)
         .insert_child_system(clear_depth)
         .insert_child_system(clear_transparent_target)
         .insert_child_system(update_global_uniforms)
@@ -347,6 +358,7 @@ pub fn add_render_module_to(mut world: WorldBuilderMut) {
         .insert_child_system(render_exposure_system)
         .insert_child_system(render_bloom_system)
         .insert_child_system(render_color_grading_system)
+        .insert_child_system(render_fxaa_system)
         .insert_child_system(render_gizmos);
 
     render_camera
@@ -355,6 +367,7 @@ pub fn add_render_module_to(mut world: WorldBuilderMut) {
         .before_system(recreate_exposure_render_resource)
         .before_system(recreate_bloom_render_resource)
         .before_system(recreate_color_grading_render_resource)
+        .before_system(recreate_fxaa_render_resource)
         .before_system(clear_depth)
         .before_system(clear_transparent_target)
         .before_system(update_camera_uniform)
@@ -367,5 +380,6 @@ pub fn add_render_module_to(mut world: WorldBuilderMut) {
         .before_system(render_exposure_system)
         .before_system(render_bloom_system)
         .before_system(render_color_grading_system)
+        .before_system(render_fxaa_system)
         .before_system(render_gizmos);
 }

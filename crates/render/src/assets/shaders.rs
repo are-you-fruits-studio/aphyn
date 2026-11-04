@@ -63,6 +63,7 @@ mod tests {
                 include_str!("./shader_color_grading_aces.wgsl"),
                 &[],
             ),
+            ("shader_fxaa.wgsl", include_str!("./shader_fxaa.wgsl"), &[]),
             ("shader_gizmo.wgsl", include_str!("./shader_gizmo.wgsl"), &[]),
         ];
 
