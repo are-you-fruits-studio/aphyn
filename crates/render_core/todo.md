@@ -101,6 +101,8 @@ Add a test that creates all four formats on a real device.
 
 ### 5. Add additive blending and write masks
 
+**Done.** `GpuShaderDesc::blend` is a general `GpuBlendState` (color and alpha `GpuBlendComponent`s of `GpuBlendFactor` and `GpuBlendOperation`) with `REPLACE`, `ALPHA_BLENDING` and `PREMULTIPLIED_ALPHA_BLENDING` consts, replacing `GpuBlendMode`. Constant and dual-source factors are left out (`todo` in the code). `GpuShaderDesc::write_mask` is `GpuColorWrites::{All, Color}` (`todo` for per-channel masks). A test creates pipelines for all three engine blends below.
+
 `GpuBlendMode` only has `Replace`, `AlphaBlending` and `PremultipliedAlphaBlending`, and `get_or_create_pipeline` hardcodes `write_mask: wgpu::ColorWrites::ALL`. The engine also needs:
 
 | Pipeline | Where | Color blend | Alpha blend | Write mask |

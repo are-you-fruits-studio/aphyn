@@ -398,7 +398,7 @@ impl RenderApiCache {
             .map(|format| wgpu::ColorTargetState {
                 format,
                 blend: desc.blend.to_wgpu(),
-                write_mask: wgpu::ColorWrites::ALL,
+                write_mask: desc.write_mask.to_wgpu(),
             })
             .into_iter()
             .map(Some)
@@ -1294,7 +1294,8 @@ pub struct GpuShaderDesc {
     pub topology: GpuPrimitiveTopology,
     pub front_face: GpuFrontFace,
     pub cull_mode: GpuCullMode,
-    pub blend: GpuBlendMode,
+    pub blend: GpuBlendState,
+    pub write_mask: GpuColorWrites,
     pub depth_write: bool,
     pub depth_compare: GpuCompareFunction,
 }
@@ -1306,6 +1307,7 @@ impl Default for GpuShaderDesc {
             front_face: Default::default(),
             cull_mode: Default::default(),
             blend: Default::default(),
+            write_mask: Default::default(),
             depth_write: true,
             depth_compare: Default::default(),
         }
@@ -1372,21 +1374,148 @@ impl GpuCullMode {
 }
 
 #[repr(C)]
-#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub enum GpuBlendMode {
-    #[default]
-    Replace,
-    AlphaBlending,
-    PremultipliedAlphaBlending,
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct GpuBlendState {
+    pub color: GpuBlendComponent,
+    pub alpha: GpuBlendComponent,
 }
 
-impl GpuBlendMode {
+impl GpuBlendState {
+    pub const REPLACE: Self = Self {
+        color: GpuBlendComponent::REPLACE,
+        alpha: GpuBlendComponent::REPLACE,
+    };
+
+    pub const ALPHA_BLENDING: Self = Self {
+        color: GpuBlendComponent {
+            src_factor: GpuBlendFactor::SrcAlpha,
+            dst_factor: GpuBlendFactor::OneMinusSrcAlpha,
+            operation: GpuBlendOperation::Add,
+        },
+        alpha: GpuBlendComponent::OVER,
+    };
+
+    pub const PREMULTIPLIED_ALPHA_BLENDING: Self = Self {
+        color: GpuBlendComponent::OVER,
+        alpha: GpuBlendComponent::OVER,
+    };
+
     fn to_wgpu(self) -> Option<wgpu::BlendState> {
-        Some(match self {
-            Self::Replace => wgpu::BlendState::REPLACE,
-            Self::AlphaBlending => wgpu::BlendState::ALPHA_BLENDING,
-            Self::PremultipliedAlphaBlending => wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING,
+        Some(wgpu::BlendState {
+            color: self.color.to_wgpu(),
+            alpha: self.alpha.to_wgpu(),
         })
+    }
+}
+
+impl Default for GpuBlendState {
+    fn default() -> Self {
+        Self::REPLACE
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct GpuBlendComponent {
+    pub src_factor: GpuBlendFactor,
+    pub dst_factor: GpuBlendFactor,
+    pub operation: GpuBlendOperation,
+}
+
+impl GpuBlendComponent {
+    pub const REPLACE: Self = Self {
+        src_factor: GpuBlendFactor::One,
+        dst_factor: GpuBlendFactor::Zero,
+        operation: GpuBlendOperation::Add,
+    };
+
+    pub const OVER: Self = Self {
+        src_factor: GpuBlendFactor::One,
+        dst_factor: GpuBlendFactor::OneMinusSrcAlpha,
+        operation: GpuBlendOperation::Add,
+    };
+
+    fn to_wgpu(self) -> wgpu::BlendComponent {
+        wgpu::BlendComponent {
+            src_factor: self.src_factor.to_wgpu(),
+            dst_factor: self.dst_factor.to_wgpu(),
+            operation: self.operation.to_wgpu(),
+        }
+    }
+}
+
+// todo: constant factors (needs a way to set the blend constant) and dual-source `Src1*` factors
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum GpuBlendFactor {
+    Zero,
+    One,
+    Src,
+    OneMinusSrc,
+    SrcAlpha,
+    OneMinusSrcAlpha,
+    Dst,
+    OneMinusDst,
+    DstAlpha,
+    OneMinusDstAlpha,
+    SrcAlphaSaturated,
+}
+
+impl GpuBlendFactor {
+    fn to_wgpu(self) -> wgpu::BlendFactor {
+        match self {
+            Self::Zero => wgpu::BlendFactor::Zero,
+            Self::One => wgpu::BlendFactor::One,
+            Self::Src => wgpu::BlendFactor::Src,
+            Self::OneMinusSrc => wgpu::BlendFactor::OneMinusSrc,
+            Self::SrcAlpha => wgpu::BlendFactor::SrcAlpha,
+            Self::OneMinusSrcAlpha => wgpu::BlendFactor::OneMinusSrcAlpha,
+            Self::Dst => wgpu::BlendFactor::Dst,
+            Self::OneMinusDst => wgpu::BlendFactor::OneMinusDst,
+            Self::DstAlpha => wgpu::BlendFactor::DstAlpha,
+            Self::OneMinusDstAlpha => wgpu::BlendFactor::OneMinusDstAlpha,
+            Self::SrcAlphaSaturated => wgpu::BlendFactor::SrcAlphaSaturated,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum GpuBlendOperation {
+    Add,
+    Subtract,
+    ReverseSubtract,
+    Min,
+    Max,
+}
+
+impl GpuBlendOperation {
+    fn to_wgpu(self) -> wgpu::BlendOperation {
+        match self {
+            Self::Add => wgpu::BlendOperation::Add,
+            Self::Subtract => wgpu::BlendOperation::Subtract,
+            Self::ReverseSubtract => wgpu::BlendOperation::ReverseSubtract,
+            Self::Min => wgpu::BlendOperation::Min,
+            Self::Max => wgpu::BlendOperation::Max,
+        }
+    }
+}
+
+// todo: per-channel write masks
+#[repr(C)]
+#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum GpuColorWrites {
+    #[default]
+    All,
+    Color,
+}
+
+impl GpuColorWrites {
+    fn to_wgpu(self) -> wgpu::ColorWrites {
+        match self {
+            Self::All => wgpu::ColorWrites::ALL,
+            Self::Color => wgpu::ColorWrites::COLOR,
+        }
     }
 }
 
@@ -1672,6 +1801,63 @@ mod tests {
             };
 
             assert!(api.draw(&pass, 0..3, 0..1));
+        }
+    }
+
+    #[test]
+    fn draws_with_engine_blend_states_and_write_masks() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let additive = GpuBlendComponent {
+            src_factor: GpuBlendFactor::One,
+            dst_factor: GpuBlendFactor::One,
+            operation: GpuBlendOperation::Add,
+        };
+        let descs = [
+            (GpuBlendState::REPLACE, GpuColorWrites::All),
+            (GpuBlendState::ALPHA_BLENDING, GpuColorWrites::All),
+            (GpuBlendState::PREMULTIPLIED_ALPHA_BLENDING, GpuColorWrites::All),
+            (
+                GpuBlendState {
+                    color: GpuBlendComponent {
+                        src_factor: GpuBlendFactor::SrcAlpha,
+                        ..additive
+                    },
+                    alpha: additive,
+                },
+                GpuColorWrites::All,
+            ),
+            (
+                GpuBlendState {
+                    color: additive,
+                    alpha: additive,
+                },
+                GpuColorWrites::All,
+            ),
+            (GpuBlendState::ALPHA_BLENDING, GpuColorWrites::Color),
+        ];
+
+        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba16Float, 1);
+
+        for (blend, write_mask) in descs {
+            let desc = GpuShaderDesc {
+                blend,
+                write_mask,
+                ..Default::default()
+            };
+            let shader = api.create_shader(FULLSCREEN_WGSL, desc).unwrap();
+
+            let pass = GpuRenderPass {
+                target: Some(GpuRenderPassTarget {
+                    view: &target,
+                    ops: GpuPassOps::Clear([0.0; 4]),
+                }),
+                ..pass_without_target(&shader)
+            };
+
+            assert!(api.draw(&pass, 0..3, 0..1), "{blend:?} {write_mask:?}");
         }
     }
 
