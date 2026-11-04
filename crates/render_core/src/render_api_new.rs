@@ -80,11 +80,15 @@ impl BindGroupBindingTy {
 
     fn accepts(self, binding: BindGroupBinding, resources: &RenderApiResources) -> bool {
         match (self, binding) {
-            (Self::Texture(kind), BindGroupBinding::Texture(texture)) => match resources.textures.get(texture) {
-                Some(texture) => match texture.format {
-                    GpuTextureFormat::Depth32Float => kind == TextureSampleKind::Depth,
-                    _ => kind == TextureSampleKind::Float,
-                },
+            (Self::Texture(kind), BindGroupBinding::Texture(texture, mip_level)) => match resources.textures.get(texture) {
+                Some(texture) => {
+                    let is_kind_matching = match texture.format {
+                        GpuTextureFormat::Depth32Float => kind == TextureSampleKind::Depth,
+                        _ => kind == TextureSampleKind::Float,
+                    };
+
+                    is_kind_matching && texture.view(mip_level).is_some()
+                }
                 None => false,
             },
             (Self::Sampler | Self::ComparisonSampler, BindGroupBinding::Sampler(sampler)) => match resources.samplers.get(sampler) {
@@ -114,15 +118,26 @@ impl Borrow<[BindGroupLayoutEntry]> for BindGroupLayoutEntries {
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 enum BindGroupBinding {
-    Texture(VersionIndex),
+    Texture(VersionIndex, Option<usize>),
     Sampler(VersionIndex),
     Buffer(VersionIndex),
 }
 
 impl BindGroupBinding {
+    fn refers_to(self, key: ResourceKey) -> bool {
+        match (self, key) {
+            (Self::Texture(id, _), ResourceKey::Texture(key_id))
+            | (Self::Sampler(id), ResourceKey::Sampler(key_id))
+            | (Self::Buffer(id), ResourceKey::Buffer(key_id)) => id == key_id,
+            _ => false,
+        }
+    }
+
     fn to_wgpu<'a>(self, resources: &'a RenderApiResources) -> Option<wgpu::BindingResource<'a>> {
         Some(match self {
-            Self::Texture(texture) => wgpu::BindingResource::TextureView(&resources.textures.get(texture)?.texture_view),
+            Self::Texture(texture, mip_level) => {
+                wgpu::BindingResource::TextureView(resources.textures.get(texture)?.view(mip_level)?)
+            }
             Self::Sampler(sampler) => wgpu::BindingResource::Sampler(&resources.samplers.get(sampler)?.sampler),
             Self::Buffer(buffer) => resources.buffers.get(buffer)?.buffer.as_entire_binding(),
         })
@@ -167,9 +182,19 @@ struct SurfaceDrawTarget<'a> {
 struct TextureResource {
     texture: wgpu::Texture,
     texture_view: wgpu::TextureView,
+    mip_views: Vec<wgpu::TextureView>,
     format: GpuTextureFormat,
     size: [usize; 2],
     mip_level_count: usize,
+}
+
+impl TextureResource {
+    fn view(&self, mip_level: Option<usize>) -> Option<&wgpu::TextureView> {
+        match mip_level {
+            None => Some(&self.texture_view),
+            Some(mip_level) => self.mip_views.get(mip_level),
+        }
+    }
 }
 
 struct SamplerResource {
@@ -210,29 +235,26 @@ impl RenderApiState {
     fn release(&mut self, key: ResourceKey) {
         let Self { cache, resources } = self;
 
-        let binding = match key {
+        match key {
             ResourceKey::Texture(id) => {
                 resources.textures.remove(id);
-                BindGroupBinding::Texture(id)
             }
             ResourceKey::Sampler(id) => {
                 resources.samplers.remove(id);
-                BindGroupBinding::Sampler(id)
             }
             ResourceKey::Buffer(id) => {
                 resources.buffers.remove(id);
-                BindGroupBinding::Buffer(id)
             }
             ResourceKey::Shader(id) => {
                 resources.shaders.remove(id);
                 cache.pipelines.retain(|key, _| key.shader != id);
                 return;
             }
-        };
+        }
 
         cache
             .bind_groups
-            .retain(|key, _| !key.entries.iter().any(|&(_, _, entry)| entry == binding));
+            .retain(|entries, _| !entries.entries.iter().any(|&(_, _, entry)| entry.refers_to(key)));
     }
 }
 
@@ -833,10 +855,20 @@ impl RenderApiNew {
         });
 
         let texture_view = texture.create_view(&Default::default());
+        let mip_views = (0..mip_level_count)
+            .map(|mip_level| {
+                texture.create_view(&wgpu::TextureViewDescriptor {
+                    base_mip_level: mip_level as u32,
+                    mip_level_count: Some(1),
+                    ..Default::default()
+                })
+            })
+            .collect();
 
         let texture_resource = TextureResource {
             texture,
             texture_view,
+            mip_views,
             format,
             size,
             mip_level_count,
@@ -848,6 +880,7 @@ impl RenderApiNew {
             id,
             format,
             size,
+            mip_level_count,
             _guard: self.create_guard(ResourceKey::Texture(id)),
         }
     }
@@ -1036,12 +1069,12 @@ impl RenderApiNew {
         })
     }
 
-    pub fn clear_color_texture(&self, texture: &GpuTexture, color: [f32; 4]) -> bool {
+    pub fn clear_color_texture(&self, texture: &GpuTexture, mip_level: usize, color: [f32; 4]) -> bool {
         if texture.format == GpuTextureFormat::Depth32Float {
             return false;
         }
 
-        self.clear_texture_resource(texture, |encoder, view| {
+        self.clear_texture_resource(texture, mip_level, |encoder, view| {
             encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("aphyn clear pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1058,12 +1091,12 @@ impl RenderApiNew {
         })
     }
 
-    pub fn clear_depth_texture(&self, texture: &GpuTexture, depth: f32) -> bool {
+    pub fn clear_depth_texture(&self, texture: &GpuTexture, mip_level: usize, depth: f32) -> bool {
         if texture.format != GpuTextureFormat::Depth32Float {
             return false;
         }
 
-        self.clear_texture_resource(texture, |encoder, view| {
+        self.clear_texture_resource(texture, mip_level, |encoder, view| {
             encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("aphyn clear pass"),
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
@@ -1082,6 +1115,7 @@ impl RenderApiNew {
     fn clear_texture_resource(
         &self,
         texture: &GpuTexture,
+        mip_level: usize,
         begin_pass: impl FnOnce(&mut wgpu::CommandEncoder, &wgpu::TextureView),
     ) -> bool {
         let Self { device, queue, .. } = self;
@@ -1091,13 +1125,9 @@ impl RenderApiNew {
         let Some(texture) = state.resources.textures.get(texture.id) else {
             return false;
         };
-
-        // todo: clear other mip levels
-        let view = texture.texture.create_view(&wgpu::TextureViewDescriptor {
-            base_mip_level: 0,
-            mip_level_count: Some(1),
-            ..Default::default()
-        });
+        let Some(view) = texture.mip_views.get(mip_level) else {
+            return false;
+        };
 
         device.push_error_scope(wgpu::ErrorFilter::Validation);
 
@@ -1105,7 +1135,7 @@ impl RenderApiNew {
             label: Some("aphyn clear encoder"),
         });
 
-        begin_pass(&mut encoder, &view);
+        begin_pass(&mut encoder, view);
 
         queue.submit([encoder.finish()]);
 
@@ -1278,23 +1308,35 @@ impl RenderApiNew {
             (Some(_), Some(_)) => return false,
             (Some(surface), None) => Some((surface.view, surface.format, surface.ops)),
             (None, None) => None,
-            (None, Some(target)) => match resources.textures.get(target.view.id) {
-                Some(texture) => Some((&texture.texture_view, texture.format.to_wgpu(), target.ops)),
-                None => return false,
-            },
+            (None, Some(target)) => {
+                let Some(texture) = resources.textures.get(target.view.id) else {
+                    return false;
+                };
+                let Some(view) = texture.mip_views.get(target.mip_level) else {
+                    return false;
+                };
+
+                Some((view, texture.format.to_wgpu(), target.ops))
+            }
         };
         let depth = match &pass.depth {
             None => None,
-            Some(depth) => match resources.textures.get(depth.view.id) {
-                Some(texture) => Some((texture, depth.ops)),
-                None => return false,
-            },
+            Some(depth) => {
+                let Some(texture) = resources.textures.get(depth.view.id) else {
+                    return false;
+                };
+                let Some(view) = texture.mip_views.get(depth.mip_level) else {
+                    return false;
+                };
+
+                Some((view, texture.format, depth.ops))
+            }
         };
 
         let pipeline_key = PipelineKey {
             shader: pass.shader.id,
             target: target.map(|(_, format, _)| format),
-            depth: depth.map(|(texture, _)| texture.format),
+            depth: depth.map(|(_, format, _)| format),
             // todo: avoid cloning the layouts into the key on every draw
             vertex_buffers: vertex_layouts.iter().map(|&layout| layout.clone()).collect(),
         };
@@ -1332,8 +1374,8 @@ impl RenderApiNew {
             .into_iter()
             .map(Some)
             .collect::<Vec<_>>();
-        let depth_stencil_attachment = depth.map(|(texture, ops)| wgpu::RenderPassDepthStencilAttachment {
-            view: &texture.texture_view,
+        let depth_stencil_attachment = depth.map(|(view, _, ops)| wgpu::RenderPassDepthStencilAttachment {
+            view,
             depth_ops: Some(wgpu::Operations {
                 load: ops.to_wgpu(),
                 store: wgpu::StoreOp::Store,
@@ -1683,7 +1725,11 @@ pub struct GpuRenderPass<'a> {
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub enum GpuBinding<'a> {
-    Texture(&'a GpuTexture),
+    // `None` binds all mip levels
+    Texture {
+        texture: &'a GpuTexture,
+        mip_level: Option<usize>,
+    },
     Sampler(&'a GpuSampler),
     Buffer(&'a GpuUniformStorageBuffer),
 }
@@ -1691,7 +1737,7 @@ pub enum GpuBinding<'a> {
 impl GpuBinding<'_> {
     fn to_internal(self) -> BindGroupBinding {
         match self {
-            Self::Texture(texture) => BindGroupBinding::Texture(texture.id),
+            Self::Texture { texture, mip_level } => BindGroupBinding::Texture(texture.id, mip_level),
             Self::Sampler(sampler) => BindGroupBinding::Sampler(sampler.id),
             Self::Buffer(buffer) => BindGroupBinding::Buffer(buffer.id),
         }
@@ -1750,11 +1796,13 @@ impl GpuPassOps<f32> {
 #[repr(C)]
 pub struct GpuRenderPassTarget<'a> {
     pub view: &'a GpuTexture,
+    pub mip_level: usize,
     pub ops: GpuPassOps<[f32; 4]>,
 }
 #[repr(C)]
 pub struct GpuRenderPassDepth<'a> {
     pub view: &'a GpuTexture,
+    pub mip_level: usize,
     pub ops: GpuPassOps<f32>,
 }
 
@@ -1763,6 +1811,7 @@ pub struct GpuTexture {
     id: VersionIndex,
     format: GpuTextureFormat,
     size: [usize; 2],
+    mip_level_count: usize,
     _guard: FfiTypedDroppable<ResourceGuard>,
 }
 
@@ -1773,6 +1822,10 @@ impl GpuTexture {
 
     pub fn size(&self) -> [usize; 2] {
         self.size
+    }
+
+    pub fn mip_level_count(&self) -> usize {
+        self.mip_level_count
     }
 }
 
@@ -1885,6 +1938,7 @@ mod tests {
         let pass = GpuRenderPass {
             target: Some(GpuRenderPassTarget {
                 view: &target,
+                mip_level: 0,
                 ops: GpuPassOps::Clear([0.0; 4]),
             }),
             ..pass_without_target(&shader)
@@ -1915,10 +1969,12 @@ mod tests {
             let pass = GpuRenderPass {
                 target: Some(GpuRenderPassTarget {
                     view: &target,
+                    mip_level: 0,
                     ops: GpuPassOps::Clear([0.0; 4]),
                 }),
                 depth: Some(GpuRenderPassDepth {
                     view: &depth,
+                    mip_level: 0,
                     ops: GpuPassOps::Clear(1.0),
                 }),
                 ..pass_without_target(&shader)
@@ -1976,6 +2032,7 @@ mod tests {
             let pass = GpuRenderPass {
                 target: Some(GpuRenderPassTarget {
                     view: &target,
+                    mip_level: 0,
                     ops: GpuPassOps::Clear([0.0; 4]),
                 }),
                 ..pass_without_target(&shader)
@@ -1985,8 +2042,8 @@ mod tests {
         }
     }
 
-    fn read_texture_rgba8(api: &RenderApiNew, texture: &GpuTexture) -> Vec<u8> {
-        let [width, height] = texture.size;
+    fn read_texture_rgba8(api: &RenderApiNew, texture: &GpuTexture, mip_level: usize) -> Vec<u8> {
+        let [width, height] = texture.size.map(|x| (x >> mip_level).max(1));
         let bytes_per_row = width * 4;
         let padded_bytes_per_row = bytes_per_row.next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize);
 
@@ -2003,7 +2060,10 @@ mod tests {
             let texture = state.resources.textures.get(texture.id).unwrap();
 
             encoder.copy_texture_to_buffer(
-                texture.texture.as_image_copy(),
+                wgpu::TexelCopyTextureInfo {
+                    mip_level: mip_level as u32,
+                    ..texture.texture.as_image_copy()
+                },
                 wgpu::TexelCopyBufferInfo {
                     buffer: &buffer,
                     layout: wgpu::TexelCopyBufferLayout {
@@ -2044,10 +2104,10 @@ mod tests {
                 let texture = api.create_texture([4, 4], format, mip_level_count);
 
                 assert!(
-                    api.clear_color_texture(&texture, [0.0, 0.5, 1.0, 1.0]),
+                    api.clear_color_texture(&texture, 0, [0.0, 0.5, 1.0, 1.0]),
                     "{format:?} {mip_level_count}"
                 );
-                assert!(!api.clear_depth_texture(&texture, 1.0), "{format:?} {mip_level_count}");
+                assert!(!api.clear_depth_texture(&texture, 0, 1.0), "{format:?} {mip_level_count}");
             }
         }
     }
@@ -2060,8 +2120,8 @@ mod tests {
 
         let texture = api.create_texture([4, 4], GpuTextureFormat::Depth32Float, 1);
 
-        assert!(api.clear_depth_texture(&texture, 1.0));
-        assert!(!api.clear_color_texture(&texture, [0.0; 4]));
+        assert!(api.clear_depth_texture(&texture, 0, 1.0));
+        assert!(!api.clear_color_texture(&texture, 0, [0.0; 4]));
     }
 
     #[test]
@@ -2072,11 +2132,228 @@ mod tests {
 
         let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
 
-        assert!(api.clear_color_texture(&texture, [1.0, 0.0, 1.0, 0.0]));
+        assert!(api.clear_color_texture(&texture, 0, [1.0, 0.0, 1.0, 0.0]));
 
-        let pixels = read_texture_rgba8(&api, &texture);
+        let pixels = read_texture_rgba8(&api, &texture, 0);
 
         assert_eq!(pixels, [255, 0, 255, 0].repeat(16));
+    }
+
+    #[test]
+    fn clears_a_single_mip_level() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 3);
+
+        assert_eq!(texture.mip_level_count(), 3);
+        assert!(api.clear_color_texture(&texture, 0, [1.0, 0.0, 0.0, 1.0]));
+        assert!(api.clear_color_texture(&texture, 1, [0.0, 1.0, 0.0, 1.0]));
+        assert!(api.clear_color_texture(&texture, 2, [0.0, 0.0, 1.0, 1.0]));
+
+        assert_eq!(read_texture_rgba8(&api, &texture, 0), [255, 0, 0, 255].repeat(16));
+        assert_eq!(read_texture_rgba8(&api, &texture, 1), [0, 255, 0, 255].repeat(4));
+        assert_eq!(read_texture_rgba8(&api, &texture, 2), [0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn draws_into_a_single_mip_level() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let shader = api.create_shader(FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
+        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 3);
+
+        for mip_level in 0..3 {
+            for clear_level in 0..3 {
+                assert!(api.clear_color_texture(&texture, clear_level, [0.0; 4]));
+            }
+
+            let pass = GpuRenderPass {
+                target: Some(GpuRenderPassTarget {
+                    view: &texture,
+                    mip_level,
+                    ops: GpuPassOps::Load,
+                }),
+                ..pass_without_target(&shader)
+            };
+
+            assert!(api.draw(&pass, 0..3, 0..1), "{mip_level}");
+
+            for read_level in 0..3 {
+                let pixel = match read_level == mip_level {
+                    true => [255; 4],
+                    false => [0; 4],
+                };
+                let pixel_count = 16 >> (2 * read_level);
+
+                assert_eq!(
+                    read_texture_rgba8(&api, &texture, read_level),
+                    pixel.repeat(pixel_count),
+                    "{mip_level} {read_level}"
+                );
+            }
+        }
+    }
+
+    const SAMPLE_MIP_WGSL: &str = r#"
+        @group(0) @binding(0) var tex: texture_2d<f32>;
+        @group(0) @binding(1) var samp: sampler;
+
+        @vertex
+        fn vs_main(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
+            let uv = vec2f(f32((index << 1) & 2), f32(index & 2));
+            return vec4f(uv * 2.0 - 1.0, 0.0, 1.0);
+        }
+
+        @fragment
+        fn fs_main() -> @location(0) vec4f {
+            return textureSampleLevel(tex, samp, vec2f(0.5), 0.0);
+        }
+    "#;
+
+    fn draw_sampling_mip(
+        api: &RenderApiNew,
+        shader: &GpuShader,
+        target: &GpuTexture,
+        target_mip_level: usize,
+        texture: &GpuTexture,
+        mip_level: Option<usize>,
+        sampler: &GpuSampler,
+    ) -> bool {
+        let bindings = [
+            (0, GpuBinding::Texture { texture, mip_level }),
+            (1, GpuBinding::Sampler(sampler)),
+        ];
+        let bind_groups: [&[(usize, GpuBinding)]; 1] = [&bindings];
+
+        let pass = GpuRenderPass {
+            target: Some(GpuRenderPassTarget {
+                view: target,
+                mip_level: target_mip_level,
+                ops: GpuPassOps::Load,
+            }),
+            bind_groups: &bind_groups,
+            ..pass_without_target(shader)
+        };
+
+        api.draw(&pass, 0..3, 0..1)
+    }
+
+    #[test]
+    fn draws_a_mip_level_from_the_previous_one() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let shader = api.create_shader(SAMPLE_MIP_WGSL, GpuShaderDesc::default()).unwrap();
+        let sampler = api.create_sampler(GpuFilterMode::Linear);
+        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 3);
+
+        assert!(api.clear_color_texture(&texture, 0, [1.0, 0.0, 1.0, 0.0]));
+
+        for mip_level in 1..3 {
+            assert!(draw_sampling_mip(
+                &api,
+                &shader,
+                &texture,
+                mip_level,
+                &texture,
+                Some(mip_level - 1),
+                &sampler
+            ));
+        }
+
+        assert_eq!(read_texture_rgba8(&api, &texture, 1), [255, 0, 255, 0].repeat(4));
+        assert_eq!(read_texture_rgba8(&api, &texture, 2), [255, 0, 255, 0]);
+
+        assert!(!draw_sampling_mip(&api, &shader, &texture, 1, &texture, None, &sampler));
+        assert!(!draw_sampling_mip(&api, &shader, &texture, 1, &texture, Some(1), &sampler));
+    }
+
+    #[test]
+    fn draws_into_a_depth_mip_level() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let shader = api.create_shader(FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
+        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 2);
+        let depth = api.create_texture([4, 4], GpuTextureFormat::Depth32Float, 2);
+
+        assert!(api.clear_depth_texture(&depth, 1, 1.0));
+
+        let pass = GpuRenderPass {
+            target: Some(GpuRenderPassTarget {
+                view: &target,
+                mip_level: 1,
+                ops: GpuPassOps::Clear([0.0; 4]),
+            }),
+            depth: Some(GpuRenderPassDepth {
+                view: &depth,
+                mip_level: 1,
+                ops: GpuPassOps::Load,
+            }),
+            ..pass_without_target(&shader)
+        };
+
+        assert!(api.draw(&pass, 0..3, 0..1));
+    }
+
+    #[test]
+    fn rejects_out_of_range_mip_levels() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let shader = api.create_shader(SAMPLE_MIP_WGSL, GpuShaderDesc::default()).unwrap();
+        let sampler = api.create_sampler(GpuFilterMode::Linear);
+        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 3);
+        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 3);
+        let depth = api.create_texture([4, 4], GpuTextureFormat::Depth32Float, 1);
+
+        assert!(draw_sampling_mip(&api, &shader, &target, 2, &texture, Some(2), &sampler));
+        assert!(!draw_sampling_mip(&api, &shader, &target, 3, &texture, Some(2), &sampler));
+        assert!(!draw_sampling_mip(&api, &shader, &target, 2, &texture, Some(3), &sampler));
+
+        assert!(!api.clear_color_texture(&texture, 3, [0.0; 4]));
+        assert!(!api.clear_depth_texture(&depth, 1, 1.0));
+
+        let fullscreen = api.create_shader(FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
+        let pass = GpuRenderPass {
+            depth: Some(GpuRenderPassDepth {
+                view: &depth,
+                mip_level: 1,
+                ops: GpuPassOps::Clear(1.0),
+            }),
+            ..pass_without_target(&fullscreen)
+        };
+
+        assert!(!api.draw(&pass, 0..3, 0..1));
+    }
+
+    #[test]
+    fn dropping_a_texture_evicts_bind_groups_of_all_its_mip_levels() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let shader = api.create_shader(SAMPLE_MIP_WGSL, GpuShaderDesc::default()).unwrap();
+        let sampler = api.create_sampler(GpuFilterMode::Linear);
+        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 2);
+
+        let bind_group_count = |api: &RenderApiNew| api.state.lock().unwrap().cache.bind_groups.len();
+
+        for mip_level in [None, Some(0), Some(1)] {
+            assert!(draw_sampling_mip(&api, &shader, &target, 0, &texture, mip_level, &sampler));
+        }
+        assert_eq!(bind_group_count(&api), 3);
+
+        drop(texture);
+        assert_eq!(bind_group_count(&api), 0);
     }
 
     #[test]
@@ -2106,11 +2383,11 @@ mod tests {
         let src = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
         let dst = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
 
-        assert!(api.clear_color_texture(&src, [1.0, 0.0, 1.0, 0.0]));
-        assert!(api.clear_color_texture(&dst, [0.0, 1.0, 0.0, 1.0]));
+        assert!(api.clear_color_texture(&src, 0, [1.0, 0.0, 1.0, 0.0]));
+        assert!(api.clear_color_texture(&dst, 0, [0.0, 1.0, 0.0, 1.0]));
         assert!(api.copy_texture(&src, &dst));
 
-        let pixels = read_texture_rgba8(&api, &dst);
+        let pixels = read_texture_rgba8(&api, &dst, 0);
 
         assert_eq!(pixels, [255, 0, 255, 0].repeat(16));
     }
@@ -2196,6 +2473,7 @@ mod tests {
                     let pass = GpuRenderPass {
                         target: Some(GpuRenderPassTarget {
                             view: &target,
+                            mip_level: 0,
                             ops: GpuPassOps::Clear([0.0; 4]),
                         }),
                         ..pass_without_target(&shader)
@@ -2255,7 +2533,13 @@ mod tests {
         buffer: &GpuUniformStorageBuffer,
     ) -> bool {
         let bindings = [
-            (0, GpuBinding::Texture(texture)),
+            (
+                0,
+                GpuBinding::Texture {
+                    texture,
+                    mip_level: None,
+                },
+            ),
             (1, GpuBinding::Sampler(sampler)),
             (2, GpuBinding::Buffer(buffer)),
         ];
@@ -2264,6 +2548,7 @@ mod tests {
         let pass = GpuRenderPass {
             target: Some(GpuRenderPassTarget {
                 view: target,
+                mip_level: 0,
                 ops: GpuPassOps::Clear([0.0; 4]),
             }),
             bind_groups: &bind_groups,
@@ -2380,6 +2665,7 @@ mod tests {
             let pass = GpuRenderPass {
                 target: Some(GpuRenderPassTarget {
                     view: &target,
+                    mip_level: 0,
                     ops: GpuPassOps::Clear([0.0; 4]),
                 }),
                 ..pass_without_target(shader)

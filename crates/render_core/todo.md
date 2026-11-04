@@ -135,6 +135,8 @@ Core has no copy. Add one (whole texture, mip 0 is enough), returning `false` on
 
 ### 8. Add mipmap generation (confirmed failure)
 
+**Done.** Core has no mipmap generator, by decision: it exposes per-mip-level rendering and sampling, and `aphyn_render` will fill mipmaps with it during item 15. `GpuRenderPassTarget` and `GpuRenderPassDepth` have a `mip_level`, `clear_color_texture` and `clear_depth_texture` take one, and `GpuBinding::Texture { texture, mip_level: Option<usize> }` binds all levels (`None`) or one. Each texture keeps one view per level; texture bind group keys include the level, and dropping the texture evicts all of them. An out-of-range level makes the draw or clear return `false`. `GpuTexture::mip_level_count()` was added. The fill loop renders level `n` with the source bound at `Some(n - 1)` and a `Linear` sampler (the mip filter is irrelevant for a single-level view). Note that `mip_fill_shader.wgsl` forces alpha to 1.0; the migrated fill should keep alpha. Tests draw and clear single levels and read them back, fill levels 1-2 from level 0 of the same texture, draw into a depth mip level, check that sampling the target level and out-of-range levels fail, and check bind group eviction across levels.
+
 `StandardTexture::new` in `crates/render/src/assets/texture.rs` fills mip levels when `should_generate_mipmaps` is set. For each level it renders a fullscreen triangle with `mip_fill_shader.wgsl`, using a single-mip view of the previous level as the source and a single-mip view of the next level as the target.
 
 Core has one default view per texture, covering all mips. Drawing into a texture with `mip_level_count: 3` fails:

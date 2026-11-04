@@ -23,6 +23,7 @@
 //!         shader: &shader,
 //!         target: Some(GpuRenderPassTarget {
 //!             view: &target,
+//!             mip_level: 0,
 //!             ops: GpuPassOps::Clear([0.0, 0.0, 0.0, 1.0]),
 //!         }),
 //!         depth: None,
@@ -38,8 +39,15 @@
 //!
 //! Failed operations return `None` or `false`, and shader and validation errors are printed.
 //!
-//! [`RenderApiNew::clear_color_texture`] and [`RenderApiNew::clear_depth_texture`] clear a texture
-//! without a shader. They clear only mip level 0, and return `false` for a texture of the other kind.
+//! Draws and clears work on one mip level at a time: [`GpuRenderPassTarget`] and
+//! [`GpuRenderPassDepth`] name the `mip_level` they render into. A [`GpuBinding::Texture`] samples
+//! either all mip levels (`mip_level: None`) or only one (`Some(level)`), so a pass can render mip
+//! level `n` while sampling level `n - 1` of the same texture, which is how mipmaps are filled.
+//! Sampling a level that the same pass renders into fails, as does any mip level out of range.
+//! [`GpuTexture::mip_level_count`] returns the number of levels.
+//!
+//! [`RenderApiNew::clear_color_texture`] and [`RenderApiNew::clear_depth_texture`] clear one mip level
+//! of a texture without a shader, and return `false` for a texture of the other kind.
 //!
 //! [`RenderApiNew::copy_texture`] copies mip level 0 of one texture over mip level 0 of another.
 //! The sizes must match and the formats must be equal up to sRGB, so `Rgba8Unorm` and `Rgba8UnormSrgb`
@@ -82,6 +90,11 @@
 //! layouts, bind groups, pipeline layouts, and pipelines are created on first use and cached by
 //! value in `RenderApiCache`. Pipelines are keyed by the shader, the target formats, and the vertex
 //! buffer layouts of the pass, so one shader can be drawn with differently laid out buffers.
+//!
+//! Each `TextureResource` has a view of all mip levels and one view per level, all created with the
+//! texture. Render attachments always use a per-level view, because wgpu only renders into single-mip
+//! views. Texture bind group entries store the selected mip level, so binding different levels of one
+//! texture creates different bind groups, and releasing the texture evicts all of them.
 //!
 //! Each handle holds a `ResourceGuard` with a `Weak` reference to the state. Its drop removes the
 //! resource and evicts what keeps the wgpu object alive: the bind groups that use a texture, sampler,
