@@ -1,8 +1,9 @@
 //! # aphyn_render
 //!
-//! The low-level rendering foundation of the engine. It owns the connection to the GPU and the
-//! window surface, and defines the standard mesh, texture, and material assets, the vertex and
+//! The low-level rendering foundation of the engine. It wraps the GPU API of `aphyn_render_core`
+//! in an ECS resource, and defines the standard mesh, texture, and material assets, the vertex and
 //! instance formats, and the light description that the rest of the rendering stack draws with.
+//! All GPU work goes through `aphyn_render_core`; this crate never names the graphics backend.
 //!
 //! # How to use
 //!
@@ -10,6 +11,9 @@
 //! application code never constructs one itself — it pulls the resource out of the world and asks
 //! it to build GPU resources. The three things a user creates are meshes, textures, and
 //! materials; each carries optional serializable *asset metadata* describing how it was made.
+//! Code that needs the GPU API directly (its own shaders, textures, and passes) gets it with
+//! [`core`](RenderApiResource::core), which returns the `aphyn_render_core::RenderApiNew` the
+//! resource draws with.
 //!
 //! #### Uploading a mesh to the GPU
 //!
@@ -42,8 +46,8 @@
 //!
 //! Upload raw pixel bytes as a [`StandardTexture`]. The [`FilterMode`] selects how the texture is
 //! sampled; the dimensions are `[width, height]` in pixels. The
-//! [`StandardTextureAssetMetadata`] picks the [`StandardTextureFormat`] (linear, sRGB, or HDR) and whether
-//! mipmaps are generated:
+//! [`StandardTextureAssetMetadata`] picks the [`StandardTextureFormat`] (linear, sRGB, HDR, or depth)
+//! and whether mipmaps are generated:
 //!
 //! ```ignore
 //! use aphyn_render::{FilterMode, RenderApiResource, StandardTextureAssetMetadata};
@@ -56,6 +60,11 @@
 //!     StandardTextureAssetMetadata { should_generate_mipmaps: true, ..Default::default() },
 //! );
 //! ```
+//!
+//! A [`StandardTexture`] is a core texture plus its own sampler; [`texture`](StandardTexture::texture)
+//! and [`sampler`](StandardTexture::sampler) return them for binding in custom passes. [`Clone`] is
+//! shallow: the clone names the same GPU texture and has the same [`id`](StandardTexture::id).
+//! [`clear_color_target`] clears a color texture to a color.
 //!
 //! #### Creating a material
 //!
@@ -85,10 +94,12 @@
 //!
 //! #### Creating a custom shader
 //!
-//! A [`StandardShader`] is a composed WGSL source plus the opaque render pipeline built from it.
+//! A [`StandardShader`] is a core shader made from composed WGSL with the opaque standard state.
 //! The source must have `vs_main` / `fs_main` entry points that take the standard vertex and
 //! instance streams and use the standard bind groups (include `aphyn/standard_bindings.wgsl`).
-//! Creation returns `None` (and prints the wgpu error) when the WGSL or the pipeline is invalid:
+//! Creation returns `None` (and prints the error) when the WGSL is invalid or the fragment inputs
+//! don't match the vertex outputs. Bindings or vertex inputs that don't match the standard ones
+//! are only found at the first draw, which then fails and prints the error once:
 //!
 //! ```ignore
 //! use aphyn_render::*;
@@ -106,7 +117,8 @@
 //! the buffer's length. [`draw_instanced`](RenderApiResource::draw_instanced) then draws a sub-range
 //! of the instances (`instance_start` / `instance_count`, clamped inside) with a mesh and a material
 //! into a color target and a depth target, both [`StandardTexture`]s. Bind group 0 comes from a
-//! [`StandardGlobalBindings`] (camera matrices and lights). The draw loads and stores both targets;
+//! [`StandardGlobalBindings`] (camera matrices and lights), bind group 1 from the material and its
+//! five textures, resolved from `textures` on every draw. The draw loads and stores both targets;
 //! clearing them is up to the caller:
 //!
 //! ```ignore
@@ -116,8 +128,8 @@
 //! let shifted = Mat3::<f32>::IDENTITY.into_4x4_with_offset(Vec3::new(2.0, 0.0, 0.0));
 //! render_api.write_instances(&instances, 0, &[Mat4::IDENTITY, shifted]);
 //!
-//! // Once per material change; needs the texture storage, so the draw doesn't do it.
-//! material.update_gpu_data_if_dirty(&render_state, &textures);
+//! // Uploads the material uniform if the metadata changed; needs `&mut`, so the draw doesn't do it.
+//! material.update_gpu_data_if_dirty(&render_api);
 //!
 //! render_api.draw_instanced(&StandardInstancedDraw {
 //!     target: &current_rendering.target,
@@ -125,6 +137,7 @@
 //!     globals: &globals,     // from `render_api.create_global_bindings()`
 //!     material: &material,
 //!     custom_shader: None,   // the resolved `StandardShader` when `material.meta().shader` is `Custom`
+//!     textures: &textures,   // the world's `AssetStorageResource<StandardTexture>`
 //!     mesh: &mesh,
 //!     instances: &instances,
 //!     instance_start: 0,
@@ -132,11 +145,18 @@
 //! });
 //! ```
 //!
+//! [`draw_batched`](RenderApiResource::draw_batched) draws non-indexed geometry with the same
+//! pipeline and bindings: a [`StandardBatchedDraw`] names a core vertex buffer of [`StandardVertex`]s,
+//! how many of them to draw, and an instance buffer whose first instance is bound to every vertex.
+//! [`material_shader`](RenderApiResource::material_shader) and
+//! [`material_textures`](RenderApiResource::material_textures) return what a draw with a material
+//! binds, for passes built on the core API directly.
+//!
 //! #### Runtime-layout GPU buffers
 //!
 //! When the data layout is only known at runtime (custom shaders), describe it with a list of
-//! types instead of a Rust struct. A [`GpuUniformBuffer`] holds one struct, a [`GpuStorageBuffer`]
-//! a fixed-length array of them; both use a [`GpuUniformBufferLayout`] (WGSL alignment rules),
+//! types instead of a Rust struct. A [`TypedUniformBuffer`] holds one struct, a [`TypedStorageBuffer`]
+//! a fixed-length array of them; both use a [`TypedUniformBufferLayout`] (WGSL alignment rules),
 //! keep a CPU copy, and upload it only when something changed. Values are set by entry index;
 //! `set` returns `false` when the index is out of range or the type doesn't match. Matrices are
 //! column-major `[[f32; R]; C]`, like WGSL's `matCxR`:
@@ -144,7 +164,7 @@
 //! ```ignore
 //! use aphyn_render::*;
 //!
-//! let layout = GpuUniformBufferLayout::new([GpuRuntimeTy::Float4x4, GpuRuntimeTy::Float]);
+//! let layout = TypedUniformBufferLayout::new([GpuRuntimeTy::Float4x4, GpuRuntimeTy::Float]);
 //! let mut uniform = render_api.create_uniform_buffer(layout.clone());
 //! uniform.set(1, 0.5_f32);
 //! render_api.write_uniform_buffer_if_dirty(&mut uniform);
@@ -154,8 +174,8 @@
 //! render_api.write_storage_buffer_if_dirty(&mut storage);
 //! ```
 //!
-//! A [`GpuVertexBuffer`] has no CPU copy: [`write_vertices_with`](RenderApiResource::write_vertices_with)
-//! hands a [`GpuVertexWriter`] per element (clamped to the buffer length) that writes attributes by
+//! A [`TypedVertexBuffer`] has no CPU copy: [`write_vertices_with`](RenderApiResource::write_vertices_with)
+//! hands a [`TypedVertexWriter`] per element (clamped to the buffer length) that writes attributes by
 //! shader location straight into the upload staging memory; unset attributes are zero. Its
 //! [`GpuVertexBufferLayout`] carries the step mode, so the same type serves as an instance buffer:
 //!
@@ -175,21 +195,34 @@
 //! });
 //! ```
 //!
+//! Each typed buffer returns its core buffer from `buffer()`, for binding in a pass.
+//! [`write_buffer_elements_with`] fills a range of any core buffer element by element from a callback.
+//!
 //! #### Describing the standard vertex and instance formats
 //!
-//! When building a render pipeline, declare the buffer layouts geometry is fed through.
+//! Custom passes that draw standard geometry declare the buffer layouts it is fed through.
 //! [`StandardVertex::desc`] describes the per-vertex stream (position, normal, tangent, color, uv
 //! at shader locations 0–4) and [`StandardInstance::desc`] the per-instance stream (a
 //! `local_to_world` matrix at locations 5–8):
 //!
 //! ```
-//! use aphyn_render::{StandardInstance, StandardVertex};
+//! use aphyn_render::{GpuVertexBufferLayoutEntryTy as Ty, GpuVertexStepMode, StandardInstance, StandardVertex};
 //!
 //! let vertex_layout = StandardVertex::desc();
 //! let instance_layout = StandardInstance::desc();
 //!
-//! assert_eq!(vertex_layout.step_mode, wgpu::VertexStepMode::Vertex);
-//! assert_eq!(instance_layout.step_mode, wgpu::VertexStepMode::Instance);
+//! assert_eq!(vertex_layout.step_mode(), GpuVertexStepMode::Vertex);
+//! assert_eq!(vertex_layout.total_size(), size_of::<StandardVertex>());
+//! assert_eq!(
+//!     vertex_layout.entries().iter().map(|e| (e.location, e.ty)).collect::<Vec<_>>(),
+//!     [(0, Ty::Float3), (1, Ty::Float3), (2, Ty::Float4), (3, Ty::Float4), (4, Ty::Float2)],
+//! );
+//!
+//! assert_eq!(instance_layout.step_mode(), GpuVertexStepMode::Instance);
+//! assert_eq!(
+//!     instance_layout.entries().iter().map(|e| (e.location, e.ty)).collect::<Vec<_>>(),
+//!     [(5, Ty::Float4), (6, Ty::Float4), (7, Ty::Float4), (8, Ty::Float4)],
+//! );
 //! ```
 //!
 //! #### Reading the camera being rendered
@@ -258,8 +291,7 @@
 //! assert!(!red.contains("vec4f(1.0);"));
 //! ```
 //!
-//! [`create_shader_module`](WgslComposer::create_shader_module) composes and creates the
-//! `wgpu::ShaderModule` in one step. Register your own libraries with
+//! Register your own libraries with
 //! [`add_library`](WgslComposer::add_library); every library is pasted at most once per
 //! composition, however many files include it:
 //!
@@ -303,168 +335,136 @@
 //! shaded); `aphyn_app` passes `None`.
 //! [`world_to_clip`](CurrentRenderingResource::world_to_clip) is the perspective projection, using
 //! the target's aspect, times the inverse of the camera transform. The target is created by
-//! `aphyn_app` in [`RENDER_TARGET_FORMAT`], which `aphyn_render_ecs` also uses for its pipelines, so
-//! both sides must keep agreeing on it. Like the other wgpu-holding resources it is not FFI-safe
-//! yet (`todo: support ffi`).
+//! `aphyn_app` in [`RENDER_TARGET_FORMAT`], which `aphyn_render_ecs` also uses for its passes, so
+//! both sides must keep agreeing on it. It is not `#[repr(C)]` yet (`todo: support ffi`).
 //!
-//! #### The FFI-stable resource
+//! #### The resource and FFI
 //!
-//! The crate's public surface is **FFI-stable**, so the engine can call into a dynamically linked
-//! render module across a fixed ABI. [`RenderApiResource`] is the `#[repr(C)]` ECS resource that
-//! actually lives in the world: it holds a type-erased [`aphyn_ffi::FfiDroppable`] wrapping an
-//! `Arc<`[`RenderState`]`>` plus a static vtable of `extern "C-unwind"` functions. Its inherent
-//! methods ([`resize`](RenderApiResource::resize), [`size`](RenderApiResource::size),
-//! [`create_texture`](RenderApiResource::create_texture),
-//! [`create_mesh`](RenderApiResource::create_mesh),
-//! [`create_material`](RenderApiResource::create_material),
-//! [`create_shader`](RenderApiResource::create_shader), the instance buffer, global bindings, and
-//! [`draw_instanced`](RenderApiResource::draw_instanced) calls, and
-//! [`clone`](RenderApiResource::clone), which clones the `Arc`) only marshal their arguments
-//! through that vtable into the underlying `RenderState`. The `*_with` writers pass their Rust
-//! callback across as an [`aphyn_ffi::FfiFnMutMut`]. Code running in the same binary skips
-//! the marshalling with the unsafe [`raw`](RenderApiResource::raw) accessor, which reinterprets
-//! the erased pointer and returns a clone of the `Arc<RenderState>` — `aphyn_render_ecs` uses this to
-//! reach the device, queue, and surface directly when building pipelines.
+//! [`RenderApiResource`] is the `#[repr(C)]` ECS resource that lives in the world. It is a plain
+//! struct of the core API (`aphyn_render_core::RenderApiNew`) plus the engine's own GPU data: the
+//! six [`StandardEngineShaders`], the mip fill shader and its `Linear` sampler, and the two 2×2
+//! fallback textures (white, and a linear flat normal). It has no vtable of its own: its methods are
+//! plain Rust that runs in whichever binary calls it, including a dynamically loaded game library,
+//! and reaches the GPU only through core, whose vtable keeps all backend work in the binary that created
+//! it. That is why everything this crate stores must be `#[repr(C)]` and FFI-safe: core handles
+//! and `aphyn_ffi` types (`FfiVec`, `FfiOption`, `FfiString`), never std containers of non-FFI types.
+//! Core handles are cheap reference-counted clones, so [`clone`](RenderApiResource::clone) clones
+//! every field and shares the device and resources; a resource is released when its last clone
+//! drops.
 //!
-//! #### Render state
+//! [`new`](RenderApiResource::new) creates the core API from the window and its current size, then
+//! the engine shaders, the mip fill shader, and the fallback textures; it panics if any of them
+//! fails. [`resize`](RenderApiResource::resize) and [`size`](RenderApiResource::size) map to core's
+//! `resize_surface` (which ignores zero sizes) and `surface_size`, converting between this crate's
+//! `[u32; 2]` and core's `[usize; 2]`.
 //!
-//! [`RenderState`] composes three parts. [`RenderApi`] holds the wgpu `Device`, `Queue`,
-//! `Surface`, and owning `Window`, plus the surface configuration and cached size behind a
-//! `Mutex` (so [`resize`](RenderState::resize) works through `&self`). `RenderApi::new` performs
-//! all wgpu initialization on construction: it requests a **DX12-only** instance, creates the
-//! surface from the window, requests an adapter compatible with that surface, and blocks on the
-//! device and queue with `pollster`. It prefers an sRGB surface format when one is offered and
-//! configures the surface for `RENDER_ATTACHMENT` usage with the first reported present and alpha
-//! modes. `resize` ignores zero-sized requests and reconfigures the surface. [`RenderData`] holds
-//! the long-lived bind group layouts — a global one (a uniform buffer plus a storage buffer) and
-//! a material one (a uniform buffer plus five texture/sampler pairs) — the standard pipeline layout
-//! made of those two (shared by the engine standard pipelines and by [`StandardShader`] pipelines),
-//! the layout, sampler, and shader used to fill mipmaps, and the six engine pipelines
-//! ([`StandardEnginePipelines`]). [`RenderAssets`] holds the two 2×2 fallback textures (white,
-//! and a linear flat normal). Two `todo`s in `render_api.rs` flag that wgpu init may later move
-//! into an ECS `Start` handler and that the per-field accessors should be replaced by exposing
-//! the `api` as a struct.
+//! #### Engine shaders and draws
 //!
-//! #### Engine pipelines and instanced draws
-//!
-//! [`StandardEnginePipelines`] composes `shader_standard.wgsl` six times: the four combinations of
+//! [`StandardEngineShaders`] composes `shader_standard.wgsl` six times: the four combinations of
 //! the defines `LIT` and `TRANSPARENT`, plus `UI` and `UI` + `TRANSPARENT` for the UI variants. `UI`
 //! only switches the vertex transform from `global_data.matrix_world_to_clip` to
-//! `global_data.matrix_window_to_clip`. Opaque variants draw into [`RENDER_TARGET_FORMAT`] with
-//! `REPLACE` blending and depth write; transparent ones into [`TRANSPARENT_TARGET_FORMAT`] with
-//! additive blending and depth test only. All test `LessEqual` against [`DEPTH_TEXTURE_FORMAT`] and
-//! cull back faces. [`material_pipeline`](RenderState::material_pipeline) picks the engine pipeline
-//! for an `Engine` shader, or the passed custom [`StandardShader`]'s own pipeline for `Custom`
-//! (`None` when the caller could not resolve it).
+//! `global_data.matrix_window_to_clip`. [`standard_shader_desc`] holds their pipeline state: opaque
+//! variants draw with `REPLACE` blending and depth write; transparent ones with additive blending
+//! (color `SrcAlpha + One`, alpha `One + One`) and depth test only. All test `LessEqual`, cull back
+//! faces, and draw counter-clockwise triangle lists. Opaque variants draw into
+//! [`RENDER_TARGET_FORMAT`], transparent ones into [`TRANSPARENT_TARGET_FORMAT`], both with a
+//! [`DEPTH_TEXTURE_FORMAT`] depth target; core keys pipelines by these formats, so the draws check
+//! them up front. [`material_shader`](RenderApiResource::material_shader) picks the engine shader for
+//! an `Engine` material, or the passed custom [`StandardShader`] for `Custom` (`None` when the caller
+//! could not resolve it).
 //!
-//! [`draw_instanced`](RenderState::draw_instanced) returns `false` without drawing when the mesh has
-//! no indices (wgpu panics on slicing empty buffers), the pipeline is unresolved, or the target or
-//! depth format doesn't match the pipeline; it returns `true` and draws nothing when the clamped
-//! instance range is empty. Each draw records its own encoder and submits it, like the rest of the
-//! engine passes. It doesn't update the material: `update_gpu_data_if_dirty` needs `&mut` and the
-//! texture storage, so the caller runs it first.
+//! [`draw_instanced`](RenderApiResource::draw_instanced) returns `false` without drawing when the mesh
+//! has no indices, the shader is unresolved, or the target or depth format doesn't match; it returns
+//! `true` and draws nothing when the clamped instance range is empty, and otherwise returns what core's
+//! `draw_indexed` returns. [`draw_batched`](RenderApiResource::draw_batched) makes the same checks
+//! except for the mesh, clamps `vertex_count` to the vertex buffer, returns `true` without drawing
+//! when that is zero, and calls core's `draw` with instances `0..1`. Both bind group 0 from
+//! [`StandardGlobalBindings`] (uniform at binding 0, lights storage at 1) and group 1 from the
+//! material: its uniform at binding 0, then the five texture/sampler pairs (color, roughness,
+//! metallic, normal, emission) at bindings 1–10, in the order of `standard_bindings.wgsl`. Textures
+//! are resolved from the passed storage on every draw by
+//! [`material_textures`](RenderApiResource::material_textures), falling back to the white texture (the
+//! flat normal for the normal slot), so a texture replaced under the same handle is picked up without
+//! touching the material. Core caches bind groups by value, so this costs no GPU object per draw.
+//! Each draw is its own core draw, encoded and submitted on its own. Do not batch them into one
+//! encoder: the engine reuses buffers between draws, which only works because each write lands
+//! before the next submit.
 //!
-//! [`StandardInstanceBuffer`] is array-like: its length is fixed at creation (usage
-//! `VERTEX | COPY_DST`, zero-initialized) and every write is clamped to it.
-//! [`StandardGlobalBindings`] owns bind group 0: the [`StandardUniformGlobal`] buffer and a storage
-//! buffer of [`LIGHTS_COUNT_MAX`] [`StandardGenericLight`]s; `write_lights_with` only uploads the
-//! first `count`, and the shader reads `lights_count` from the uniform. The `*_with` writers go
-//! through [`write_buffer_elements_with`], which opens `Queue::write_buffer_with` over the range and
-//! byte-copies each element into the staging view (the view has no alignment guarantee for the
-//! element type). Elements are produced in index order, so a callback may consume an iterator.
+//! #### GPU assets and buffers
 //!
-//! #### Runtime-layout buffers
+//! The asset types hold core handles directly in `#[repr(C)]` fields and expose them through
+//! accessors: [`StandardTexture`] its texture and sampler, [`StandardMesh`] its vertex and index
+//! buffers and index count, [`StandardInstanceBuffer`] its vertex buffer, [`StandardGlobalBindings`]
+//! its uniform and lights buffers, [`StandardMaterial`] its uniform buffer, and [`StandardShader`]
+//! its shader. Meshes and textures keep their optional asset metadata, and materials their metadata,
+//! so the asset can be saved back.
 //!
-//! `buffers.rs` holds [`GpuUniformBuffer`], [`GpuStorageBuffer`], and [`GpuVertexBuffer`], built like
-//! the other GPU assets (`#[repr(C)]`, an `FfiDroppable` native `Buffer`, created and written
-//! through the [`RenderApiResource`] vtable). [`GpuUniformBufferLayout`] places each
-//! [`GpuRuntimeTy`] at the next offset aligned to its WGSL alignment (`vec3` is 12 bytes aligned to
-//! 16, matrix columns are padded to their vector alignment) and rounds the total size up to the
-//! largest alignment, which is also the storage array stride. WGSL has no integer matrices, so
-//! there are none here. The uniform and storage `set`s only touch the CPU cache (they run in the
-//! caller's binary, which is fine because the cache is a plain `FfiVec<u8>`); the
-//! `write_*_if_dirty` wrappers skip the vtable call when nothing changed. Vertex attributes are
-//! 4-byte aligned and tightly packed, matching `wgpu::VertexFormat` sizes; the vertex layout types
-//! are defined in `aphyn_render_core` and re-exported here. `write_vertices_with`
-//! crosses the vtable as an `FfiFnMutMut<*mut GpuVertexWriter, ()>`: the writer holds raw pointers
-//! to the staging chunk and layout and is only handed out as `&mut` for one callback call, so it
-//! cannot escape. Buffers are created with at least `COPY_BUFFER_ALIGNMENT` bytes so empty layouts
-//! or zero lengths stay valid; wgpu zero-initializes them. Drawing with these buffers is not
-//! exposed yet, and there is no index buffer.
-//!
-//! #### GPU assets
-//!
-//! The GPU asset types wrap their native handles behind the same FFI boundary.
-//! [`StandardMesh`], [`StandardTexture`], and [`StandardMaterial`] are `#[repr(C)]` structs of an
-//! `FfiDroppable` holding the native payload (`StandardMeshNative`, `StandardTextureNative`,
-//! `StandardMaterialNative`) plus their asset metadata (optional for meshes and textures), which
-//! is kept so the asset can be saved back. [`StandardInstanceBuffer`] and [`StandardGlobalBindings`]
-//! follow the same pattern without metadata. Their `Send`/`Sync` are forwarded from the native
-//! payloads, and the native handles are reached only through the unsafe `native()` accessors.
+//! Core rejects buffer writes whose offset or size is not a multiple of 4 bytes, so every write here
+//! must be. All engine structs are; a mesh with an odd number of `u16` indices gets one padding index
+//! in its index buffer, while [`indices_count`](StandardMesh::indices_count) keeps the real count.
+//! [`write_buffer_elements_with`] works on every core buffer kind through [`GpuWritableBuffer`]. It
+//! byte-copies each element into core's staging slice, which has no alignment guarantee for the
+//! element type, and produces elements in index order, so a callback may consume an iterator; the
+//! callback gets the index relative to `start`.
 //!
 //! `StandardTexture::new` clamps the dimensions to at least 1 and creates the texture in the
-//! metadata's [`StandardTextureFormat`] (`Rgba8Unorm`, `Rgba8UnormSrgb`, `Rgba16Float`, the
-//! last matching [`RENDER_TARGET_FORMAT`] so a texture can be drawn into, or `Depth32Float`, matching
-//! [`DEPTH_TEXTURE_FORMAT`]; a depth texture ignores the data and mipmaps and is created with only
-//! `RENDER_ATTACHMENT | TEXTURE_BINDING`, since depth formats can't be copy destinations). For
-//! the 8-bit formats it derives bytes-per-pixel from the data length over the pixel count and pads
-//! any source with fewer than four channels out to RGBA with opaque alpha; `Rgba16Float` data must
-//! already be 8 bytes per pixel. Empty data skips the upload and leaves the texture zeroed, which
-//! is how render targets are created. It builds a `ClampToEdge` sampler that uses the caller's filter
-//! mode for magnification, minification, and mipmapping. With `should_generate_mipmaps` it
-//! allocates the full mip chain and fills each level from the previous one by rendering a
-//! fullscreen triangle through `mip_fill_shader.wgsl`, submitting one command buffer per level. The
-//! native payload caches a default `view` used for render attachments. [`Clone`] is shallow: it
-//! clones the wgpu handles and keeps the same [`id`](StandardTexture::id), so both values name the
-//! same GPU texture.
+//! metadata's [`StandardTextureFormat`], which converts into core's `GpuTextureFormat`
+//! (`Rgba16Float` matches [`RENDER_TARGET_FORMAT`] so a texture can be drawn into, and
+//! `Depth32Float` matches [`DEPTH_TEXTURE_FORMAT`]; a depth texture ignores the data and mipmaps).
+//! For the 8-bit formats it derives bytes-per-pixel from the data length over the pixel count and
+//! pads any source with fewer than four channels out to RGBA with opaque alpha; `Rgba16Float` data
+//! must already be 8 bytes per pixel. Empty data skips the upload and leaves the texture zeroed,
+//! which is how render targets are created. Its sampler uses the caller's [`FilterMode`], which is
+//! core's `GpuFilterMode`. With `should_generate_mipmaps` it allocates the full mip chain and fills
+//! each level `n` by drawing a fullscreen triangle with `mip_fill_shader.wgsl` into level `n` while
+//! sampling level `n - 1` (instance `n - 1`), with the `Linear` mip fill sampler and no culling. The
+//! fill keeps alpha.
 //!
-//! `StandardMaterial::new` creates a uniform buffer initialized with the default
-//! [`StandardUniformMaterial`] and an initial bind group against the material layout from the
-//! [`RenderAssets`] fallback textures, caches all-zero texture ids (real
-//! [`id`](StandardTexture::id)s start at 1, so the first update resolves the metadata handles and
-//! rebuilds the bind group), and starts dirty.
-//! [`meta_mut`](StandardMaterial::meta_mut) marks the material dirty.
-//! [`update_gpu_data_if_dirty`](StandardMaterial::update_gpu_data_if_dirty) resolves the five
-//! texture handles of the metadata on every call (falling back to the [`RenderAssets`] white
-//! texture, or the flat normal for the normal slot, when a handle doesn't resolve) and recreates
-//! the bind group if any resolved texture id differs from the cached one, so a texture replaced
-//! under the same handle is picked up without touching the material; only when dirty does it
-//! rewrite the uniform from the metadata (color and emission RGB raised to the power 2.2, sRGB to
-//! linear, alpha kept as is so the alpha test sees the authored value) and clear the flag. The
-//! `shader` field needs no tracking because it is read at draw time. `aphyn_render_ecs` calls it
-//! lazily, right before drawing with a material. The material uniform holds no
-//! matrix: the world-to-clip and window-to-clip matrices live in [`StandardUniformGlobal`]
-//! (written by `aphyn_render_ecs` once per rendering), and the shader decides which one to use.
-//! [`RenderSpace`] is only used by `aphyn_render_ecs`'s gizmos. [`StandardLight`] is the
-//! serializable light description; it converts into the GPU-side [`StandardGenericLight`], whose
-//! `light_type` is `0` point, `1` spot, `2` directional. [`StandardUniformGlobal`],
-//! [`StandardUniformMaterial`], and [`StandardGenericLight`] are `#[repr(C)]` and marked
-//! [`AllBitsInit`](aphyn_utils::mem::AllBitsInit) /
-//! [`AllBitVariationsValid`](aphyn_utils::mem::AllBitVariationsValid) so they can be uploaded as
-//! raw bytes.
+//! `StandardMaterial::new` creates its uniform buffer with the default [`StandardUniformMaterial`] and
+//! starts dirty. [`meta_mut`](StandardMaterial::meta_mut) marks the material dirty, and
+//! [`update_gpu_data_if_dirty`](StandardMaterial::update_gpu_data_if_dirty) rewrites the uniform from
+//! the metadata only when dirty (color and emission RGB raised to the power 2.2, sRGB to linear, alpha
+//! kept as is so the alpha test sees the authored value) and clears the flag. Textures and the
+//! `shader` need no tracking because draws read them. `aphyn_render_ecs` calls it lazily, right
+//! before drawing with a material. The material uniform holds no matrix: the world-to-clip and
+//! window-to-clip matrices live in [`StandardUniformGlobal`] (written by `aphyn_render_ecs` once per
+//! rendering), and the shader decides which one to use. [`RenderSpace`] is only used by
+//! `aphyn_render_ecs`'s gizmos. [`StandardLight`] is the serializable light description; it converts
+//! into the GPU-side [`StandardGenericLight`], whose `light_type` is `0` point, `1` spot, `2`
+//! directional. [`StandardGlobalBindings`] holds the [`StandardUniformGlobal`] buffer and a storage
+//! buffer of [`LIGHTS_COUNT_MAX`] [`StandardGenericLight`]s; `write_lights_with` only uploads the first
+//! `count`, and the shader reads `lights_count` from the uniform. [`StandardUniformGlobal`],
+//! [`StandardUniformMaterial`], [`StandardGenericLight`], and [`StandardVertex`] are `#[repr(C)]` and
+//! marked [`AllBitsInit`](aphyn_utils::mem::AllBitsInit) /
+//! [`AllBitVariationsValid`](aphyn_utils::mem::AllBitVariationsValid) so they can be uploaded as raw
+//! bytes.
 //!
-//! [`StandardShader`] holds only native data (`StandardShaderNative`: the module and its render
-//! pipeline). `StandardShader::new` builds the pipeline with the same state as the engine opaque
-//! pipelines in [`StandardEnginePipelines`] (standard pipeline layout, [`RENDER_TARGET_FORMAT`] with
-//! `REPLACE` blending, depth write with `LessEqual` in [`DEPTH_TEXTURE_FORMAT`], back-face
-//! culling); keep the two in sync. It wraps the creation in a wgpu validation error scope so an
-//! invalid user shader yields `None` instead of hitting wgpu's panicking error handler. Custom
-//! shaders are opaque only for now: [`StandardMaterialShader::is_transparent`] is `false` for
-//! `Custom`. The material uniform carries `alpha_threshold` for every shader; only the opaque
-//! variants use it.
+//! `StandardShader::new` passes the WGSL to core's `create_shader` with the opaque
+//! [`standard_shader_desc`], so custom shaders are opaque only for now:
+//! [`StandardMaterialShader::is_transparent`] is `false` for `Custom`. Core checks the WGSL and the
+//! fragment inputs at creation, but builds pipelines lazily, so a custom shader whose bindings or
+//! vertex inputs don't match the standard ones fails at its first draw (printed once). The material
+//! uniform carries `alpha_threshold` for every shader; only the opaque variants use it.
 //!
-//! [`StandardVertex`] is marked the same way and reinterpreted with
-//! `aphyn_utils::mem::as_bytes_slice` when its buffer is uploaded. Its five attributes sit at
-//! locations 0–4; the per-instance `local_to_world` matrix occupies locations 5–8 as four
-//! `Float32x4` rows.
+//! [`StandardInstanceBuffer`] is array-like: its length is fixed at creation (zero-initialized) and
+//! every write is clamped to it. `buffers.rs` holds [`TypedUniformBuffer`], [`TypedStorageBuffer`],
+//! and [`TypedVertexBuffer`] over core buffers. [`TypedUniformBufferLayout`] places each
+//! [`GpuRuntimeTy`] at the next offset aligned to its WGSL alignment (`vec3` is 12 bytes aligned to
+//! 16, matrix columns are padded to their vector alignment) and rounds the total size up to the
+//! largest alignment, which is also the storage array stride; WGSL has no integer matrices, so there
+//! are none here. `set` only touches the CPU cache (a plain `FfiVec<u8>`), and `write_*_if_dirty`
+//! uploads it when something changed. Vertex attributes are 4-byte aligned and tightly packed; the
+//! vertex layout types are defined in `aphyn_render_core` and re-exported here. The vertex writer
+//! runs inside core's `write_vertex_buffer_with` callback and borrows one zeroed element of the
+//! staging slice at a time. Core allows empty buffers (a draw with one fails, and writes to one do
+//! nothing), so zero lengths and empty layouts stay valid.
 //!
 //! #### Helpers and unfinished parts
 //!
-//! [`create_bind_group_layout`], [`create_bind_group`], and [`create_render_pipeline`] (with the
-//! [`CreateBindGroupLayoutEntry`] / [`CreateBindGroupEntry`] shorthands) wrap the verbose wgpu
-//! descriptors and are shared with `aphyn_render_ecs`. [`clear_color_target`] clears a color view in its own
-//! pass (used by `aphyn_app` and the editor). `render_graph.rs` is an
-//! unfinished render-graph sketch whose methods are `todo!()`; it is compiled but not exported.
+//! [`clear_color_target`] clears mip level 0 of a color texture through core (used by `aphyn_app`
+//! and the editor). `render_graph.rs` is an unfinished render-graph sketch whose methods are
+//! `todo!()`; it is compiled but not exported. The `aphyn` facade does not export
+//! `aphyn_render_core`.
 //!
 //! #### WGSL composer
 //!
@@ -482,19 +482,20 @@
 //! the defines passed from Rust (there is no `#define`), and skip every directive inside an
 //! inactive block, including `#include`. A malformed directive is an error even in an inactive
 //! block. Errors carry the file and line of the directive ([`WgslComposeError`]). WGSL
-//! compilation errors from wgpu still refer to lines of the composed output.
+//! compilation errors from core still refer to lines of the composed output.
 //!
 //! The engine libraries live in `src/assets/wgsl/` and are embedded with `include_str!`. The
 //! structs in `standard_types.wgsl` and the bindings in `standard_bindings.wgsl` must stay in
 //! sync with [`StandardUniformGlobal`], [`StandardUniformMaterial`], [`StandardGenericLight`],
-//! [`StandardVertex::desc`], [`StandardInstance::desc`], and the global and material bind group
-//! layouts in [`RenderData`]. `shader_standard.wgsl` sits next to them but is not a library; it
-//! includes `aphyn/standard_bindings.wgsl` and `aphyn/pbr.wgsl`. `mip_fill_shader.wgsl` uses
-//! `aphyn/fullscreen.wgsl`. The `engine_shaders_are_valid` unit test composes every library,
-//! `mip_fill_shader.wgsl`, and the six `shader_standard.wgsl` define sets, and
-//! `custom_shader_with_user_library_is_valid` composes a custom standard shader with a user
-//! library; both validate with `naga` (a dev-dependency), so no GPU is needed. The composer uses std
-//! types because it runs at pipeline creation and is not stored in the world.
+//! [`StandardVertex::desc`], [`StandardInstance::desc`], and the bind groups that
+//! [`draw_instanced`](RenderApiResource::draw_instanced) and
+//! [`draw_batched`](RenderApiResource::draw_batched) pass. `shader_standard.wgsl` sits next to them
+//! but is not a library; it includes `aphyn/standard_bindings.wgsl` and `aphyn/pbr.wgsl`.
+//! `mip_fill_shader.wgsl` uses `aphyn/fullscreen.wgsl`. The `engine_shaders_are_valid` unit test
+//! composes every library, `mip_fill_shader.wgsl`, and the six `shader_standard.wgsl` define sets,
+//! and `custom_shader_with_user_library_is_valid` composes a custom standard shader with a user
+//! library; both validate with `naga`, so no GPU is needed. The composer uses std types because it
+//! runs at shader creation and is not stored in the world.
 
 mod assets;
 pub use assets::*;

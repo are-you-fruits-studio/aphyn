@@ -183,7 +183,9 @@
 //!   libraries, and registers every other include path (found with `wgsl_include_paths`,
 //!   recursively through the registered files) by reading `assets/<path>`; an unreadable file is
 //!   skipped so composing reports it as an unknown include. It composes without defines and
-//!   creates the shader through `RenderApiResource::create_shader`, which fails on invalid WGSL.
+//!   creates the shader through `RenderApiResource::create_shader`, which fails (returns `None`)
+//!   on invalid WGSL. A custom shader whose bindings or vertex inputs don't match the standard
+//!   ones still loads, and fails at its first draw instead (printed once).
 //!
 //! An empty payload path (`raw_texture`, `raw_mesh`, or `raw_audio` set to `""`) loads a
 //! placeholder instead of failing: a 1x1 white texture, a mesh without vertices and indices, or

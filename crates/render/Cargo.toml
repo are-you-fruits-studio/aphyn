@@ -14,7 +14,7 @@ aphyn_serialization = { path = "../serialization" }
 aphyn_math = { path = "../math" }
 aphyn_asset_storage = { path = "../asset_storage" }
 aphyn_render_core = { path = "../render_core" }
-wgpu = "27"
 winit = "0.30"
-pollster = "0.4"
+
+[dev-dependencies]
 naga = { version = "27", features = ["wgsl-in"] }

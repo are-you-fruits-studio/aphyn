@@ -3,8 +3,8 @@
 //! A work-in-progress, ECS-independent GPU API on top of wgpu. [`RenderApiNew`] owns the device,
 //! the queue, the window surface, and every GPU resource, and hands out [`GpuVertexBuffer`], [`GpuUniformStorageBuffer`],
 //! [`GpuIndexBuffer`], [`GpuTexture`], [`GpuSampler`],
-//! and [`GpuShader`] handles. It is not used by the rest of the engine yet, and the `aphyn` facade
-//! does not export it, because its `GpuVertexBuffer` would clash with the one in `aphyn_render`.
+//! and [`GpuShader`] handles. It is the only crate that names wgpu: `aphyn_render`, `aphyn_render_ecs`
+//! and `aphyn_app` do all their GPU work through it. The `aphyn` facade does not export it.
 //!
 //! # How to use
 //!
@@ -64,8 +64,9 @@
 //! can be copied into each other. It returns `false` otherwise, for depth textures, and for a texture
 //! copied onto itself.
 //!
-//! Dropping a handle releases its GPU resource. Handles are not `Clone`, so each resource has one
-//! owner. A handle may outlive the [`RenderApiNew`] that created it, and dropping it then does nothing.
+//! Handles are `Clone`, and clones share one GPU resource with the same id. The resource is released,
+//! and the bind groups and pipelines made from it are evicted, when the last clone is dropped. Handles
+//! may outlive the [`RenderApiNew`] that created them, and dropping them then does nothing.
 //!
 //! Every handle has an `id()` method returning a [`GpuResourceId`], such as [`GpuTexture::id`], to tell
 //! whether two handles name the same resource. Ids are equal only for the same resource, are not reused
@@ -111,14 +112,16 @@
 //!
 //! #### Dependencies
 //!
-//! This crate sits below `aphyn_render`, which re-exports [`GpuVertexBufferLayout`] and its entry
-//! types from here. It must not depend on `aphyn_render` or on the ECS.
+//! This crate sits below `aphyn_render`, which re-exports [`GpuVertexBufferLayout`], its entry types
+//! and [`GpuFilterMode`] (as `FilterMode`) from here. `aphyn_render_ecs` and `aphyn_app` depend on it
+//! directly. It must not depend on `aphyn_render` or on the ECS. Whether the `aphyn` facade should
+//! export it is still open; nothing in the way of names blocks it any more, since `aphyn_render`'s
+//! buffer types are named `Typed*`.
 //!
 //! #### FFI
 //!
 //! [`RenderApiNew`] is an `FfiDroppable` holding an `Arc<RenderApiInner>` plus a static vtable of
-//! `extern "C-unwind"` functions, the same pattern as `RenderApiResource` in `aphyn_render`, so all
-//! wgpu work runs in the binary that created the API. `RenderApiInner` holds the device, queue,
+//! `extern "C-unwind"` functions, so all wgpu work runs in the binary that created the API. `RenderApiInner` holds the device, queue,
 //! surface and state, and implements every operation. The public methods keep Rust signatures and
 //! convert their arguments to private `#[repr(C)]` mirrors before calling the vtable: `FfiRenderPass`
 //! for [`GpuRenderPass`], `FfiRange` for ranges, `FfiArray` for arrays passed by value, `FfiOption`,
@@ -128,7 +131,7 @@
 //! `FfiFnMutMut` taking an `FfiSliceMut`, whose `'static` lifetime is a lie the wrapper keeps safe by
 //! only passing the slice on to the caller's `FnOnce(&mut [u8])`. `RenderApiNew::new` is generic over
 //! the window, so it only runs in the creating binary. Handle accessors such as [`GpuTexture::size`]
-//! read `#[repr(C)]` fields directly, and handles release through `FfiTypedDroppable`. Every new
+//! read `#[repr(C)]` fields directly, and handles release through `SharedResourceGuard`. Every new
 //! method needs a vtable entry and an `ffi_*` function in `RenderApiNew::from_inner`.
 //!
 //! #### Resources and caches
@@ -152,12 +155,18 @@
 //! views. Texture bind group entries store the selected mip level, so binding different levels of one
 //! texture creates different bind groups, and releasing the texture evicts all of them.
 //!
-//! Each handle holds a `ResourceGuard` with a `Weak` reference to the state. Its drop removes the
+//! Each resource has one `ResourceGuard` with a `Weak` reference to the state. Its drop removes the
 //! resource and evicts what keeps the wgpu object alive: the bind groups that use a texture, sampler,
 //! or buffer, or the pipelines of a shader. Bind group layouts and pipeline layouts stay cached,
 //! because they are keyed by value and reference no resources. wgpu keeps resources alive for work
-//! already submitted, so releasing right after a draw is safe. The guard is stored in an
-//! `FfiTypedDroppable`, so it drops through a function pointer into the binary that created it.
+//! already submitted, so releasing right after a draw is safe.
+//!
+//! Handles share the guard through a `SharedResourceGuard`, a `#[repr(C)]` pointer to a heap header
+//! holding an `AtomicUsize` strong count, an `extern "C-unwind"` drop function, and the guard. Cloning
+//! increments the count in place, so it works from any binary. The last drop calls the function
+//! pointer, so `ResourceGuard::drop` always runs in the binary that created the API. The orderings
+//! follow `Arc`: a relaxed increment, a release decrement, and an acquire fence before the drop.
+//! A plain `Arc` is not used because its layout and drop code are not stable across binaries.
 //!
 //! #### Locking
 //!
@@ -167,7 +176,8 @@
 //! all of `encode_pass`. A second `Mutex` guards the surface and is held from acquire to present, so
 //! waiting for a frame does not block other threads from creating resources, and a resize cannot
 //! reconfigure the surface while a frame is acquired. Always lock the surface first, then the state.
-//! `ResourceGuard` locks the state on drop, so no handle may be dropped while the state lock is held.
+//! `ResourceGuard` locks the state on drop, so no handle may be dropped while the state lock is held,
+//! since any drop may be the last clone's. Cloning a handle takes no lock.
 //! Removing a resource only drops wgpu objects, and `writer` closures run unlocked, so neither does this.
 //!
 //! #### Surface
@@ -191,7 +201,10 @@
 //!
 //! Every draw encodes and submits its own command encoder, and resolves its bind groups and
 //! pipeline through the caches. `encode_pass` rejects empty vertex and index buffers before any wgpu
-//! call, because wgpu panics on slices of empty buffers.
+//! call, because wgpu panics on slices of empty buffers. Callers rewrite one buffer between draws,
+//! such as the instance and gizmo buffers of `aphyn_render_ecs`. That is correct only because each draw
+//! submits, so a `Queue::write_buffer` lands before the next draw; batching draws into one encoder
+//! would make every draw of a frame read the last write, silently.
 //!
 //! #### Buffer sizes
 //!
@@ -204,8 +217,8 @@
 mod buffers;
 pub use buffers::*;
 
-mod render_api_new;
-pub use render_api_new::*;
+mod render_api;
+pub use render_api::*;
 
 mod render_state;
 pub use render_state::*;

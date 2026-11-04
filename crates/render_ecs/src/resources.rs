@@ -1,10 +1,10 @@
+use super::GizmoLine;
 use aphyn_ecs::Resource;
+use aphyn_ffi::*;
 use aphyn_math::{Mat4, Vec2, Vec3, Vec4};
 use aphyn_render::{RenderSpace, StandardGlobalBindings, StandardInstanceBuffer, StandardTexture};
-use aphyn_ffi::*;
+use aphyn_render_core::{GpuSampler, GpuShader, GpuTexture, GpuUniformStorageBuffer, GpuVertexBuffer};
 use aphyn_utils::mem::AllBitsInit;
-use wgpu::{BindGroup, BindGroupLayout, Buffer, RenderPipeline, Sampler, Texture, TextureView};
-use super::GizmoLine;
 
 #[repr(C)]
 #[derive(Resource)]
@@ -35,11 +35,10 @@ impl Default for GizmosResource {
 // todo: support ffi
 #[derive(Resource)]
 pub struct GizmosRenderResource {
-    pub vertex_buffer: Buffer,
-    pub color_buffer: Buffer,
-    pub transform_buffer: Buffer,
-    pub pipeline: RenderPipeline,
-    pub bind_group: BindGroup,
+    pub vertex_buffer: GpuUniformStorageBuffer,
+    pub color_buffer: GpuUniformStorageBuffer,
+    pub transform_buffer: GpuUniformStorageBuffer,
+    pub shader: GpuShader,
     pub frame_lines: Vec<(RenderSpace, Vec<GizmoLine>)>,
 }
 
@@ -53,7 +52,6 @@ pub struct DepthTextureResource {
 #[derive(Resource)]
 pub struct TransparentTargetTextureResource {
     pub texture: StandardTexture,
-    pub bind_group: BindGroup,
 }
 
 #[repr(C)]
@@ -75,14 +73,10 @@ impl Default for ExposureResource {
 // todo: support ffi
 #[derive(Resource)]
 pub struct ExposureRenderResource {
-    pub target_texture: Texture,
-    pub buffer_uniform: Buffer,
-    pub texture: Texture,
-    pub texture_view: TextureView,
-    pub sampler: Sampler,
-    pub bind_group_layout: BindGroupLayout,
-    pub bind_group: BindGroup,
-    pub render_pipeline: RenderPipeline,
+    pub buffer_uniform: GpuUniformStorageBuffer,
+    pub texture: GpuTexture,
+    pub sampler: GpuSampler,
+    pub shader: GpuShader,
 }
 
 #[repr(C)]
@@ -130,22 +124,15 @@ unsafe impl AllBitsInit for BloomStorageLayer {}
 // todo: support ffi
 #[derive(Resource)]
 pub struct BloomRenderResource {
-    pub target_texture: Texture,
-    pub buffer_storage_layers: Buffer,
-    pub buffer_uniform: Buffer,
-    pub textures: [Texture; 3],
-    pub bind_group_gather: BindGroup,
-    pub bind_group_apply_0: BindGroup,
-    pub bind_group_apply_1: BindGroup,
-    pub bind_group_blur_horiz_0: BindGroup,
-    pub bind_group_blur_horiz_1: BindGroup,
-    pub bind_group_blur_vert: BindGroup,
-    pub bind_group_downscale_0: BindGroup,
-    pub bind_group_downscale_1: BindGroup,
-    pub render_pipeline_gather: RenderPipeline,
-    pub render_pipeline_blur: RenderPipeline,
-    pub render_pipeline_downscale: RenderPipeline,
-    pub render_pipeline_apply: RenderPipeline,
+    pub buffer_storage_layers: GpuUniformStorageBuffer,
+    pub buffer_uniform: GpuUniformStorageBuffer,
+    pub textures: [GpuTexture; 3],
+    pub sampler_linear: GpuSampler,
+    pub sampler_nearest: GpuSampler,
+    pub shader_gather: GpuShader,
+    pub shader_blur: GpuShader,
+    pub shader_downscale: GpuShader,
+    pub shader_apply: GpuShader,
 }
 
 #[repr(C)]
@@ -162,22 +149,16 @@ pub struct ColorGradingResource {
 
 impl Default for ColorGradingResource {
     fn default() -> Self {
-        Self {
-            ty: None,
-        }
+        Self { ty: None }
     }
 }
 
 // todo: support ffi
 #[derive(Resource)]
 pub struct ColorGradingRenderResource {
-    pub target_texture: Texture,
-    pub texture: Texture,
-    pub texture_view: TextureView,
-    pub sampler: Sampler,
-    pub bind_group_layout: BindGroupLayout,
-    pub bind_group: BindGroup,
-    pub render_pipeline: RenderPipeline,
+    pub texture: GpuTexture,
+    pub sampler: GpuSampler,
+    pub shader: GpuShader,
 }
 
 // todo: support ffi
@@ -186,16 +167,11 @@ pub struct StandardRenderResource {
     pub globals: StandardGlobalBindings,
     pub instances: StandardInstanceBuffer,
     pub identity_instance: StandardInstanceBuffer,
-    pub batched_vertex_buffer: Buffer,
+    pub batched_vertex_buffer: GpuVertexBuffer,
     pub lights_count: u32,
     pub camera_pos: Vec3<f32>,
     pub camera_proj_matrix: Mat4<f32>,
-    pub render_pipeline_transparent_final: RenderPipeline,
-    pub bind_group_layout_transparent_final: BindGroupLayout,
-}
-
-pub struct MaterialStandardRenderResourceData {
-    pub render_pipeline: RenderPipeline,
+    pub shader_transparent_final: GpuShader,
 }
 
 #[repr(C)]

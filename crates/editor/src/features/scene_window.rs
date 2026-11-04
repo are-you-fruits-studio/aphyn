@@ -15,7 +15,7 @@ use crate::{
 const MOVE_SPEED: f32 = 5.0;
 const LOOK_SENSITIVITY: f32 = 0.004;
 const PITCH_LIMIT: f32 = 89.0_f32.to_radians();
-const CLEAR_COLOR: [f64; 4] = [0.05, 0.05, 0.05, 1.0];
+const CLEAR_COLOR: [f32; 4] = [0.05, 0.05, 0.05, 1.0];
 const SUN_YAW: f64 = 30.0_f64.to_radians();
 const SUN_PITCH: f64 = -50.0_f64.to_radians();
 const SUN_COLOR: Vec3<f32> = Vec3::splat(3.0);
@@ -297,7 +297,7 @@ pub fn render_simulated_view(
 
     let target = textures.get(texture_handle).unwrap().clone();
 
-    clear_color_target(&*unsafe { render_api.raw() }, unsafe { &target.native().view }, CLEAR_COLOR);
+    clear_color_target(render_api, &target, CLEAR_COLOR);
 
     return_if_not!(Some(camera) = camera);
 

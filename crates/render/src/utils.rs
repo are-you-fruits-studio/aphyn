@@ -1,183 +1,59 @@
-use aphyn_utils::{mem::AllBitsInit, stack_vec::StackVec};
-use crate::RenderState;
-use wgpu::*;
+use aphyn_render_core::{GpuIndexBuffer, GpuUniformStorageBuffer, GpuVertexBuffer, RenderApi};
+use aphyn_utils::mem::AllBitsInit;
 
-const MAX_ENTRIES: usize = 16;
+use crate::{RenderApiResource, StandardTexture};
 
-pub enum CreateBindGroupLayoutEntry {
-    BufferUniform,
-    BufferStorage,
-    BufferStorageMut,
-    Texture,
-    SamplerFiltering,
-    SamplerNonFiltering,
+pub trait GpuWritableBuffer {
+    fn write_bytes_with(&self, core: &RenderApi, offset: usize, size: usize, writer: impl FnOnce(&mut [u8])) -> bool;
 }
 
-pub enum CreateBindGroupEntry<'a> {
-    Buffer(&'a Buffer),
-    Texture(&'a TextureView),
-    Sampler(&'a Sampler),
+impl GpuWritableBuffer for GpuVertexBuffer {
+    fn write_bytes_with(&self, core: &RenderApi, offset: usize, size: usize, writer: impl FnOnce(&mut [u8])) -> bool {
+        core.write_vertex_buffer_with(self, offset, size, writer)
+    }
 }
 
-pub fn create_bind_group_layout(
-    device: &Device,
-    label: Option<&str>,
-    entries: &[CreateBindGroupLayoutEntry],
-) -> BindGroupLayout {
-    fn create_biniding_type_buffer(ty: BufferBindingType) -> BindingType {
-        BindingType::Buffer {
-            ty,
-            has_dynamic_offset: false,
-            min_binding_size: None,
+impl GpuWritableBuffer for GpuUniformStorageBuffer {
+    fn write_bytes_with(&self, core: &RenderApi, offset: usize, size: usize, writer: impl FnOnce(&mut [u8])) -> bool {
+        core.write_uniform_storage_buffer_with(self, offset, size, writer)
+    }
+}
+
+impl GpuWritableBuffer for GpuIndexBuffer {
+    fn write_bytes_with(&self, core: &RenderApi, offset: usize, size: usize, writer: impl FnOnce(&mut [u8])) -> bool {
+        core.write_index_buffer_with(self, offset, size, writer)
+    }
+}
+
+pub fn clear_color_target(render_api: &RenderApiResource, target: &StandardTexture, color: [f32; 4]) -> bool {
+    render_api.core().clear_color_texture(target.texture(), 0, color)
+}
+
+pub fn write_buffer_elements_with<T: AllBitsInit>(
+    core: &RenderApi,
+    buffer: &impl GpuWritableBuffer,
+    start: usize,
+    count: usize,
+    mut f: impl FnMut(usize) -> T,
+) -> bool {
+    let element_size = size_of::<T>();
+
+    if count == 0 || element_size == 0 {
+        return false;
+    }
+
+    buffer.write_bytes_with(core, start * element_size, count * element_size, |view| {
+        // byte copies: the staging view has no alignment guarantee for T
+        for (i, chunk) in view.chunks_exact_mut(element_size).enumerate() {
+            chunk.copy_from_slice(aphyn_utils::mem::as_bytes(&f(i)));
         }
-    }
-
-    if entries.len() > MAX_ENTRIES {
-        panic!("too many entries in a bind group. {} > {}", entries.len(), MAX_ENTRIES);
-    }
-
-    let mut descriptor_entries = StackVec::<BindGroupLayoutEntry, MAX_ENTRIES>::new();
-
-    for (binding, entry) in entries.iter().enumerate() {
-        descriptor_entries.push(BindGroupLayoutEntry {
-            binding: binding as u32,
-            count: None,
-            visibility: ShaderStages::VERTEX_FRAGMENT,
-            ty: match entry {
-                CreateBindGroupLayoutEntry::BufferUniform => create_biniding_type_buffer(BufferBindingType::Uniform),
-                CreateBindGroupLayoutEntry::BufferStorage => create_biniding_type_buffer(BufferBindingType::Storage { read_only: true }),
-                CreateBindGroupLayoutEntry::BufferStorageMut => create_biniding_type_buffer(BufferBindingType::Storage { read_only: false }),
-                CreateBindGroupLayoutEntry::Texture => BindingType::Texture {
-                    sample_type: TextureSampleType::Float { filterable: true },
-                    view_dimension: TextureViewDimension::D2,
-                    multisampled: false,
-                },
-                CreateBindGroupLayoutEntry::SamplerFiltering => BindingType::Sampler(SamplerBindingType::Filtering),
-                CreateBindGroupLayoutEntry::SamplerNonFiltering => BindingType::Sampler(SamplerBindingType::NonFiltering),
-            },
-        }).unwrap();
-    }
-
-    device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-        label,
-        entries: &descriptor_entries,
     })
 }
 
-pub fn create_bind_group(
-    device: &Device,
-    label: Option<&str>,
-    layout: &BindGroupLayout,
-    entries: &[CreateBindGroupEntry],
-) -> BindGroup {
-    if entries.len() > MAX_ENTRIES {
-        panic!("too many entries in a bind group. {} > {}", entries.len(), MAX_ENTRIES);
+pub(crate) fn write_buffer_bytes(core: &RenderApi, buffer: &impl GpuWritableBuffer, offset: usize, bytes: &[u8]) -> bool {
+    if bytes.is_empty() {
+        return false;
     }
 
-    let mut descriptor_entries = StackVec::<BindGroupEntry, MAX_ENTRIES>::new();
-
-    for (binding, entry) in entries.iter().enumerate() {
-        descriptor_entries.push(BindGroupEntry {
-            binding: binding as u32,
-            resource: match entry {
-                CreateBindGroupEntry::Buffer(buffer) => buffer.as_entire_binding(),
-                CreateBindGroupEntry::Texture(texture) => BindingResource::TextureView(texture),
-                CreateBindGroupEntry::Sampler(sampler) => BindingResource::Sampler(sampler),
-            },
-        }).unwrap();
-    }
-
-    device.create_bind_group(&BindGroupDescriptor {
-        label,
-        layout,
-        entries: &descriptor_entries,
-    })
-}
-
-pub fn create_render_pipeline(
-    device: &Device,
-    label: Option<&str>,
-    layout: &PipelineLayout,
-    shader: &ShaderModule,
-    vertex_buffers: &[VertexBufferLayout],
-    color_target_state: ColorTargetState,
-    depth_stencil: Option<DepthStencilState>,
-    topology: PrimitiveTopology,
-    cull_mode: Option<Face>,
-) -> RenderPipeline {
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label,
-        layout: Some(layout),
-        vertex: wgpu::VertexState {
-            module: &shader,
-            entry_point: Some("vs_main"),
-            buffers: vertex_buffers,
-            compilation_options: Default::default(),
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: Some("fs_main"),
-            targets: &[Some(color_target_state)],
-            compilation_options: Default::default(),
-        }),
-        primitive: wgpu::PrimitiveState {
-            topology,
-            strip_index_format: None,
-            front_face: wgpu::FrontFace::Ccw,
-            cull_mode,
-            polygon_mode: wgpu::PolygonMode::Fill,
-            unclipped_depth: false,
-            conservative: false,
-        },
-        depth_stencil,
-        multisample: wgpu::MultisampleState {
-            count: 1,
-            mask: !0,
-            alpha_to_coverage_enabled: false,
-        },
-        multiview: None,
-        cache: None,
-    })
-}
-pub fn clear_color_target(render_state: &RenderState, view: &TextureView, color: [f64; 4]) {
-    let mut encoder = render_state.device().create_command_encoder(&CommandEncoderDescriptor {
-        label: Some("Clear Color Target Encoder"),
-    });
-
-    {
-        let [r, g, b, a] = color;
-
-        let mut _render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("Clear Color Target Pass"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view,
-                depth_slice: None,
-                resolve_target: None,
-                ops: Operations {
-                    load: LoadOp::Clear(Color { r, g, b, a }),
-                    store: StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            ..Default::default()
-        });
-    }
-
-    render_state.queue().submit(std::iter::once(encoder.finish()));
-}
-
-pub fn write_buffer_elements_with<T: AllBitsInit>(queue: &Queue, buffer: &Buffer, start: u64, count: u64, mut f: impl FnMut(u64) -> T) {
-    let element_size = size_of::<T>() as u64;
-
-    let Some(size) = BufferSize::new(count * element_size) else {
-        return;
-    };
-    let Some(mut view) = queue.write_buffer_with(buffer, start * element_size, size) else {
-        return;
-    };
-
-    // byte copies: the staging view has no alignment guarantee for T
-    for (i, chunk) in view.chunks_exact_mut(element_size as usize).enumerate() {
-        chunk.copy_from_slice(aphyn_utils::mem::as_bytes(&f(i as u64)));
-    }
+    buffer.write_bytes_with(core, offset, bytes.len(), |view| view.copy_from_slice(&bytes[..view.len()]))
 }

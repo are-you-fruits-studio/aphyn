@@ -160,14 +160,15 @@
 //!
 //! The handler owns the frame's color target outside the world: an `Rgba16Float` texture
 //! (`RENDER_TARGET_FORMAT` from `aphyn_render`) the size of the surface, rebuilt whenever the
-//! `RenderApiResource` size changes, plus the pipeline that copies it onto the surface
-//! (`assets/copy_texture.wgsl`, nearest sampling, `REPLACE` blend). Each frame the render
+//! `RenderApiResource` size changes, plus the `aphyn_render_core` shader and sampler that copy it
+//! onto the surface (`assets/copy_texture.wgsl`, nearest sampling, `REPLACE` blend). Each frame the render
 //! core system clears the target, takes the first entity with a `GlobalTransform` and a
 //! `CameraComponent`, inserts a `CurrentRenderingResource` describing that camera and the target,
 //! runs the [`Schedule::RenderCamera`](aphyn_ecs::Schedule) pass, and removes the resource again.
 //! Further cameras are ignored for now, and with no camera the pass does not run. Finally the
-//! target is copied onto the surface texture and presented; if the surface texture cannot be
-//! acquired the presentation is skipped for that frame.
+//! target is copied onto the surface with one `RenderApiNew::draw_to_surface` call, which
+//! acquires, draws and presents; if the surface texture cannot be acquired the presentation is
+//! skipped for that frame.
 //!
 //! #### Frame-scoped input
 //!

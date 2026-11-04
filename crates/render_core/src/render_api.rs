@@ -8,10 +8,14 @@ use std::{
     hash::Hash,
     num::NonZeroU64,
     ops::Range,
-    sync::{Arc, Mutex, Weak},
+    ptr::NonNull,
+    sync::{
+        Arc, Mutex, Weak,
+        atomic::{AtomicUsize, Ordering, fence},
+    },
 };
 
-use aphyn_ffi::{FfiDroppable, FfiFnMutMut, FfiOption, FfiSliceMut, FfiSliceRef, FfiStaticRef, FfiStrSliceRef, FfiTypedDroppable};
+use aphyn_ffi::{FfiDroppable, FfiFnMutMut, FfiOption, FfiSliceMut, FfiSliceRef, FfiStaticRef, FfiStrSliceRef};
 use aphyn_utils::index_version_collection::VersionIndex;
 use wgpu::{
     LoadOp,
@@ -218,6 +222,69 @@ impl Drop for ResourceGuard {
         // a poisoned lock means this drop may be unwinding, and panicking again would abort
         if let Ok(mut state) = state.lock() {
             state.release(self.key);
+        }
+    }
+}
+
+// todo: use Arc instead
+#[repr(C)]
+struct SharedResourceGuardHeader {
+    strong: AtomicUsize,
+    drop_fn: unsafe extern "C-unwind" fn(*mut SharedResourceGuardHeader),
+    guard: ResourceGuard,
+}
+
+#[repr(C)]
+pub(crate) struct SharedResourceGuard {
+    header: NonNull<SharedResourceGuardHeader>,
+}
+
+unsafe impl Send for SharedResourceGuard {}
+unsafe impl Sync for SharedResourceGuard {}
+
+impl SharedResourceGuard {
+    fn new(guard: ResourceGuard) -> Self {
+        unsafe extern "C-unwind" fn drop_header(header: *mut SharedResourceGuardHeader) {
+            unsafe { drop(Box::from_raw(header)) }
+        }
+
+        let header = Box::new(SharedResourceGuardHeader {
+            strong: AtomicUsize::new(1),
+            drop_fn: drop_header,
+            guard,
+        });
+
+        Self {
+            header: NonNull::from(Box::leak(header)),
+        }
+    }
+}
+
+impl Clone for SharedResourceGuard {
+    fn clone(&self) -> Self {
+        let old_count = unsafe { self.header.as_ref() }.strong.fetch_add(1, Ordering::Relaxed);
+
+        // like `Arc`, abort before the count can overflow
+        if old_count > isize::MAX as usize {
+            std::process::abort();
+        }
+
+        Self { header: self.header }
+    }
+}
+
+impl Drop for SharedResourceGuard {
+    fn drop(&mut self) {
+        let header = self.header.as_ptr();
+
+        unsafe {
+            if (*header).strong.fetch_sub(1, Ordering::Release) != 1 {
+                return;
+            }
+
+            fence(Ordering::Acquire);
+
+            ((*header).drop_fn)(header);
         }
     }
 }
@@ -452,8 +519,7 @@ fn unsupported_binding<T>(binding: &naga::ResourceBinding) -> Option<T> {
 
 fn create_instance() -> wgpu::Instance {
     wgpu::Instance::new(&wgpu::InstanceDescriptor {
-        // todo: use primary, not only dx12
-        backends: wgpu::Backends::DX12,
+        backends: wgpu::Backends::PRIMARY,
         ..Default::default()
     })
 }
@@ -583,8 +649,8 @@ impl RenderApiInner {
         surface.surface.configure(&self.device, &surface.config);
     }
 
-    fn create_guard(&self, key: ResourceKey) -> FfiTypedDroppable<ResourceGuard> {
-        FfiTypedDroppable::new(ResourceGuard {
+    fn create_guard(&self, key: ResourceKey) -> SharedResourceGuard {
+        SharedResourceGuard::new(ResourceGuard {
             state: Arc::downgrade(&self.state),
             key,
         })
@@ -1427,16 +1493,16 @@ unsafe fn inner_ref<'a>(this: *const c_void) -> &'a RenderApiInner {
 
 // todo: rename
 #[repr(C)]
-pub struct RenderApiNew {
+pub struct RenderApi {
     data: FfiDroppable,
     vtable: FfiStaticRef<RenderApiVTable>,
 }
 
 // the data is an `Arc<RenderApiInner>`, which is `Send + Sync`
-unsafe impl Send for RenderApiNew {}
-unsafe impl Sync for RenderApiNew {}
+unsafe impl Send for RenderApi {}
+unsafe impl Sync for RenderApi {}
 
-impl RenderApiNew {
+impl RenderApi {
     pub fn new(window: impl HasWindowHandle + HasDisplayHandle + Send + Sync + 'static, size: [usize; 2]) -> Option<Self> {
         RenderApiInner::new(window, size).map(Self::from_inner)
     }
@@ -1767,9 +1833,10 @@ impl RenderApiNew {
 }
 
 #[repr(C)]
+#[derive(Clone)]
 pub struct GpuShader {
     id: VersionIndex,
-    _guard: FfiTypedDroppable<ResourceGuard>,
+    _guard: SharedResourceGuard,
 }
 
 impl GpuShader {
@@ -2165,12 +2232,13 @@ pub struct GpuRenderPassDepth<'a> {
 }
 
 #[repr(C)]
+#[derive(Clone)]
 pub struct GpuTexture {
     id: VersionIndex,
     format: GpuTextureFormat,
     size: [usize; 2],
     mip_level_count: usize,
-    _guard: FfiTypedDroppable<ResourceGuard>,
+    _guard: SharedResourceGuard,
 }
 
 impl GpuTexture {
@@ -2236,9 +2304,10 @@ impl GpuTextureFormat {
 }
 
 #[repr(C)]
+#[derive(Clone)]
 pub struct GpuSampler {
     id: VersionIndex,
-    _guard: FfiTypedDroppable<ResourceGuard>,
+    _guard: SharedResourceGuard,
 }
 
 impl GpuSampler {
@@ -2296,7 +2365,7 @@ mod tests {
 
     #[test]
     fn draws_into_a_texture_without_a_surface() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -2323,7 +2392,7 @@ mod tests {
 
     #[test]
     fn creates_and_draws_into_textures_of_all_formats() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -2354,7 +2423,7 @@ mod tests {
 
     #[test]
     fn draws_with_engine_blend_states_and_write_masks() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -2410,7 +2479,7 @@ mod tests {
         }
     }
 
-    fn read_texture_rgba8(api: &RenderApiNew, texture: &GpuTexture, mip_level: usize) -> Vec<u8> {
+    fn read_texture_rgba8(api: &RenderApi, texture: &GpuTexture, mip_level: usize) -> Vec<u8> {
         let [width, height] = texture.size.map(|x| (x >> mip_level).max(1));
         let bytes_per_row = width * 4;
         let padded_bytes_per_row = bytes_per_row.next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize);
@@ -2463,7 +2532,7 @@ mod tests {
 
     #[test]
     fn clears_color_textures_but_not_with_depth() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -2482,7 +2551,7 @@ mod tests {
 
     #[test]
     fn clears_depth_textures_but_not_with_color() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -2494,7 +2563,7 @@ mod tests {
 
     #[test]
     fn clear_sets_the_pixels() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -2509,7 +2578,7 @@ mod tests {
 
     #[test]
     fn clears_a_single_mip_level() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -2527,7 +2596,7 @@ mod tests {
 
     #[test]
     fn draws_into_a_single_mip_level() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -2583,7 +2652,7 @@ mod tests {
     "#;
 
     fn draw_sampling_mip(
-        api: &RenderApiNew,
+        api: &RenderApi,
         shader: &GpuShader,
         target: &GpuTexture,
         target_mip_level: usize,
@@ -2627,7 +2696,7 @@ mod tests {
     "#;
 
     fn draw_with_bind_groups(
-        api: &RenderApiNew,
+        api: &RenderApi,
         shader: &GpuShader,
         target: &GpuTexture,
         bind_groups: &[&[(usize, GpuBinding)]],
@@ -2647,7 +2716,7 @@ mod tests {
 
     #[test]
     fn ignores_bindings_and_groups_the_shader_does_not_declare() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -2696,7 +2765,7 @@ mod tests {
 
     #[test]
     fn fails_when_declared_bindings_are_missing_mistyped_or_duplicated() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -2755,7 +2824,7 @@ mod tests {
 
     #[test]
     fn draws_a_mip_level_from_the_previous_one() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -2786,7 +2855,7 @@ mod tests {
 
     #[test]
     fn draws_into_a_depth_mip_level() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -2815,7 +2884,7 @@ mod tests {
 
     #[test]
     fn rejects_out_of_range_mip_levels() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -2847,7 +2916,7 @@ mod tests {
 
     #[test]
     fn dropping_a_texture_evicts_bind_groups_of_all_its_mip_levels() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -2856,7 +2925,7 @@ mod tests {
         let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
         let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 2);
 
-        let bind_group_count = |api: &RenderApiNew| api.inner().state.lock().unwrap().cache.bind_groups().len();
+        let bind_group_count = |api: &RenderApi| api.inner().state.lock().unwrap().cache.bind_groups().len();
 
         for mip_level in [None, Some(0), Some(1)] {
             assert!(draw_sampling_mip(&api, &shader, &target, 0, &texture, mip_level, &sampler));
@@ -2869,7 +2938,7 @@ mod tests {
 
     #[test]
     fn writes_color_textures_but_not_depth() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -2887,7 +2956,7 @@ mod tests {
 
     #[test]
     fn copy_sets_the_pixels() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -2905,7 +2974,7 @@ mod tests {
 
     #[test]
     fn copies_between_srgb_and_linear() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -2918,7 +2987,7 @@ mod tests {
 
     #[test]
     fn copies_between_textures_with_different_mip_counts() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -2931,7 +3000,7 @@ mod tests {
 
     #[test]
     fn copy_rejects_mismatches() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -2949,7 +3018,7 @@ mod tests {
 
     #[test]
     fn surface_operations_without_a_surface_do_nothing() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -2965,12 +3034,12 @@ mod tests {
     fn api_is_shareable_between_threads() {
         fn assert_send_sync<T: Send + Sync>() {}
 
-        assert_send_sync::<RenderApiNew>();
+        assert_send_sync::<RenderApi>();
     }
 
     #[test]
     fn draws_and_writes_from_several_threads() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3001,7 +3070,7 @@ mod tests {
 
     #[test]
     fn writer_can_call_back_into_the_api() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3036,7 +3105,7 @@ mod tests {
     "#;
 
     fn draw_with_bindings(
-        api: &RenderApiNew,
+        api: &RenderApi,
         shader: &GpuShader,
         target: &GpuTexture,
         texture: &GpuTexture,
@@ -3071,7 +3140,7 @@ mod tests {
 
     #[test]
     fn names_cached_objects_after_their_entries_and_labels() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3158,7 +3227,7 @@ mod tests {
 
     #[test]
     fn creates_empty_buffers() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3176,7 +3245,7 @@ mod tests {
 
     #[test]
     fn uniform_storage_buffer_writes_stay_within_the_requested_size() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3189,7 +3258,7 @@ mod tests {
 
     #[test]
     fn unaligned_writes_fail() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3205,7 +3274,7 @@ mod tests {
 
     #[test]
     fn draw_with_an_empty_vertex_buffer_fails() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3235,7 +3304,7 @@ mod tests {
 
     #[test]
     fn draw_indexed_with_an_empty_index_buffer_fails() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3263,7 +3332,7 @@ mod tests {
 
     #[test]
     fn empty_uniform_storage_buffers_can_be_bound_where_they_fit() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3316,7 +3385,7 @@ mod tests {
 
     #[test]
     fn dropping_handles_releases_resources() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3329,7 +3398,7 @@ mod tests {
         let uniforms = api.create_uniform_storage_buffer(None, 16);
         let indices = api.create_index_buffer(None, 4, GpuIndexFormat::U16);
 
-        let counts = |api: &RenderApiNew| {
+        let counts = |api: &RenderApi| {
             let state = api.inner().state.lock().unwrap();
 
             [
@@ -3358,7 +3427,7 @@ mod tests {
 
     #[test]
     fn dropping_a_bound_resource_evicts_only_its_bind_groups() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3371,7 +3440,7 @@ mod tests {
         let buffer = api.create_uniform_storage_buffer(None, 16);
         let other_buffer = api.create_uniform_storage_buffer(None, 16);
 
-        let bind_group_count = |api: &RenderApiNew| api.inner().state.lock().unwrap().cache.bind_groups().len();
+        let bind_group_count = |api: &RenderApi| api.inner().state.lock().unwrap().cache.bind_groups().len();
 
         assert!(draw_with_bindings(&api, &shader, &target, &texture, &sampler, &buffer));
         assert!(draw_with_bindings(&api, &shader, &target, &other_texture, &sampler, &buffer));
@@ -3409,7 +3478,7 @@ mod tests {
 
     #[test]
     fn dropping_a_shader_evicts_only_its_pipelines() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3430,7 +3499,7 @@ mod tests {
             assert!(api.draw(&pass, 0..3, 0..1));
         }
 
-        let pipeline_count = |api: &RenderApiNew| api.inner().state.lock().unwrap().cache.pipelines().len();
+        let pipeline_count = |api: &RenderApi| api.inner().state.lock().unwrap().cache.pipelines().len();
 
         assert_eq!(pipeline_count(&api), 2);
 
@@ -3441,7 +3510,7 @@ mod tests {
 
     #[test]
     fn handles_can_outlive_the_api() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3455,7 +3524,7 @@ mod tests {
 
     #[test]
     fn clones_share_resources() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3483,7 +3552,7 @@ mod tests {
 
     #[test]
     fn handles_outlive_all_clones() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3496,8 +3565,156 @@ mod tests {
     }
 
     #[test]
+    fn handle_clones_have_the_same_id() {
+        let Some(api) = RenderApi::new_headless() else {
+            return;
+        };
+
+        let layout = GpuVertexBufferLayout::new(GpuVertexStepMode::Vertex, [(0, GpuVertexBufferLayoutEntryTy::Float)]).unwrap();
+
+        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let sampler = api.create_sampler(None, GpuFilterMode::Linear);
+        let shader = api.create_shader(None, FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
+        let vertices = api.create_vertex_buffer(None, 4, layout);
+        let uniforms = api.create_uniform_storage_buffer(None, 16);
+        let indices = api.create_index_buffer(None, 4, GpuIndexFormat::U16);
+
+        assert_eq!(texture.clone().id(), texture.id());
+        assert_eq!(sampler.clone().id(), sampler.id());
+        assert_eq!(shader.clone().id(), shader.id());
+        assert_eq!(vertices.clone().id(), vertices.id());
+        assert_eq!(uniforms.clone().id(), uniforms.id());
+        assert_eq!(indices.clone().id(), indices.id());
+    }
+
+    #[test]
+    fn handle_clones_stay_usable_after_the_original_is_dropped() {
+        let Some(api) = RenderApi::new_headless() else {
+            return;
+        };
+
+        let shader = api.create_shader(None, BINDINGS_WGSL, GpuShaderDesc::default()).unwrap();
+        let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let sampler = api.create_sampler(None, GpuFilterMode::Linear);
+        let buffer = api.create_uniform_storage_buffer(None, 16);
+
+        let shader_clone = shader.clone();
+        let target_clone = target.clone();
+        let texture_clone = texture.clone();
+        let sampler_clone = sampler.clone();
+        let buffer_clone = buffer.clone();
+
+        drop(shader);
+        drop(target);
+        drop(texture);
+        drop(sampler);
+        drop(buffer);
+
+        assert!(api.write_uniform_storage_buffer_with(&buffer_clone, 0, 16, |bytes| bytes.fill(1)));
+        assert!(draw_with_bindings(
+            &api,
+            &shader_clone,
+            &target_clone,
+            &texture_clone,
+            &sampler_clone,
+            &buffer_clone
+        ));
+
+        let state = api.inner().state.lock().unwrap();
+
+        assert_eq!(state.resources.textures.len(), 2);
+        assert_eq!(state.resources.samplers.len(), 1);
+        assert_eq!(state.resources.shaders.len(), 1);
+        assert_eq!(state.resources.buffers.len(), 1);
+    }
+
+    #[test]
+    fn caches_are_evicted_only_after_the_last_clone_drops() {
+        let Some(api) = RenderApi::new_headless() else {
+            return;
+        };
+
+        let shader = api.create_shader(None, BINDINGS_WGSL, GpuShaderDesc::default()).unwrap();
+        let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let sampler = api.create_sampler(None, GpuFilterMode::Linear);
+        let buffer = api.create_uniform_storage_buffer(None, 16);
+
+        assert!(draw_with_bindings(&api, &shader, &target, &texture, &sampler, &buffer));
+
+        let counts = |api: &RenderApi| {
+            let state = api.inner().state.lock().unwrap();
+
+            [state.cache.bind_groups().len(), state.cache.pipelines().len()]
+        };
+
+        assert_eq!(counts(&api), [1, 1]);
+
+        let texture_clone = texture.clone();
+        let shader_clone = shader.clone();
+
+        drop(texture);
+        drop(shader);
+        assert_eq!(counts(&api), [1, 1]);
+
+        drop(texture_clone);
+        assert_eq!(counts(&api), [0, 1]);
+
+        drop(shader_clone);
+        assert_eq!(counts(&api), [0, 0]);
+    }
+
+    #[test]
+    fn handle_clones_can_outlive_the_api() {
+        let Some(api) = RenderApi::new_headless() else {
+            return;
+        };
+
+        let api_clone = api.clone();
+        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let buffer = api.create_uniform_storage_buffer(None, 16);
+        let texture_clone = texture.clone();
+        let buffer_clone = buffer.clone();
+
+        drop(api);
+        drop(api_clone);
+        drop(texture);
+        drop(buffer);
+        drop(texture_clone);
+        drop(buffer_clone);
+    }
+
+    #[test]
+    fn handle_clones_dropped_from_several_threads_release_once() {
+        let Some(api) = RenderApi::new_headless() else {
+            return;
+        };
+
+        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                let texture = texture.clone();
+
+                scope.spawn(move || {
+                    for _ in 0..64 {
+                        drop(texture.clone());
+                    }
+                });
+            }
+        });
+
+        assert_eq!(api.inner().state.lock().unwrap().resources.textures.len(), 1);
+
+        drop(texture);
+
+        assert_eq!(api.inner().state.lock().unwrap().resources.textures.len(), 0);
+    }
+
+    #[test]
     fn same_binding_index_in_different_groups_is_allowed() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3529,7 +3746,7 @@ mod tests {
 
     #[test]
     fn writer_can_drop_a_handle() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3545,7 +3762,7 @@ mod tests {
 
     #[test]
     fn new_resource_in_a_reused_slot_gets_a_new_bind_group() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3583,7 +3800,7 @@ mod tests {
 
     #[test]
     fn drops_handles_while_other_threads_draw() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3750,7 +3967,7 @@ mod tests {
 
         assert_eq!(check_stage_interface(&parse_shader(wgsl).unwrap()), None);
 
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3787,7 +4004,7 @@ mod tests {
 
         assert_eq!(check_stage_interface(&parse_shader(wgsl).unwrap()), Some(()));
 
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3815,7 +4032,7 @@ mod tests {
 
         assert_eq!(check_stage_interface(&parse_shader(wgsl).unwrap()), None);
 
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3836,7 +4053,7 @@ mod tests {
 
     #[test]
     fn failed_pipelines_are_created_once_and_evicted_with_the_shader() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3881,7 +4098,7 @@ mod tests {
 
     #[test]
     fn resource_id_is_stable_for_the_same_handle() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3892,7 +4109,7 @@ mod tests {
 
     #[test]
     fn live_textures_have_different_resource_ids() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3904,7 +4121,7 @@ mod tests {
 
     #[test]
     fn resource_id_is_not_reused_after_release() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3921,7 +4138,7 @@ mod tests {
 
     #[test]
     fn resource_ids_differ_between_kinds() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
 
@@ -3945,7 +4162,7 @@ mod tests {
 
     #[test]
     fn resource_ids_are_shared_between_api_clones() {
-        let Some(api) = RenderApiNew::new_headless() else {
+        let Some(api) = RenderApi::new_headless() else {
             return;
         };
         let clone = api.clone();

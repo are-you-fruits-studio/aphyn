@@ -1,5 +1,5 @@
 use aphyn_render::WgslComposer;
-use wgpu::{Device, ShaderModule};
+use aphyn_render_core::{GpuShader, GpuShaderDesc, RenderApi};
 
 pub fn render_wgsl_composer() -> WgslComposer {
     let mut composer = WgslComposer::with_engine_libraries();
@@ -7,10 +7,10 @@ pub fn render_wgsl_composer() -> WgslComposer {
     composer
 }
 
-pub(crate) fn create_engine_shader_module(device: &Device, name: &str, source: &str, defs: &[&str]) -> ShaderModule {
-    render_wgsl_composer()
-        .create_shader_module(device, name, source, defs)
-        .unwrap()
+pub(crate) fn create_engine_shader(core: &RenderApi, name: &str, source: &str, desc: GpuShaderDesc) -> GpuShader {
+    let code = render_wgsl_composer().compose(name, source, &[]).unwrap();
+
+    core.create_shader(Some(name), &code, desc).unwrap()
 }
 
 #[cfg(test)]

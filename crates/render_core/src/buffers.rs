@@ -1,17 +1,18 @@
 use std::hash::{Hash, Hasher};
 
-use aphyn_ffi::{FfiTypedDroppable, FfiVec};
+use aphyn_ffi::FfiVec;
 use aphyn_utils::index_version_collection::VersionIndex;
 use wgpu::{VertexAttribute, VertexFormat, VertexStepMode};
 
-use crate::render_api_new::{GpuResourceId, ResourceGuard, ResourceKey};
+use crate::render_api::{GpuResourceId, ResourceKey, SharedResourceGuard};
 
 #[repr(C)]
+#[derive(Clone)]
 pub struct GpuVertexBuffer {
     pub(crate) id: VersionIndex,
     pub(crate) layout: GpuVertexBufferLayout,
     pub(crate) len: usize,
-    pub(crate) _guard: FfiTypedDroppable<ResourceGuard>,
+    pub(crate) _guard: SharedResourceGuard,
 }
 
 impl GpuVertexBuffer {
@@ -33,10 +34,11 @@ impl GpuVertexBuffer {
 }
 
 #[repr(C)]
+#[derive(Clone)]
 pub struct GpuUniformStorageBuffer {
     pub(crate) id: VersionIndex,
     pub(crate) size: usize,
-    pub(crate) _guard: FfiTypedDroppable<ResourceGuard>,
+    pub(crate) _guard: SharedResourceGuard,
 }
 
 impl GpuUniformStorageBuffer {
@@ -50,11 +52,12 @@ impl GpuUniformStorageBuffer {
 }
 
 #[repr(C)]
+#[derive(Clone)]
 pub struct GpuIndexBuffer {
     pub(crate) id: VersionIndex,
     pub(crate) format: GpuIndexFormat,
     pub(crate) len: usize,
-    pub(crate) _guard: FfiTypedDroppable<ResourceGuard>,
+    pub(crate) _guard: SharedResourceGuard,
 }
 
 impl GpuIndexBuffer {

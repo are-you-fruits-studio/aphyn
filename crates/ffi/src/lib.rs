@@ -80,6 +80,27 @@
 //! assert_eq!(boxed.into_inner(), 42);
 //! ```
 //!
+//! #### Sharing a heap value between owners
+//!
+//! [`FfiArc<T>`] is the stable-layout counterpart of [`Arc<T>`](std::sync::Arc): an atomically
+//! reference-counted pointer that derefs to the shared value and drops it when the last clone
+//! goes away. [`strong_count`](FfiArc::strong_count) and [`ptr_eq`](FfiArc::ptr_eq) are
+//! associated functions, as on `Arc`. There are no weak references.
+//!
+//! ```
+//! use aphyn_ffi::FfiArc;
+//!
+//! let a = FfiArc::new(String::from("shared"));
+//! let b = a.clone();
+//!
+//! assert_eq!(*b, "shared");
+//! assert!(FfiArc::ptr_eq(&a, &b));
+//! assert_eq!(FfiArc::strong_count(&a), 2);
+//!
+//! drop(b);
+//! assert_eq!(FfiArc::strong_count(&a), 1);
+//! ```
+//!
 //! #### Mapping keys to values
 //!
 //! [`FfiHashMap<K, V>`] is the stable-layout counterpart of
@@ -203,7 +224,7 @@
 //!   own — a slice view is a pointer plus a [`u64`] length, an option is a tagged
 //!   union — so a fixed layout is all they need.
 //! - **Owning types that carry their behavior as embedded `extern "C-unwind"` function
-//!   pointers.** [`FfiAny`], [`FfiBox`], [`FfiDroppable`], [`FfiHashMap`],
+//!   pointers.** [`FfiAny`], [`FfiArc`], [`FfiBox`], [`FfiDroppable`], [`FfiHashMap`],
 //!   [`FfiIndexMap`], and [`FfiAllocator`]
 //!   store the operations they need (drop, deallocate, insert, look up) as function
 //!   pointers alongside the data, because the consuming side cannot monomorphize
@@ -231,6 +252,16 @@
 //! begins with a metadata header (an `extern "C-unwind"` drop function and a pointer to the
 //! value); dropping the `FfiDroppable` calls through that header. [`FfiTypedDroppable<T>`]
 //! is the typed wrapper that derefs to the value and forwards the standard traits.
+//!
+//! [`FfiArc<T>`] is a `#[repr(C)]` pointer to a single `#[repr(C)]` heap allocation laid out
+//! as an `AtomicUsize` strong count, an `extern "C-unwind"` drop function, then the value.
+//! Count and drop function come first so their offsets do not depend on `T`. Clones bump the
+//! count with `Relaxed` (aborting past `isize::MAX`, like `Arc`); drops decrement with
+//! `Release`, and the last one issues an `Acquire` fence and calls the stored drop function,
+//! which drops the value and frees the whole allocation. Going through that pointer rather
+//! than dropping in place means the value is always destroyed and freed by the code (and
+//! allocator) of the binary that created it, whichever side releases the last clone. It is
+//! `Send`/`Sync` only when `T: Send + Sync`, as `Arc` is.
 //! [`FfiStaticRef<T>`] is a `#[repr(transparent)]`, [`Copy`] pointer to a `'static`
 //! value, used to share these tables cheaply.
 //!
@@ -294,6 +325,7 @@
 //! unfinished work; leave them in place.
 
 mod alloc;
+mod arc;
 mod boxed;
 mod convert;
 mod drop;
@@ -313,6 +345,7 @@ mod return_val;
 mod ptr;
 
 pub use alloc::*;
+pub use arc::*;
 pub use boxed::*;
 pub use convert::*;
 pub use drop::*;

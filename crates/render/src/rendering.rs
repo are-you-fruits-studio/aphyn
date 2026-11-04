@@ -1,13 +1,13 @@
 use aphyn_ecs::Resource;
 use aphyn_math::{Mat3, Mat4, Vec3};
+use aphyn_render_core::GpuTextureFormat;
 use aphyn_serialization::*;
-use wgpu::TextureFormat;
 
 use crate::{StandardLight, StandardTexture};
 
-pub const RENDER_TARGET_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
-pub const DEPTH_TEXTURE_FORMAT: TextureFormat = TextureFormat::Depth32Float;
-pub const TRANSPARENT_TARGET_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
+pub const RENDER_TARGET_FORMAT: GpuTextureFormat = GpuTextureFormat::Rgba16Float;
+pub const DEPTH_TEXTURE_FORMAT: GpuTextureFormat = GpuTextureFormat::Depth32Float;
+pub const TRANSPARENT_TARGET_FORMAT: GpuTextureFormat = GpuTextureFormat::Rgba16Float;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Serializable)]
@@ -34,7 +34,9 @@ pub enum CameraProjection {
 }
 impl Default for CameraProjection {
     fn default() -> Self {
-        Self::Perspective { fov: 90_f32.to_radians() }
+        Self::Perspective {
+            fov: 90_f32.to_radians(),
+        }
     }
 }
 

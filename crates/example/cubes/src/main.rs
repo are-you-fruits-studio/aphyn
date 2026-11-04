@@ -104,7 +104,7 @@ fn init_mesh_material(mut world: WorldDataMut) {
     };
 
     let material = render_api.create_material(StandardMaterialAssetMetadata {
-        shader: StandardEngineShader::OpaqueLit.into(),
+        shader: StandardEngineShader::OpaqueUnlit.into(),
         ..Default::default()
     });
 

@@ -1,22 +1,13 @@
 use std::fmt::Debug;
 
-use aphyn_ffi::{FfiDroppable, FfiOption, FfiString};
-use aphyn_serialization::*;
-use wgpu::{
-    AddressMode, Extent3d, Origin3d, Sampler, SamplerDescriptor, Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
-    TextureView,
+use aphyn_ffi::{FfiOption, FfiString};
+use aphyn_render_core::{
+    GpuBinding, GpuPassOps, GpuRenderPass, GpuRenderPassTarget, GpuResourceId, GpuSampler, GpuShader, GpuTexture, GpuTextureFormat,
+    RenderApi,
 };
+use aphyn_serialization::*;
 
-use crate::{CreateBindGroupEntry, RenderApi, RenderData};
-
-pub use wgpu::FilterMode;
-
-#[derive(Debug, Clone)]
-pub struct StandardTextureNative {
-    pub texture: Texture,
-    pub view: TextureView,
-    pub sampler: Sampler,
-}
+pub use aphyn_render_core::GpuFilterMode as FilterMode;
 
 #[repr(C)]
 #[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Serializable)]
@@ -29,19 +20,21 @@ pub enum StandardTextureFormat {
 }
 
 impl StandardTextureFormat {
-    fn to_wgpu(self) -> TextureFormat {
-        match self {
-            Self::Rgba8Unorm => TextureFormat::Rgba8Unorm,
-            Self::Rgba8UnormSrgb => TextureFormat::Rgba8UnormSrgb,
-            Self::Rgba16Float => TextureFormat::Rgba16Float,
-            Self::Depth32Float => TextureFormat::Depth32Float,
-        }
-    }
-
-    fn bytes_per_pixel(self) -> u32 {
+    fn bytes_per_pixel(self) -> usize {
         match self {
             Self::Rgba8Unorm | Self::Rgba8UnormSrgb | Self::Depth32Float => 4,
             Self::Rgba16Float => 8,
+        }
+    }
+}
+
+impl From<StandardTextureFormat> for GpuTextureFormat {
+    fn from(value: StandardTextureFormat) -> Self {
+        match value {
+            StandardTextureFormat::Rgba8Unorm => GpuTextureFormat::Rgba8Unorm,
+            StandardTextureFormat::Rgba8UnormSrgb => GpuTextureFormat::Rgba8UnormSrgb,
+            StandardTextureFormat::Rgba16Float => GpuTextureFormat::Rgba16Float,
+            StandardTextureFormat::Depth32Float => GpuTextureFormat::Depth32Float,
         }
     }
 }
@@ -65,31 +58,30 @@ impl Default for StandardTextureAssetMetadata {
 }
 
 #[repr(C)]
+#[derive(Clone)]
 pub struct StandardTexture {
-    native: FfiDroppable,
+    texture: GpuTexture,
+    sampler: GpuSampler,
     meta: FfiOption<StandardTextureAssetMetadata>,
-    texture_id: u64,
 }
 
 impl StandardTexture {
     pub(crate) fn new(
-        render_api: &RenderApi,
-        render_data: &RenderData,
+        core: &RenderApi,
+        mip_fill_shader: &GpuShader,
+        mip_fill_sampler: &GpuSampler,
         filter_mode: FilterMode,
-        mut dimensions: [u32; 2],
+        dimensions: [u32; 2],
         data: &[u8],
         meta: StandardTextureAssetMetadata,
     ) -> Self {
-        dimensions = dimensions.map(|x| x.max(1));
+        let dimensions = dimensions.map(|x| x.max(1) as usize);
 
         let is_depth = meta.format == StandardTextureFormat::Depth32Float;
         let data = if is_depth { &[] } else { data };
 
         let format_bytes_per_pixel = meta.format.bytes_per_pixel();
-        let bytes_per_row = dimensions[0] * format_bytes_per_pixel;
-
-        let px_count = (dimensions[0] * dimensions[1]) as usize;
-
+        let px_count = dimensions[0] * dimensions[1];
         let bytes_per_pixel = data.len() / px_count;
 
         let mut data = data;
@@ -109,149 +101,62 @@ impl StandardTexture {
             data = data_vec.as_slice();
         }
 
-        let format = meta.format.to_wgpu();
-
-        let mipmaps_count = match meta.should_generate_mipmaps && !is_depth {
+        let mip_level_count = match meta.should_generate_mipmaps && !is_depth {
             false => 1,
-            true => dimensions[0].max(dimensions[1]).ilog2() + 1
+            true => dimensions[0].max(dimensions[1]).ilog2() as usize + 1,
         };
 
-        let usage = match is_depth {
-            false => TextureUsages::COPY_SRC | TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
-            true => TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
-        };
+        let label = Some(meta.raw_texture.as_str()).filter(|label| !label.is_empty());
+        let texture = core.create_texture(label, dimensions, meta.format.into(), mip_level_count);
 
-        let texture = render_api.device.create_texture(&TextureDescriptor {
-            label: Some(meta.raw_texture.as_str()),
-            size: Extent3d {
-                width: dimensions[0],
-                height: dimensions[1],
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: mipmaps_count,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: format,
-            usage,
-            view_formats: &[format],
-        });
         if !data.is_empty() {
-            render_api.queue.write_texture(
-                wgpu::TexelCopyTextureInfoBase {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                data,
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(bytes_per_row),
-                    rows_per_image: None,
-                },
-                Extent3d {
-                    depth_or_array_layers: 1,
-                    width: dimensions[0],
-                    height: dimensions[1],
-                },
-            );
+            core.write_texture(&texture, 0, data);
         }
 
-        let sampler = render_api.device.create_sampler(&SamplerDescriptor {
-            address_mode_u: AddressMode::ClampToEdge,
-            address_mode_v: AddressMode::ClampToEdge,
-            address_mode_w: AddressMode::ClampToEdge,
-            mag_filter: filter_mode,
-            min_filter: filter_mode,
-            mipmap_filter: filter_mode,
-            ..Default::default()
-        });
+        let sampler = core.create_sampler(label, filter_mode);
 
-        for mipmap_level_src in 0..(mipmaps_count - 1) {
-            let mipmap_level_dst = mipmap_level_src + 1;
-
-            let texture_view_src = texture.create_view(&wgpu::TextureViewDescriptor {
-                label: Some("Mipmap Fill Src Texture View"),
-                base_mip_level: mipmap_level_src,
-                mip_level_count: Some(1),
-                ..Default::default()
-            });
-
-            let texture_view_dst = texture.create_view(&wgpu::TextureViewDescriptor {
-                label: Some("Mipmap Fill Dst Texture View"),
-                base_mip_level: mipmap_level_dst,
-                mip_level_count: Some(1),
-                ..Default::default()
-            });
-
-            let bind_group = crate::create_bind_group(
-                &render_api.device,
-                Some("Mipmap Fill Bind Group"),
-                &render_data.mip_fill_bind_group_layout,
-                &[
-                    CreateBindGroupEntry::Texture(&texture_view_src),
-                    CreateBindGroupEntry::Sampler(&render_data.mip_fill_sampler),
-                ],
+        for mip_level in 1..mip_level_count {
+            core.draw(
+                &GpuRenderPass {
+                    shader: mip_fill_shader,
+                    target: Some(GpuRenderPassTarget {
+                        view: &texture,
+                        mip_level,
+                        ops: GpuPassOps::Load,
+                    }),
+                    depth: None,
+                    bind_groups: &[&[
+                        (
+                            0,
+                            GpuBinding::Texture {
+                                texture: &texture,
+                                mip_level: Some(mip_level - 1),
+                            },
+                        ),
+                        (1, GpuBinding::Sampler(mip_fill_sampler)),
+                    ]],
+                    vertex_buffers: &[],
+                    viewport: None,
+                    scissor: None,
+                },
+                0..3,
+                (mip_level - 1)..mip_level,
             );
-
-            let render_pipeline = crate::create_render_pipeline(
-                &render_api.device,
-                Some("Mipmap Fill Render Pipeline"),
-                &render_data.mip_fill_render_pipeline_layout,
-                &render_data.mip_fill_shader,
-                &[],
-                texture.format().into(),
-                None,
-                wgpu::PrimitiveTopology::TriangleList,
-                None,
-            );
-
-            let mut encoder = render_api.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Mipmap Fill Command Encoder"),
-            });
-
-            {
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Mipmap Fill Render Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &texture_view_dst,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
-
-                render_pass.set_pipeline(&render_pipeline);
-                render_pass.set_bind_group(0, &bind_group, &[]);
-                render_pass.draw(0..3, mipmap_level_src..(mipmap_level_src + 1));
-            }
-
-            render_api.queue.submit([encoder.finish()]);
         }
-
-        let texture_id = render_api.next_texture_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-        let view = texture.create_view(&Default::default());
 
         Self {
-            native: FfiDroppable::new(StandardTextureNative {
-                texture,
-                view,
-                sampler,
-            }),
+            texture,
+            sampler,
             meta: meta.into(),
-            texture_id,
         }
     }
 
-    pub unsafe fn native(&self) -> &StandardTextureNative {
-        unsafe { &*(self.native.get() as *const StandardTextureNative) }
+    pub fn texture(&self) -> &GpuTexture {
+        &self.texture
+    }
+
+    pub fn sampler(&self) -> &GpuSampler {
+        &self.sampler
     }
 
     pub fn meta(&self) -> Option<&StandardTextureAssetMetadata> {
@@ -259,30 +164,16 @@ impl StandardTexture {
     }
 
     pub fn size(&self) -> [u32; 2] {
-        let size = unsafe { self.native() }.texture.size();
-        [size.width, size.height]
+        self.texture.size().map(|x| x as u32)
     }
 
-    pub fn id(&self) -> u64 {
-        self.texture_id
-    }
-}
-
-impl Clone for StandardTexture {
-    fn clone(&self) -> Self {
-        Self {
-            native: FfiDroppable::new(unsafe { self.native() }.clone()),
-            meta: self.meta.clone(),
-            texture_id: self.texture_id,
-        }
+    pub fn id(&self) -> GpuResourceId {
+        self.texture.id()
     }
 }
 
 impl Debug for StandardTexture {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("StandardTexture").field("native", &self.native.get()).finish()
+        f.debug_struct("StandardTexture").field("id", &self.id()).finish()
     }
 }
-
-unsafe impl Send for StandardTexture where StandardTextureNative: Send {}
-unsafe impl Sync for StandardTexture where StandardTextureNative: Sync {}

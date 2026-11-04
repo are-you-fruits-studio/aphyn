@@ -147,9 +147,7 @@
 //! the user-facing resources ([`GizmosResource`], [`ScreenSpaceResource`], [`BloomResource`],
 //! [`ExposureResource`], [`ColorGradingResource`]), and registers its systems under the
 //! [`SYSTEM_GROUP_RENDER`] group in three schedules. [`Schedule::Start`] builds the
-//! [`StandardRenderResource`] and the gizmo resources; the crate's own pipelines are created against
-//! the fixed [`RENDER_TARGET_FORMAT`](aphyn_render::RENDER_TARGET_FORMAT) since no render
-//! target exists yet. [`Schedule::Update`] only
+//! [`StandardRenderResource`] and the gizmo resources, including their shaders. [`Schedule::Update`] only
 //! runs the per-frame work that does not depend on the camera: [`prepare_gizmos`]. Keeping the
 //! group in `Update` lets other modules and games keep ordering their systems
 //! `before_group(SYSTEM_GROUP_RENDER)`.
@@ -161,7 +159,21 @@
 //! targets, update the camera matrix, upload the lights, update the global
 //! uniform, draw opaque geometry (one system, instanced then batched), draw transparent geometry (instanced then
 //! batched), composite the transparent target, apply exposure, bloom, and color grading, and
-//! finally draw gizmos. Every pass records its own command encoder and submits it immediately.
+//! finally draw gizmos. Every pass is its own draw, clear, or copy, which `aphyn_render_core`
+//! submits immediately. Buffers reused between draws (instances, batched vertices, gizmo lines)
+//! rely on this: a buffer write applies at the next submit, so each draw reads what was written
+//! right before it.
+//!
+//! #### GPU access
+//!
+//! The crate names no backend GPU types. It depends on `aphyn_render_core` directly, because the
+//! `aphyn` facade does not export it, and reaches the API through `RenderApiResource::core`.
+//! Material draws go through `RenderApiResource::draw_instanced` and `draw_batched`; the
+//! fullscreen passes, the bloom passes, and gizmos call `RenderApiNew::draw` themselves. The GPU
+//! resources hold core handles (`GpuShader`, `GpuTexture`, `GpuSampler`, `GpuUniformStorageBuffer`,
+//! `GpuVertexBuffer`, or `StandardTexture` for texture and sampler pairs) and no bind groups or
+//! pipelines: each pass lists its bindings in `GpuRenderPass::bind_groups`, and core resolves and
+//! caches bind groups and pipelines by value.
 //!
 //! #### Render targets and presentation
 //!
@@ -172,9 +184,10 @@
 //! draws into that target, with the `Depth32Float` `StandardTexture` of [`DepthTextureResource`]. Window-to-clip matrices,
 //! the camera aspect, and the bloom viewports use the target size, not the window size. The
 //! `recreate_*` systems compare each intermediate texture against the target size and only
-//! rebuild when it changed, replacing the resource in place; the exposure, bloom, and color
-//! grading resources bind the target view, so they also keep a clone of the target texture and
-//! rebuild when a different target is passed.
+//! recreate it when the size changed. The depth and transparent resources are replaced whole. The
+//! exposure, bloom, and color grading resources create their shaders, samplers, and uniform
+//! buffers once, when first inserted, and later only replace their textures. They do not depend on
+//! which target is passed, because every pass binds `CurrentRenderingResource::target` at draw time.
 //!
 //! #### Two geometry paths: instanced and batched
 //!
@@ -186,9 +199,10 @@
 //! [`BatchedMeshComponent`]: it groups entities by material, transforms each indexed vertex on the
 //! CPU into world space (and converts vertex colors from sRGB to linear), writes them straight into
 //! the shared non-indexed vertex buffer through `write_buffer_elements_with` (`write_batched_mesh`),
-//! and flushes whenever the buffer fills ([`TRIANGLES_PER_BATCHED_DRAW_MAX`] triangles). Batched
-//! draws bind `StandardRenderResource::identity_instance`, a one-element buffer holding the
-//! identity. Both paths skip entities whose `GlobalDisableableComponent` is set, treat a missing
+//! and flushes whenever the buffer fills ([`TRIANGLES_PER_BATCHED_DRAW_MAX`] triangles) through
+//! `RenderApiResource::draw_batched`. That buffer, `StandardRenderResource::batched_vertex_buffer`,
+//! is a `GpuVertexBuffer` with the `StandardVertex` layout. Batched draws pass
+//! `StandardRenderResource::identity_instance`, a one-element buffer holding the identity. Both paths skip entities whose `GlobalDisableableComponent` is set, treat a missing
 //! transform as the identity, and skip entities whose mesh or material handle does not resolve;
 //! `draw_instanced` itself skips meshes without indices. An entity with both mesh components is
 //! drawn by both paths. No per-frame CPU staging arrays are kept: every upload of per-frame data
@@ -219,9 +233,13 @@
 //! All shaders here are `.wgsl` files in `src/assets/`, composed with
 //! [`render_wgsl_composer`]: the `aphyn_render` engine libraries plus the crate-local
 //! `aphyn/bloom.wgsl` (the bloom uniform, layer storage, and their bindings, shared by the four
-//! bloom shaders). The fullscreen passes use `aphyn/fullscreen.wgsl`. The standard shader and its
-//! six engine pipelines live in `aphyn_render` (`StandardEnginePipelines` in `RenderData`);
-//! [`StandardRenderResource`] only holds the transparent-composite pipeline. The
+//! bloom shaders). The fullscreen passes use `aphyn/fullscreen.wgsl`. `create_engine_shader`
+//! composes a shader and creates it with `RenderApiNew::create_shader`, whose `GpuShaderDesc`
+//! holds the pass state: the fullscreen and bloom passes cull back faces, have no depth, and use
+//! `REPLACE` blending, except the transparent composite (alpha blending, color-only writes)
+//! and bloom apply (additive color and alpha); gizmos use `LineList` without culling. The standard
+//! shader and its six engine variants live in `aphyn_render` (`RenderApiResource::engine_shaders`);
+//! [`StandardRenderResource`] only holds the transparent-composite shader. The
 //! `render_shaders_are_valid` unit test validates every shader of this crate with `naga`.
 //! Bind group 0 is the global group, `StandardRenderResource::globals` (a
 //! `StandardGlobalBindings`: the `StandardUniformGlobal` with the world-to-clip and window-to-clip
@@ -232,13 +250,13 @@
 //! [`ScreenSpaceResource`], `-10_000` to `10_000` by default, lower z in front).
 //! Before drawing with a material, the three geometry systems call
 //! `StandardMaterial::update_gpu_data_if_dirty` (which is why they take the material storage
-//! mutably and the texture storage): it rebuilds the material's bind group when a resolved texture
-//! changed and rewrites its uniform (color and emission converted from sRGB to linear) only when
-//! the metadata was touched through `meta_mut`. Because `RenderCamera` runs once per camera, later
-//! cameras in the same frame see a no-op update. `utils::custom_shader` resolves a `Custom` shader
-//! handle, and `RenderState::material_pipeline` (directly for batched draws, inside
-//! `draw_instanced` otherwise) picks the pipeline from the material's `shader`; a custom handle
-//! that doesn't resolve skips the draw. The lit path samples the normal map through a TBN matrix, scales metallic and roughness by their textures, starts from the
+//! mutably): it rewrites the material's uniform (color and emission converted from sRGB to linear)
+//! only when the metadata was touched through `meta_mut`. Because `RenderCamera` runs once per
+//! camera, later cameras in the same frame see a no-op update. The systems also pass the texture
+//! storage to every draw, because `draw_instanced` and `draw_batched` resolve the material's
+//! textures, with the white and default-normal fallbacks, on each draw. `utils::custom_shader`
+//! resolves a `Custom` shader handle, and the draw picks the shader from the material's `shader`
+//! through `RenderApiResource::material_shader`; a custom handle that doesn't resolve skips the draw. The lit path samples the normal map through a TBN matrix, scales metallic and roughness by their textures, starts from the
 //! emission term, and adds a Cook-Torrance BRDF contribution per light; there is no ambient
 //! term. The unlit path outputs the textured color and ignores emission.
 //!
@@ -258,7 +276,7 @@
 //! Each effect is skipped unless enabled in its resource, and each works on the current render
 //! target.
 //! [`render_exposure_system`] multiplies the image by `2^exposure` into its own texture and
-//! copies the result back. [`render_bloom_system`] gathers the pixels above
+//! copies the result back with `RenderApiNew::copy_texture`. [`render_bloom_system`] gathers the pixels above
 //! `threshold` (softened over `threshold_softening` with a `smoothstep` on luminance), then for
 //! each of [`BLUR_LAYERS_COUNT`] progressively halved layers downscales, blurs horizontally and
 //! vertically, and additively applies the layer back onto the render target scaled by
@@ -274,7 +292,7 @@
 //! empties the user lists, which is why gizmos must be re-pushed every frame (and why lines do not
 //! pile up when no camera renders). [`render_gizmos`] runs after post-processing, so gizmos are
 //! not affected by it, and draws the frame list in chunks of [`GIZMO_LINES_PER_DRAW_MAX`] through
-//! a line-list pipeline backed by storage buffers without consuming it.
+//! a `LineList` shader reading the lines from storage buffers, without consuming it.
 //!
 //! #### FFI
 //!
@@ -291,7 +309,7 @@ pub use self::{assets::*, components::*, resources::*, systems::*, utils::*};
 
 use aphyn_asset_storage::AssetStorageResource;
 use aphyn_ecs::{Schedule, WorldBuilderMut};
-use aphyn_render::{StandardMesh, StandardShader, StandardTexture, StandardMaterial};
+use aphyn_render::{StandardMaterial, StandardMesh, StandardShader, StandardTexture};
 
 pub const SYSTEM_GROUP_RENDER: &'static str = "aphyn_render";
 
@@ -318,9 +336,7 @@ pub fn add_render_module_to(mut world: WorldBuilderMut) {
 
     let mut update = world_behavior.get_mut(Schedule::Update);
 
-    update
-        .group(SYSTEM_GROUP_RENDER)
-        .insert_child_system(prepare_gizmos);
+    update.group(SYSTEM_GROUP_RENDER).insert_child_system(prepare_gizmos);
 
     let mut render_camera = world_behavior.get_mut(Schedule::RenderCamera);
 

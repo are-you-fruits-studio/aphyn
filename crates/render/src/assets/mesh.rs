@@ -1,7 +1,10 @@
-use aphyn_ffi::{FfiDroppable, FfiOption, FfiString};
+use aphyn_ffi::{FfiOption, FfiString};
+use aphyn_render_core::{
+    GpuIndexBuffer, GpuIndexFormat, GpuVertexBuffer, GpuVertexBufferLayout, GpuVertexBufferLayoutEntryTy, GpuVertexStepMode,
+    RenderApi,
+};
 use aphyn_serialization::*;
 use aphyn_utils::mem::{AllBitVariationsValid, AllBitsInit};
-use wgpu::{Buffer, Device, util::DeviceExt};
 
 #[repr(C)]
 #[derive(Copy, Clone, Default, Debug, Serializable)]
@@ -17,27 +20,19 @@ unsafe impl AllBitVariationsValid for StandardVertex {}
 unsafe impl AllBitsInit for StandardVertex {}
 
 impl StandardVertex {
-    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
-        const ATTRIBUTES: &[wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
-            0 => Float32x3,
-            1 => Float32x3,
-            2 => Float32x4,
-            3 => Float32x4,
-            4 => Float32x2,
-        ];
-
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<StandardVertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: ATTRIBUTES,
-        }
+    pub fn desc() -> GpuVertexBufferLayout {
+        GpuVertexBufferLayout::new(
+            GpuVertexStepMode::Vertex,
+            [
+                (0, GpuVertexBufferLayoutEntryTy::Float3),
+                (1, GpuVertexBufferLayoutEntryTy::Float3),
+                (2, GpuVertexBufferLayoutEntryTy::Float4),
+                (3, GpuVertexBufferLayoutEntryTy::Float4),
+                (4, GpuVertexBufferLayoutEntryTy::Float2),
+            ],
+        )
+        .unwrap()
     }
-}
-
-pub struct StandardMeshNative {
-    pub vertex_buffer: Buffer,
-    pub index_buffer: Buffer,
-    pub indices_count: usize,
 }
 
 #[repr(C)]
@@ -61,30 +56,40 @@ pub struct StandardMeshAssetMetadata {
 
 #[repr(C)]
 pub struct StandardMesh {
-    native: FfiDroppable,
+    vertex_buffer: GpuVertexBuffer,
+    index_buffer: GpuIndexBuffer,
+    indices_count: usize,
     meta: FfiOption<StandardMeshAssetMetadata>,
 }
 
 impl StandardMesh {
-    pub(crate) fn new(device: &Device, vertices: &[StandardVertex], indices: &[u16], meta: Option<StandardMeshAssetMetadata>) -> Self {
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: aphyn_utils::mem::as_bytes_slice(vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+    pub(crate) fn new(
+        core: &RenderApi,
+        vertices: &[StandardVertex],
+        indices: &[u16],
+        meta: Option<StandardMeshAssetMetadata>,
+    ) -> Self {
+        let label = meta
+            .as_ref()
+            .map(|meta| meta.raw_mesh.as_str())
+            .filter(|label| !label.is_empty());
 
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Index Buffer"),
-            contents: aphyn_utils::mem::as_bytes_slice(indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
+        let vertex_buffer = core.create_vertex_buffer(label, vertices.len(), StandardVertex::desc());
+        crate::write_buffer_bytes(core, &vertex_buffer, 0, aphyn_utils::mem::as_bytes_slice(vertices));
+
+        // core only writes multiples of 4 bytes, so an odd count gets a padding index
+        let mut padded_indices = indices.to_vec();
+        if padded_indices.len() % 2 != 0 {
+            padded_indices.push(0);
+        }
+
+        let index_buffer = core.create_index_buffer(label, padded_indices.len(), GpuIndexFormat::U16);
+        crate::write_buffer_bytes(core, &index_buffer, 0, aphyn_utils::mem::as_bytes_slice(&padded_indices));
 
         Self {
-            native: FfiDroppable::new(StandardMeshNative {
-                index_buffer,
-                vertex_buffer,
-                indices_count: indices.len(),
-            }),
+            vertex_buffer,
+            index_buffer,
+            indices_count: indices.len(),
             meta: meta.into(),
         }
     }
@@ -93,10 +98,15 @@ impl StandardMesh {
         self.meta.as_ref()
     }
 
-    pub unsafe fn native(&self) -> &StandardMeshNative {
-        unsafe { &*(self.native.get() as *const StandardMeshNative) }
+    pub fn vertex_buffer(&self) -> &GpuVertexBuffer {
+        &self.vertex_buffer
+    }
+
+    pub fn index_buffer(&self) -> &GpuIndexBuffer {
+        &self.index_buffer
+    }
+
+    pub fn indices_count(&self) -> usize {
+        self.indices_count
     }
 }
-
-unsafe impl Send for StandardMesh where StandardMeshNative: Send {}
-unsafe impl Sync for StandardMesh where StandardMeshNative: Sync {}

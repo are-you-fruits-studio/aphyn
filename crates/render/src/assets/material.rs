@@ -1,11 +1,10 @@
 use aphyn_asset_storage::{AssetHandle, AssetStorageResource};
-use aphyn_ffi::FfiDroppable;
 use aphyn_math::{Mat4, Vec3, Vec4};
+use aphyn_render_core::{GpuUniformStorageBuffer, RenderApi};
 use aphyn_serialization::*;
 use aphyn_utils::mem::{AllBitVariationsValid, AllBitsInit};
-use wgpu::{BindGroup, Buffer, BufferUsages, Sampler, TextureView, util::{BufferInitDescriptor, DeviceExt}};
 
-use crate::{CreateBindGroupEntry, RenderState, StandardShader, StandardTexture};
+use crate::{StandardShader, StandardTexture};
 
 #[repr(C)]
 #[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serializable)]
@@ -103,7 +102,13 @@ impl From<StandardLight> for StandardGenericLight {
                 range,
                 ..Default::default()
             },
-            StandardLight::Spot { color, center, range, direction_dst, fov } => Self {
+            StandardLight::Spot {
+                color,
+                center,
+                range,
+                direction_dst,
+                fov,
+            } => Self {
                 light_type: 1,
                 color,
                 center,
@@ -150,11 +155,6 @@ impl Default for StandardLight {
             range: 0.0,
         }
     }
-}
-
-pub struct StandardMaterialNative {
-    pub buffer_uniform: Buffer,
-    pub bind_group: BindGroup,
 }
 
 #[repr(C)]
@@ -242,32 +242,24 @@ impl Default for StandardMaterialAssetMetadata {
 #[repr(C)]
 pub struct StandardMaterial {
     meta: StandardMaterialAssetMetadata,
-    native: FfiDroppable,
-    texture_ids: [u64; 5],
+    uniform_buffer: GpuUniformStorageBuffer,
     is_dirty: bool,
 }
 
 impl StandardMaterial {
-    pub(crate) fn new(render_state: &RenderState, meta: StandardMaterialAssetMetadata) -> Self {
-        let buffer_uniform = render_state.device().create_buffer_init(&BufferInitDescriptor {
-            label: Some("Standard Material Uniform Buffer"),
-            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-            contents: aphyn_utils::mem::as_bytes(&[StandardUniformMaterial::default()]),
-        });
-
-        let render_assets = render_state.render_assets();
-        let white = &render_assets.texture_white;
-        let textures = [white, white, white, &render_assets.texture_normal_default, white];
-
-        let bind_group = create_material_bind_group(render_state, &buffer_uniform, textures);
+    pub(crate) fn new(core: &RenderApi, meta: StandardMaterialAssetMetadata) -> Self {
+        let uniform_buffer =
+            core.create_uniform_storage_buffer(Some("standard material uniform"), size_of::<StandardUniformMaterial>());
+        crate::write_buffer_bytes(
+            core,
+            &uniform_buffer,
+            0,
+            aphyn_utils::mem::as_bytes(&StandardUniformMaterial::default()),
+        );
 
         Self {
-            native: FfiDroppable::new(StandardMaterialNative {
-                buffer_uniform,
-                bind_group,
-            }),
             meta,
-            texture_ids: [0; 5],
+            uniform_buffer,
             is_dirty: true,
         }
     }
@@ -281,84 +273,54 @@ impl StandardMaterial {
         &mut self.meta
     }
 
-    pub fn update_gpu_data_if_dirty(&mut self, render_state: &RenderState, textures: &AssetStorageResource<StandardTexture>) {
-        let render_assets = render_state.render_assets();
-        let white = &render_assets.texture_white;
+    pub fn is_dirty(&self) -> bool {
+        self.is_dirty
+    }
+
+    pub fn uniform_buffer(&self) -> &GpuUniformStorageBuffer {
+        &self.uniform_buffer
+    }
+
+    pub fn update_gpu_data_if_dirty(&mut self, render_api: &crate::RenderApiResource) {
+        if !self.is_dirty {
+            return;
+        }
+
+        let uniform = StandardUniformMaterial {
+            color: srgb_to_linear(self.meta.color),
+            emission_color: srgb_to_linear(self.meta.emission_color),
+            metallic: self.meta.metallic,
+            roughness: self.meta.roughness,
+            alpha_threshold: self.meta.alpha_threshold,
+            _padding: Default::default(),
+        };
+
+        crate::write_buffer_bytes(
+            render_api.core(),
+            &self.uniform_buffer,
+            0,
+            aphyn_utils::mem::as_bytes(&uniform),
+        );
+
+        self.is_dirty = false;
+    }
+
+    pub fn resolve_textures<'a>(
+        &self,
+        textures: &'a AssetStorageResource<StandardTexture>,
+        white: &'a StandardTexture,
+        normal_default: &'a StandardTexture,
+    ) -> [&'a StandardTexture; 5] {
         let resolve = |handle, fallback| textures.get(handle).unwrap_or(fallback);
 
-        let resolved = [
+        [
             resolve(&self.meta.color_tex, white),
             resolve(&self.meta.roughness_tex, white),
             resolve(&self.meta.metallic_tex, white),
-            resolve(&self.meta.normal_tex, &render_assets.texture_normal_default),
+            resolve(&self.meta.normal_tex, normal_default),
             resolve(&self.meta.emission_tex, white),
-        ];
-
-        let texture_ids = resolved.map(|t| t.id());
-
-        if texture_ids != self.texture_ids {
-            let native = unsafe { self.native_mut() };
-            native.bind_group = create_material_bind_group(render_state, &native.buffer_uniform, resolved);
-            self.texture_ids = texture_ids;
-        }
-
-        if self.is_dirty {
-            let uniform = StandardUniformMaterial {
-                color: srgb_to_linear(self.meta.color),
-                emission_color: srgb_to_linear(self.meta.emission_color),
-                metallic: self.meta.metallic,
-                roughness: self.meta.roughness,
-                alpha_threshold: self.meta.alpha_threshold,
-                _padding: Default::default(),
-            };
-
-            let native = unsafe { self.native() };
-            render_state.queue().write_buffer(&native.buffer_uniform, 0, aphyn_utils::mem::as_bytes(&[uniform]));
-
-            self.is_dirty = false;
-        }
+        ]
     }
-
-    pub unsafe fn native(&self) -> &StandardMaterialNative {
-        unsafe { &*(self.native.get() as *const StandardMaterialNative) }
-    }
-
-    unsafe fn native_mut(&mut self) -> &mut StandardMaterialNative {
-        unsafe { &mut *(self.native.get() as *mut StandardMaterialNative) }
-    }
-}
-
-unsafe impl Send for StandardMaterial where StandardMaterialNative: Send {}
-unsafe impl Sync for StandardMaterial where StandardMaterialNative: Sync {}
-
-fn create_material_bind_group(render_state: &RenderState, buffer_uniform: &Buffer, textures: [&StandardTexture; 5]) -> BindGroup {
-    let [color, roughness, metallic, normal, emission] = textures.map(|t| unsafe { texture_to_view_and_sampler(t) });
-
-    crate::utils::create_bind_group(
-        render_state.device(),
-        Some("Standard Material Bind Group"),
-        &render_state.render_data().bind_group_layout_material,
-        &[
-            CreateBindGroupEntry::Buffer(buffer_uniform),
-            CreateBindGroupEntry::Texture(&color.0),
-            CreateBindGroupEntry::Sampler(color.1),
-            CreateBindGroupEntry::Texture(&roughness.0),
-            CreateBindGroupEntry::Sampler(roughness.1),
-            CreateBindGroupEntry::Texture(&metallic.0),
-            CreateBindGroupEntry::Sampler(metallic.1),
-            CreateBindGroupEntry::Texture(&normal.0),
-            CreateBindGroupEntry::Sampler(normal.1),
-            CreateBindGroupEntry::Texture(&emission.0),
-            CreateBindGroupEntry::Sampler(emission.1),
-        ],
-    )
-}
-
-unsafe fn texture_to_view_and_sampler(texture: &StandardTexture) -> (TextureView, &Sampler) {
-    let texture_view = unsafe { texture.native().texture.create_view(&Default::default()) };
-    let sampler = unsafe { &texture.native().sampler };
-
-    (texture_view, sampler)
 }
 
 fn srgb_to_linear(color: Vec4<f32>) -> Vec4<f32> {

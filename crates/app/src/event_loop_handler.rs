@@ -70,7 +70,7 @@ impl ApplicationHandler for EventLoopHandler {
 
         let state = RenderApiResource::new(Arc::clone(&window));
 
-        let render_target = RenderTarget::new(&*unsafe { state.raw() });
+        let render_target = RenderTarget::new(&state);
 
         world.data_mut().resources_mut().insert(state);
         world.data_mut().resources_mut().insert(InputResource::default());
@@ -234,13 +234,19 @@ fn core_system_gamepad(mut res: ResourcesHolderMut, gamepad_host: &mut Option<Gi
 }
 
 fn core_system_render(world: &mut World, render_target: &mut RenderTarget) {
-    let render_state = unsafe { world.data_mut().as_ref().resources().get::<RenderApiResource>().unwrap().raw() };
+    let render_api = world
+        .data_mut()
+        .as_ref()
+        .resources()
+        .get::<RenderApiResource>()
+        .unwrap()
+        .clone();
 
-    if render_target.size() != render_state.size() {
-        *render_target = RenderTarget::new(&render_state);
+    if render_target.size() != render_api.size() {
+        *render_target = RenderTarget::new(&render_api);
     }
 
-    render_target.clear(&render_state);
+    render_target.clear(&render_api);
 
     let camera = world
         .data_mut()
@@ -265,7 +271,7 @@ fn core_system_render(world: &mut World, render_target: &mut RenderTarget) {
         world.data_mut().resources_mut().remove::<CurrentRenderingResource>();
     }
 
-    render_target.render_to_surface(&render_state);
+    render_target.render_to_surface(&render_api);
 }
 
 fn core_system_clear_events_and_input(mut world: WorldDataMut) {

@@ -7,7 +7,7 @@ edition = "2024"
 crate-type = ["lib"]
 
 [dependencies]
-wgpu = "27"
+aphyn_render_core = { path = "../render_core" }
 aphyn_math = { path = "../math" }
 aphyn_ecs = { path = "../ecs" }
 aphyn_utils = { path = "../utils" }
