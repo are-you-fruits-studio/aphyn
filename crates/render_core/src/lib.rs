@@ -86,6 +86,12 @@
 //! the same type, and no two of them supply the same location. Attributes the shader does not read
 //! are allowed.
 //!
+//! Bind groups are matched by position: `bind_groups[n]` binds `@group(n)`. A pass needs at least one
+//! entry per group up to the shader's highest declared group, including groups the shader leaves empty.
+//! Bindings and groups the shader does not declare are ignored, so one set of bindings can serve shaders
+//! that use only part of it. A draw fails if a declared binding is missing or has the wrong type, or if
+//! any group of the pass lists the same binding index twice.
+//!
 //! # How to maintain
 //!
 //! #### Dependencies

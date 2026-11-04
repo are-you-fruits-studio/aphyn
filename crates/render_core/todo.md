@@ -180,6 +180,8 @@ Also let the caller pass a name. `StandardShader::new` uses it for the label and
 
 ### 11. Allow shaders to declare a subset of a bind group
 
+**Done.** Bind groups are positional: a pass needs at least as many groups as the shader's highest declared group + 1, and a group the shader leaves empty still needs an entry, whose contents are ignored. Extra bindings within a group and extra groups past the shader's last one are ignored and stay out of the bind group and its cache key. A missing or mistyped declared binding fails the draw, as does a duplicate binding index in any group of the pass, ignored groups included. Tests cover extra bindings, extra groups, a shader declaring only `@group(1)`, and every failing case.
+
 `resolve_bind_group_entries` returns `None` when `bindings.len() != layout.len()`, and `encode_pass` returns `false` when `pass.bind_groups.len() != shader.bind_group_layouts.len()`.
 
 Today a custom `StandardShader` is built against the fixed `pipeline_layout_standard`, so it may declare only some of the standard bindings, or skip group 1 entirely. Under core the draw would silently fail. The engine shaders are unaffected, since they include all of `standard_bindings.wgsl`.

@@ -1326,10 +1326,6 @@ impl RenderApiNew {
         layout: &[BindGroupLayoutEntry],
         bindings: &[(usize, GpuBinding)],
     ) -> Option<Vec<BindGroupEntry>> {
-        if bindings.len() != layout.len() {
-            return None;
-        }
-
         layout
             .iter()
             .map(|&(i, ty)| {
@@ -1362,7 +1358,18 @@ impl RenderApiNew {
             return false;
         };
 
-        if pass.bind_groups.len() != shader.bind_group_layouts.len() {
+        if pass.bind_groups.len() < shader.bind_group_layouts.len() {
+            return false;
+        }
+
+        let has_duplicate_bindings = pass.bind_groups.iter().any(|bindings| {
+            bindings
+                .iter()
+                .enumerate()
+                .any(|(i, (index, _))| bindings[..i].iter().any(|(other, _)| other == index))
+        });
+
+        if has_duplicate_bindings {
             return false;
         }
 
@@ -2321,6 +2328,149 @@ mod tests {
         };
 
         api.draw(&pass, 0..3, 0..1)
+    }
+
+    const GROUP_1_ONLY_WGSL: &str = r#"
+        @group(1) @binding(2) var tex: texture_2d<f32>;
+        @group(1) @binding(3) var samp: sampler;
+
+        @vertex
+        fn vs_main(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
+            let uv = vec2f(f32((index << 1) & 2), f32(index & 2));
+            return vec4f(uv * 2.0 - 1.0, 0.0, 1.0);
+        }
+
+        @fragment
+        fn fs_main() -> @location(0) vec4f {
+            return textureSampleLevel(tex, samp, vec2f(0.5), 0.0);
+        }
+    "#;
+
+    fn draw_with_bind_groups(
+        api: &RenderApiNew,
+        shader: &GpuShader,
+        target: &GpuTexture,
+        bind_groups: &[&[(usize, GpuBinding)]],
+    ) -> bool {
+        let pass = GpuRenderPass {
+            target: Some(GpuRenderPassTarget {
+                view: target,
+                mip_level: 0,
+                ops: GpuPassOps::Load,
+            }),
+            bind_groups,
+            ..pass_without_target(shader)
+        };
+
+        api.draw(&pass, 0..3, 0..1)
+    }
+
+    #[test]
+    fn ignores_bindings_and_groups_the_shader_does_not_declare() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let sampler = api.create_sampler(GpuFilterMode::Linear);
+        let buffer = api.create_uniform_storage_buffer(16);
+
+        let tex = GpuBinding::Texture {
+            texture: &texture,
+            mip_level: None,
+        };
+        let samp = GpuBinding::Sampler(&sampler);
+        let buf = GpuBinding::Buffer(&buffer);
+
+        let sample_mip = api.create_shader(SAMPLE_MIP_WGSL, GpuShaderDesc::default()).unwrap();
+        let fullscreen = api.create_shader(FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
+        let group_1_only = api.create_shader(GROUP_1_ONLY_WGSL, GpuShaderDesc::default()).unwrap();
+
+        assert!(draw_with_bind_groups(
+            &api,
+            &sample_mip,
+            &target,
+            &[&[(0, tex), (1, samp), (5, buf)]]
+        ));
+        assert!(draw_with_bind_groups(
+            &api,
+            &sample_mip,
+            &target,
+            &[&[(0, tex), (1, samp)], &[(0, buf)]]
+        ));
+        assert!(draw_with_bind_groups(&api, &fullscreen, &target, &[&[(0, tex)], &[(0, buf)]]));
+        assert!(draw_with_bind_groups(
+            &api,
+            &group_1_only,
+            &target,
+            &[&[], &[(2, tex), (3, samp)]]
+        ));
+        assert!(draw_with_bind_groups(
+            &api,
+            &group_1_only,
+            &target,
+            &[&[(0, buf)], &[(3, samp), (2, tex), (4, buf)]]
+        ));
+    }
+
+    #[test]
+    fn fails_when_declared_bindings_are_missing_mistyped_or_duplicated() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let sampler = api.create_sampler(GpuFilterMode::Linear);
+        let buffer = api.create_uniform_storage_buffer(16);
+
+        let tex = GpuBinding::Texture {
+            texture: &texture,
+            mip_level: None,
+        };
+        let samp = GpuBinding::Sampler(&sampler);
+        let buf = GpuBinding::Buffer(&buffer);
+
+        let sample_mip = api.create_shader(SAMPLE_MIP_WGSL, GpuShaderDesc::default()).unwrap();
+        let fullscreen = api.create_shader(FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
+        let group_1_only = api.create_shader(GROUP_1_ONLY_WGSL, GpuShaderDesc::default()).unwrap();
+
+        assert!(!draw_with_bind_groups(&api, &sample_mip, &target, &[]));
+        assert!(!draw_with_bind_groups(&api, &sample_mip, &target, &[&[(0, tex)]]));
+        assert!(!draw_with_bind_groups(&api, &sample_mip, &target, &[&[(0, samp), (1, samp)]]));
+        assert!(!draw_with_bind_groups(&api, &sample_mip, &target, &[&[(0, tex), (1, buf)]]));
+        assert!(!draw_with_bind_groups(
+            &api,
+            &sample_mip,
+            &target,
+            &[&[(0, tex), (1, samp), (0, tex)]]
+        ));
+        assert!(!draw_with_bind_groups(
+            &api,
+            &sample_mip,
+            &target,
+            &[&[(0, tex), (1, samp), (5, buf), (5, buf)]]
+        ));
+        assert!(!draw_with_bind_groups(
+            &api,
+            &sample_mip,
+            &target,
+            &[&[(0, tex), (1, samp)], &[(0, buf), (0, buf)]]
+        ));
+        assert!(!draw_with_bind_groups(&api, &fullscreen, &target, &[&[(0, buf), (0, buf)]]));
+        assert!(!draw_with_bind_groups(
+            &api,
+            &group_1_only,
+            &target,
+            &[&[(2, tex), (3, samp)]]
+        ));
+        assert!(!draw_with_bind_groups(
+            &api,
+            &group_1_only,
+            &target,
+            &[&[(2, tex), (3, samp)], &[(2, tex)]]
+        ));
     }
 
     #[test]
