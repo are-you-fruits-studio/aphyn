@@ -2,8 +2,10 @@ use std::collections::HashMap;
 
 use aphyn_utils::index_version_collection::VersionCollection;
 
-use crate::{BindGroupEntries, BindGroupEntry, BindGroupLayoutEntries, BindGroupLayoutEntry, GpuShaderDesc, GpuTextureFormat, PipelineKey, ResourceKey, VertexAttributeEntry};
-
+use crate::{
+    BindGroupBinding, BindGroupEntries, BindGroupEntry, BindGroupLayoutEntries, BindGroupLayoutEntry, GpuShaderDesc,
+    GpuTextureFormat, PipelineKey, ResourceKey, VertexAttributeEntry,
+};
 
 #[derive(Default)]
 pub(crate) struct RenderApiState {
@@ -90,7 +92,7 @@ impl RenderApiCache {
             .collect::<Vec<_>>();
 
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("aphyn bind group layout"),
+            label: Some(&bind_group_layout_name(bindings)),
             entries: &wgpu_bindings,
         });
 
@@ -126,7 +128,7 @@ impl RenderApiCache {
             .collect::<Option<Vec<_>>>()?;
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("aphyn bind group"),
+            label: Some(&bind_group_name(resources, bindings)),
             entries: &wgpu_bindings,
             layout: &bind_group_layout,
         });
@@ -159,7 +161,7 @@ impl RenderApiCache {
         let bind_group_layout_refs = bind_group_layouts.iter().collect::<Vec<_>>();
 
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("aphyn pipeline layout"),
+            label: Some(&pipeline_layout_name(groups)),
             bind_group_layouts: &bind_group_layout_refs,
             push_constant_ranges: &[],
         });
@@ -218,7 +220,7 @@ impl RenderApiCache {
         device.push_error_scope(wgpu::ErrorFilter::Validation);
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("aphyn render pipeline"),
+            label: Some(&pipeline_name(shader.label(), &key)),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader.module,
@@ -264,6 +266,7 @@ impl RenderApiCache {
 }
 
 pub(crate) struct TextureResource {
+    label: Option<String>,
     texture: wgpu::Texture,
     texture_view: wgpu::TextureView,
     mip_views: Vec<wgpu::TextureView>,
@@ -274,6 +277,7 @@ pub(crate) struct TextureResource {
 
 impl TextureResource {
     pub fn new(
+        label: Option<String>,
         texture: wgpu::Texture,
         texture_view: wgpu::TextureView,
         mip_views: Vec<wgpu::TextureView>,
@@ -282,6 +286,7 @@ impl TextureResource {
         mip_level_count: usize,
     ) -> Self {
         Self {
+            label,
             texture,
             texture_view,
             mip_views,
@@ -298,6 +303,9 @@ impl TextureResource {
         }
     }
 
+    pub fn label(&self) -> Option<&str> {
+        self.label.as_deref()
+    }
     pub fn texture(&self) -> &wgpu::Texture {
         &self.texture
     }
@@ -319,19 +327,21 @@ impl TextureResource {
 }
 
 pub(crate) struct SamplerResource {
+    label: Option<String>,
     sampler: wgpu::Sampler,
     comparison: bool,
 }
 
 impl SamplerResource {
-    pub fn new(
-        sampler: wgpu::Sampler,
-        comparison: bool,
-    ) -> Self {
+    pub fn new(label: Option<String>, sampler: wgpu::Sampler, comparison: bool) -> Self {
         Self {
+            label,
             sampler,
             comparison,
         }
+    }
+    pub fn label(&self) -> Option<&str> {
+        self.label.as_deref()
     }
     pub fn sampler(&self) -> &wgpu::Sampler {
         &self.sampler
@@ -342,6 +352,7 @@ impl SamplerResource {
 }
 
 pub(crate) struct ShaderResource {
+    label: Option<String>,
     module: wgpu::ShaderModule,
     desc: GpuShaderDesc,
     bind_group_layouts: Vec<Vec<BindGroupLayoutEntry>>,
@@ -350,12 +361,14 @@ pub(crate) struct ShaderResource {
 
 impl ShaderResource {
     pub fn new(
+        label: Option<String>,
         module: wgpu::ShaderModule,
         desc: GpuShaderDesc,
         bind_group_layouts: Vec<Vec<BindGroupLayoutEntry>>,
         vertex_attributes: Vec<VertexAttributeEntry>,
     ) -> Self {
         Self {
+            label,
             module,
             desc,
             bind_group_layouts,
@@ -363,6 +376,9 @@ impl ShaderResource {
         }
     }
 
+    pub fn label(&self) -> Option<&str> {
+        self.label.as_deref()
+    }
     pub fn module(&self) -> &wgpu::ShaderModule {
         &self.module
     }
@@ -379,4 +395,87 @@ impl ShaderResource {
 
 pub(crate) struct BufferResource {
     pub(crate) buffer: wgpu::Buffer,
+    pub(crate) label: Option<String>,
+}
+
+fn layout_entries_name(entries: &[BindGroupLayoutEntry]) -> String {
+    let entries = entries.iter().map(|(i, ty)| format!("{i}: {ty:?}")).collect::<Vec<_>>();
+
+    format!("[{}]", entries.join(", "))
+}
+
+fn quoted_label(label: Option<&str>, kind: &str) -> String {
+    match label {
+        Some(label) => format!("'{label}'"),
+        None => kind.to_owned(),
+    }
+}
+
+pub(crate) fn bind_group_layout_name(entries: &[BindGroupLayoutEntry]) -> String {
+    format!("bind group layout {}", layout_entries_name(entries))
+}
+
+pub(crate) fn pipeline_layout_name(groups: &[Vec<BindGroupLayoutEntry>]) -> String {
+    let groups = groups.iter().map(|entries| layout_entries_name(entries)).collect::<Vec<_>>();
+
+    format!("pipeline layout [{}]", groups.join(", "))
+}
+
+pub(crate) fn bind_group_name(resources: &RenderApiResources, entries: &[BindGroupEntry]) -> String {
+    let entries = entries
+        .iter()
+        .map(|&(i, _, binding)| {
+            let resource = match binding {
+                BindGroupBinding::Texture(id, mip_level) => {
+                    let label = quoted_label(resources.textures.get(id).and_then(TextureResource::label), "texture");
+
+                    match mip_level {
+                        Some(mip_level) => format!("{label} mip {mip_level}"),
+                        None => label,
+                    }
+                }
+                BindGroupBinding::Sampler(id) => {
+                    quoted_label(resources.samplers.get(id).and_then(SamplerResource::label), "sampler")
+                }
+                BindGroupBinding::Buffer(id) => {
+                    quoted_label(resources.buffers.get(id).and_then(|buffer| buffer.label.as_deref()), "buffer")
+                }
+            };
+
+            format!("{i}: {resource}")
+        })
+        .collect::<Vec<_>>();
+
+    format!("bind group [{}]", entries.join(", "))
+}
+
+pub(crate) fn pipeline_name(shader_label: Option<&str>, key: &PipelineKey) -> String {
+    let mut name = format!("render pipeline {}", quoted_label(shader_label, "shader"));
+
+    if let Some(target) = key.target {
+        name += &format!(" -> {target:?}");
+    }
+    if let Some(depth) = key.depth {
+        name += &format!(", depth {depth:?}");
+    }
+
+    let vertex_buffers = key
+        .vertex_buffers
+        .iter()
+        .map(|layout| {
+            let entries = layout
+                .entries()
+                .iter()
+                .map(|entry| format!("{}: {:?}", entry.location, entry.ty))
+                .collect::<Vec<_>>();
+
+            format!("[{}] {:?}", entries.join(", "), layout.step_mode())
+        })
+        .collect::<Vec<_>>();
+
+    if !vertex_buffers.is_empty() {
+        name += &format!(", vb [{}]", vertex_buffers.join(", "));
+    }
+
+    name
 }

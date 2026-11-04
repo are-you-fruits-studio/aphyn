@@ -15,8 +15,8 @@
 //! ```ignore
 //! let api = RenderApiNew::new(window, [1280, 720]).unwrap();
 //!
-//! let shader = api.create_shader(wgsl, GpuShaderDesc::default()).unwrap();
-//! let target = api.create_texture([256, 256], GpuTextureFormat::Rgba8UnormSrgb, 1);
+//! let shader = api.create_shader(Some("fullscreen"), wgsl, GpuShaderDesc::default()).unwrap();
+//! let target = api.create_texture(Some("target"), [256, 256], GpuTextureFormat::Rgba8UnormSrgb, 1);
 //!
 //! api.draw(
 //!     &GpuRenderPass {
@@ -38,6 +38,12 @@
 //! ```
 //!
 //! Failed operations return `None` or `false`, and shader and validation errors are printed.
+//!
+//! Every `create_*` method takes an optional label first. It names the resource in validation errors
+//! and graphics debuggers; `None` falls back to a generic name such as `aphyn texture`. Bind group
+//! layouts, bind groups, pipeline layouts, and pipelines are named after what they are made of, for
+//! example `bind group [0: 'albedo', 1: sampler, 2: 'tint']` or `render pipeline 'blur' -> Rgba8Unorm`,
+//! where an unlabeled resource shows as its kind.
 //!
 //! [`RenderApiNew::create_shader`] returns `None` unless every `@location` input of `fs_main` is a
 //! `@location` output of `vs_main` with the same type. Extra outputs are allowed. Pipeline errors,
@@ -135,6 +141,11 @@
 //! buffer layouts of the pass, so one shader can be drawn with differently laid out buffers.
 //! A failed pipeline is cached as `None`, so its error prints once and later draws with the same key
 //! fail without retrying. It is evicted with its shader, like a successful one.
+//!
+//! Labels cross the FFI boundary as `FfiOption<FfiStrSliceRef>` and are copied into the resources,
+//! so the cache can name what it creates. Those names are built from the cache keys on a cache miss
+//! only, which is why shared layouts are named by their entries rather than by a shader. Texture
+//! views, command encoders, and passes keep fixed labels.
 //!
 //! Each `TextureResource` has a view of all mip levels and one view per level, all created with the
 //! texture. Render attachments always use a per-level view, because wgpu only renders into single-mip

@@ -1,6 +1,6 @@
 // todo: update to the latest wgpu
-// todo: expose labels in the APIs of all GPU resources
 // todo: use Results instead of Option / bool
+// todo: refactor - decompose into smaller files.
 
 use std::{
     borrow::Borrow,
@@ -18,10 +18,13 @@ use wgpu::{
     rwh::{HasDisplayHandle, HasWindowHandle},
 };
 
-use crate::{BufferResource, RenderApiResources, RenderApiState, SamplerResource, ShaderResource, TextureResource, buffers::{
-    GpuIndexBuffer, GpuIndexFormat, GpuUniformStorageBuffer, GpuVertexBuffer, GpuVertexBufferLayout,
-    GpuVertexBufferLayoutEntryTy,
-}};
+use crate::{
+    BufferResource, RenderApiResources, RenderApiState, SamplerResource, ShaderResource, TextureResource,
+    buffers::{
+        GpuIndexBuffer, GpuIndexFormat, GpuUniformStorageBuffer, GpuVertexBuffer, GpuVertexBufferLayout,
+        GpuVertexBufferLayoutEntryTy,
+    },
+};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum TextureSampleKind {
@@ -117,9 +120,7 @@ impl Borrow<[BindGroupLayoutEntry]> for BindGroupLayoutEntries {
 
 impl BindGroupLayoutEntries {
     pub fn new(entries: Vec<BindGroupLayoutEntry>) -> Self {
-        Self {
-            entries,
-        }
+        Self { entries }
     }
 
     pub fn entries(&self) -> &Vec<BindGroupLayoutEntry> {
@@ -589,8 +590,13 @@ impl RenderApiInner {
         })
     }
 
-    fn create_vertex_buffer(&self, len: usize, layout: GpuVertexBufferLayout) -> GpuVertexBuffer {
-        let id = self.create_buffer_resource("aphyn vertex buffer", len * layout.total_size(), wgpu::BufferUsages::VERTEX);
+    fn create_vertex_buffer(&self, label: Option<&str>, len: usize, layout: GpuVertexBufferLayout) -> GpuVertexBuffer {
+        let id = self.create_buffer_resource(
+            label,
+            "aphyn vertex buffer",
+            len * layout.total_size(),
+            wgpu::BufferUsages::VERTEX,
+        );
 
         GpuVertexBuffer {
             id,
@@ -600,11 +606,12 @@ impl RenderApiInner {
         }
     }
 
-    fn create_uniform_storage_buffer(&self, size: usize) -> GpuUniformStorageBuffer {
+    fn create_uniform_storage_buffer(&self, label: Option<&str>, size: usize) -> GpuUniformStorageBuffer {
         let alignment = wgpu::COPY_BUFFER_ALIGNMENT as usize;
 
         // a binding cannot be empty, so the GPU buffer gets at least one aligned word
         let id = self.create_buffer_resource(
+            label,
             "aphyn uniform storage buffer",
             size.next_multiple_of(alignment).max(alignment),
             wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::STORAGE,
@@ -617,8 +624,13 @@ impl RenderApiInner {
         }
     }
 
-    fn create_index_buffer(&self, len: usize, format: GpuIndexFormat) -> GpuIndexBuffer {
-        let id = self.create_buffer_resource("aphyn index buffer", len * format.gpu_size(), wgpu::BufferUsages::INDEX);
+    fn create_index_buffer(&self, label: Option<&str>, len: usize, format: GpuIndexFormat) -> GpuIndexBuffer {
+        let id = self.create_buffer_resource(
+            label,
+            "aphyn index buffer",
+            len * format.gpu_size(),
+            wgpu::BufferUsages::INDEX,
+        );
 
         GpuIndexBuffer {
             id,
@@ -628,25 +640,40 @@ impl RenderApiInner {
         }
     }
 
-    fn create_buffer_resource(&self, label: &str, size: usize, usage: wgpu::BufferUsages) -> VersionIndex {
+    fn create_buffer_resource(
+        &self,
+        label: Option<&str>,
+        default_label: &str,
+        size: usize,
+        usage: wgpu::BufferUsages,
+    ) -> VersionIndex {
         let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(label),
+            label: Some(label.unwrap_or(default_label)),
             size: size as u64,
             usage: usage | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
 
-        self.state.lock().unwrap().resources.buffers.insert(BufferResource { buffer })
+        self.state.lock().unwrap().resources.buffers.insert(BufferResource {
+            buffer,
+            label: label.map(str::to_owned),
+        })
     }
 
-    fn create_texture(&self, mut size: [usize; 2], format: GpuTextureFormat, mip_level_count: usize) -> GpuTexture {
+    fn create_texture(
+        &self,
+        label: Option<&str>,
+        mut size: [usize; 2],
+        format: GpuTextureFormat,
+        mip_level_count: usize,
+    ) -> GpuTexture {
         size = size.map(|x| x.max(1));
         let mip_level_count = mip_level_count.max(1);
 
         let wgpu_format = format.to_wgpu();
 
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("aphyn texture"),
+            label: Some(label.unwrap_or("aphyn texture")),
             size: wgpu::Extent3d {
                 width: size[0] as u32,
                 height: size[1] as u32,
@@ -660,6 +687,7 @@ impl RenderApiInner {
             view_formats: &[wgpu_format],
         });
 
+        // todo: labels for texture views, encoders and passes
         let texture_view = texture.create_view(&Default::default());
         let mip_views = (0..mip_level_count)
             .map(|mip_level| {
@@ -672,6 +700,7 @@ impl RenderApiInner {
             .collect();
 
         let texture_resource = TextureResource::new(
+            label.map(str::to_owned),
             texture,
             texture_view,
             mip_views,
@@ -691,11 +720,11 @@ impl RenderApiInner {
         }
     }
 
-    fn create_sampler(&self, filter: GpuFilterMode, compare: Option<GpuCompareFunction>) -> GpuSampler {
+    fn create_sampler(&self, label: Option<&str>, filter: GpuFilterMode, compare: Option<GpuCompareFunction>) -> GpuSampler {
         let wgpu_filter = filter.to_wgpu();
 
         let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("aphyn sampler"),
+            label: Some(label.unwrap_or("aphyn sampler")),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
@@ -707,6 +736,7 @@ impl RenderApiInner {
         });
 
         let id = self.state.lock().unwrap().resources.samplers.insert(SamplerResource::new(
+            label.map(str::to_owned),
             sampler,
             compare.is_some(),
         ));
@@ -717,7 +747,7 @@ impl RenderApiInner {
         }
     }
 
-    fn create_shader(&self, wgsl: &str, desc: GpuShaderDesc) -> Option<GpuShader> {
+    fn create_shader(&self, label: Option<&str>, wgsl: &str, desc: GpuShaderDesc) -> Option<GpuShader> {
         let parsed_module = parse_shader(wgsl)?;
         let bind_group_layouts = reflect_bind_group_layouts(&parsed_module)?;
         let vertex_attributes = reflect_vertex_attributes(&parsed_module)?;
@@ -728,7 +758,7 @@ impl RenderApiInner {
         self.device.push_error_scope(wgpu::ErrorFilter::Validation);
 
         let module = self.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("aphyn shader"),
+            label: Some(label.unwrap_or("aphyn shader")),
             source: wgpu::ShaderSource::Wgsl(wgsl.into()),
         });
 
@@ -738,6 +768,7 @@ impl RenderApiInner {
         }
 
         let id = state.resources.shaders.insert(ShaderResource::new(
+            label.map(str::to_owned),
             module,
             desc,
             bind_group_layouts,
@@ -1312,23 +1343,42 @@ impl FfiBinding<'_> {
 struct RenderApiVTable {
     surface_size_fn: unsafe extern "C-unwind" fn(this: *const c_void) -> FfiArray<usize, 2>,
     resize_surface_fn: unsafe extern "C-unwind" fn(this: *const c_void, size: FfiArray<usize, 2>),
-    create_vertex_buffer_fn:
-        unsafe extern "C-unwind" fn(this: *const c_void, len: usize, layout: GpuVertexBufferLayout) -> GpuVertexBuffer,
-    create_uniform_storage_buffer_fn: unsafe extern "C-unwind" fn(this: *const c_void, size: usize) -> GpuUniformStorageBuffer,
-    create_index_buffer_fn: unsafe extern "C-unwind" fn(this: *const c_void, len: usize, format: GpuIndexFormat) -> GpuIndexBuffer,
+    create_vertex_buffer_fn: unsafe extern "C-unwind" fn(
+        this: *const c_void,
+        label: FfiOption<FfiStrSliceRef<'_>>,
+        len: usize,
+        layout: GpuVertexBufferLayout,
+    ) -> GpuVertexBuffer,
+    create_uniform_storage_buffer_fn: unsafe extern "C-unwind" fn(
+        this: *const c_void,
+        label: FfiOption<FfiStrSliceRef<'_>>,
+        size: usize,
+    ) -> GpuUniformStorageBuffer,
+    create_index_buffer_fn: unsafe extern "C-unwind" fn(
+        this: *const c_void,
+        label: FfiOption<FfiStrSliceRef<'_>>,
+        len: usize,
+        format: GpuIndexFormat,
+    ) -> GpuIndexBuffer,
     create_texture_fn: unsafe extern "C-unwind" fn(
         this: *const c_void,
+        label: FfiOption<FfiStrSliceRef<'_>>,
         size: FfiArray<usize, 2>,
         format: GpuTextureFormat,
         mip_level_count: usize,
     ) -> GpuTexture,
     create_sampler_fn: unsafe extern "C-unwind" fn(
         this: *const c_void,
+        label: FfiOption<FfiStrSliceRef<'_>>,
         filter: GpuFilterMode,
         compare: FfiOption<GpuCompareFunction>,
     ) -> GpuSampler,
-    create_shader_fn:
-        unsafe extern "C-unwind" fn(this: *const c_void, wgsl: FfiStrSliceRef<'_>, desc: GpuShaderDesc) -> FfiOption<GpuShader>,
+    create_shader_fn: unsafe extern "C-unwind" fn(
+        this: *const c_void,
+        label: FfiOption<FfiStrSliceRef<'_>>,
+        wgsl: FfiStrSliceRef<'_>,
+        desc: GpuShaderDesc,
+    ) -> FfiOption<GpuShader>,
     write_buffer_with_fn: unsafe extern "C-unwind" fn(
         this: *const c_void,
         id: VersionIndex,
@@ -1361,6 +1411,14 @@ struct RenderApiVTable {
         unsafe extern "C-unwind" fn(this: *const c_void, texture: &GpuTexture, mip_level: usize, depth: f32) -> bool,
     copy_texture_fn: unsafe extern "C-unwind" fn(this: *const c_void, src: &GpuTexture, dst: &GpuTexture) -> bool,
     clone_fn: unsafe extern "C-unwind" fn(this: *const c_void) -> FfiDroppable,
+}
+
+fn label_to_ffi(label: Option<&str>) -> FfiOption<FfiStrSliceRef<'_>> {
+    label.map(FfiStrSliceRef::from_slice).into()
+}
+
+fn label_from_ffi(label: FfiOption<FfiStrSliceRef<'_>>) -> Option<&str> {
+    label.into_option().map(FfiStrSliceRef::into_slice)
 }
 
 unsafe fn inner_ref<'a>(this: *const c_void) -> &'a RenderApiInner {
@@ -1402,42 +1460,53 @@ impl RenderApiNew {
         }
         unsafe extern "C-unwind" fn ffi_create_vertex_buffer(
             this: *const c_void,
+            label: FfiOption<FfiStrSliceRef<'_>>,
             len: usize,
             layout: GpuVertexBufferLayout,
         ) -> GpuVertexBuffer {
-            unsafe { inner_ref(this) }.create_vertex_buffer(len, layout)
+            unsafe { inner_ref(this) }.create_vertex_buffer(label_from_ffi(label), len, layout)
         }
-        unsafe extern "C-unwind" fn ffi_create_uniform_storage_buffer(this: *const c_void, size: usize) -> GpuUniformStorageBuffer {
-            unsafe { inner_ref(this) }.create_uniform_storage_buffer(size)
+        unsafe extern "C-unwind" fn ffi_create_uniform_storage_buffer(
+            this: *const c_void,
+            label: FfiOption<FfiStrSliceRef<'_>>,
+            size: usize,
+        ) -> GpuUniformStorageBuffer {
+            unsafe { inner_ref(this) }.create_uniform_storage_buffer(label_from_ffi(label), size)
         }
         unsafe extern "C-unwind" fn ffi_create_index_buffer(
             this: *const c_void,
+            label: FfiOption<FfiStrSliceRef<'_>>,
             len: usize,
             format: GpuIndexFormat,
         ) -> GpuIndexBuffer {
-            unsafe { inner_ref(this) }.create_index_buffer(len, format)
+            unsafe { inner_ref(this) }.create_index_buffer(label_from_ffi(label), len, format)
         }
         unsafe extern "C-unwind" fn ffi_create_texture(
             this: *const c_void,
+            label: FfiOption<FfiStrSliceRef<'_>>,
             size: FfiArray<usize, 2>,
             format: GpuTextureFormat,
             mip_level_count: usize,
         ) -> GpuTexture {
-            unsafe { inner_ref(this) }.create_texture(size.0, format, mip_level_count)
+            unsafe { inner_ref(this) }.create_texture(label_from_ffi(label), size.0, format, mip_level_count)
         }
         unsafe extern "C-unwind" fn ffi_create_sampler(
             this: *const c_void,
+            label: FfiOption<FfiStrSliceRef<'_>>,
             filter: GpuFilterMode,
             compare: FfiOption<GpuCompareFunction>,
         ) -> GpuSampler {
-            unsafe { inner_ref(this) }.create_sampler(filter, compare.into_option())
+            unsafe { inner_ref(this) }.create_sampler(label_from_ffi(label), filter, compare.into_option())
         }
         unsafe extern "C-unwind" fn ffi_create_shader(
             this: *const c_void,
+            label: FfiOption<FfiStrSliceRef<'_>>,
             wgsl: FfiStrSliceRef<'_>,
             desc: GpuShaderDesc,
         ) -> FfiOption<GpuShader> {
-            unsafe { inner_ref(this) }.create_shader(wgsl.into_slice(), desc).into()
+            unsafe { inner_ref(this) }
+                .create_shader(label_from_ffi(label), wgsl.into_slice(), desc)
+                .into()
         }
         unsafe extern "C-unwind" fn ffi_write_buffer_with(
             this: *const c_void,
@@ -1549,32 +1618,39 @@ impl RenderApiNew {
         unsafe { (self.vtable.resize_surface_fn)(self.data.get(), FfiArray(size)) }
     }
 
-    pub fn create_vertex_buffer(&self, len: usize, layout: GpuVertexBufferLayout) -> GpuVertexBuffer {
-        unsafe { (self.vtable.create_vertex_buffer_fn)(self.data.get(), len, layout) }
+    pub fn create_vertex_buffer(&self, label: Option<&str>, len: usize, layout: GpuVertexBufferLayout) -> GpuVertexBuffer {
+        unsafe { (self.vtable.create_vertex_buffer_fn)(self.data.get(), label_to_ffi(label), len, layout) }
     }
 
-    pub fn create_uniform_storage_buffer(&self, size: usize) -> GpuUniformStorageBuffer {
-        unsafe { (self.vtable.create_uniform_storage_buffer_fn)(self.data.get(), size) }
+    pub fn create_uniform_storage_buffer(&self, label: Option<&str>, size: usize) -> GpuUniformStorageBuffer {
+        unsafe { (self.vtable.create_uniform_storage_buffer_fn)(self.data.get(), label_to_ffi(label), size) }
     }
 
-    pub fn create_index_buffer(&self, len: usize, format: GpuIndexFormat) -> GpuIndexBuffer {
-        unsafe { (self.vtable.create_index_buffer_fn)(self.data.get(), len, format) }
+    pub fn create_index_buffer(&self, label: Option<&str>, len: usize, format: GpuIndexFormat) -> GpuIndexBuffer {
+        unsafe { (self.vtable.create_index_buffer_fn)(self.data.get(), label_to_ffi(label), len, format) }
     }
 
-    pub fn create_texture(&self, size: [usize; 2], format: GpuTextureFormat, mip_level_count: usize) -> GpuTexture {
-        unsafe { (self.vtable.create_texture_fn)(self.data.get(), FfiArray(size), format, mip_level_count) }
+    pub fn create_texture(
+        &self,
+        label: Option<&str>,
+        size: [usize; 2],
+        format: GpuTextureFormat,
+        mip_level_count: usize,
+    ) -> GpuTexture {
+        unsafe { (self.vtable.create_texture_fn)(self.data.get(), label_to_ffi(label), FfiArray(size), format, mip_level_count) }
     }
 
-    pub fn create_sampler(&self, filter: GpuFilterMode) -> GpuSampler {
-        unsafe { (self.vtable.create_sampler_fn)(self.data.get(), filter, FfiOption::None) }
+    pub fn create_sampler(&self, label: Option<&str>, filter: GpuFilterMode) -> GpuSampler {
+        unsafe { (self.vtable.create_sampler_fn)(self.data.get(), label_to_ffi(label), filter, FfiOption::None) }
     }
 
-    pub fn create_comparison_sampler(&self, filter: GpuFilterMode, compare: GpuCompareFunction) -> GpuSampler {
-        unsafe { (self.vtable.create_sampler_fn)(self.data.get(), filter, FfiOption::Some(compare)) }
+    pub fn create_comparison_sampler(&self, label: Option<&str>, filter: GpuFilterMode, compare: GpuCompareFunction) -> GpuSampler {
+        unsafe { (self.vtable.create_sampler_fn)(self.data.get(), label_to_ffi(label), filter, FfiOption::Some(compare)) }
     }
 
-    pub fn create_shader(&self, wgsl: &str, desc: GpuShaderDesc) -> Option<GpuShader> {
-        unsafe { (self.vtable.create_shader_fn)(self.data.get(), FfiStrSliceRef::from_slice(wgsl), desc) }.into_option()
+    pub fn create_shader(&self, label: Option<&str>, wgsl: &str, desc: GpuShaderDesc) -> Option<GpuShader> {
+        unsafe { (self.vtable.create_shader_fn)(self.data.get(), label_to_ffi(label), FfiStrSliceRef::from_slice(wgsl), desc) }
+            .into_option()
     }
 
     pub fn write_vertex_buffer_with(
@@ -2191,7 +2267,7 @@ impl GpuFilterMode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::buffers::GpuVertexStepMode;
+    use crate::{bind_group_layout_name, bind_group_name, buffers::GpuVertexStepMode, pipeline_layout_name, pipeline_name};
 
     const FULLSCREEN_WGSL: &str = r#"
         @vertex
@@ -2224,8 +2300,8 @@ mod tests {
             return;
         };
 
-        let shader = api.create_shader(FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
-        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let shader = api.create_shader(None, FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
+        let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
 
         let pass = GpuRenderPass {
             target: Some(GpuRenderPassTarget {
@@ -2251,12 +2327,12 @@ mod tests {
             return;
         };
 
-        let shader = api.create_shader(FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
-        let depth = api.create_texture([4, 4], GpuTextureFormat::Depth32Float, 1);
+        let shader = api.create_shader(None, FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
+        let depth = api.create_texture(None, [4, 4], GpuTextureFormat::Depth32Float, 1);
 
         for format in COLOR_FORMATS {
-            let _with_mips = api.create_texture([4, 4], format, 3);
-            let target = api.create_texture([4, 4], format, 1);
+            let _with_mips = api.create_texture(None, [4, 4], format, 3);
+            let target = api.create_texture(None, [4, 4], format, 1);
 
             let pass = GpuRenderPass {
                 target: Some(GpuRenderPassTarget {
@@ -2311,7 +2387,7 @@ mod tests {
             (GpuBlendState::ALPHA_BLENDING, GpuColorWrites::Color),
         ];
 
-        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba16Float, 1);
+        let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba16Float, 1);
 
         for (blend, write_mask) in descs {
             let desc = GpuShaderDesc {
@@ -2319,7 +2395,7 @@ mod tests {
                 write_mask,
                 ..Default::default()
             };
-            let shader = api.create_shader(FULLSCREEN_WGSL, desc).unwrap();
+            let shader = api.create_shader(None, FULLSCREEN_WGSL, desc).unwrap();
 
             let pass = GpuRenderPass {
                 target: Some(GpuRenderPassTarget {
@@ -2393,7 +2469,7 @@ mod tests {
 
         for format in COLOR_FORMATS {
             for mip_level_count in [1, 3] {
-                let texture = api.create_texture([4, 4], format, mip_level_count);
+                let texture = api.create_texture(None, [4, 4], format, mip_level_count);
 
                 assert!(
                     api.clear_color_texture(&texture, 0, [0.0, 0.5, 1.0, 1.0]),
@@ -2410,7 +2486,7 @@ mod tests {
             return;
         };
 
-        let texture = api.create_texture([4, 4], GpuTextureFormat::Depth32Float, 1);
+        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Depth32Float, 1);
 
         assert!(api.clear_depth_texture(&texture, 0, 1.0));
         assert!(!api.clear_color_texture(&texture, 0, [0.0; 4]));
@@ -2422,7 +2498,7 @@ mod tests {
             return;
         };
 
-        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
 
         assert!(api.clear_color_texture(&texture, 0, [1.0, 0.0, 1.0, 0.0]));
 
@@ -2437,7 +2513,7 @@ mod tests {
             return;
         };
 
-        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 3);
+        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 3);
 
         assert_eq!(texture.mip_level_count(), 3);
         assert!(api.clear_color_texture(&texture, 0, [1.0, 0.0, 0.0, 1.0]));
@@ -2455,8 +2531,8 @@ mod tests {
             return;
         };
 
-        let shader = api.create_shader(FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
-        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 3);
+        let shader = api.create_shader(None, FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
+        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 3);
 
         for mip_level in 0..3 {
             for clear_level in 0..3 {
@@ -2575,10 +2651,10 @@ mod tests {
             return;
         };
 
-        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-        let sampler = api.create_sampler(GpuFilterMode::Linear);
-        let buffer = api.create_uniform_storage_buffer(16);
+        let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let sampler = api.create_sampler(None, GpuFilterMode::Linear);
+        let buffer = api.create_uniform_storage_buffer(None, 16);
 
         let tex = GpuBinding::Texture {
             texture: &texture,
@@ -2587,9 +2663,9 @@ mod tests {
         let samp = GpuBinding::Sampler(&sampler);
         let buf = GpuBinding::Buffer(&buffer);
 
-        let sample_mip = api.create_shader(SAMPLE_MIP_WGSL, GpuShaderDesc::default()).unwrap();
-        let fullscreen = api.create_shader(FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
-        let group_1_only = api.create_shader(GROUP_1_ONLY_WGSL, GpuShaderDesc::default()).unwrap();
+        let sample_mip = api.create_shader(None, SAMPLE_MIP_WGSL, GpuShaderDesc::default()).unwrap();
+        let fullscreen = api.create_shader(None, FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
+        let group_1_only = api.create_shader(None, GROUP_1_ONLY_WGSL, GpuShaderDesc::default()).unwrap();
 
         assert!(draw_with_bind_groups(
             &api,
@@ -2624,10 +2700,10 @@ mod tests {
             return;
         };
 
-        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-        let sampler = api.create_sampler(GpuFilterMode::Linear);
-        let buffer = api.create_uniform_storage_buffer(16);
+        let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let sampler = api.create_sampler(None, GpuFilterMode::Linear);
+        let buffer = api.create_uniform_storage_buffer(None, 16);
 
         let tex = GpuBinding::Texture {
             texture: &texture,
@@ -2636,9 +2712,9 @@ mod tests {
         let samp = GpuBinding::Sampler(&sampler);
         let buf = GpuBinding::Buffer(&buffer);
 
-        let sample_mip = api.create_shader(SAMPLE_MIP_WGSL, GpuShaderDesc::default()).unwrap();
-        let fullscreen = api.create_shader(FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
-        let group_1_only = api.create_shader(GROUP_1_ONLY_WGSL, GpuShaderDesc::default()).unwrap();
+        let sample_mip = api.create_shader(None, SAMPLE_MIP_WGSL, GpuShaderDesc::default()).unwrap();
+        let fullscreen = api.create_shader(None, FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
+        let group_1_only = api.create_shader(None, GROUP_1_ONLY_WGSL, GpuShaderDesc::default()).unwrap();
 
         assert!(!draw_with_bind_groups(&api, &sample_mip, &target, &[]));
         assert!(!draw_with_bind_groups(&api, &sample_mip, &target, &[&[(0, tex)]]));
@@ -2683,9 +2759,9 @@ mod tests {
             return;
         };
 
-        let shader = api.create_shader(SAMPLE_MIP_WGSL, GpuShaderDesc::default()).unwrap();
-        let sampler = api.create_sampler(GpuFilterMode::Linear);
-        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 3);
+        let shader = api.create_shader(None, SAMPLE_MIP_WGSL, GpuShaderDesc::default()).unwrap();
+        let sampler = api.create_sampler(None, GpuFilterMode::Linear);
+        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 3);
 
         assert!(api.clear_color_texture(&texture, 0, [1.0, 0.0, 1.0, 0.0]));
 
@@ -2714,9 +2790,9 @@ mod tests {
             return;
         };
 
-        let shader = api.create_shader(FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
-        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 2);
-        let depth = api.create_texture([4, 4], GpuTextureFormat::Depth32Float, 2);
+        let shader = api.create_shader(None, FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
+        let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 2);
+        let depth = api.create_texture(None, [4, 4], GpuTextureFormat::Depth32Float, 2);
 
         assert!(api.clear_depth_texture(&depth, 1, 1.0));
 
@@ -2743,11 +2819,11 @@ mod tests {
             return;
         };
 
-        let shader = api.create_shader(SAMPLE_MIP_WGSL, GpuShaderDesc::default()).unwrap();
-        let sampler = api.create_sampler(GpuFilterMode::Linear);
-        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 3);
-        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 3);
-        let depth = api.create_texture([4, 4], GpuTextureFormat::Depth32Float, 1);
+        let shader = api.create_shader(None, SAMPLE_MIP_WGSL, GpuShaderDesc::default()).unwrap();
+        let sampler = api.create_sampler(None, GpuFilterMode::Linear);
+        let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 3);
+        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 3);
+        let depth = api.create_texture(None, [4, 4], GpuTextureFormat::Depth32Float, 1);
 
         assert!(draw_sampling_mip(&api, &shader, &target, 2, &texture, Some(2), &sampler));
         assert!(!draw_sampling_mip(&api, &shader, &target, 3, &texture, Some(2), &sampler));
@@ -2756,7 +2832,7 @@ mod tests {
         assert!(!api.clear_color_texture(&texture, 3, [0.0; 4]));
         assert!(!api.clear_depth_texture(&depth, 1, 1.0));
 
-        let fullscreen = api.create_shader(FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
+        let fullscreen = api.create_shader(None, FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
         let pass = GpuRenderPass {
             depth: Some(GpuRenderPassDepth {
                 view: &depth,
@@ -2775,10 +2851,10 @@ mod tests {
             return;
         };
 
-        let shader = api.create_shader(SAMPLE_MIP_WGSL, GpuShaderDesc::default()).unwrap();
-        let sampler = api.create_sampler(GpuFilterMode::Linear);
-        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 2);
+        let shader = api.create_shader(None, SAMPLE_MIP_WGSL, GpuShaderDesc::default()).unwrap();
+        let sampler = api.create_sampler(None, GpuFilterMode::Linear);
+        let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 2);
 
         let bind_group_count = |api: &RenderApiNew| api.inner().state.lock().unwrap().cache.bind_groups().len();
 
@@ -2798,13 +2874,13 @@ mod tests {
         };
 
         for format in COLOR_FORMATS {
-            let texture = api.create_texture([4, 4], format, 1);
+            let texture = api.create_texture(None, [4, 4], format, 1);
             let data = vec![0; 4 * 4 * format.bytes_per_pixel() as usize];
 
             assert!(api.write_texture(&texture, 0, &data));
         }
 
-        let depth = api.create_texture([4, 4], GpuTextureFormat::Depth32Float, 1);
+        let depth = api.create_texture(None, [4, 4], GpuTextureFormat::Depth32Float, 1);
 
         assert!(!api.write_texture(&depth, 0, &[0; 4 * 4 * 4]));
     }
@@ -2815,8 +2891,8 @@ mod tests {
             return;
         };
 
-        let src = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-        let dst = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let src = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let dst = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
 
         assert!(api.clear_color_texture(&src, 0, [1.0, 0.0, 1.0, 0.0]));
         assert!(api.clear_color_texture(&dst, 0, [0.0, 1.0, 0.0, 1.0]));
@@ -2833,8 +2909,8 @@ mod tests {
             return;
         };
 
-        let linear = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-        let srgb = api.create_texture([4, 4], GpuTextureFormat::Rgba8UnormSrgb, 1);
+        let linear = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let srgb = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8UnormSrgb, 1);
 
         assert!(api.copy_texture(&linear, &srgb));
         assert!(api.copy_texture(&srgb, &linear));
@@ -2846,8 +2922,8 @@ mod tests {
             return;
         };
 
-        let single = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-        let with_mips = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 3);
+        let single = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let with_mips = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 3);
 
         assert!(api.copy_texture(&single, &with_mips));
         assert!(api.copy_texture(&with_mips, &single));
@@ -2859,11 +2935,11 @@ mod tests {
             return;
         };
 
-        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-        let other_size = api.create_texture([8, 8], GpuTextureFormat::Rgba8Unorm, 1);
-        let other_format = api.create_texture([4, 4], GpuTextureFormat::Rgba16Float, 1);
-        let depth = api.create_texture([4, 4], GpuTextureFormat::Depth32Float, 1);
-        let other_depth = api.create_texture([4, 4], GpuTextureFormat::Depth32Float, 1);
+        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let other_size = api.create_texture(None, [8, 8], GpuTextureFormat::Rgba8Unorm, 1);
+        let other_format = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba16Float, 1);
+        let depth = api.create_texture(None, [4, 4], GpuTextureFormat::Depth32Float, 1);
+        let other_depth = api.create_texture(None, [4, 4], GpuTextureFormat::Depth32Float, 1);
 
         assert!(!api.copy_texture(&texture, &other_size));
         assert!(!api.copy_texture(&texture, &other_format));
@@ -2877,7 +2953,7 @@ mod tests {
             return;
         };
 
-        let shader = api.create_shader(FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
+        let shader = api.create_shader(None, FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
 
         api.resize_surface([4, 4]);
 
@@ -2901,9 +2977,9 @@ mod tests {
         std::thread::scope(|scope| {
             for _ in 0..4 {
                 scope.spawn(|| {
-                    let shader = api.create_shader(FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
-                    let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-                    let buffer = api.create_uniform_storage_buffer(16);
+                    let shader = api.create_shader(None, FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
+                    let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+                    let buffer = api.create_uniform_storage_buffer(None, 16);
 
                     let pass = GpuRenderPass {
                         target: Some(GpuRenderPassTarget {
@@ -2929,10 +3005,10 @@ mod tests {
             return;
         };
 
-        let buffer = api.create_uniform_storage_buffer(16);
+        let buffer = api.create_uniform_storage_buffer(None, 16);
 
         let is_written = api.write_uniform_storage_buffer_with(&buffer, 0, 16, |bytes| {
-            let other = api.create_uniform_storage_buffer(16);
+            let other = api.create_uniform_storage_buffer(None, 16);
 
             assert!(api.write_uniform_storage_buffer_with(&other, 0, 16, |other_bytes| other_bytes.fill(2)));
 
@@ -2993,6 +3069,77 @@ mod tests {
         api.draw(&pass, 0..3, 0..1)
     }
 
+    #[test]
+    fn names_cached_objects_after_their_entries_and_labels() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let shader = api
+            .create_shader(Some("tinted"), BINDINGS_WGSL, GpuShaderDesc::default())
+            .unwrap();
+        let target = api.create_texture(Some("target"), [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let texture = api.create_texture(Some("albedo"), [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let sampler = api.create_sampler(None, GpuFilterMode::Linear);
+        let buffer = api.create_uniform_storage_buffer(Some("tint"), 16);
+
+        assert!(draw_with_bindings(&api, &shader, &target, &texture, &sampler, &buffer));
+
+        let state = api.inner().state.lock().unwrap();
+        let RenderApiState { cache, resources } = &*state;
+
+        let (bind_group_key, _) = cache.bind_groups().iter().next().unwrap();
+        assert_eq!(
+            bind_group_name(resources, &bind_group_key.entries),
+            "bind group [0: 'albedo', 1: sampler, 2: 'tint']"
+        );
+
+        let (layout_key, _) = cache.bind_group_layouts().iter().next().unwrap();
+        assert_eq!(
+            bind_group_layout_name(layout_key.entries()),
+            "bind group layout [0: Texture(Float), 1: Sampler, 2: UniformBuffer]"
+        );
+
+        let (pipeline_layout_key, _) = cache.pipeline_layouts().iter().next().unwrap();
+        let groups = pipeline_layout_key
+            .iter()
+            .map(|entries| entries.entries().clone())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            pipeline_layout_name(&groups),
+            "pipeline layout [[0: Texture(Float), 1: Sampler, 2: UniformBuffer]]"
+        );
+
+        let (pipeline_key, _) = cache.pipelines().iter().next().unwrap();
+        assert_eq!(
+            pipeline_name(resources.shaders.get(pipeline_key.shader).unwrap().label(), pipeline_key),
+            "render pipeline 'tinted' -> Rgba8Unorm"
+        );
+    }
+
+    #[test]
+    fn names_pipelines_with_depth_and_vertex_buffers() {
+        let layout = GpuVertexBufferLayout::new(
+            GpuVertexStepMode::Instance,
+            [
+                (0, GpuVertexBufferLayoutEntryTy::Float3),
+                (1, GpuVertexBufferLayoutEntryTy::UInt),
+            ],
+        )
+        .unwrap();
+        let key = PipelineKey {
+            shader: Default::default(),
+            target: None,
+            depth: Some(GpuTextureFormat::Depth32Float),
+            vertex_buffers: vec![layout],
+        };
+
+        assert_eq!(
+            pipeline_name(None, &key),
+            "render pipeline shader, depth Depth32Float, vb [[0: Float3, 1: UInt] Instance]"
+        );
+    }
+
     const VERTEX_INPUT_WGSL: &str = r#"
         @vertex
         fn vs_main(@location(0) position: vec2f) -> @builtin(position) vec4f {
@@ -3015,9 +3162,9 @@ mod tests {
             return;
         };
 
-        let vertices = api.create_vertex_buffer(0, vertex_input_layout());
-        let uniforms = api.create_uniform_storage_buffer(0);
-        let indices = api.create_index_buffer(0, GpuIndexFormat::U16);
+        let vertices = api.create_vertex_buffer(None, 0, vertex_input_layout());
+        let uniforms = api.create_uniform_storage_buffer(None, 0);
+        let indices = api.create_index_buffer(None, 0, GpuIndexFormat::U16);
 
         assert_eq!([vertices.size(), uniforms.size(), indices.size()], [0, 0, 0]);
         assert_eq!(api.inner().state.lock().unwrap().resources.buffers.len(), 3);
@@ -3033,7 +3180,7 @@ mod tests {
             return;
         };
 
-        let buffer = api.create_uniform_storage_buffer(6);
+        let buffer = api.create_uniform_storage_buffer(None, 6);
 
         assert_eq!(buffer.size(), 6);
         assert!(!api.write_uniform_storage_buffer_with(&buffer, 6, 2, |_| unreachable!()));
@@ -3046,8 +3193,8 @@ mod tests {
             return;
         };
 
-        let uniforms = api.create_uniform_storage_buffer(6);
-        let indices = api.create_index_buffer(3, GpuIndexFormat::U16);
+        let uniforms = api.create_uniform_storage_buffer(None, 6);
+        let indices = api.create_index_buffer(None, 3, GpuIndexFormat::U16);
 
         assert!(!api.write_uniform_storage_buffer_with(&uniforms, 4, 2, |_| unreachable!()));
         assert!(!api.write_uniform_storage_buffer_with(&uniforms, 0, 6, |_| unreachable!()));
@@ -3062,10 +3209,10 @@ mod tests {
             return;
         };
 
-        let shader = api.create_shader(VERTEX_INPUT_WGSL, GpuShaderDesc::default()).unwrap();
-        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-        let empty = api.create_vertex_buffer(0, vertex_input_layout());
-        let filled = api.create_vertex_buffer(3, vertex_input_layout());
+        let shader = api.create_shader(None, VERTEX_INPUT_WGSL, GpuShaderDesc::default()).unwrap();
+        let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let empty = api.create_vertex_buffer(None, 0, vertex_input_layout());
+        let filled = api.create_vertex_buffer(None, 3, vertex_input_layout());
 
         let draw = |vertex_buffers: &[&GpuVertexBuffer], vertices| {
             let pass = GpuRenderPass {
@@ -3092,11 +3239,11 @@ mod tests {
             return;
         };
 
-        let shader = api.create_shader(VERTEX_INPUT_WGSL, GpuShaderDesc::default()).unwrap();
-        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-        let vertices = api.create_vertex_buffer(3, vertex_input_layout());
-        let empty = api.create_index_buffer(0, GpuIndexFormat::U16);
-        let filled = api.create_index_buffer(3, GpuIndexFormat::U16);
+        let shader = api.create_shader(None, VERTEX_INPUT_WGSL, GpuShaderDesc::default()).unwrap();
+        let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let vertices = api.create_vertex_buffer(None, 3, vertex_input_layout());
+        let empty = api.create_index_buffer(None, 0, GpuIndexFormat::U16);
+        let filled = api.create_index_buffer(None, 3, GpuIndexFormat::U16);
 
         let vertex_buffers = [&vertices];
         let pass = GpuRenderPass {
@@ -3136,13 +3283,13 @@ mod tests {
             }
         "#;
 
-        let fitting_shader = api.create_shader(fitting_wgsl, GpuShaderDesc::default()).unwrap();
-        let larger_shader = api.create_shader(BINDINGS_WGSL, GpuShaderDesc::default()).unwrap();
-        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-        let sampler = api.create_sampler(GpuFilterMode::Linear);
-        let uniform = api.create_uniform_storage_buffer(0);
-        let storage = api.create_uniform_storage_buffer(0);
+        let fitting_shader = api.create_shader(None, fitting_wgsl, GpuShaderDesc::default()).unwrap();
+        let larger_shader = api.create_shader(None, BINDINGS_WGSL, GpuShaderDesc::default()).unwrap();
+        let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let sampler = api.create_sampler(None, GpuFilterMode::Linear);
+        let uniform = api.create_uniform_storage_buffer(None, 0);
+        let storage = api.create_uniform_storage_buffer(None, 0);
 
         let bindings = [(0, GpuBinding::Buffer(&uniform)), (1, GpuBinding::Buffer(&storage))];
         let bind_groups: [&[(usize, GpuBinding)]; 1] = [&bindings];
@@ -3175,12 +3322,12 @@ mod tests {
 
         let layout = GpuVertexBufferLayout::new(GpuVertexStepMode::Vertex, [(0, GpuVertexBufferLayoutEntryTy::Float)]).unwrap();
 
-        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-        let sampler = api.create_sampler(GpuFilterMode::Linear);
-        let shader = api.create_shader(FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
-        let vertices = api.create_vertex_buffer(4, layout);
-        let uniforms = api.create_uniform_storage_buffer(16);
-        let indices = api.create_index_buffer(4, GpuIndexFormat::U16);
+        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let sampler = api.create_sampler(None, GpuFilterMode::Linear);
+        let shader = api.create_shader(None, FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
+        let vertices = api.create_vertex_buffer(None, 4, layout);
+        let uniforms = api.create_uniform_storage_buffer(None, 16);
+        let indices = api.create_index_buffer(None, 4, GpuIndexFormat::U16);
 
         let counts = |api: &RenderApiNew| {
             let state = api.inner().state.lock().unwrap();
@@ -3215,14 +3362,14 @@ mod tests {
             return;
         };
 
-        let shader = api.create_shader(BINDINGS_WGSL, GpuShaderDesc::default()).unwrap();
-        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-        let other_texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-        let sampler = api.create_sampler(GpuFilterMode::Linear);
-        let other_sampler = api.create_sampler(GpuFilterMode::Linear);
-        let buffer = api.create_uniform_storage_buffer(16);
-        let other_buffer = api.create_uniform_storage_buffer(16);
+        let shader = api.create_shader(None, BINDINGS_WGSL, GpuShaderDesc::default()).unwrap();
+        let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let other_texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let sampler = api.create_sampler(None, GpuFilterMode::Linear);
+        let other_sampler = api.create_sampler(None, GpuFilterMode::Linear);
+        let buffer = api.create_uniform_storage_buffer(None, 16);
+        let other_buffer = api.create_uniform_storage_buffer(None, 16);
 
         let bind_group_count = |api: &RenderApiNew| api.inner().state.lock().unwrap().cache.bind_groups().len();
 
@@ -3266,9 +3413,9 @@ mod tests {
             return;
         };
 
-        let shader = api.create_shader(FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
-        let other_shader = api.create_shader(FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
-        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let shader = api.create_shader(None, FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
+        let other_shader = api.create_shader(None, FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
+        let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
 
         for shader in [&shader, &other_shader] {
             let pass = GpuRenderPass {
@@ -3298,8 +3445,8 @@ mod tests {
             return;
         };
 
-        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-        let buffer = api.create_uniform_storage_buffer(16);
+        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let buffer = api.create_uniform_storage_buffer(None, 16);
 
         drop(api);
         drop(texture);
@@ -3314,8 +3461,8 @@ mod tests {
 
         let clone = api.clone();
 
-        let shader = api.create_shader(FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
-        let target = clone.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let shader = api.create_shader(None, FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
+        let target = clone.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
 
         let pass = GpuRenderPass {
             target: Some(GpuRenderPassTarget {
@@ -3341,7 +3488,7 @@ mod tests {
         };
 
         let clone = api.clone();
-        let texture = clone.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let texture = clone.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
 
         drop(api);
         drop(clone);
@@ -3354,9 +3501,9 @@ mod tests {
             return;
         };
 
-        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-        let sampler = api.create_sampler(GpuFilterMode::Linear);
+        let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let sampler = api.create_sampler(None, GpuFilterMode::Linear);
 
         let tex = GpuBinding::Texture {
             texture: &texture,
@@ -3364,7 +3511,7 @@ mod tests {
         };
         let samp = GpuBinding::Sampler(&sampler);
 
-        let group_1_only = api.create_shader(GROUP_1_ONLY_WGSL, GpuShaderDesc::default()).unwrap();
+        let group_1_only = api.create_shader(None, GROUP_1_ONLY_WGSL, GpuShaderDesc::default()).unwrap();
 
         assert!(draw_with_bind_groups(
             &api,
@@ -3386,8 +3533,8 @@ mod tests {
             return;
         };
 
-        let buffer = api.create_uniform_storage_buffer(16);
-        let other = api.create_uniform_storage_buffer(16);
+        let buffer = api.create_uniform_storage_buffer(None, 16);
+        let other = api.create_uniform_storage_buffer(None, 16);
 
         assert!(api.write_uniform_storage_buffer_with(&buffer, 0, 16, |bytes| {
             drop(other);
@@ -3402,19 +3549,19 @@ mod tests {
             return;
         };
 
-        let shader = api.create_shader(BINDINGS_WGSL, GpuShaderDesc::default()).unwrap();
-        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-        let sampler = api.create_sampler(GpuFilterMode::Linear);
-        let buffer = api.create_uniform_storage_buffer(16);
+        let shader = api.create_shader(None, BINDINGS_WGSL, GpuShaderDesc::default()).unwrap();
+        let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let sampler = api.create_sampler(None, GpuFilterMode::Linear);
+        let buffer = api.create_uniform_storage_buffer(None, 16);
 
-        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
         let old_id = texture.id;
 
         assert!(draw_with_bindings(&api, &shader, &target, &texture, &sampler, &buffer));
 
         drop(texture);
 
-        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
 
         assert_eq!(texture.id.index, old_id.index);
         assert_ne!(texture.id.version, old_id.version);
@@ -3443,13 +3590,13 @@ mod tests {
         std::thread::scope(|scope| {
             for _ in 0..4 {
                 scope.spawn(|| {
-                    let shader = api.create_shader(BINDINGS_WGSL, GpuShaderDesc::default()).unwrap();
-                    let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-                    let sampler = api.create_sampler(GpuFilterMode::Linear);
-                    let buffer = api.create_uniform_storage_buffer(16);
+                    let shader = api.create_shader(None, BINDINGS_WGSL, GpuShaderDesc::default()).unwrap();
+                    let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+                    let sampler = api.create_sampler(None, GpuFilterMode::Linear);
+                    let buffer = api.create_uniform_storage_buffer(None, 16);
 
                     for _ in 0..16 {
-                        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+                        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
 
                         assert!(draw_with_bindings(&api, &shader, &target, &texture, &sampler, &buffer));
                     }
@@ -3607,7 +3754,7 @@ mod tests {
             return;
         };
 
-        assert!(api.create_shader(wgsl, GpuShaderDesc::default()).is_none());
+        assert!(api.create_shader(None, wgsl, GpuShaderDesc::default()).is_none());
     }
 
     #[test]
@@ -3644,7 +3791,7 @@ mod tests {
             return;
         };
 
-        assert!(api.create_shader(wgsl, GpuShaderDesc::default()).is_some());
+        assert!(api.create_shader(None, wgsl, GpuShaderDesc::default()).is_some());
     }
 
     #[test]
@@ -3672,7 +3819,7 @@ mod tests {
             return;
         };
 
-        assert!(api.create_shader(wgsl, GpuShaderDesc::default()).is_none());
+        assert!(api.create_shader(None, wgsl, GpuShaderDesc::default()).is_none());
     }
 
     #[test]
@@ -3705,8 +3852,8 @@ mod tests {
             }
         "#;
 
-        let shader = api.create_shader(wgsl, GpuShaderDesc::default()).unwrap();
-        let target = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let shader = api.create_shader(None, wgsl, GpuShaderDesc::default()).unwrap();
+        let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
 
         let pass = GpuRenderPass {
             target: Some(GpuRenderPassTarget {
@@ -3738,7 +3885,7 @@ mod tests {
             return;
         };
 
-        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
 
         assert_eq!(texture.id(), texture.id());
     }
@@ -3749,8 +3896,8 @@ mod tests {
             return;
         };
 
-        let first = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-        let second = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let first = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let second = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
 
         assert_ne!(first.id(), second.id());
     }
@@ -3761,12 +3908,12 @@ mod tests {
             return;
         };
 
-        let dropped = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let dropped = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
         let dropped_index = dropped.id;
         let dropped_id = dropped.id();
         drop(dropped);
 
-        let reused = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let reused = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
 
         assert_eq!(reused.id.index, dropped_index.index);
         assert_ne!(reused.id(), dropped_id);
@@ -3778,10 +3925,10 @@ mod tests {
             return;
         };
 
-        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-        let sampler = api.create_sampler(GpuFilterMode::Nearest);
-        let shader = api.create_shader(FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
-        let buffer = api.create_uniform_storage_buffer(4);
+        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let sampler = api.create_sampler(None, GpuFilterMode::Nearest);
+        let shader = api.create_shader(None, FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
+        let buffer = api.create_uniform_storage_buffer(None, 4);
 
         assert_eq!(texture.id, sampler.id);
         assert_eq!(texture.id, shader.id);
@@ -3803,8 +3950,8 @@ mod tests {
         };
         let clone = api.clone();
 
-        let original = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
-        let through_clone = clone.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let original = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let through_clone = clone.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
 
         assert_ne!(original.id(), through_clone.id());
         assert_eq!(through_clone.id.index, original.id.index + 1);
