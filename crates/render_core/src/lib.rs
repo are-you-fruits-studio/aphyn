@@ -38,6 +38,9 @@
 //!
 //! Failed operations return `None` or `false`, and shader and validation errors are printed.
 //!
+//! [`RenderApiNew::clear_color_texture`] and [`RenderApiNew::clear_depth_texture`] clear a texture
+//! without a shader. They clear only mip level 0, and return `false` for a texture of the other kind.
+//!
 //! Dropping a handle releases its GPU resource. Handles are not `Clone`, so each resource has one
 //! owner. A handle may outlive the [`RenderApiNew`] that created it, and dropping it then does nothing.
 //!

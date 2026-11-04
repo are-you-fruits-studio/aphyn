@@ -1036,6 +1036,87 @@ impl RenderApiNew {
         })
     }
 
+    pub fn clear_color_texture(&self, texture: &GpuTexture, color: [f32; 4]) -> bool {
+        if texture.format == GpuTextureFormat::Depth32Float {
+            return false;
+        }
+
+        self.clear_texture_resource(texture, |encoder, view| {
+            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("aphyn clear pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: GpuPassOps::Clear(color).to_wgpu(),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                ..Default::default()
+            });
+        })
+    }
+
+    pub fn clear_depth_texture(&self, texture: &GpuTexture, depth: f32) -> bool {
+        if texture.format != GpuTextureFormat::Depth32Float {
+            return false;
+        }
+
+        self.clear_texture_resource(texture, |encoder, view| {
+            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("aphyn clear pass"),
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: GpuPassOps::Clear(depth).to_wgpu(),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                ..Default::default()
+            });
+        })
+    }
+
+    fn clear_texture_resource(
+        &self,
+        texture: &GpuTexture,
+        begin_pass: impl FnOnce(&mut wgpu::CommandEncoder, &wgpu::TextureView),
+    ) -> bool {
+        let Self { device, queue, .. } = self;
+
+        let state = self.state.lock().unwrap();
+
+        let Some(texture) = state.resources.textures.get(texture.id) else {
+            return false;
+        };
+
+        // todo: clear other mip levels
+        let view = texture.texture.create_view(&wgpu::TextureViewDescriptor {
+            base_mip_level: 0,
+            mip_level_count: Some(1),
+            ..Default::default()
+        });
+
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("aphyn clear encoder"),
+        });
+
+        begin_pass(&mut encoder, &view);
+
+        queue.submit([encoder.finish()]);
+
+        if let Some(err) = pollster::block_on(device.pop_error_scope()) {
+            println!("failed to clear texture: {err}");
+            return false;
+        }
+
+        true
+    }
+
     // todo: allow several draws per frame
     pub fn draw_to_surface(
         &self,
@@ -1859,6 +1940,100 @@ mod tests {
 
             assert!(api.draw(&pass, 0..3, 0..1), "{blend:?} {write_mask:?}");
         }
+    }
+
+    fn read_texture_rgba8(api: &RenderApiNew, texture: &GpuTexture) -> Vec<u8> {
+        let [width, height] = texture.size;
+        let bytes_per_row = width * 4;
+        let padded_bytes_per_row = bytes_per_row.next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize);
+
+        let buffer = api.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: (padded_bytes_per_row * height) as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = api.device.create_command_encoder(&Default::default());
+        {
+            let state = api.state.lock().unwrap();
+            let texture = state.resources.textures.get(texture.id).unwrap();
+
+            encoder.copy_texture_to_buffer(
+                texture.texture.as_image_copy(),
+                wgpu::TexelCopyBufferInfo {
+                    buffer: &buffer,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(padded_bytes_per_row as u32),
+                        rows_per_image: None,
+                    },
+                },
+                wgpu::Extent3d {
+                    width: width as u32,
+                    height: height as u32,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+        api.queue.submit([encoder.finish()]);
+
+        buffer.slice(..).map_async(wgpu::MapMode::Read, |result| result.unwrap());
+        api.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+
+        let mapped = buffer.slice(..).get_mapped_range();
+
+        mapped
+            .chunks(padded_bytes_per_row)
+            .flat_map(|row| &row[..bytes_per_row])
+            .copied()
+            .collect()
+    }
+
+    #[test]
+    fn clears_color_textures_but_not_with_depth() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        for format in COLOR_FORMATS {
+            for mip_level_count in [1, 3] {
+                let texture = api.create_texture([4, 4], format, mip_level_count);
+
+                assert!(
+                    api.clear_color_texture(&texture, [0.0, 0.5, 1.0, 1.0]),
+                    "{format:?} {mip_level_count}"
+                );
+                assert!(!api.clear_depth_texture(&texture, 1.0), "{format:?} {mip_level_count}");
+            }
+        }
+    }
+
+    #[test]
+    fn clears_depth_textures_but_not_with_color() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let texture = api.create_texture([4, 4], GpuTextureFormat::Depth32Float, 1);
+
+        assert!(api.clear_depth_texture(&texture, 1.0));
+        assert!(!api.clear_color_texture(&texture, [0.0; 4]));
+    }
+
+    #[test]
+    fn clear_sets_the_pixels() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+
+        assert!(api.clear_color_texture(&texture, [1.0, 0.0, 1.0, 0.0]));
+
+        let pixels = read_texture_rgba8(&api, &texture);
+
+        assert_eq!(pixels, [255, 0, 255, 0].repeat(16));
     }
 
     #[test]

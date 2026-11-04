@@ -115,6 +115,8 @@ Add the two additive blend modes (or a general blend description) and a write ma
 
 ### 6. Add clearing without a draw
 
+**Done.** `RenderApiNew::clear_color_texture(&GpuTexture, [f32; 4])` and `clear_depth_texture(&GpuTexture, f32)` run an empty render pass. Each returns `false` for a texture of the other kind. Only mip level 0 is cleared, through a single-mip view, so multi-mip textures work (`todo` for the other mips). Tests clear every format, with and without mips, and read back the pixels of a cleared `Rgba8Unorm` texture.
+
 `GpuPassOps::Clear` is only reachable through `draw` and `draw_indexed`, which require a shader. These clear without drawing:
 
 - `clear_depth`, `systems.rs`: depth to `1.0`.
