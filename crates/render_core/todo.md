@@ -127,6 +127,8 @@ Add methods that clear a color texture and a depth texture.
 
 ### 7. Add texture-to-texture copy
 
+**Done.** `RenderApiNew::copy_texture(&GpuTexture, &GpuTexture)` copies mip level 0 of the source over mip level 0 of the destination. It returns `false` without doing any GPU work when the sizes differ, when the formats differ after removing the sRGB suffix (so `Rgba8Unorm` and `Rgba8UnormSrgb` copy into each other), for depth textures, and for a texture copied onto itself. Mip level counts may differ. Tests read back the pixels of a copied `Rgba8Unorm` texture, copy between sRGB and linear and between different mip counts, and check every rejected case.
+
 `render_exposure_system` and `render_color_grading_system` in `systems.rs` render into a temporary `Rgba16Float` texture while sampling the render target, then call `encoder.copy_texture_to_texture` to copy it back over the whole target. They cannot draw straight into the target, because they sample it in the same pass.
 
 Core has no copy. Add one (whole texture, mip 0 is enough), returning `false` on a size or format mismatch. A fullscreen blit is possible but would add a shader and a pass for no benefit.

@@ -1117,6 +1117,46 @@ impl RenderApiNew {
         true
     }
 
+    pub fn copy_texture(&self, src: &GpuTexture, dst: &GpuTexture) -> bool {
+        if src.id == dst.id {
+            return false;
+        }
+
+        let state = self.state.lock().unwrap();
+
+        let (Some(src), Some(dst)) = (state.resources.textures.get(src.id), state.resources.textures.get(dst.id)) else {
+            return false;
+        };
+
+        if src.format == GpuTextureFormat::Depth32Float || dst.format == GpuTextureFormat::Depth32Float {
+            return false;
+        }
+
+        if !src.format.is_copy_compatible(dst.format) || src.size != dst.size {
+            return false;
+        }
+
+        let [width, height] = src.size;
+
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("aphyn copy encoder"),
+        });
+
+        encoder.copy_texture_to_texture(
+            src.texture.as_image_copy(),
+            dst.texture.as_image_copy(),
+            wgpu::Extent3d {
+                width: width as u32,
+                height: height as u32,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        self.queue.submit([encoder.finish()]);
+
+        true
+    }
+
     // todo: allow several draws per frame
     pub fn draw_to_surface(
         &self,
@@ -1761,6 +1801,9 @@ impl GpuTextureFormat {
             Self::Rgba16Float => 8,
         }
     }
+    fn is_copy_compatible(self, other: Self) -> bool {
+        self.to_wgpu().remove_srgb_suffix() == other.to_wgpu().remove_srgb_suffix()
+    }
     // storage textures are rejected by reflection, and depth formats can't be copy destinations
     fn usages(self) -> wgpu::TextureUsages {
         match self {
@@ -2052,6 +2095,68 @@ mod tests {
         let depth = api.create_texture([4, 4], GpuTextureFormat::Depth32Float, 1);
 
         assert!(!api.write_texture(&depth, 0, &[0; 4 * 4 * 4]));
+    }
+
+    #[test]
+    fn copy_sets_the_pixels() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let src = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let dst = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+
+        assert!(api.clear_color_texture(&src, [1.0, 0.0, 1.0, 0.0]));
+        assert!(api.clear_color_texture(&dst, [0.0, 1.0, 0.0, 1.0]));
+        assert!(api.copy_texture(&src, &dst));
+
+        let pixels = read_texture_rgba8(&api, &dst);
+
+        assert_eq!(pixels, [255, 0, 255, 0].repeat(16));
+    }
+
+    #[test]
+    fn copies_between_srgb_and_linear() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let linear = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let srgb = api.create_texture([4, 4], GpuTextureFormat::Rgba8UnormSrgb, 1);
+
+        assert!(api.copy_texture(&linear, &srgb));
+        assert!(api.copy_texture(&srgb, &linear));
+    }
+
+    #[test]
+    fn copies_between_textures_with_different_mip_counts() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let single = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let with_mips = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 3);
+
+        assert!(api.copy_texture(&single, &with_mips));
+        assert!(api.copy_texture(&with_mips, &single));
+    }
+
+    #[test]
+    fn copy_rejects_mismatches() {
+        let Some(api) = RenderApiNew::new_headless() else {
+            return;
+        };
+
+        let texture = api.create_texture([4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let other_size = api.create_texture([8, 8], GpuTextureFormat::Rgba8Unorm, 1);
+        let other_format = api.create_texture([4, 4], GpuTextureFormat::Rgba16Float, 1);
+        let depth = api.create_texture([4, 4], GpuTextureFormat::Depth32Float, 1);
+        let other_depth = api.create_texture([4, 4], GpuTextureFormat::Depth32Float, 1);
+
+        assert!(!api.copy_texture(&texture, &other_size));
+        assert!(!api.copy_texture(&texture, &other_format));
+        assert!(!api.copy_texture(&depth, &other_depth));
+        assert!(!api.copy_texture(&texture, &texture));
     }
 
     #[test]

@@ -41,6 +41,11 @@
 //! [`RenderApiNew::clear_color_texture`] and [`RenderApiNew::clear_depth_texture`] clear a texture
 //! without a shader. They clear only mip level 0, and return `false` for a texture of the other kind.
 //!
+//! [`RenderApiNew::copy_texture`] copies mip level 0 of one texture over mip level 0 of another.
+//! The sizes must match and the formats must be equal up to sRGB, so `Rgba8Unorm` and `Rgba8UnormSrgb`
+//! can be copied into each other. It returns `false` otherwise, for depth textures, and for a texture
+//! copied onto itself.
+//!
 //! Dropping a handle releases its GPU resource. Handles are not `Clone`, so each resource has one
 //! owner. A handle may outlive the [`RenderApiNew`] that created it, and dropping it then does nothing.
 //!
