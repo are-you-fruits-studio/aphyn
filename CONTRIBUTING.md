@@ -1,6 +1,6 @@
 # Contributing to Aphyn
 
-<!-- TODO: state whether external pull requests are accepted, and where to discuss larger changes first. -->
+External pull requests are not accepted for now. Please report bugs and ask questions in [GitHub Issues](https://github.com/are-you-fruits-studio/aphyn/issues). The rest of this page is for studio contributors.
 
 ## Commit authorship
 

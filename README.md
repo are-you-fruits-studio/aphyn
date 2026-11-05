@@ -1,5 +1,3 @@
-<!-- Social preview: upload assets/readme/social-preview.png in Settings → General → Social preview. -->
-
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/readme/hero-dark.svg">
@@ -10,8 +8,7 @@
 <p align="center">
   <a href="#license"><img alt="License: MIT OR Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-3B3486?style=flat-square&labelColor=14131C"></a>
   <a href="#quick-start"><img alt="Rust: latest stable" src="https://img.shields.io/badge/rust-latest%20stable-3B3486?style=flat-square&logo=rust&logoColor=white&labelColor=14131C"></a>
-  <!-- TODO: docs badge once the docs site is redeployed after the rename. -->
-  <!-- TODO: CI badge once a workflow runs on push (build.yml is manual-only today). Discord badge if the studio opens one. -->
+  <a href="https://are-you-fruits-studio.github.io/aphyn/"><img alt="Docs" src="https://img.shields.io/badge/docs-aphyn-3B3486?style=flat-square&labelColor=14131C"></a>
 </p>
 
 <p align="center">
@@ -19,7 +16,7 @@
 </p>
 
 <p align="center">
-  <img alt="The boids example: three flocks of small lit shapes circling a glossy bilberry-blue sphere inside a dark tiled room. The corner reads 461 entities." src="assets/readme/boids.gif" width="100%">
+  <img alt="The showcase example: three flocks of small lit shapes circling a glossy bilberry-blue sphere inside a dark tiled room. The corner reads 461 entities." src="assets/readme/showcase.gif" width="100%">
 </p>
 
 ## Why Aphyn
@@ -68,7 +65,7 @@ cd aphyn
 cargo run --release -p aphyn_example_cubes
 ```
 
-The first release build can take a long time (over an hour from a cold cache).
+The first release build takes a few minutes.
 
 A minimal app: one resource, two systems, the default engine modules.
 
@@ -111,8 +108,12 @@ A shipped game is two crates in one project folder: `launcher/`, a tiny binary, 
 `scripts/Cargo.toml`:
 
 ```toml
-[lib]
+[package]
 name = "lib_app"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
 crate-type = ["cdylib"]
 
 [dependencies]
@@ -134,7 +135,7 @@ fn setup(ctx: AppInitCtx) {
 aphyn::aphyn_entry_point!(setup);
 ```
 
-`launcher/src/main.rs` loads it:
+`aphyn build` creates `launcher/` for you if it is missing, pinned to `v0.18.0`. If your game uses another tag, change it in `launcher/Cargo.toml` too. Its `src/main.rs` loads your library:
 
 ```rust
 fn main() {
@@ -166,14 +167,13 @@ cargo run --release -p aphyn_example_cubes
 
 Replace `cubes` with any name below:
 
-[cubes](crates/example/cubes) · [boids](crates/example/boids) · [ecs](crates/example/ecs) · [gizmos](crates/example/gizmos) · [collisions](crates/example/collisions) · [text](crates/example/text) · [ui](crates/example/ui) · [normals](crates/example/normals) · [bloom](crates/example/bloom) · [audio_screen_saver](crates/example/audio_screen_saver)
+[cubes](crates/example/cubes) · [boids](crates/example/boids) · [ecs](crates/example/ecs) · [gizmos](crates/example/gizmos) · [collisions](crates/example/collisions) · [text](crates/example/text) · [ui](crates/example/ui) · [normals](crates/example/normals) · [bloom](crates/example/bloom) · [audio_screen_saver](crates/example/audio_screen_saver) · [showcase](crates/example/showcase)
 
 ## Docs · community · contributing
 
-<!-- TODO: link the docs site once it is redeployed after the rename. -->
-- **Docs:** in progress ([`docs/`](docs))
-- **Questions and bugs:** [GitHub Issues](https://github.com/are-you-fruits-studio/aphyn/issues) <!-- TODO: add Discussions / Discord if enabled. -->
-- **Contributing:** read [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening a pull request. <!-- TODO: state whether external PRs are accepted. -->
+- **Docs:** [are-you-fruits-studio.github.io/aphyn](https://are-you-fruits-studio.github.io/aphyn/)
+- **Questions and bugs:** [GitHub Issues](https://github.com/are-you-fruits-studio/aphyn/issues)
+- **Contributing:** external pull requests are not accepted for now. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## About the name
 
@@ -190,6 +190,5 @@ at your option.
 
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
 
-<!-- TODO: add LICENSE-MIT and LICENSE-APACHE to the repo before publishing; neither exists on dev yet.
-     Confirm the origin of bundled assets (crates/ui/src/assets/ascii_px_*.png, crates/example/normals/assets/normal_map.png)
-     and either state they are under the same terms or list them in CREDITS.md. -->
+<!-- TODO: confirm the origin of bundled assets (crates/ui/src/assets/ascii_px_5x7.png, ascii_px_8x8.png, ascii_px_8x12.png,
+     crates/example/normals/assets/normal_map.png) and either state they are under the same terms or list them in CREDITS.md. -->
