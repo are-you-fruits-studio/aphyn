@@ -1,4 +1,7 @@
+use std::{collections::HashMap, ops::Deref};
+
 use aphyn_asset_storage::{AssetHandle, AssetStorageResource};
+use aphyn_ffi::{FfiHashMap, FfiIndexMap, FfiString};
 use aphyn_math::{Mat4, Vec3, Vec4};
 use aphyn_render_core::{GpuUniformStorageBuffer, RenderApi};
 use aphyn_serialization::*;
@@ -203,6 +206,70 @@ impl StandardMaterialShader {
             Self::Custom(_) => false,
         }
     }
+}
+
+enum MaterialDataValue {
+    F32(f32),
+    Vec4(Vec4<f32>),
+    Texture(AssetHandle<StandardTexture>),
+}
+
+struct MaterialDataEntry {
+    value: MaterialDataValue,
+    snapshot: u64,
+}
+
+impl MaterialDataEntry {
+    pub fn new(value: MaterialDataValue) -> Self {
+        Self {
+            value,
+            snapshot: 1,
+        }
+    }
+
+    pub fn get(&self) -> &MaterialDataValue {
+        &self.value
+    }
+
+    pub fn get_mut(&mut self) -> &mut MaterialDataValue {
+        // todo: wrapping add and avoid 0
+        self.snapshot += 1;
+        &mut self.value
+    }
+
+    pub fn snapshot(&self) -> u64 {
+        self.snapshot
+    }
+}
+
+struct MaterialData(FfiIndexMap<FfiString, MaterialDataEntry>);
+
+macro_rules! material_data_get_impl {
+    ($variant: ident, $ty: ty, $name_ref: ident, $name_mut: ident) => {
+        pub fn $name_ref(&self, name: &str) -> Option<&$ty> {
+            match &self.0.get(name)?.value {
+                MaterialDataValue::$variant(value) => Some(value),
+                _ => None
+            }
+        }
+
+        pub fn $name_mut(&mut self, name: &str) -> Option<&mut $ty> {
+            match &mut self.0.get_mut(name)?.value {
+                MaterialDataValue::$variant(value) => Some(value),
+                _ => None
+            }
+        }
+    };
+}
+
+impl MaterialData {
+    pub fn new(values: FfiIndexMap<FfiString, MaterialDataEntry>) -> Self {
+        Self(values)
+    }
+
+    material_data_get_impl!(F32, f32, get_f32, get_g32_mut);
+    material_data_get_impl!(Vec4, Vec4<f32>, get_vec4, get_vec4_mut);
+    material_data_get_impl!(Texture, AssetHandle<StandardTexture>, get_texture, get_texture_mut);
 }
 
 #[repr(C)]
