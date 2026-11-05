@@ -189,6 +189,3 @@ Licensed under either of
 at your option.
 
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
-
-<!-- TODO: confirm the origin of bundled assets (crates/ui/src/assets/ascii_px_5x7.png, ascii_px_8x8.png, ascii_px_8x12.png,
-     crates/example/normals/assets/normal_map.png) and either state they are under the same terms or list them in CREDITS.md. -->
