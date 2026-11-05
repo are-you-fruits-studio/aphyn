@@ -34,7 +34,6 @@
 > [!WARNING]
 > **Early development. The API will change.** Pin a [release tag](https://github.com/are-you-fruits-studio/aphyn/releases) if you build on Aphyn.
 
-<!-- TODO: before publishing, enable Vulkan in crates/render_core/src/render_api.rs (currently Backends::DX12 only). -->
 **Platforms:** Windows (DirectX 12) and Linux (Vulkan), x86_64. Rendering through [wgpu](https://wgpu.rs).
 
 **In development:** the editor, built on the engine itself. Release builds ship it as the `aphyn` binary.
@@ -167,9 +166,7 @@ cargo run --release -p aphyn_example_cubes
 
 Replace `cubes` with any name below:
 
-[cubes](crates/example/cubes) · [boids](crates/example/boids) · [ecs](crates/example/ecs) · [gizmos](crates/example/gizmos) · [collisions](crates/example/collisions) · [text](crates/example/text) · [ui](crates/example/ui) · [normals](crates/example/normals)
-
-Currently broken: [bloom](crates/example/bloom) · [audio_screen_saver](crates/example/audio_screen_saver)
+[cubes](crates/example/cubes) · [boids](crates/example/boids) · [ecs](crates/example/ecs) · [gizmos](crates/example/gizmos) · [collisions](crates/example/collisions) · [text](crates/example/text) · [ui](crates/example/ui) · [normals](crates/example/normals) · [bloom](crates/example/bloom) · [audio_screen_saver](crates/example/audio_screen_saver)
 
 ## Docs · community · contributing
 
