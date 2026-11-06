@@ -1,31 +1,42 @@
-use crate::{features::generic_dropdown::{GenericDropdownResource, select_generic_dropdown_system}, *};
+use crate::{
+    features::generic_dropdown::{GenericDropdownResource, select_generic_dropdown_system},
+    *,
+};
 
 pub fn register_feature(mut world: WorldBuilderMut) {
     world.data_mut().resources_mut().insert(SelectedInputFieldResource::default());
-    world.data_mut().resources_mut().insert(InputFieldContextMenuResource::default());
+    world
+        .data_mut()
+        .resources_mut()
+        .insert(InputFieldContextMenuResource::default());
 
     let mut behavior = world.behavior_mut();
     let mut update = behavior.get_mut(Schedule::Update);
 
-    update.group(SYSTEM_GROUP)
+    update
+        .group(SYSTEM_GROUP)
         .insert_child_system(select_input_field_system)
         .insert_child_system(highlight_selected_input_field_system)
         .insert_child_system(update_selected_input_field_text_system)
         .insert_child_system(open_input_field_context_menu_system)
         .insert_child_system(apply_input_field_context_menu_system);
 
-    update.order_system(check_ui_interaction_system)
+    update
+        .order_system(check_ui_interaction_system)
         .before_system(select_input_field_system)
         .before_system(highlight_selected_input_field_system)
         .before_system(update_selected_input_field_text_system);
 
-    update.order_system(select_generic_dropdown_system)
+    update
+        .order_system(select_generic_dropdown_system)
         .before_system(open_input_field_context_menu_system);
 
-    update.order_system(select_generic_dropdown_system)
+    update
+        .order_system(select_generic_dropdown_system)
         .before_system(apply_input_field_context_menu_system);
 
-    update.order_system(select_input_field_system)
+    update
+        .order_system(select_input_field_system)
         .before_system(apply_input_field_context_menu_system)
         .before_system(highlight_selected_input_field_system);
 }
@@ -60,7 +71,12 @@ pub fn select_input_field_system(
         selected_input_changed_evt.push(InputFieldSelectionChangedEvent);
     }
 
-    let Some(input_field_ent) = input_field_q.iter().filter(|(_, b)| b.was_clicked_this_frame).map(|(e, _)| e).next() else {
+    let Some(input_field_ent) = input_field_q
+        .iter()
+        .filter(|(_, b)| b.was_clicked_this_frame)
+        .map(|(e, _)| e)
+        .next()
+    else {
         return;
     };
 
@@ -113,7 +129,9 @@ pub fn update_selected_input_field_text_system(
         }
     }
 
-    text_changed_evt.push(InputFieldTextChangedEvent { input_field: selected_input_res.selected });
+    text_changed_evt.push(InputFieldTextChangedEvent {
+        input_field: selected_input_res.selected,
+    });
 }
 
 #[derive(Clone, Copy)]
@@ -149,7 +167,10 @@ pub fn open_input_field_context_menu_system(
         return;
     };
 
-    let labels = InputFieldContextAction::ALL.iter().map(|a| FfiString::from(a.label())).collect();
+    let labels = InputFieldContextAction::ALL
+        .iter()
+        .map(|a| FfiString::from(a.label()))
+        .collect();
     let position = Vec2::from_array(input_res.mouse.position.map(|v| v as f32));
     context_menu_res.request_id = generic_dropdown_res.request(labels, position);
     context_menu_res.input_field = input_field_ent;
@@ -194,7 +215,9 @@ pub fn apply_input_field_context_menu_system(
                 selected_input_changed_evt.push(InputFieldSelectionChangedEvent);
             }
 
-            text_changed_evt.push(InputFieldTextChangedEvent { input_field: context_menu.input_field });
+            text_changed_evt.push(InputFieldTextChangedEvent {
+                input_field: context_menu.input_field,
+            });
         }
     }
 }

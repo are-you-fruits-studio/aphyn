@@ -1,4 +1,9 @@
-use std::{ffi::OsStr, path::{Path, PathBuf}, sync::{Arc, Mutex}, time::Duration};
+use std::{
+    ffi::OsStr,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use aphyn::*;
 use libloading::Library;
@@ -11,11 +16,13 @@ pub fn register_feature(mut world: WorldBuilderMut) {
     let mut behavior = world.behavior_mut();
     let mut update = behavior.get_mut(Schedule::Update);
 
-    update.group(SYSTEM_GROUP)
+    update
+        .group(SYSTEM_GROUP)
         .insert_child_system(preload_assets_into_simulated_world_system)
         .insert_child_system(tick_simulated_world_system);
 
-    update.order_system(preload_assets_into_simulated_world_system)
+    update
+        .order_system(preload_assets_into_simulated_world_system)
         .before_system(tick_simulated_world_system);
 }
 
@@ -27,14 +34,16 @@ pub enum SimulationMode {
 
 pub struct SimulatedWorld {
     pub world: World,
+    pub render: RenderRegistry,
     pub library: Option<Library>,
     pub mode: SimulationMode,
     pub is_started: bool,
 }
 impl SimulatedWorld {
-    pub fn new(world: World, library: Option<Library>, mode: SimulationMode) -> Self {
+    pub fn new(world: World, render: RenderRegistry, library: Option<Library>, mode: SimulationMode) -> Self {
         Self {
             world,
+            render,
             library,
             mode,
             is_started: false,
@@ -73,9 +82,9 @@ pub fn preload_assets_into_simulated_world_system(
     }
 
     let lib = load_scripts_library(&open_project.dir_path);
-    let world = build_simulated_world(&open_project.dir_path, &render_api, lib.as_ref(), SimulationMode::Edit, "");
+    let (world, render) = build_simulated_world(&open_project.dir_path, &render_api, lib.as_ref(), SimulationMode::Edit, "");
 
-    simulated_world.0 = Some(SimulatedWorld::new(world, lib, SimulationMode::Edit));
+    simulated_world.0 = Some(SimulatedWorld::new(world, render, lib, SimulationMode::Edit));
 }
 
 pub fn rebuild_simulated_world(
@@ -86,14 +95,19 @@ pub fn rebuild_simulated_world(
     play_scene_key: &str,
 ) {
     // the old world holds the library's types and function pointers, so it must be dropped before the library is reused
-    let library = simulated_world.0.take().and_then(|SimulatedWorld { world, library, .. }| {
-        drop(world);
-        library
-    });
+    let library = simulated_world.0.take().and_then(
+        |SimulatedWorld {
+             world, render, library, ..
+         }| {
+            drop(world);
+            drop(render);
+            library
+        },
+    );
 
-    let world = build_simulated_world(project_dir, render_api, library.as_ref(), mode, play_scene_key);
+    let (world, render) = build_simulated_world(project_dir, render_api, library.as_ref(), mode, play_scene_key);
 
-    simulated_world.0 = Some(SimulatedWorld::new(world, library, mode));
+    simulated_world.0 = Some(SimulatedWorld::new(world, render, library, mode));
 }
 
 fn load_scripts_library(project_dir: &str) -> Option<Library> {
@@ -119,17 +133,19 @@ fn build_simulated_world(
     lib: Option<&Library>,
     mode: SimulationMode,
     play_scene_key: &str,
-) -> World {
+) -> (World, RenderRegistry) {
     let assets_dir = project_dir.to_string() + PROJECT_ASSETS_SUBPATH;
 
     let mut world = WorldBuilder::new();
 
     match mode {
-        SimulationMode::Edit => _ = world.data_mut().resources_mut().insert({
-            let mut serializers = SerializersResource::default();
-            register_common_transserializers(&mut *serializers);
-            serializers
-        }),
+        SimulationMode::Edit => {
+            _ = world.data_mut().resources_mut().insert({
+                let mut serializers = SerializersResource::default();
+                register_common_transserializers(&mut *serializers);
+                serializers
+            })
+        }
         SimulationMode::Play => add_defult_modules_to(world.as_mut()),
     }
 
@@ -142,7 +158,16 @@ fn build_simulated_world(
     let mut render = RenderRegistry::default();
 
     if let Some(lib) = lib
-        && let Err(err) = unsafe { init_app_from_library(AppInitCtx { world: world.as_mut(), window: &mut window_state, render: &mut render }, lib) }
+        && let Err(err) = unsafe {
+            init_app_from_library(
+                AppInitCtx {
+                    world: world.as_mut(),
+                    window: &mut window_state,
+                    render: &mut render,
+                },
+                lib,
+            )
+        }
     {
         println!("failed to init scripts lib: {err}");
     }
@@ -155,6 +180,7 @@ fn build_simulated_world(
             add_transform_module_to(world.as_mut());
             add_ui_module_to(world.as_mut());
             add_render_module_to(world.as_mut());
+            add_render_features_module_to(world.as_mut());
 
             world
                 .behavior_mut()
@@ -164,14 +190,21 @@ fn build_simulated_world(
                 .before_group(SYSTEM_GROUP_RENDER);
         }
         SimulationMode::Play => {
-            world.data_mut().resources_mut().insert(AssetsDirResource(assets_dir.as_str().into()));
-            world.data_mut().resources_mut().insert(PlaySceneResource { asset_key: play_scene_key.into() });
+            world
+                .data_mut()
+                .resources_mut()
+                .insert(AssetsDirResource(assets_dir.as_str().into()));
+            world.data_mut().resources_mut().insert(PlaySceneResource {
+                asset_key: play_scene_key.into(),
+            });
 
             let mut behavior = world.behavior_mut();
             let mut start = behavior.get_mut(Schedule::Start);
 
             start.group(SYSTEM_GROUP_ASSETS).insert_child_system(spawn_play_scene_system);
-            start.order_system(load_all_assets_system).before_system(spawn_play_scene_system);
+            start
+                .order_system(load_all_assets_system)
+                .before_system(spawn_play_scene_system);
         }
     }
 
@@ -213,7 +246,10 @@ fn build_simulated_world(
 
         match mode {
             SimulationMode::Edit => {
-                res.insert(AudioStateResource::new(FfiDroppable::new(()), WrappedAudioStateHandle::new(Arc::new(Mutex::new(AudioState::new())))));
+                res.insert(AudioStateResource::new(
+                    FfiDroppable::new(()),
+                    WrappedAudioStateHandle::new(Arc::new(Mutex::new(AudioState::new()))),
+                ));
                 res.insert(AssetStorageResource::<AudioClip>::new());
                 res.insert(AssetStorageResource::<Prefab>::new());
                 res.insert(AssetStorageResource::<Scene>::new());
@@ -224,14 +260,19 @@ fn build_simulated_world(
         }
     }
 
-    world
+    (world, render)
 }
 
 fn spawn_play_scene_system(mut world: WorldDataMut) {
     let (res, ent, _) = world.as_tuple_mut();
 
     return_if_not!(Some(play_scene) = res.get::<PlaySceneResource>());
-    return_if_not!(Some(scene) = res.get::<AssetStorageResource<Scene>>().and_then(|s| s.get_registered(play_scene.asset_key.as_str())).cloned());
+    return_if_not!(
+        Some(scene) = res
+            .get::<AssetStorageResource<Scene>>()
+            .and_then(|s| s.get_registered(play_scene.asset_key.as_str()))
+            .cloned()
+    );
 
     instantiate_scene(res.as_ref(), ent, scene);
 }
@@ -251,7 +292,7 @@ pub fn tick_simulated_world_system(mut simulated_world: ResMut<SimulatedWorldRes
 
 fn copy_lib_to_unique(project_path: impl AsRef<Path>, lib_path: impl AsRef<Path>) -> Option<PathBuf> {
     // todo: handle std::fs errs.
-    
+
     let lib_path = lib_path.as_ref();
 
     let Ok(true) = std::fs::exists(lib_path) else {
@@ -267,7 +308,10 @@ fn copy_lib_to_unique(project_path: impl AsRef<Path>, lib_path: impl AsRef<Path>
     let lib_ext = lib_path.extension();
     let lib_stem = lib_path.file_stem();
 
-    let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or(Duration::ZERO).as_millis();
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or(Duration::ZERO)
+        .as_millis();
     let mut new_file_name = lib_stem.unwrap_or(OsStr::new("")).to_owned();
     new_file_name.push(OsStr::new(&timestamp.to_string()));
     if let Some(lib_ext) = lib_ext {

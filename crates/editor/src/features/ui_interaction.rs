@@ -5,18 +5,9 @@ use aphyn::*;
 use crate::SYSTEM_GROUP;
 
 pub fn register_feature(mut world: WorldBuilderMut) {
-    world
-        .data_mut()
-        .resources_mut()
-        .insert(UiRaycastResource::default());
-    world
-        .data_mut()
-        .resources_mut()
-        .insert(DoubleClickResource::default());
-    world
-        .data_mut()
-        .resources_mut()
-        .insert(UiPressResource::default());
+    world.data_mut().resources_mut().insert(UiRaycastResource::default());
+    world.data_mut().resources_mut().insert(DoubleClickResource::default());
+    world.data_mut().resources_mut().insert(UiPressResource::default());
 
     let mut behavior = world.behavior_mut();
     let mut update = behavior.get_mut(Schedule::Update);
@@ -74,7 +65,11 @@ pub struct ButtonClickEvent {
 pub fn prepare_ui_raycast_system(
     button_q: WorldQuery<
         (EntityId, &GlobalRectComponent, Option<&GlobalDisableableComponent>),
-        OrFilter<(WithFilter<ButtonComponent>, WithFilter<DragAreaComponent>, WithFilter<HoverAreaComponent>)>,
+        OrFilter<(
+            WithFilter<ButtonComponent>,
+            WithFilter<DragAreaComponent>,
+            WithFilter<HoverAreaComponent>,
+        )>,
     >,
     mut raycast_res: ResMut<UiRaycastResource>,
 ) {
@@ -168,7 +163,10 @@ pub fn check_ui_interaction_system(
         hover_area_c.is_hovered = true;
     }
 
-    if [MouseButton::Left, MouseButton::Right, MouseButton::Middle].into_iter().any(|b| input.mouse.is_just_pressed(b)) {
+    if [MouseButton::Left, MouseButton::Right, MouseButton::Middle]
+        .into_iter()
+        .any(|b| input.mouse.is_just_pressed(b))
+    {
         press_res.pressed_this_frame = Some(target_ent);
     }
 

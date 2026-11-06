@@ -5,9 +5,9 @@ use aphyn::*;
 use crate::{
     SYSTEM_GROUP,
     features::{
+        game_window::GameViewImageComponent,
         inspector_window::{data::HierarchyWindowEntryComponent, systems::update_hierarchy_window_system},
         ui_interaction::{ButtonClickEvent, DOUBLE_CLICK_INTERVAL, HoverAreaComponent, check_ui_interaction_system},
-        game_window::GameViewImageComponent,
         world_preload::{SimulatedWorldResource, preload_assets_into_simulated_world_system, tick_simulated_world_system},
     },
 };
@@ -25,7 +25,10 @@ const FOCUS_MIN_DISTANCE: f32 = 2.0;
 pub fn register_feature(mut world: WorldBuilderMut) {
     world.data_mut().resources_mut().insert(SceneCameraResource::default());
     world.data_mut().resources_mut().insert(SceneViewResource::default());
-    world.data_mut().resources_mut().insert(HierarchyDoubleClickResource::default());
+    world
+        .data_mut()
+        .resources_mut()
+        .insert(HierarchyDoubleClickResource::default());
 
     let mut behavior = world.behavior_mut();
     let mut update = behavior.get_mut(Schedule::Update);
@@ -90,7 +93,9 @@ impl Default for SceneCameraResource {
             camera: Camera {
                 near: 0.1,
                 far: 1_000.0,
-                projection: CameraProjection::Perspective { fov: 90_f32.to_radians() },
+                projection: CameraProjection::Perspective {
+                    fov: 90_f32.to_radians(),
+                },
             },
             is_controlling: false,
             last_mouse_pos: Vec2::splat(0.0),
@@ -162,7 +167,10 @@ fn focus_scene_camera_on_entity_system(
     mut camera_res: ResMut<SceneCameraResource>,
 ) {
     // hierarchy entries are respawned every frame, so double-clicks are tracked by the simulated entity
-    let clicked_sim_ent = click_evt.iter().find_map(|e| entry_q.get(e.entity)).map(|c| c.simulated_entity);
+    let clicked_sim_ent = click_evt
+        .iter()
+        .find_map(|e| entry_q.get(e.entity))
+        .map(|c| c.simulated_entity);
 
     let Some(sim_ent) = clicked_sim_ent else {
         if input.mouse.is_just_pressed(MouseButton::Left) {
@@ -180,7 +188,13 @@ fn focus_scene_camera_on_entity_system(
 
     return_if!(!is_double_click);
     return_if_not!(Some(simulated_world) = &simulated_world.0);
-    return_if_not!(Some(transform) = simulated_world.world.data().entities().get_component::<GlobalTransform>(sim_ent));
+    return_if_not!(
+        Some(transform) = simulated_world
+            .world
+            .data()
+            .entities()
+            .get_component::<GlobalTransform>(sim_ent)
+    );
 
     let scale = transform.scale_rotation.to_lossy_scale();
     let distance = (scale.x.max(scale.y).max(scale.z) * FOCUS_DISTANCE_SCALE).max(FOCUS_MIN_DISTANCE);
@@ -201,7 +215,12 @@ fn sync_simulated_window_system(
     return_if_not!(Some(rect_c) = game_rect_c.or_else(|| scene_image_q.iter().next()));
 
     let size = view_size(rect_c);
-    let window_res = simulated_world.world.data_mut().into_resources_mut().into_get_mut::<WindowResource>().unwrap();
+    let window_res = simulated_world
+        .world
+        .data_mut()
+        .into_resources_mut()
+        .into_get_mut::<WindowResource>()
+        .unwrap();
 
     // window changes requested by the simulated game are dropped
     _ = WindowResource::take_changes(window_res);
@@ -233,7 +252,17 @@ fn render_scene_window_system(
         light: Some(sun_light()),
     };
 
-    render_simulated_view(&render_api, &mut view_res.0, &mut textures, &mut materials, rect_c, material_c, &mut simulated_world.world, Some(camera));
+    render_simulated_view(
+        &render_api,
+        &mut view_res.0,
+        &mut textures,
+        &mut materials,
+        rect_c,
+        material_c,
+        &mut simulated_world.world,
+        &mut simulated_world.render,
+        Some(camera),
+    );
 }
 
 pub struct ViewCamera {
@@ -251,6 +280,7 @@ pub fn render_simulated_view(
     rect_c: &GlobalRectComponent,
     material_c: &mut StandardMaterialComponent,
     world: &mut World,
+    render: &mut RenderRegistry,
     camera: Option<ViewCamera>,
 ) {
     let size = view_size(rect_c);
@@ -301,17 +331,16 @@ pub fn render_simulated_view(
 
     return_if_not!(Some(camera) = camera);
 
-    world.data_mut().resources_mut().insert(CurrentRenderingResource {
-        camera_position: camera.position,
-        camera_scale_rotation: camera.scale_rotation,
-        camera: camera.camera,
-        light: camera.light,
-        target,
-    });
-
-    world.execute_iteration(Schedule::RenderCamera);
-
-    world.data_mut().resources_mut().remove::<CurrentRenderingResource>();
+    render.render_view(
+        world,
+        CurrentRenderingResource {
+            camera_position: camera.position,
+            camera_scale_rotation: camera.scale_rotation,
+            camera: camera.camera,
+            light: camera.light,
+            target,
+        },
+    );
 }
 
 fn sun_light() -> StandardLight {

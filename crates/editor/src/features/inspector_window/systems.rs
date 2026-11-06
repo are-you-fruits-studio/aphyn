@@ -4,12 +4,30 @@ use aphyn::tree::{TreeBuilder, TreeNode};
 
 use crate::{
     features::{
-        asset_serialization::{InspectedAsset, get_asset_type}, foldout::{FOLDOUT_WIDTH, FoldoutButtonComponent, FoldoutKey, FoldoutResource, FoldoutToggledEvent, spawn_foldout_arrow}, generic_dropdown::{GenericDropdownResource, GenericDropdownStateTy}, input_field::{InputFieldComponent, InputFieldSelectionChangedEvent, InputFieldTextChangedEvent, SelectedInputFieldResource}, inspector_window::{
-            FIELD_HEIGHT, data::*, utils::{
-                entries::{parse_serialized, spawn_default_layout_ent, spawn_hierarchy_window_entry, spawn_serialized, spawn_text_ent}, find_in_parents, serialization::{deserialize_asset_to_world_res, save_asset_from_world_res}, subsequence_match_ignore_case,
+        asset_serialization::{InspectedAsset, get_asset_type},
+        foldout::{FOLDOUT_WIDTH, FoldoutButtonComponent, FoldoutKey, FoldoutResource, FoldoutToggledEvent, spawn_foldout_arrow},
+        generic_dropdown::{GenericDropdownResource, GenericDropdownStateTy},
+        input_field::{
+            InputFieldComponent, InputFieldSelectionChangedEvent, InputFieldTextChangedEvent, SelectedInputFieldResource,
+        },
+        inspector_window::{
+            FIELD_HEIGHT,
+            data::*,
+            utils::{
+                entries::{
+                    parse_serialized, spawn_default_layout_ent, spawn_hierarchy_window_entry, spawn_serialized, spawn_text_ent,
+                },
+                find_in_parents,
+                serialization::{deserialize_asset_to_world_res, save_asset_from_world_res},
+                subsequence_match_ignore_case,
             },
-        }, number_drag::NumberInputFieldDraggedEvent, project_window_selection::{FileOpenedEvent, FileSelectedEvent, SelectedFileResource}, world_preload::{SimulatedWorld, SimulatedWorldResource},
-    }, prefabs::WindowComponent, *,
+        },
+        number_drag::NumberInputFieldDraggedEvent,
+        project_window_selection::{FileOpenedEvent, FileSelectedEvent, SelectedFileResource},
+        world_preload::{SimulatedWorld, SimulatedWorldResource},
+    },
+    prefabs::WindowComponent,
+    *,
 };
 
 pub fn select_entity_system(
@@ -23,7 +41,11 @@ pub fn select_entity_system(
         inspected_entity.selected_entity = EntityId::EMPTY;
     }
 
-    return_if_not!(Some((entry_c, _)) = entry_q.iter().find(|(_, b)| b.was_clicked_this_frame || b.was_right_clicked_this_frame));
+    return_if_not!(
+        Some((entry_c, _)) = entry_q
+            .iter()
+            .find(|(_, b)| b.was_clicked_this_frame || b.was_right_clicked_this_frame)
+    );
 
     inspected_entity.selected_entity = entry_c.simulated_entity;
     *selected_file = SelectedFileResource::default();
@@ -49,13 +71,22 @@ fn get_inspected_component_id(ent: EntitiesHolderRef, ent_component: EntityId) -
     Some(component_id_text_c.text.clone())
 }
 
-fn remove_inspected_component(simulated_world: &mut SimulatedWorld, inspected_entity: &InspectedEntityResource, component_id: &str) -> bool {
+fn remove_inspected_component(
+    simulated_world: &mut SimulatedWorld,
+    inspected_entity: &InspectedEntityResource,
+    component_id: &str,
+) -> bool {
     let (_, mut sim_ent, _) = simulated_world.world.data_mut().into_tuple_mut();
 
     let mut has_component = false;
-    sim_ent.get_all_components(inspected_entity.selected_entity, |c| has_component |= c.type_info().short().name() == component_id);
+    sim_ent.get_all_components(inspected_entity.selected_entity, |c| {
+        has_component |= c.type_info().short().name() == component_id
+    });
 
-    has_component && sim_ent.remove_component_any(inspected_entity.selected_entity, component_id).is_some()
+    has_component
+        && sim_ent
+            .remove_component_any(inspected_entity.selected_entity, component_id)
+            .is_some()
 }
 
 pub fn open_component_context_menu_system(
@@ -136,7 +167,12 @@ pub fn update_add_component_variants_system(
     simulated_world: Res<SimulatedWorldResource>,
     inspected_entity: Res<InspectedEntityResource>,
 ) {
-    for entity in ent.query::<&AddComponentInputComponent>().iter().map(|c| c.variants_container).collect::<Vec<_>>() {
+    for entity in ent
+        .query::<&AddComponentInputComponent>()
+        .iter()
+        .map(|c| c.variants_container)
+        .collect::<Vec<_>>()
+    {
         destroy_entity_children(ent.as_mut(), entity);
     }
 
@@ -152,7 +188,10 @@ pub fn update_add_component_variants_system(
         return;
     };
 
-    let Some(add_component_input_c) = ent.get_component::<AddComponentInputComponent>(selected_input.selected).copied() else {
+    let Some(add_component_input_c) = ent
+        .get_component::<AddComponentInputComponent>(selected_input.selected)
+        .copied()
+    else {
         return;
     };
 
@@ -168,17 +207,13 @@ pub fn update_add_component_variants_system(
 
     let mut keys = serializers.0.keys().map(FfiString::from).collect::<Vec<_>>();
     keys.sort();
-    
+
     for component_id in keys {
         if !subsequence_match_ignore_case(component_id.as_str(), searched_text.as_str()) {
             continue;
         }
 
-        let entry_ent = spawn_default_layout_ent(
-            ent.as_mut(),
-            add_component_input_c.variants_container,
-            false,
-        );
+        let entry_ent = spawn_default_layout_ent(ent.as_mut(), add_component_input_c.variants_container, false);
 
         let (entry_ent, _) = spawn_text_ent(
             ent.as_mut(),
@@ -189,10 +224,10 @@ pub fn update_add_component_variants_system(
             assets.font.clone(),
         );
 
-        ent.set_components(entry_ent, (
-            AddComponentVariantComponent { component_id: component_id },
-            ButtonComponent::default(),
-        ));
+        ent.set_components(
+            entry_ent,
+            (AddComponentVariantComponent { component_id }, ButtonComponent::default()),
+        );
     }
 }
 
@@ -203,7 +238,10 @@ pub fn update_add_component_input_visibility_system(
     simulated_world: Res<SimulatedWorldResource>,
     mut input_field_selection_changed_evt: EvtMut<InputFieldSelectionChangedEvent>,
 ) {
-    let is_shown = simulated_world.0.as_ref().is_some_and(|w| is_inspected_entity_shown(w, &inspected_entity));
+    let is_shown = simulated_world
+        .0
+        .as_ref()
+        .is_some_and(|w| is_inspected_entity_shown(w, &inspected_entity));
 
     let inputs = ent
         .query::<(EntityId, &AddComponentInputComponent, &InputFieldComponent)>()
@@ -236,7 +274,11 @@ pub fn update_add_component_input_visibility_system(
 }
 
 fn is_inspected_entity_shown(simulated_world: &SimulatedWorld, inspected_entity: &InspectedEntityResource) -> bool {
-    simulated_world.world.data().entities().contains_entity(inspected_entity.selected_entity)
+    simulated_world
+        .world
+        .data()
+        .entities()
+        .contains_entity(inspected_entity.selected_entity)
 }
 
 // EntityId::EMPTY for a scene, where root entities have no parent
@@ -268,7 +310,10 @@ pub fn open_hierarchy_context_menu_system(
 
         match target == root_parent {
             true => (target, vec![HierarchyContextAction::CreateEntity]),
-            false => (target, vec![HierarchyContextAction::CreateEntity, HierarchyContextAction::DeleteEntity]),
+            false => (
+                target,
+                vec![HierarchyContextAction::CreateEntity, HierarchyContextAction::DeleteEntity],
+            ),
         }
     } else if empty_area_q.iter().any(|b| b.was_right_clicked_this_frame) {
         (root_parent, vec![HierarchyContextAction::CreateEntity])
@@ -277,7 +322,8 @@ pub fn open_hierarchy_context_menu_system(
     };
 
     let position = Vec2::from_array(input_res.mouse.position.map(|v| v as f32));
-    context_menu_res.request_id = generic_dropdown_res.request(actions.iter().map(|a| FfiString::from(a.label())).collect(), position);
+    context_menu_res.request_id =
+        generic_dropdown_res.request(actions.iter().map(|a| FfiString::from(a.label())).collect(), position);
     context_menu_res.target = target;
     context_menu_res.actions = actions;
 }
@@ -311,7 +357,14 @@ pub fn apply_hierarchy_context_menu_system(
 
                 match sim_ent.get_component_mut::<ParentComponent>(target) {
                     Some(parent_c) => parent_c.children.push(entity),
-                    None => _ = sim_ent.set_component(target, ParentComponent { children: vec![entity].into() }),
+                    None => {
+                        _ = sim_ent.set_component(
+                            target,
+                            ParentComponent {
+                                children: vec![entity].into(),
+                            },
+                        )
+                    }
                 }
             }
 
@@ -442,7 +495,9 @@ pub fn apply_inspector_dropdown_change_to_simulated_world_system(
         .collect::<Vec<_>>();
 
     for (ent_enum_meta, variant) in selections {
-        let enum_metadata_c = ent.get_component_mut::<SerializedEnumMetadataComponent>(ent_enum_meta).unwrap();
+        let enum_metadata_c = ent
+            .get_component_mut::<SerializedEnumMetadataComponent>(ent_enum_meta)
+            .unwrap();
         enum_metadata_c.dropdown_request_id = 0;
         let ent_value_text = enum_metadata_c.value_text;
 
@@ -451,9 +506,11 @@ pub fn apply_inspector_dropdown_change_to_simulated_world_system(
 
         let ent = ent.as_ref();
 
-        continue_if_not!(Some(ent_composite) = find_in_parents(ent.query::<&ChildComponent>(), ent_enum_meta, |e| {
-            ent.get_component::<SerializedValueComponent>(e).map(|_| e)
-        }));
+        continue_if_not!(
+            Some(ent_composite) = find_in_parents(ent.query::<&ChildComponent>(), ent_enum_meta, |e| {
+                ent.get_component::<SerializedValueComponent>(e).map(|_| e)
+            })
+        );
 
         let edited = apply_inspector_serialized_value_to_simulated_world(
             ent,
@@ -491,7 +548,9 @@ pub fn adjust_non_rigid_composite_system(
         };
 
         continue_if_not!(Some(serialized_value_c) = ent.get_component::<SerializedValueComponent>(ent_composite));
-        continue_if_not!(Some(target) = get_inspected_target(ent, ent_composite, simulated_world, &inspected_entity, &inspected_asset));
+        continue_if_not!(
+            Some(target) = get_inspected_target(ent, ent_composite, simulated_world, &inspected_entity, &inspected_asset)
+        );
 
         let path = serialized_value_c.path.as_str();
 
@@ -535,15 +594,16 @@ pub fn adjust_non_rigid_composite_system(
                 },
             };
 
-            did_remove && deserialize_to_simulated_world(
-                &target,
-                path,
-                &SerializedValue::Composite(composite),
-                simulated_world,
-                &inspected_entity,
-                &inspected_asset,
-                &open_project,
-            )
+            did_remove
+                && deserialize_to_simulated_world(
+                    &target,
+                    path,
+                    &SerializedValue::Composite(composite),
+                    simulated_world,
+                    &inspected_entity,
+                    &inspected_asset,
+                    &open_project,
+                )
         };
 
         if did_asset_load {
@@ -580,7 +640,9 @@ fn get_inspected_target(
 
         let component_id_text_c = ent.get_component::<TextComponent>(serialized_component_c.component_id_text)?;
 
-        return Some(InspectedTarget::PrefabComponent { component_id: component_id_text_c.text.clone() });
+        return Some(InspectedTarget::PrefabComponent {
+            component_id: component_id_text_c.text.clone(),
+        });
     }
 
     let asset_type = get_asset_type(simulated_world.world.data().resources(), inspected_asset.asset_key.as_str())?;
@@ -763,7 +825,13 @@ pub fn open_entities_asset_system(
 
     return_if_not!(Some(world) = &mut simulated_world.0);
 
-    open_entities_asset(world, &mut opened_asset, &mut inspected_entity, &selected_file.potential_asset_key, &selected_file.path);
+    open_entities_asset(
+        world,
+        &mut opened_asset,
+        &mut inspected_entity,
+        &selected_file.potential_asset_key,
+        &selected_file.path,
+    );
 }
 
 pub fn open_entities_asset(
@@ -790,7 +858,13 @@ pub fn open_entities_asset(
 
     match asset_type {
         Some(AssetType::Prefab) => {
-            return_if_not!(Some(prefab_handle) = res.as_ref().get::<AssetStorageResource<Prefab>>().and_then(|s| s.get_registered(asset_key)).cloned());
+            return_if_not!(
+                Some(prefab_handle) = res
+                    .as_ref()
+                    .get::<AssetStorageResource<Prefab>>()
+                    .and_then(|s| s.get_registered(asset_key))
+                    .cloned()
+            );
 
             prefab_root = instantiate_prefab(res.as_ref(), ent.as_mut(), prefab_handle).unwrap_or(EntityId::EMPTY);
 
@@ -802,7 +876,13 @@ pub fn open_entities_asset(
             }
         }
         Some(AssetType::Scene) => {
-            return_if_not!(Some(scene_handle) = res.as_ref().get::<AssetStorageResource<Scene>>().and_then(|s| s.get_registered(asset_key)).cloned());
+            return_if_not!(
+                Some(scene_handle) = res
+                    .as_ref()
+                    .get::<AssetStorageResource<Scene>>()
+                    .and_then(|s| s.get_registered(asset_key))
+                    .cloned()
+            );
 
             instantiate_scene(res.as_ref(), ent.as_mut(), scene_handle);
         }
@@ -852,15 +932,30 @@ pub fn update_hierarchy_window_system(
 
         hierarchy_win_c.is_init = true;
 
-        let ent_scroll_content = entities.get_component::<WindowComponent>(ent_window).unwrap().content_container;
-        continue_if_not!(Some(&HierarchyWindowContentComponent { entries_container: content }) = entities.get_component::<HierarchyWindowContentComponent>(ent_scroll_content));
+        let ent_scroll_content = entities
+            .get_component::<WindowComponent>(ent_window)
+            .unwrap()
+            .content_container;
+        continue_if_not!(
+            Some(&HierarchyWindowContentComponent {
+                entries_container: content
+            }) = entities.get_component::<HierarchyWindowContentComponent>(ent_scroll_content)
+        );
 
         destroy_entity_children(entities.as_mut(), content);
 
         let mut hierarchy_tree = TreeBuilder::new();
 
-        for (sim_ent, sim_child_c) in simulated_world.world.data().entities().query::<(EntityId, Option<&ChildComponent>)>().iter() {
-            let sim_parent = sim_child_c.map(|c| c.parent).filter(|p| simulated_world.world.data().entities().contains_entity(*p));
+        for (sim_ent, sim_child_c) in simulated_world
+            .world
+            .data()
+            .entities()
+            .query::<(EntityId, Option<&ChildComponent>)>()
+            .iter()
+        {
+            let sim_parent = sim_child_c
+                .map(|c| c.parent)
+                .filter(|p| simulated_world.world.data().entities().contains_entity(*p));
 
             match sim_parent {
                 Some(sim_parent) => hierarchy_tree.insert_pair(sim_parent, sim_ent),
@@ -908,7 +1003,8 @@ fn spawn_hierarchy_window_entries_recursively(
 
     let entity_id = sim_ent.encode_entity_as_id(simulated_ent);
 
-    let name = sim_ent.get_component::<DebugNameComponent>(simulated_ent)
+    let name = sim_ent
+        .get_component::<DebugNameComponent>(simulated_ent)
         .map(|s| s.0.as_str().into())
         .unwrap_or_else(|| format!("e{{{}}}", entity_id));
 
@@ -924,7 +1020,10 @@ fn spawn_hierarchy_window_entries_recursively(
         simulated_ent,
     );
 
-    let key = FoldoutKey::HierarchyEntity { asset_key: asset_key.to_string(), entity_id };
+    let key = FoldoutKey::HierarchyEntity {
+        asset_key: asset_key.to_string(),
+        entity_id,
+    };
     let is_expanded = foldout_res.is_expanded(&key);
     let foldout = if node.children.is_empty() {
         None
@@ -993,7 +1092,11 @@ pub fn update_inspector_window_system(
 
     let ent_selected_input = selected_input_field.selected;
 
-    let container_q = ent.query::<&InspectorWindowContentComponent>().iter().copied().collect::<Vec<_>>();
+    let container_q = ent
+        .query::<&InspectorWindowContentComponent>()
+        .iter()
+        .copied()
+        .collect::<Vec<_>>();
 
     return_if_not!(Some(simulated_world) = &simulated_world.0);
 
@@ -1023,7 +1126,10 @@ pub fn update_inspector_window_system(
             continue;
         }
 
-        let Some(asset_type) = get_asset_type(simulated_world.world.data().resources(), selected_file.potential_asset_key.as_str()) else {
+        let Some(asset_type) = get_asset_type(
+            simulated_world.world.data().resources(),
+            selected_file.potential_asset_key.as_str(),
+        ) else {
             destroy_entity_children(ent.as_mut(), window_c.content_container);
             continue;
         };
@@ -1045,16 +1151,18 @@ pub fn update_inspector_window_system(
         let mut err_handler = |err| println!("[{}:{}] {err}", file!(), line!());
         // let mut err_handler = |_| ();
 
-        let serialized = save_load_with_asset_serializers_from_world(simulated_world.world.data().resources(), |serializers_local| {
-            let serializers_global = simulated_world.world.data().resources().get::<SerializersResource>().unwrap();
-            
-            let serializer_ctx_state = serializers_global.to_ctx_state();
-            let serializer_ctx = serializer_ctx_state.wrap_with_local(&serializers_local)
-                .into_ctx(&mut err_handler);
+        let serialized =
+            save_load_with_asset_serializers_from_world(simulated_world.world.data().resources(), |serializers_local| {
+                let serializers_global = simulated_world.world.data().resources().get::<SerializersResource>().unwrap();
 
-            inspected_asset.to_serialized(serializer_ctx)
-        })
-        .unwrap();
+                let serializer_ctx_state = serializers_global.to_ctx_state();
+                let serializer_ctx = serializer_ctx_state
+                    .wrap_with_local(&serializers_local)
+                    .into_ctx(&mut err_handler);
+
+                inspected_asset.to_serialized(serializer_ctx)
+            })
+            .unwrap();
 
         let ent_last = ent
             .get_component::<ParentComponent>(window_c.content_container)
@@ -1097,19 +1205,33 @@ fn update_prefab_components_ent(
 ) {
     if let Some(parent_c) = ent.get_component_mut::<ParentComponent>(ent_parent) {
         let children = std::mem::take(&mut parent_c.children);
-        let (kept, foreign): (Vec<_>, Vec<_>) = children.iter().copied().partition(|&e| ent.get_component::<SerializedComponentComponent>(e).is_some());
+        let (kept, foreign): (Vec<_>, Vec<_>) = children
+            .iter()
+            .copied()
+            .partition(|&e| ent.get_component::<SerializedComponentComponent>(e).is_some());
         ent.get_component_mut::<ParentComponent>(ent_parent).unwrap().children = kept.into();
         for e in foreign {
             destroy_entity_and_children(ent.as_mut(), e);
         }
 
         while ent.get_component_mut::<ParentComponent>(ent_parent).unwrap().children.len() > components.len() as u64 {
-            let popped_ent = ent.get_component_mut::<ParentComponent>(ent_parent).unwrap().children.pop().unwrap();
+            let popped_ent = ent
+                .get_component_mut::<ParentComponent>(ent_parent)
+                .unwrap()
+                .children
+                .pop()
+                .unwrap();
             destroy_entity_and_children(ent.as_mut(), popped_ent);
         }
 
         for (i, (component_id, component_value)) in components.iter().enumerate() {
-            let ent_last = ent.get_component_mut::<ParentComponent>(ent_parent).unwrap().children.get(i as u64).copied().unwrap_or(EntityId::EMPTY);
+            let ent_last = ent
+                .get_component_mut::<ParentComponent>(ent_parent)
+                .unwrap()
+                .children
+                .get(i as u64)
+                .copied()
+                .unwrap_or(EntityId::EMPTY);
 
             update_prefab_component_ent(
                 ent.as_mut(),
@@ -1139,13 +1261,16 @@ fn update_prefab_component_ent(
     material_text: AssetHandle<StandardMaterial>,
     font: AssetHandle<Font>,
 ) {
-    let key = FoldoutKey::InspectorComponent { component_id: component_id.to_string() };
+    let key = FoldoutKey::InspectorComponent {
+        component_id: component_id.to_string(),
+    };
     let is_expanded = foldout_res.is_expanded(&key);
 
     if let Some(&serialized_component_c) = ent.get_component::<SerializedComponentComponent>(ent_last)
-    && let Some(container_parent_c) = ent.get_component::<ParentComponent>(serialized_component_c.component_data_container)
-    && let data_ents = container_parent_c.children.iter().copied().collect::<Vec<_>>()
-    && let Some(text_c) = ent.get_component_mut::<TextComponent>(serialized_component_c.component_id_text) {
+        && let Some(container_parent_c) = ent.get_component::<ParentComponent>(serialized_component_c.component_data_container)
+        && let data_ents = container_parent_c.children.iter().copied().collect::<Vec<_>>()
+        && let Some(text_c) = ent.get_component_mut::<TextComponent>(serialized_component_c.component_id_text)
+    {
         text_c.text = component_id.into();
 
         if let Some(foldout_c) = ent.get_component_mut::<FoldoutButtonComponent>(serialized_component_c.foldout_arrow) {
@@ -1193,10 +1318,10 @@ fn update_prefab_component_ent(
         material_text.clone(),
         font.clone(),
     );
-    ent.set_components(component_header_ent, (
-        ComponentHeaderComponent { component: comp_ent },
-        ButtonComponent::default(),
-    ));
+    ent.set_components(
+        component_header_ent,
+        (ComponentHeaderComponent { component: comp_ent }, ButtonComponent::default()),
+    );
     if let Some(image_c) = ent.get_component_mut::<ImageComponent>(component_header_ent) {
         image_c.color = Vec4::from_array(rgba_f32_array!("#8f8f8fff"));
     }
@@ -1221,11 +1346,14 @@ fn update_prefab_component_ent(
 
     spawn_component_separator(ent.as_mut(), comp_ent, &material_panel);
 
-    ent.set_component(comp_ent, SerializedComponentComponent {
-        component_id_text: componet_id_text_ent,
-        component_data_container: comp_data_container,
-        foldout_arrow,
-    });
+    ent.set_component(
+        comp_ent,
+        SerializedComponentComponent {
+            component_id_text: componet_id_text_ent,
+            component_data_container: comp_data_container,
+            foldout_arrow,
+        },
+    );
 
     return_if!(!is_expanded);
 
@@ -1255,20 +1383,25 @@ fn set_component_body_padding(mut ent: EntitiesHolderMut, ent_body: EntityId, is
 fn spawn_component_separator(mut ent: EntitiesHolderMut, ent_parent: EntityId, material_panel: &AssetHandle<StandardMaterial>) {
     let ent_separator = ent.create_entity();
 
-    ent.set_components(ent_separator, (
-        GlobalRectComponent::default(),
-        LocalRectComponent {
-            scale: Vec2::new(UiVal::pw(1.0).into(), UiVal::px(1.0).into()),
-            ..Default::default()
-        },
-        ChildComponent { parent: ent_parent },
-        BatchedMeshComponent::default(),
-        StandardMaterialComponent { material: material_panel.clone() },
-        ImageComponent {
-            color: Vec4::from_array(rgba_f32_array!("#3a3a3aff")),
-            ..Default::default()
-        },
-    ));
+    ent.set_components(
+        ent_separator,
+        (
+            GlobalRectComponent::default(),
+            LocalRectComponent {
+                scale: Vec2::new(UiVal::pw(1.0).into(), UiVal::px(1.0).into()),
+                ..Default::default()
+            },
+            ChildComponent { parent: ent_parent },
+            BatchedMeshComponent::default(),
+            StandardMaterialComponent {
+                material: material_panel.clone(),
+            },
+            ImageComponent {
+                color: Vec4::from_array(rgba_f32_array!("#3a3a3aff")),
+                ..Default::default()
+            },
+        ),
+    );
 
     if let Some(parent_c) = ent.get_component_mut::<ParentComponent>(ent_parent) {
         parent_c.children.push(ent_separator);
@@ -1288,7 +1421,7 @@ fn tree_to_debug_str(tree: &[TreeNode<EntityId>]) -> String {
             s.push_str(&node.value.version_index().index.to_string());
 
             log_tree_internal(s, &node.children);
-            
+
             s.push_str(", ");
         }
 

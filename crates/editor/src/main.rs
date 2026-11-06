@@ -8,7 +8,10 @@ mod systems;
 mod utils;
 
 use crate::{
-    components::*, features::{inspector_window::data::OpenProjectResource, ui_interaction::*}, resources::*, utils::*,
+    components::*,
+    features::{inspector_window::data::OpenProjectResource, ui_interaction::*},
+    resources::*,
+    utils::*,
 };
 
 use aphyn::*;
@@ -90,7 +93,8 @@ fn run_editor_app(project_path: &str) {
 
         start.insert_system(init_system);
 
-        start.order_system(create_standard_ui_assets_resource)
+        start
+            .order_system(create_standard_ui_assets_resource)
             .before_system(init_system);
     }
 
@@ -122,7 +126,9 @@ fn run_editor_app(project_path: &str) {
     features::play_mode::register_feature(world.as_mut());
     features::foldout::register_feature(world.as_mut());
 
-    world.as_mut().data_mut().resources_mut().insert(OpenProjectResource { dir_path: project_path.to_string() });
+    world.as_mut().data_mut().resources_mut().insert(OpenProjectResource {
+        dir_path: project_path.to_string(),
+    });
 
     {
         let mut world_data = world.data_mut();
@@ -135,7 +141,9 @@ fn run_editor_app(project_path: &str) {
             CameraComponent(Camera {
                 near: 0.1,
                 far: 1_000.0,
-                projection: CameraProjection::Perspective { fov: 90_f32.to_radians() },
+                projection: CameraProjection::Perspective {
+                    fov: 90_f32.to_radians(),
+                },
             }),
         )
         .ok()
@@ -171,12 +179,14 @@ fn init_system(mut world: WorldDataMut) {
         ..Default::default()
     };
 
-    let material_panel = res.as_ref()
+    let material_panel = res
+        .as_ref()
         .get::<RenderApiResource>()
         .unwrap()
         .create_material(material_panel);
 
-    let material_text = res.as_ref()
+    let material_text = res
+        .as_ref()
         .get::<RenderApiResource>()
         .unwrap()
         .create_material(material_text);

@@ -30,8 +30,16 @@ pub struct HierarchyWindowEmptyAreaComponent;
 
 #[derive(Debug, Copy, Clone)]
 pub enum SerializedValueComponentTy {
-    Container { ty: SerializedValueContainerType, container_enum_metadata: EntityId, container_fields: EntityId, container_buttons: EntityId },
-    Primitive { text: EntityId, ty: SerializedValuePrimitiveType },
+    Container {
+        ty: SerializedValueContainerType,
+        container_enum_metadata: EntityId,
+        container_fields: EntityId,
+        container_buttons: EntityId,
+    },
+    Primitive {
+        text: EntityId,
+        ty: SerializedValuePrimitiveType,
+    },
 }
 
 #[derive(Component, Clone)]
@@ -43,7 +51,7 @@ pub struct SerializedValueComponent {
 #[derive(Debug, Copy, Clone)]
 pub struct SerializedFieldComponent {
     pub key_text: EntityId,
-    pub value_container: EntityId
+    pub value_container: EntityId,
 }
 
 #[derive(Component, Clone)]

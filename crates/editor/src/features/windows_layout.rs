@@ -25,7 +25,9 @@ pub fn register_feature(mut world: WorldBuilderMut) {
 
         start.insert_system(restore_windows_layout_system);
 
-        start.order_system(crate::init_system).before_system(restore_windows_layout_system);
+        start
+            .order_system(crate::init_system)
+            .before_system(restore_windows_layout_system);
     }
 
     {
@@ -33,13 +35,25 @@ pub fn register_feature(mut world: WorldBuilderMut) {
 
         update.group(SYSTEM_GROUP).insert_child_system(save_windows_layout_system);
 
-        update.order_system(open_windows_system).before_system(save_windows_layout_system);
-        update.order_system(close_window_system).before_system(save_windows_layout_system);
-        update.order_system(drag_window_system).before_system(save_windows_layout_system);
-        update.order_system(rescale_window_system).before_system(save_windows_layout_system);
-        update.order_system(keep_windows_inside_dock_system).before_system(save_windows_layout_system);
+        update
+            .order_system(open_windows_system)
+            .before_system(save_windows_layout_system);
+        update
+            .order_system(close_window_system)
+            .before_system(save_windows_layout_system);
+        update
+            .order_system(drag_window_system)
+            .before_system(save_windows_layout_system);
+        update
+            .order_system(rescale_window_system)
+            .before_system(save_windows_layout_system);
+        update
+            .order_system(keep_windows_inside_dock_system)
+            .before_system(save_windows_layout_system);
         update.order_system(open_windows_system).before_system(order_windows_system);
-        update.order_system(order_windows_system).before_system(save_windows_layout_system);
+        update
+            .order_system(order_windows_system)
+            .before_system(save_windows_layout_system);
     }
 }
 
@@ -166,7 +180,11 @@ pub fn save_windows_layout_system(
         .iter()
         .filter_map(|(ent_window, rect_c, window_c)| {
             let title_c = title_q.get(window_c.title)?;
-            let order = order_res.front_to_back.iter().position(|&e| e == ent_window).unwrap_or(order_res.front_to_back.len());
+            let order = order_res
+                .front_to_back
+                .iter()
+                .position(|&e| e == ent_window)
+                .unwrap_or(order_res.front_to_back.len());
 
             Some(WindowLayoutEntry {
                 kind: title_c.text.to_string(),

@@ -11,7 +11,10 @@ use crate::{
         test_window::{WINDOW_KIND_GAME, open_window_by_kind},
         ui_interaction::{ButtonComponent, check_ui_interaction_system},
         windows_layout::save_windows_layout_system,
-        world_preload::{SimulationMode, SimulatedWorldResource, preload_assets_into_simulated_world_system, rebuild_simulated_world, tick_simulated_world_system},
+        world_preload::{
+            SimulatedWorldResource, SimulationMode, preload_assets_into_simulated_world_system, rebuild_simulated_world,
+            tick_simulated_world_system,
+        },
     },
 };
 
@@ -32,15 +35,21 @@ pub fn register_feature(mut world: WorldBuilderMut) {
         .insert_child_system(open_game_window_on_play_system)
         .insert_child_system(update_play_button_system);
 
-    update.order_system(check_ui_interaction_system).before_system(toggle_play_mode_system);
+    update
+        .order_system(check_ui_interaction_system)
+        .before_system(toggle_play_mode_system);
 
     update
         .order_system(preload_assets_into_simulated_world_system)
         .before_system(toggle_play_mode_system)
         .before_system(tick_simulated_world_system);
 
-    update.order_system(toggle_play_mode_system).before_system(update_hierarchy_window_system);
-    update.order_system(toggle_play_mode_system).before_system(update_play_button_system);
+    update
+        .order_system(toggle_play_mode_system)
+        .before_system(update_hierarchy_window_system);
+    update
+        .order_system(toggle_play_mode_system)
+        .before_system(update_play_button_system);
 
     update
         .order_system(toggle_play_mode_system)
@@ -70,18 +79,36 @@ fn toggle_play_mode_system(
     return_if!(simulated_world.0.is_none());
 
     if simulated_world.is_playing() {
-        rebuild_simulated_world(&mut simulated_world, &open_project.dir_path, &render_api, SimulationMode::Edit, "");
+        rebuild_simulated_world(
+            &mut simulated_world,
+            &open_project.dir_path,
+            &render_api,
+            SimulationMode::Edit,
+            "",
+        );
 
         let opened = std::mem::take(&mut *opened_asset);
         let world = simulated_world.0.as_mut().unwrap();
 
-        open_entities_asset(world, &mut opened_asset, &mut inspected_entity, &opened.asset_key, &opened.path);
+        open_entities_asset(
+            world,
+            &mut opened_asset,
+            &mut inspected_entity,
+            &opened.asset_key,
+            &opened.path,
+        );
 
         focus_res.is_focused = false;
     } else {
         return_if!(!can_play(&opened_asset));
 
-        rebuild_simulated_world(&mut simulated_world, &open_project.dir_path, &render_api, SimulationMode::Play, &opened_asset.asset_key);
+        rebuild_simulated_world(
+            &mut simulated_world,
+            &open_project.dir_path,
+            &render_api,
+            SimulationMode::Play,
+            &opened_asset.asset_key,
+        );
 
         let world = simulated_world.0.as_mut().unwrap();
         world.start_if_needed();
@@ -111,14 +138,20 @@ fn update_play_button_system(
     let is_playing = simulated_world.is_playing();
     let is_enabled = is_playing || can_play(&opened_asset);
 
-    let buttons = ent.query_filtered::<EntityId, WithFilter<PlayButtonComponent>>().iter().collect::<Vec<_>>();
+    let buttons = ent
+        .query_filtered::<EntityId, WithFilter<PlayButtonComponent>>()
+        .iter()
+        .collect::<Vec<_>>();
 
     for ent_button in buttons {
         if let Some(image_c) = ent.get_component_mut::<ImageComponent>(ent_button) {
             image_c.color = if is_enabled { BUTTON_COLOR } else { BUTTON_COLOR_DISABLED };
         }
 
-        let children = ent.get_component::<ParentComponent>(ent_button).map(|p| p.children.iter().copied().collect::<Vec<_>>()).unwrap_or_default();
+        let children = ent
+            .get_component::<ParentComponent>(ent_button)
+            .map(|p| p.children.iter().copied().collect::<Vec<_>>())
+            .unwrap_or_default();
 
         for ent_text in children {
             continue_if_not!(Some(text_c) = ent.get_component_mut::<TextComponent>(ent_text));

@@ -23,7 +23,9 @@ pub fn reveal_in_file_explorer(path: &Path) {
         // explorer falls back to the desktop on relative paths or forward slashes; absolute() fixes both
         let path = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
         // explorer parses "/select,<path>" itself and breaks on the quoting Command::arg would add
-        Command::new("explorer").raw_arg(format!("/select,\"{}\"", path.display())).spawn()
+        Command::new("explorer")
+            .raw_arg(format!("/select,\"{}\"", path.display()))
+            .spawn()
     };
 
     #[cfg(target_os = "macos")]
