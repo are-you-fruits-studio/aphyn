@@ -1,7 +1,5 @@
-use std::{collections::HashMap, ops::Deref};
-
 use aphyn_asset_storage::{AssetHandle, AssetStorageResource};
-use aphyn_ffi::{FfiHashMap, FfiIndexMap, FfiString};
+use aphyn_ffi::{FfiIndexMap, FfiString};
 use aphyn_math::{Mat4, Vec3, Vec4};
 use aphyn_render_core::{GpuUniformStorageBuffer, RenderApi};
 use aphyn_serialization::*;
@@ -208,23 +206,37 @@ impl StandardMaterialShader {
     }
 }
 
-enum MaterialDataValue {
+#[repr(C, u8)]
+#[derive(Clone, Debug, PartialEq, Serializable)]
+pub enum MaterialDataValue {
     F32(f32),
     Vec4(Vec4<f32>),
     Texture(AssetHandle<StandardTexture>),
 }
 
-struct MaterialDataEntry {
+impl Default for MaterialDataValue {
+    fn default() -> Self {
+        Self::F32(0.0)
+    }
+}
+
+fn next_snapshot(snapshot: u64) -> u64 {
+    match snapshot.wrapping_add(1) {
+        0 => 1,
+        next => next,
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Debug)]
+pub struct MaterialDataEntry {
     value: MaterialDataValue,
     snapshot: u64,
 }
 
 impl MaterialDataEntry {
     pub fn new(value: MaterialDataValue) -> Self {
-        Self {
-            value,
-            snapshot: 1,
-        }
+        Self { value, snapshot: 1 }
     }
 
     pub fn get(&self) -> &MaterialDataValue {
@@ -232,8 +244,7 @@ impl MaterialDataEntry {
     }
 
     pub fn get_mut(&mut self) -> &mut MaterialDataValue {
-        // todo: wrapping add and avoid 0
-        self.snapshot += 1;
+        self.snapshot = next_snapshot(self.snapshot);
         &mut self.value
     }
 
@@ -242,34 +253,96 @@ impl MaterialDataEntry {
     }
 }
 
-struct MaterialData(FfiIndexMap<FfiString, MaterialDataEntry>);
+impl Default for MaterialDataEntry {
+    fn default() -> Self {
+        Self::new(MaterialDataValue::default())
+    }
+}
+
+impl<S: SerializerCtxState<MaterialDataValue>> Serializable<S> for MaterialDataEntry {
+    fn serialize(&self, mut ctx: SerializerCtx<S>, path: &str) -> SerializedValue {
+        ctx.serialize(&self.value, path)
+    }
+
+    fn deserialize(&mut self, mut ctx: SerializerCtx<S>, path: &str, serialized: &SerializedValue) {
+        ctx.deserialize(&mut self.value, path, serialized);
+        self.snapshot = next_snapshot(self.snapshot);
+    }
+}
+
+#[repr(transparent)]
+#[derive(Clone, Debug, Default)]
+pub struct MaterialData(FfiIndexMap<FfiString, MaterialDataEntry>);
 
 macro_rules! material_data_get_impl {
-    ($variant: ident, $ty: ty, $name_ref: ident, $name_mut: ident) => {
+    ($variant: ident, $ty: ty, $name_ref: ident, $name_mut: ident, $name_or: ident, $fallback: expr) => {
         pub fn $name_ref(&self, name: &str) -> Option<&$ty> {
             match &self.0.get(name)?.value {
                 MaterialDataValue::$variant(value) => Some(value),
-                _ => None
+                _ => None,
             }
         }
 
         pub fn $name_mut(&mut self, name: &str) -> Option<&mut $ty> {
-            match &mut self.0.get_mut(name)?.value {
+            match self.0.get_mut(name)?.get_mut() {
                 MaterialDataValue::$variant(value) => Some(value),
-                _ => None
+                _ => None,
             }
+        }
+
+        pub fn $name_or(&self, name: &str, default: &MaterialData) -> $ty {
+            self.$name_ref(name)
+                .or_else(|| default.$name_ref(name))
+                .cloned()
+                .unwrap_or($fallback)
         }
     };
 }
 
 impl MaterialData {
-    pub fn new(values: FfiIndexMap<FfiString, MaterialDataEntry>) -> Self {
-        Self(values)
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    material_data_get_impl!(F32, f32, get_f32, get_g32_mut);
-    material_data_get_impl!(Vec4, Vec4<f32>, get_vec4, get_vec4_mut);
-    material_data_get_impl!(Texture, AssetHandle<StandardTexture>, get_texture, get_texture_mut);
+    pub fn insert(&mut self, name: &str, value: MaterialDataValue) {
+        self.0.insert(name.into(), MaterialDataEntry::new(value));
+    }
+
+    pub fn entry(&self, name: &str) -> Option<&MaterialDataEntry> {
+        self.0.get(name)
+    }
+
+    material_data_get_impl!(F32, f32, get_f32, get_f32_mut, get_f32_or, 0.0);
+    material_data_get_impl!(Vec4, Vec4<f32>, get_vec4, get_vec4_mut, get_vec4_or, Vec4::splat(0.0));
+    material_data_get_impl!(
+        Texture,
+        AssetHandle<StandardTexture>,
+        get_texture,
+        get_texture_mut,
+        get_texture_or,
+        AssetHandle::EMPTY
+    );
+}
+
+impl<S: SerializerCtxState<FfiString> + SerializerCtxState<MaterialDataEntry>> Serializable<S> for MaterialData {
+    fn serialize(&self, ctx: SerializerCtx<S>, path: &str) -> SerializedValue {
+        self.0.serialize(ctx, path)
+    }
+
+    fn deserialize(&mut self, ctx: SerializerCtx<S>, path: &str, serialized: &SerializedValue) {
+        let existing = self.0.len() as usize;
+        self.0.deserialize(ctx, path, serialized);
+        for entry in self.0.values_mut().skip(existing) {
+            entry.snapshot = 1;
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Debug, Default, Serializable)]
+pub struct Material {
+    pub template: FfiString,
+    pub data: MaterialData,
 }
 
 #[repr(C)]
@@ -392,4 +465,136 @@ impl StandardMaterial {
 
 fn srgb_to_linear(color: Vec4<f32>) -> Vec4<f32> {
     Vec4::new(color.x.powf(2.2), color.y.powf(2.2), color.z.powf(2.2), color.w)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn registry() -> TransSerializerRegistry<'static> {
+        let mut registry = TransSerializerRegistry::new();
+        registry.register(StandardSerializer::<f32>::default());
+        registry.register(StandardSerializer::<Vec4<f32>>::default());
+        registry.register(StandardSerializer::<FfiString>::default());
+        registry.register(StandardSerializer::<MaterialDataValue>::default());
+        registry.register(StandardSerializer::<MaterialDataEntry>::default());
+        registry.register(StandardSerializer::<MaterialData>::default());
+        registry.register(StandardSerializer::<Material>::default());
+        registry
+    }
+
+    fn sample_data() -> MaterialData {
+        let mut data = MaterialData::new();
+        data.insert("speed", MaterialDataValue::F32(0.3));
+        data.insert("color", MaterialDataValue::Vec4(Vec4::new(1.0, 0.0, 0.0, 1.0)));
+        data
+    }
+
+    fn entry_names(data: &MaterialData) -> Vec<String> {
+        data.0.keys().map(|k| k.to_string()).collect()
+    }
+
+    #[test]
+    fn roundtrip_keeps_values() {
+        let mut registry = registry();
+        let mut on_err = |err: SerializationError| panic!("{err}");
+        let data = sample_data();
+
+        let serialized = registry.serialize(&data, "", &mut on_err);
+        let mut restored = MaterialData::default();
+        registry.deserialize(&mut restored, "", &serialized, &mut on_err);
+
+        assert_eq!(entry_names(&restored), ["speed", "color"]);
+        assert_eq!(restored.get_f32("speed"), Some(&0.3));
+        assert_eq!(restored.get_vec4("color"), Some(&Vec4::new(1.0, 0.0, 0.0, 1.0)));
+
+        let json = serialized.to_json();
+        let value_json = registry.serialize(&MaterialDataValue::F32(0.3), "", &mut on_err).to_json();
+        assert_eq!(json["speed"], value_json);
+        assert!(json["speed"].get("snapshot").is_none());
+    }
+
+    #[test]
+    fn get_mut_bumps_snapshot() {
+        let mut data = sample_data();
+        assert_eq!(data.entry("speed").unwrap().snapshot(), 1);
+
+        *data.get_f32_mut("speed").unwrap() = 0.5;
+        assert_eq!(data.entry("speed").unwrap().snapshot(), 2);
+
+        data.get_f32("speed");
+        assert_eq!(data.entry("speed").unwrap().snapshot(), 2);
+        assert_eq!(data.entry("color").unwrap().snapshot(), 1);
+    }
+
+    #[test]
+    fn deserialize_bumps_snapshot() {
+        let mut registry = registry();
+        let mut on_err = |err: SerializationError| panic!("{err}");
+        let mut data = sample_data();
+
+        let serialized = registry.serialize(&MaterialDataValue::F32(0.9), "", &mut on_err);
+        registry.deserialize(&mut data, "speed", &serialized, &mut on_err);
+
+        assert_eq!(data.get_f32("speed"), Some(&0.9));
+        assert_eq!(data.entry("speed").unwrap().snapshot(), 2);
+        assert_eq!(data.entry("color").unwrap().snapshot(), 1);
+    }
+
+    #[test]
+    fn deserialize_new_entries_start_at_one() {
+        let mut registry = registry();
+        let mut on_err = |err: SerializationError| panic!("{err}");
+
+        let serialized = registry.serialize(&sample_data(), "", &mut on_err);
+        let mut restored = MaterialData::default();
+        registry.deserialize(&mut restored, "", &serialized, &mut on_err);
+
+        assert_eq!(restored.entry("speed").unwrap().snapshot(), 1);
+        assert_eq!(restored.entry("color").unwrap().snapshot(), 1);
+    }
+
+    #[test]
+    fn next_snapshot_skips_zero() {
+        assert_eq!(next_snapshot(u64::MAX), 1);
+        assert_eq!(next_snapshot(1), 2);
+    }
+
+    #[test]
+    fn typed_get_or_default_falls_back() {
+        let mut data = MaterialData::new();
+        data.insert("color", MaterialDataValue::F32(2.0));
+
+        let mut defaults = MaterialData::new();
+        defaults.insert("speed", MaterialDataValue::F32(0.3));
+        defaults.insert("color", MaterialDataValue::Vec4(Vec4::new(0.0, 0.0, 1.0, 1.0)));
+
+        assert_eq!(data.get_f32_or("speed", &defaults), 0.3);
+        assert_eq!(data.get_vec4_or("color", &defaults), Vec4::new(0.0, 0.0, 1.0, 1.0));
+        assert_eq!(data.get_f32_or("missing", &defaults), 0.0);
+        assert_eq!(data.get_vec4_or("missing", &defaults), Vec4::splat(0.0));
+        assert_eq!(data.get_texture_or("missing", &defaults), AssetHandle::EMPTY);
+    }
+
+    #[test]
+    fn material_roundtrip() {
+        let mut registry = registry();
+        let mut on_err = |err: SerializationError| panic!("{err}");
+        let material = Material {
+            template: "water".into(),
+            data: sample_data(),
+        };
+
+        let serialized = registry.serialize(&material, "", &mut on_err);
+        let json = serialized.to_json();
+        assert!(json.get("template").is_some());
+        assert!(json.get("data").is_some());
+
+        let mut restored = Material::default();
+        registry.deserialize(&mut restored, "", &serialized, &mut on_err);
+
+        assert_eq!(restored.template.as_str(), "water");
+        assert_eq!(entry_names(&restored.data), ["speed", "color"]);
+        assert_eq!(restored.data.get_f32("speed"), Some(&0.3));
+    }
 }

@@ -1,13 +1,13 @@
-mod instance;
-mod mesh;
-mod texture;
-mod material;
-mod shader;
 mod global_bindings;
+mod instance;
+mod material;
+mod mesh;
+mod shader;
+mod texture;
 
-pub use instance::*;
-pub use mesh::*;
-pub use texture::*;
-pub use material::*;
-pub use shader::*;
 pub use global_bindings::*;
+pub use instance::*;
+pub use material::*;
+pub use mesh::*;
+pub use shader::*;
+pub use texture::*;

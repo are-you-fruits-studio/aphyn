@@ -92,6 +92,30 @@
 //! });
 //! ```
 //!
+//! #### Material data
+//!
+//! A [`Material`] is a template name plus a [`MaterialData`]: an untyped map from parameter name to
+//! [`MaterialDataValue`] (`F32`, `Vec4`, or a texture [`AssetHandle`](aphyn_asset_storage::AssetHandle)),
+//! kept in insertion order. Read it with the typed accessors (`get_f32`, `get_vec4`, `get_texture`);
+//! they return `None` when the name is missing or holds another kind of value. The `get_*_or` variants
+//! take the template's default data and fall back to it, then to `0.0`, a zero `Vec4`, or an empty
+//! handle. Every `*_mut` accessor bumps the entry's [`snapshot`](MaterialDataEntry::snapshot), so a
+//! consumer that remembers the last snapshot it uploaded can update only what changed:
+//!
+//! ```
+//! use aphyn_render::{MaterialData, MaterialDataValue};
+//!
+//! let mut defaults = MaterialData::new();
+//! defaults.insert("wave_speed", MaterialDataValue::F32(0.3));
+//!
+//! let mut data = MaterialData::new();
+//! assert_eq!(data.get_f32_or("wave_speed", &defaults), 0.3);
+//!
+//! data.insert("wave_speed", MaterialDataValue::F32(1.0));
+//! *data.get_f32_mut("wave_speed").unwrap() = 2.0;
+//! assert_eq!(data.entry("wave_speed").unwrap().snapshot(), 2);
+//! ```
+//!
 //! #### Creating a custom shader
 //!
 //! A [`StandardShader`] is a core shader made from composed WGSL with the opaque standard state.
@@ -458,6 +482,19 @@
 //! runs inside core's `write_vertex_buffer_with` callback and borrows one zeroed element of the
 //! staging slice at a time. Core allows empty buffers (a draw with one fails, and writes to one do
 //! nothing), so zero lengths and empty layouts stay valid.
+//!
+//! #### Material data
+//!
+//! `MaterialData` is `#[repr(transparent)]` over `FfiIndexMap<FfiString, MaterialDataEntry>`, the entry
+//! is `#[repr(C)]` and the value `#[repr(C, u8)]`, so all of them cross the dylib boundary. The entry
+//! snapshot starts at `1` and is advanced by `next_snapshot` (wrapping, never `0`) on every mutable
+//! access and on every deserialization into the entry, which is what makes inspector edits visible to
+//! consumers. Entries that deserialization creates are reset to snapshot `1` by `MaterialData`, so only
+//! entries that already existed are bumped. The snapshot is never serialized: `MaterialDataEntry` serializes as
+//! its value only, and `MaterialData` delegates to the inner `FfiIndexMap`. Serialization is generic
+//! over the context state, so texture handles go through the same handle serializers as
+//! `StandardMaterialAssetMetadata`. `MaterialDataValue::default()` is `F32(0.0)` only because the
+//! derive and the map need a `Default`; a deserialized value replaces it with the stored variant.
 //!
 //! #### Helpers and unfinished parts
 //!
