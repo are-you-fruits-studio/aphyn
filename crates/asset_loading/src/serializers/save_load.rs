@@ -3,7 +3,9 @@ use aphyn_audio::{AudioClip, AudioClipAssetMetadata};
 use aphyn_ecs::ResourcesHolderRef;
 use aphyn_ffi::FfiString;
 use aphyn_prefab::{Prefab, Scene};
-use aphyn_render::{CoordinateSpaceType, StandardMaterial, StandardMesh, StandardMeshAssetMetadata, StandardShader, StandardTexture};
+use aphyn_render::{
+    CoordinateSpaceType, Material, StandardMaterial, StandardMesh, StandardMeshAssetMetadata, StandardShader, StandardTexture,
+};
 use aphyn_serialization::*;
 
 use crate::{EntityIdDecoder, EntityIdEncoder, EntityTransSerializer, serialize_entities_no_deps};
@@ -14,25 +16,25 @@ pub fn save_load_with_asset_serializers_from_world<R>(
     res: ResourcesHolderRef,
     f: impl FnOnce(TransSerializerRegistry) -> R,
 ) -> Option<R> {
-    Some(
-        save_load_with_asset_serializers::<R>(
-            &*res.get::<AssetStorageResource<Prefab>>()?,
-            &*res.get::<AssetStorageResource<Scene>>()?,
-            &*res.get::<AssetStorageResource<StandardTexture>>()?,
-            &*res.get::<AssetStorageResource<StandardMaterial>>()?,
-            &*res.get::<AssetStorageResource<StandardMesh>>()?,
-            &*res.get::<AssetStorageResource<AudioClip>>()?,
-            &*res.get::<AssetStorageResource<StandardShader>>()?,
-            f,
-        )
-    )
+    Some(save_load_with_asset_serializers::<R>(
+        &*res.get::<AssetStorageResource<Prefab>>()?,
+        &*res.get::<AssetStorageResource<Scene>>()?,
+        &*res.get::<AssetStorageResource<StandardTexture>>()?,
+        &*res.get::<AssetStorageResource<StandardMaterial>>()?,
+        &*res.get::<AssetStorageResource<Material>>()?,
+        &*res.get::<AssetStorageResource<StandardMesh>>()?,
+        &*res.get::<AssetStorageResource<AudioClip>>()?,
+        &*res.get::<AssetStorageResource<StandardShader>>()?,
+        f,
+    ))
 }
 
 pub fn save_load_with_asset_serializers<R>(
     prefabs: &AssetStorageResource<Prefab>,
     scenes: &AssetStorageResource<Scene>,
     textures: &AssetStorageResource<StandardTexture>,
-    materials: &AssetStorageResource<StandardMaterial>,
+    standard_materials: &AssetStorageResource<StandardMaterial>,
+    materials: &AssetStorageResource<Material>,
     meshes: &AssetStorageResource<StandardMesh>,
     audio_clips: &AssetStorageResource<AudioClip>,
     shaders: &AssetStorageResource<StandardShader>,
@@ -43,6 +45,7 @@ pub fn save_load_with_asset_serializers<R>(
     serializer_local.register(EntityTransSerializer::new(EntityIdDecoder::Empty, EntityIdEncoder::Empty));
 
     serializer_local.register(AssetHandleLinkTransSerializer::new(textures));
+    serializer_local.register(AssetHandleLinkTransSerializer::new(standard_materials));
     serializer_local.register(AssetHandleLinkTransSerializer::new(materials));
     serializer_local.register(AssetHandleLinkTransSerializer::new(meshes));
     serializer_local.register(AssetHandleLinkTransSerializer::new(audio_clips));
@@ -57,23 +60,27 @@ pub fn save_load_with_asset_serializers<R>(
     });
     serializer_local.register(DirectAssetSaveTransSerializer {
         assets: materials,
-        extractor: |_, a| a.meta().clone(),
+        extractor: |_, m| m.clone(),
     });
     serializer_local.register(DirectAssetSaveTransSerializer {
         assets: meshes,
-        extractor: |_, a| a.meta().cloned().unwrap_or_else(|| StandardMeshAssetMetadata {
-            raw_mesh: Default::default(),
-            coordinate_space: CoordinateSpaceType::LeftHandZForward,
-            has_clockwise_winding: Default::default(),
-            has_inverted_u: Default::default(),
-            has_inverted_v: Default::default(),
-        }),
+        extractor: |_, a| {
+            a.meta().cloned().unwrap_or_else(|| StandardMeshAssetMetadata {
+                raw_mesh: Default::default(),
+                coordinate_space: CoordinateSpaceType::LeftHandZForward,
+                has_clockwise_winding: Default::default(),
+                has_inverted_u: Default::default(),
+                has_inverted_v: Default::default(),
+            })
+        },
     });
     serializer_local.register(DirectAssetSaveTransSerializer {
         assets: audio_clips,
-        extractor: |_, a| a.meta().cloned().unwrap_or_else(|| AudioClipAssetMetadata {
-            raw_audio: Default::default(),
-        }),
+        extractor: |_, a| {
+            a.meta().cloned().unwrap_or_else(|| AudioClipAssetMetadata {
+                raw_audio: Default::default(),
+            })
+        },
     });
     // todo: fonts
     serializer_local.register(DirectAssetSaveTransSerializer {
@@ -103,9 +110,7 @@ pub struct AssetHandleLinkTransSerializer<'m, T: 'static> {
 }
 impl<'m, T: 'static> AssetHandleLinkTransSerializer<'m, T> {
     pub fn new(assets: &'m AssetStorageResource<T>) -> Self {
-        Self {
-            assets,
-        }
+        Self { assets }
     }
 }
 impl<'m, T: 'static, S: Copy> Serializer<S> for AssetHandleLinkTransSerializer<'m, T> {
@@ -116,7 +121,9 @@ impl<'m, T: 'static, S: Copy> Serializer<S> for AssetHandleLinkTransSerializer<'
         let key = self.assets.get_registration(value);
 
         if value != &AssetHandle::EMPTY && key.is_none() {
-            ctx.report_err(SerializationError::InvalidInput { message: "AssetHandle is not registered".into() });
+            ctx.report_err(SerializationError::InvalidInput {
+                message: "AssetHandle is not registered".into(),
+            });
         }
 
         SerializedValue::Primitive(SerializedPrimitive::String(key.unwrap_or("").into()))
@@ -127,7 +134,9 @@ impl<'m, T: 'static, S: Copy> Serializer<S> for AssetHandleLinkTransSerializer<'
         *value = Default::default();
 
         let SerializedValue::Primitive(SerializedPrimitive::String(key)) = serialized else {
-            ctx.report_err(SerializationError::InvalidInput { message: "AssetHandle can only be deserialized from string".into() });
+            ctx.report_err(SerializationError::InvalidInput {
+                message: "AssetHandle can only be deserialized from string".into(),
+            });
             return;
         };
 
@@ -136,13 +145,15 @@ impl<'m, T: 'static, S: Copy> Serializer<S> for AssetHandleLinkTransSerializer<'
         }
 
         let Some(stored_asset) = self.assets.get_registered(key) else {
-            ctx.report_err(SerializationError::InvalidInput { message: format!("AssetHandle with a key \"{key}\" not found").into() });
+            ctx.report_err(SerializationError::InvalidInput {
+                message: format!("AssetHandle with a key \"{key}\" not found").into(),
+            });
             return;
         };
 
         *value = stored_asset.clone()
     }
-    
+
     fn serializable_default(&self) -> Self::Deserialized {
         Default::default()
     }
@@ -152,7 +163,9 @@ pub struct DirectAssetSaveTransSerializer<'m, T: 'static, S: 'static, F: Fn(Seri
     assets: &'m AssetStorageResource<T>,
     extractor: F,
 }
-impl<'a, 'm, T: 'static, S: 'static, F: Fn(SerializerCtx<TransSerializerCtxState>, &T) -> S> Serializer<TransSerializerCtxState<'a>> for DirectAssetSaveTransSerializer<'m, T, S, F> {
+impl<'a, 'm, T: 'static, S: 'static, F: Fn(SerializerCtx<TransSerializerCtxState>, &T) -> S> Serializer<TransSerializerCtxState<'a>>
+    for DirectAssetSaveTransSerializer<'m, T, S, F>
+{
     type Deserialized = DirectSerializableAsset<T>;
 
     fn serialize(&self, value: &Self::Deserialized, mut ctx: SerializerCtx<TransSerializerCtxState>, path: &str) -> SerializedValue {
@@ -163,16 +176,26 @@ impl<'a, 'm, T: 'static, S: 'static, F: Fn(SerializerCtx<TransSerializerCtxState
                 DirectSerializableAsset::Handle(asset_handle) => asset_handle,
                 DirectSerializableAsset::Key(key) => {
                     let Some(asset) = assets.get_registered(key.as_str()) else {
-                        ctx.report_err(SerializationError::InvalidInput { message: format!("failed to serialize asset {}, Asset key is missing {}", std::any::type_name::<T>(), key.as_str()).into() });
+                        ctx.report_err(SerializationError::InvalidInput {
+                            message: format!(
+                                "failed to serialize asset {}, Asset key is missing {}",
+                                std::any::type_name::<T>(),
+                                key.as_str()
+                            )
+                            .into(),
+                        });
                         return SerializedValue::Null;
                     };
 
                     asset
-                },
+                }
             };
 
             let Some(asset) = assets.get(asset_handle) else {
-                println!("failed to serialize asset {}, AssetHandle is invalid", std::any::type_name::<T>());
+                println!(
+                    "failed to serialize asset {}, AssetHandle is invalid",
+                    std::any::type_name::<T>()
+                );
                 return SerializedValue::Null;
             };
 
@@ -182,10 +205,16 @@ impl<'a, 'm, T: 'static, S: 'static, F: Fn(SerializerCtx<TransSerializerCtxState
         ctx.serialize(&serializable_part, path)
     }
 
-    fn deserialize(&self, value: &mut Self::Deserialized, _ctx: SerializerCtx<TransSerializerCtxState>, _path: &str, _serialized: &SerializedValue) {
+    fn deserialize(
+        &self,
+        value: &mut Self::Deserialized,
+        _ctx: SerializerCtx<TransSerializerCtxState>,
+        _path: &str,
+        _serialized: &SerializedValue,
+    ) {
         todo!()
     }
-    
+
     fn serializable_default(&self) -> Self::Deserialized {
         todo!()
     }

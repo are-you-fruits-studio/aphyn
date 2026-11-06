@@ -56,9 +56,7 @@ pub fn deserialize_asset_to_world_res(
             AssetType::Texture => {
                 _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<StandardTexture>>("", &serialized)
             }
-            AssetType::Material => {
-                _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<StandardMaterial>>("", &serialized)
-            }
+            AssetType::Material => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<Material>>("", &serialized),
             AssetType::Mesh => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<StandardMesh>>("", &serialized),
             AssetType::Font => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<Font>>("", &serialized),
             AssetType::AudioClip => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<AudioClip>>("", &serialized),
@@ -85,7 +83,7 @@ pub fn load_asset_to_world_res(
 
         match asset_type {
             AssetType::Texture => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<StandardTexture>>("", value),
-            AssetType::Material => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<StandardMaterial>>("", value),
+            AssetType::Material => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<Material>>("", value),
             AssetType::Mesh => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<StandardMesh>>("", value),
             AssetType::Font => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<Font>>("", value),
             AssetType::AudioClip => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<AudioClip>>("", value),

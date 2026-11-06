@@ -1,4 +1,7 @@
-use std::{collections::{HashSet, VecDeque}, path::Path};
+use std::{
+    collections::{HashSet, VecDeque},
+    path::Path,
+};
 
 use aphyn_asset_storage::{AssetHandle, AssetStorageResource};
 use aphyn_ecs::*;
@@ -31,7 +34,12 @@ impl<'a, 's> AssetLoader<TransSerializerCtxState<'s>> for PrefabHandleLoader<'a>
         self.prefabs
     }
 
-    fn load_from_serialized(&mut self, ctx: SerializerCtx<TransSerializerCtxState>, value: &SerializedValue, _assets_dir_path: impl AsRef<Path>) -> Option<Self::Asset> {
+    fn load_from_serialized(
+        &mut self,
+        ctx: SerializerCtx<TransSerializerCtxState>,
+        value: &SerializedValue,
+        _assets_dir_path: impl AsRef<Path>,
+    ) -> Option<Self::Asset> {
         PrefabLoader.load_from_serialized(ctx, value)
     }
 }
@@ -40,7 +48,11 @@ impl<'a, 's> AssetLoader<TransSerializerCtxState<'s>> for PrefabHandleLoader<'a>
 
 pub struct PrefabLoader;
 impl PrefabLoader {
-    pub fn load_from_serialized(&mut self, mut ctx: SerializerCtx<TransSerializerCtxState>, value: &SerializedValue) -> Option<Prefab> {
+    pub fn load_from_serialized(
+        &mut self,
+        mut ctx: SerializerCtx<TransSerializerCtxState>,
+        value: &SerializedValue,
+    ) -> Option<Prefab> {
         let prefab_entities = deserialize_entities_no_deps(ctx.as_mut().map_state(|_| PureSerializerCtxState), value);
 
         let prefab = Prefab {
@@ -58,14 +70,12 @@ pub fn instantiate_prefab(res: ResourcesHolderRef, ent: EntitiesHolderMut, prefa
 
     let root_entity_id = *prefab.entities.0.keys().next()?;
 
-    instantiate_serialized_entities(res, ent, &prefab.entities).get(&root_entity_id).copied()
+    instantiate_serialized_entities(res, ent, &prefab.entities)
+        .get(&root_entity_id)
+        .copied()
 }
 
-pub fn record_into_prefab(
-    res: ResourcesHolderRef,
-    ent: EntitiesHolderRef,
-    entity: EntityId,
-) -> Option<Prefab> {
+pub fn record_into_prefab(res: ResourcesHolderRef, ent: EntitiesHolderRef, entity: EntityId) -> Option<Prefab> {
     if !ent.contains_entity(entity) {
         return None;
     }

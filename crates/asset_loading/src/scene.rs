@@ -30,7 +30,12 @@ impl<'a, 's> AssetLoader<TransSerializerCtxState<'s>> for SceneHandleLoader<'a> 
         self.scenes
     }
 
-    fn load_from_serialized(&mut self, ctx: SerializerCtx<TransSerializerCtxState>, value: &SerializedValue, _assets_dir_path: impl AsRef<Path>) -> Option<Self::Asset> {
+    fn load_from_serialized(
+        &mut self,
+        ctx: SerializerCtx<TransSerializerCtxState>,
+        value: &SerializedValue,
+        _assets_dir_path: impl AsRef<Path>,
+    ) -> Option<Self::Asset> {
         SceneLoader.load_from_serialized(ctx, value)
     }
 }
@@ -39,7 +44,11 @@ impl<'a, 's> AssetLoader<TransSerializerCtxState<'s>> for SceneHandleLoader<'a> 
 
 pub struct SceneLoader;
 impl SceneLoader {
-    pub fn load_from_serialized(&mut self, mut ctx: SerializerCtx<TransSerializerCtxState>, value: &SerializedValue) -> Option<Scene> {
+    pub fn load_from_serialized(
+        &mut self,
+        mut ctx: SerializerCtx<TransSerializerCtxState>,
+        value: &SerializedValue,
+    ) -> Option<Scene> {
         let scene_entities = deserialize_entities_no_deps(ctx.as_mut().map_state(|_| PureSerializerCtxState), value);
 
         Some(Scene {
@@ -60,10 +69,7 @@ pub fn instantiate_scene(res: ResourcesHolderRef, ent: EntitiesHolderMut, scene:
 }
 
 pub fn record_into_scene(res: ResourcesHolderRef, ent: EntitiesHolderRef) -> Option<Scene> {
-    let mut entities_ordered = ent
-        .query::<EntityId>()
-        .iter()
-        .collect::<Vec<_>>();
+    let mut entities_ordered = ent.query::<EntityId>().iter().collect::<Vec<_>>();
 
     entities_ordered.sort_by_key(|e| e.version_index().index + 1);
 

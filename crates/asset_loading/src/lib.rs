@@ -53,11 +53,12 @@
 //!
 //! #### Writing an asset file
 //!
-//! The fields besides `asset_type` are the serialized form of the matching metadata type
-//! (`StandardTextureAssetMetadata`, `StandardMaterialAssetMetadata`,
-//! `StandardMeshAssetMetadata`, `AudioClipAssetMetadata`); fields left out keep their defaults.
+//! The fields besides `asset_type` are the serialized form of the matching asset type
+//! (`StandardTextureAssetMetadata`, `Material`, `StandardMeshAssetMetadata`,
+//! `AudioClipAssetMetadata`); fields left out keep their defaults.
 //! An asset handle inside an asset file is written as the referenced asset's key and is loaded
-//! along with it:
+//! along with it. A material file is a `Material` as is: a `template` name and a `data` map from
+//! parameter name to a tagged value (`F32`, `Vec4`, or a `Texture` key):
 //!
 //! ```text
 //! // assets/textures/player.asset
@@ -66,12 +67,12 @@
 //! // assets/materials/player.asset
 //! {
 //!     "asset_type": "material",
-//!     "shader": { "$enum_variant": "Engine", "0": { "$enum_variant": "OpaqueLit" } },
-//!     "color_tex": "textures/player.asset"
+//!     "template": "unlit_color",
+//!     "data": {
+//!         "color": { "$enum_variant": "Vec4", "0": { "x": 1.0, "y": 0.0, "z": 0.0, "w": 1.0 } },
+//!         "color_tex": { "$enum_variant": "Texture", "0": "textures/player.asset" }
+//!     }
 //! }
-//!
-//! // assets/materials/water.asset, using assets/shaders/water.wgsl
-//! { "asset_type": "material", "shader": { "$enum_variant": "Custom", "0": "shaders/water.wgsl" } }
 //! ```
 //!
 //! #### Instantiating a prefab
@@ -168,8 +169,9 @@
 //! - **Texture** — [`TextureLoader`] decodes `raw_texture` with the `image` crate into RGBA8
 //!   and creates it through `RenderApiResource::create_texture` with `FilterMode::Nearest`,
 //!   passing the metadata along.
-//! - **Material** — [`MaterialLoader`] creates the material from its metadata alone; its texture
-//!   handles are resolved by the material itself when it is first drawn.
+//! - **Material** — [`MaterialLoader`] deserializes a `Material` (template name plus untyped data) and needs no GPU;
+//!   its texture handles are loaded transitively and the render features resolve the template when drawing.
+//!   Handles to the legacy `StandardMaterial` storage still save and instantiate as keys, but no file loads into it.
 //! - **Mesh** — [`MeshLoader`] parses `raw_mesh` as Wavefront `.obj` with `aphyn_wavefront`.
 //!   Faces are flattened into a non-indexed vertex list (a face missing a position, normal, or
 //!   UV fails the load), each face gets a tangent with handedness, and the vertices are fixed
@@ -224,32 +226,35 @@
 //! and `.obj`/`.fbx` import details), and the `_*_FILE_EXAMPLE` constants are older format
 //! sketches that do not match the current metadata fields.
 
+mod audio_clip;
 mod material;
 mod mesh;
-mod texture;
 mod prefab;
 mod scene;
 mod serialized_entities;
-mod audio_clip;
 mod serializers;
 mod shader;
+mod texture;
 
-use std::{ffi::OsStr, path::{Path, PathBuf}};
+use std::{
+    ffi::OsStr,
+    path::{Path, PathBuf},
+};
 
 use aphyn_asset_storage::{AssetHandle, AssetStorageResource};
 use aphyn_audio::AudioClip;
 use aphyn_prefab::{Prefab, Scene};
-use aphyn_render::{StandardMaterial, StandardMesh, StandardShader, StandardTexture};
+use aphyn_render::{Material, StandardMesh, StandardShader, StandardTexture};
 use aphyn_serialization::{SerializedPrimitive, SerializedValue, SerializerCtx};
+pub use audio_clip::*;
 pub use material::*;
 pub use mesh::*;
-pub use texture::*;
 pub use prefab::*;
 pub use scene::*;
 pub use serialized_entities::*;
-pub use audio_clip::*;
 pub use serializers::*;
 pub use shader::*;
+pub use texture::*;
 
 use aphyn_ecs::{Resource, ResourcesHolderMut, Schedule, WorldBuilderMut};
 use aphyn_ffi::FfiString;
@@ -277,7 +282,8 @@ pub fn add_asset_module_to(mut world: WorldBuilderMut) {
     world.data_mut().resources_mut().insert(AssetStorageResource::<Prefab>::new());
     world.data_mut().resources_mut().insert(AssetStorageResource::<Scene>::new());
 
-    world.behavior_mut()
+    world
+        .behavior_mut()
         .get_mut(Schedule::Start)
         .group(SYSTEM_GROUP_ASSETS)
         .insert_child_system(load_all_assets_system);
@@ -285,7 +291,12 @@ pub fn add_asset_module_to(mut world: WorldBuilderMut) {
 
 pub fn load_all_assets_system(res: ResourcesHolderMut) {
     // todo: use aphyn_file_storage::assets_path() as the default instead of cwd-relative "assets"
-    let assets_dir_path = PathBuf::from(res.as_ref().get::<AssetsDirResource>().map(|d| d.0.as_str()).unwrap_or("assets"));
+    let assets_dir_path = PathBuf::from(
+        res.as_ref()
+            .get::<AssetsDirResource>()
+            .map(|d| d.0.as_str())
+            .unwrap_or("assets"),
+    );
 
     load_all_assets(res, assets_dir_path);
 }
@@ -324,7 +335,7 @@ impl AssetType {
             "audio_clip" => Some(AssetType::AudioClip),
             "prefab" => Some(AssetType::Prefab),
             "scene" => Some(AssetType::Scene),
-            _ => None
+            _ => None,
         }
     }
 }
@@ -335,10 +346,20 @@ pub trait AssetLoader<S: Copy> {
 
     fn create_loader<'r>(res: ResourcesHolderMut<'r>) -> Option<Self::SelfWithAnotherLifetime<'r>>;
 
-    fn load_from_serialized(&mut self, ctx: SerializerCtx<S>, value: &SerializedValue, assets_dir_path: impl AsRef<Path>) -> Option<Self::Asset>;
+    fn load_from_serialized(
+        &mut self,
+        ctx: SerializerCtx<S>,
+        value: &SerializedValue,
+        assets_dir_path: impl AsRef<Path>,
+    ) -> Option<Self::Asset>;
     fn get_related_asset_storage(&mut self) -> &mut AssetStorageResource<Self::Asset>;
 
-    fn get_or_load_from_key(&mut self, ctx: SerializerCtx<S>, key: &str, assets_dir_path: impl AsRef<Path>) -> Option<AssetHandle<Self::Asset>> {
+    fn get_or_load_from_key(
+        &mut self,
+        ctx: SerializerCtx<S>,
+        key: &str,
+        assets_dir_path: impl AsRef<Path>,
+    ) -> Option<AssetHandle<Self::Asset>> {
         let storage = self.get_related_asset_storage();
 
         if let Some(stored_asset) = storage.get_registered(key) {
@@ -378,8 +399,10 @@ pub fn load_all_assets(mut res: ResourcesHolderMut, assets_dir_path: impl AsRef<
         |serializers_local, serializers_global| {
             let mut err_handler = |err| println!("[{}:{}] {err}", file!(), line!());
             let serializer_ctx_state = serializers_global.to_ctx_state();
-            let mut serializer_ctx = serializer_ctx_state.wrap_with_local(&serializers_local).into_ctx(&mut err_handler);
-            
+            let mut serializer_ctx = serializer_ctx_state
+                .wrap_with_local(&serializers_local)
+                .into_ctx(&mut err_handler);
+
             traverse_files_in_dir_deep(&assets_dir_path, &mut |file_path| {
                 let is_asset_file = file_path.extension() == Some(OsStr::new("asset"));
                 let is_shader_file = file_path.to_str().is_some_and(is_shader_asset_key);
@@ -393,7 +416,12 @@ pub fn load_all_assets(mut res: ResourcesHolderMut, assets_dir_path: impl AsRef<
                     return;
                 };
 
-                let asset_key = file_path.components().skip(assets_dir_path.as_ref().components().count()).map(|c| c.as_os_str().to_str().unwrap()).collect::<Vec<_>>().join("/");
+                let asset_key = file_path
+                    .components()
+                    .skip(assets_dir_path.as_ref().components().count())
+                    .map(|c| c.as_os_str().to_str().unwrap())
+                    .collect::<Vec<_>>()
+                    .join("/");
 
                 if is_shader_file {
                     let serialized_value = SerializedPrimitive::String(asset_key.into()).into();
@@ -406,7 +434,7 @@ pub fn load_all_assets(mut res: ResourcesHolderMut, assets_dir_path: impl AsRef<
                     Err(err) => {
                         println!("failed to load asset at path {file_path:?}, file read error: {err}");
                         return;
-                    },
+                    }
                 };
 
                 let asset_json = match serde_json::from_str::<serde_json::Value>(&asset_json) {
@@ -435,8 +463,10 @@ pub fn load_all_assets(mut res: ResourcesHolderMut, assets_dir_path: impl AsRef<
                 let serialized_value = SerializedPrimitive::String(asset_key.into()).into();
 
                 match asset_type {
-                    AssetType::Texture => _ = serializer_ctx.deserialize_default::<AssetHandle<StandardTexture>>("", &serialized_value),
-                    AssetType::Material => _ = serializer_ctx.deserialize_default::<AssetHandle<StandardMaterial>>("", &serialized_value),
+                    AssetType::Texture => {
+                        _ = serializer_ctx.deserialize_default::<AssetHandle<StandardTexture>>("", &serialized_value)
+                    }
+                    AssetType::Material => _ = serializer_ctx.deserialize_default::<AssetHandle<Material>>("", &serialized_value),
                     AssetType::Mesh => _ = serializer_ctx.deserialize_default::<AssetHandle<StandardMesh>>("", &serialized_value),
                     AssetType::AudioClip => _ = serializer_ctx.deserialize_default::<AssetHandle<AudioClip>>("", &serialized_value),
                     // todo: font
@@ -446,7 +476,8 @@ pub fn load_all_assets(mut res: ResourcesHolderMut, assets_dir_path: impl AsRef<
                 };
             });
         },
-    ).unwrap();
+    )
+    .unwrap();
 }
 
 fn traverse_files_in_dir_deep(dir_path: impl AsRef<Path>, f: &mut impl FnMut(PathBuf)) {
