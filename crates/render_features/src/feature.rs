@@ -9,6 +9,8 @@ use crate::{MaterialBatch, RenderPassCtx, RenderPassEntry, RenderPassWriter};
 pub trait RenderFeature: Send + Sync + 'static {
     type Pass: Send + Sync + 'static;
 
+    // todo: create struct FfiFnOnceVec<I, O> { new(), push<F: FnOnce>(f: FnOnce) -> usize, call(usize, I) -> Option<O>, clear() }
+    // and use it to simplify this api
     fn add_passes(&mut self, world: WorldDataMut, passes: &mut RenderPassWriter<Self::Pass>);
     fn run_pass(&mut self, pass: &Self::Pass, ctx: &mut RenderPassCtx);
 }
@@ -45,6 +47,9 @@ pub(crate) struct RenderSlot {
 struct FeatureSlotState<F: RenderFeature> {
     feature: F,
     passes: FfiVec<F::Pass>,
+    // todo: don't store TypesRegistryCache on RenderFeature behalf. Check how SystemFfi and SystemsHolderBuilderMut handle types cache.
+    // Builder passes the same cache to all the systems registered in the same lib.
+    // The same way the RenderFeature register ctx/builder should pass the types cache to all the RenderFeatures that were registered in the same lib.
     types: Option<TypesRegistryCache>,
 }
 

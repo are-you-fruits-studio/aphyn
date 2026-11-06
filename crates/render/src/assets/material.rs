@@ -312,6 +312,7 @@ impl MaterialData {
         self.0.get(name)
     }
 
+    // todo: use a more convenient/reliable change-detection approach
     pub fn carry_snapshots_from(&mut self, old: &MaterialData) {
         for (name, entry) in self.0.iter_mut() {
             if let Some(old_entry) = old.0.get(name.as_str()) {

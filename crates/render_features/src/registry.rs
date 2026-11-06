@@ -59,7 +59,7 @@ impl RenderRegistry {
             self.collect_passes(world);
 
             let data = world.data_mut();
-            let world_ffi = unsafe { data.ffi() };
+            let world_ffi = data.ffi();
 
             for i in 0..self.entries.len() {
                 let entry = self.entries[i];
@@ -85,7 +85,7 @@ impl RenderRegistry {
         self.materials.gather(data.as_ref(), &self.names, &self.slots);
         self.materials.write_instances(data.as_mut());
 
-        let world_ffi = unsafe { data.ffi() };
+        let world_ffi = data.ffi();
         let mut cursor = 0;
 
         for templates in [true, false] {

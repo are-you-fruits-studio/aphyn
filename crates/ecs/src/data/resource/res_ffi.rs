@@ -4,7 +4,7 @@ use crate::*;
 
 #[repr(C)]
 pub struct ResourcesHolderUnsafeFfi {
-    pub(crate) types: TypesRegistryAccessFfi,
+    types: TypesRegistryAccessFfi,
     resources: FfiIndexMap<u64, FfiAny>,
 }
 impl ResourcesHolderUnsafeFfi {

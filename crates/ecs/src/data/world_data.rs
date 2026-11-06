@@ -10,6 +10,7 @@ pub struct WorldDataUnsafeFfi {
     pub res: ResourcesHolderUnsafeFfi,
     pub evt: EventsHolderUnsafeFfi,
     pub ent: EntitiesHolderUnsafeFfi,
+    types: TypesRegistryAccessFfi,
 }
 
 impl WorldDataUnsafeFfi {
@@ -17,12 +18,13 @@ impl WorldDataUnsafeFfi {
         Self {
             res: ResourcesHolderUnsafeFfi::new(types.clone()),
             evt: EventsHolderUnsafeFfi::new(types.clone()),
-            ent: EntitiesHolderUnsafeFfi::new(types),
+            ent: EntitiesHolderUnsafeFfi::new(types.clone()),
+            types,
         }
     }
 
     pub fn types(&self) -> &TypesRegistryAccessFfi {
-        &self.res.types
+        &self.types
     }
 }
 
@@ -128,7 +130,7 @@ impl<'w> WorldDataMut<'w> {
         unsafe { EventsHolderMut::new(&raw mut (*self.world).evt, self.types) }
     }
 
-    pub unsafe fn ffi(&self) -> *mut WorldDataUnsafeFfi {
+    pub fn ffi(&self) -> *mut WorldDataUnsafeFfi {
         self.world
     }
 
