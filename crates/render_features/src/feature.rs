@@ -2,9 +2,9 @@ use std::ffi::c_void;
 
 use aphyn_ecs::{TypesRegistryAccessFfi, TypesRegistryCache, WorldDataMut, WorldDataUnsafeFfi};
 use aphyn_ffi::{FfiDroppable, FfiVec};
-use aphyn_render::RenderApiResource;
+use aphyn_render::{MaterialData, RenderApiResource};
 
-use crate::{RenderPassCtx, RenderPassEntry, RenderPassWriter};
+use crate::{MaterialBatch, RenderPassCtx, RenderPassEntry, RenderPassWriter};
 
 pub trait RenderFeature: Send + Sync + 'static {
     type Pass: Send + Sync + 'static;
@@ -14,28 +14,32 @@ pub trait RenderFeature: Send + Sync + 'static {
 }
 
 #[repr(C)]
-struct RenderSlotVtable {
-    add_passes: unsafe extern "C-unwind" fn(
+pub(crate) struct RenderSlotVtable {
+    pub(crate) add_passes: unsafe extern "C-unwind" fn(
         this: *mut c_void,
         slot: u32,
         world: *mut WorldDataUnsafeFfi,
         types: *const TypesRegistryAccessFfi,
         entries: *mut FfiVec<RenderPassEntry>,
+        batches: *const MaterialBatch,
+        batches_len: u64,
     ),
-    run_pass: unsafe extern "C-unwind" fn(
+    pub(crate) run_pass: unsafe extern "C-unwind" fn(
         this: *mut c_void,
         index: u32,
         world: *mut WorldDataUnsafeFfi,
         types: *const TypesRegistryAccessFfi,
         render_api: *const RenderApiResource,
     ),
-    clear_passes: unsafe extern "C-unwind" fn(this: *mut c_void),
+    pub(crate) clear_passes: unsafe extern "C-unwind" fn(this: *mut c_void),
+    // Set only for material templates.
+    pub(crate) default_data: Option<unsafe extern "C-unwind" fn(this: *mut c_void, out: *mut MaterialData)>,
 }
 
 #[repr(C)]
 pub(crate) struct RenderSlot {
-    data: FfiDroppable,
-    vtable: &'static RenderSlotVtable,
+    pub(crate) data: FfiDroppable,
+    pub(crate) vtable: &'static RenderSlotVtable,
 }
 
 struct FeatureSlotState<F: RenderFeature> {
@@ -44,7 +48,7 @@ struct FeatureSlotState<F: RenderFeature> {
     types: Option<TypesRegistryCache>,
 }
 
-unsafe fn slot_world<'a>(
+pub(crate) unsafe fn slot_world<'a>(
     cache: &'a mut Option<TypesRegistryCache>,
     world: *mut WorldDataUnsafeFfi,
     types: *const TypesRegistryAccessFfi,
@@ -64,6 +68,8 @@ impl RenderSlot {
             world: *mut WorldDataUnsafeFfi,
             types: *const TypesRegistryAccessFfi,
             entries: *mut FfiVec<RenderPassEntry>,
+            _batches: *const MaterialBatch,
+            _batches_len: u64,
         ) {
             unsafe {
                 let FeatureSlotState {
@@ -114,6 +120,7 @@ impl RenderSlot {
                 add_passes: ffi_add_passes::<F>,
                 run_pass: ffi_run_pass::<F>,
                 clear_passes: ffi_clear_passes::<F>,
+                default_data: None,
             },
         }
     }
@@ -124,8 +131,30 @@ impl RenderSlot {
         world: *mut WorldDataUnsafeFfi,
         types: *const TypesRegistryAccessFfi,
         entries: &mut FfiVec<RenderPassEntry>,
+        batches: &[MaterialBatch],
     ) {
-        unsafe { (self.vtable.add_passes)(self.data.get(), slot, world, types, entries) }
+        unsafe {
+            (self.vtable.add_passes)(
+                self.data.get(),
+                slot,
+                world,
+                types,
+                entries,
+                batches.as_ptr(),
+                batches.len() as u64,
+            )
+        }
+    }
+
+    pub(crate) fn is_template(&self) -> bool {
+        self.vtable.default_data.is_some()
+    }
+
+    pub(crate) fn default_data(&self) -> Option<MaterialData> {
+        let default_data = self.vtable.default_data?;
+        let mut data = MaterialData::new();
+        unsafe { default_data(self.data.get(), &mut data) };
+        Some(data)
     }
 
     pub(crate) unsafe fn run_pass(

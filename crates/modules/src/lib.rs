@@ -62,7 +62,8 @@
 //! #### Default module set and ordering
 //!
 //! [`add_defult_modules_to`] is the assembly point. It registers the collision,
-//! transform, UI, render, audio, and asset subsystems through their own `add_*_module_to`
+//! transform, UI, render (legacy `aphyn_render_ecs` and `aphyn_render_features`), audio, and asset
+//! subsystems through their own `add_*_module_to`
 //! helpers, inserts a [`SerializersResource`] filled by [`register_common_transserializers`],
 //! then constrains the [`Update`](aphyn_ecs::Schedule::Update) schedule so the
 //! [`SYSTEM_GROUP_COLLISION`](aphyn_collision::SYSTEM_GROUP_COLLISION) group runs before
@@ -78,7 +79,7 @@
 //! this crate is the one that depends on every subsystem whose types it registers.
 //! [`register_common_transserializers`] registers a [`StandardSerializer`] for exactly the
 //! types the engine needs: every engine component (transform, render, UI, audio, collision,
-//! [`DebugNameComponent`]), the texture/mesh/material/audio asset metadata types the asset
+//! [`DebugNameComponent`]), the texture/mesh/material/audio asset metadata types and the `Material` asset the asset
 //! loaders read, and, recursively, the type of every field they contain, generic instantiations
 //! included (`Vec2<FfiOption<UiVal>>`, `[[f32; 3]; 3]` behind `Mat3<f32>`, `f64` behind
 //! `Quat<f32>`, ...). The list is maintained by hand: adding a component or a field type means
@@ -102,19 +103,26 @@
 //! only printed, not exposed to other systems.
 
 use aphyn_audio::{AudioClipAssetMetadata, AudioSource};
-use aphyn_collision::{CollisionAabb, CollisionBox, CollisionLine, CollisionShape, CollisionSphere, ColliderComponent, LineBoundType};
+use aphyn_collision::{
+    ColliderComponent, CollisionAabb, CollisionBox, CollisionLine, CollisionShape, CollisionSphere, LineBoundType,
+};
 use aphyn_ecs::{Component, Schedule, WorldBuilderMut};
 use aphyn_ffi::{FfiOption, FfiSmallString, FfiString, FfiVec};
 use aphyn_math::{Mat, Mat3, Quat, Vec2, Vec3, Vec4};
-use aphyn_render_ecs::{BatchedMeshComponent, CameraComponent, StandardLightComponent, StandardMaterialComponent, StandardMeshComponent, StandardRenderComponent};
 use aphyn_render::{
-    Camera, CameraProjection, CoordinateSpaceType, RenderSpace, StandardEngineShader, StandardMaterialAssetMetadata, StandardMaterialShader, StandardMeshAssetMetadata, StandardTextureAssetMetadata,
-    StandardTextureFormat, StandardVertex,
+    Camera, CameraProjection, CoordinateSpaceType, Material, MaterialData, MaterialDataEntry, MaterialDataValue, RenderSpace,
+    StandardEngineShader, StandardMaterialAssetMetadata, StandardMaterialShader, StandardMeshAssetMetadata,
+    StandardTextureAssetMetadata, StandardTextureFormat, StandardVertex,
 };
+use aphyn_render_ecs::{
+    BatchedMeshComponent, CameraComponent, StandardLightComponent, StandardMaterialComponent, StandardMeshComponent,
+    StandardRenderComponent,
+};
+use aphyn_render_features::{MaterialComponent, MeshComponent};
 use aphyn_serialization::*;
 use aphyn_transform::{
-    ChildComponent, GlobalDisableableComponent, GlobalRectComponent, GlobalTransform, LocalDisableableComponent, LocalRectComponent, LocalTransform,
-    ParentComponent, RectChildAlignComponent, UiDirection, UiSpacing, UiUnit, UiVal,
+    ChildComponent, GlobalDisableableComponent, GlobalRectComponent, GlobalTransform, LocalDisableableComponent, LocalRectComponent,
+    LocalTransform, ParentComponent, RectChildAlignComponent, UiDirection, UiSpacing, UiUnit, UiVal,
 };
 use aphyn_ui::{ChildrenRectMaskComponent, HorizontalAlign, ImageComponent, ImageFillSettings, TextComponent, VerticalAlign};
 
@@ -125,6 +133,7 @@ pub fn add_defult_modules_to(mut world: WorldBuilderMut) {
     aphyn_transform::add_transform_module_to(world.as_mut());
     aphyn_ui::add_ui_module_to(world.as_mut());
     aphyn_render_ecs::add_render_module_to(world.as_mut());
+    aphyn_render_features::add_render_features_module_to(world.as_mut());
     aphyn_audio::add_audio_module_to(world.as_mut());
     aphyn_asset_loading::add_asset_module_to(world.as_mut());
 
@@ -159,6 +168,8 @@ pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry
     register_transserializer::<StandardMeshComponent>(serializer);
     register_transserializer::<BatchedMeshComponent>(serializer);
     register_transserializer::<StandardMaterialComponent>(serializer);
+    register_transserializer::<MeshComponent>(serializer);
+    register_transserializer::<MaterialComponent>(serializer);
     register_transserializer::<StandardLightComponent>(serializer);
     register_transserializer::<CameraComponent>(serializer);
     register_transserializer::<TextComponent>(serializer);
@@ -172,6 +183,7 @@ pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry
     register_transserializer::<StandardTextureAssetMetadata>(serializer);
     register_transserializer::<StandardMaterialAssetMetadata>(serializer);
     register_transserializer::<AudioClipAssetMetadata>(serializer);
+    register_transserializer::<Material>(serializer);
 
     // field types
     register_transserializer::<bool>(serializer);
@@ -200,6 +212,9 @@ pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry
     register_transserializer::<Vec2<UiVal>>(serializer);
     register_transserializer::<FfiOption<UiVal>>(serializer);
     register_transserializer::<Vec2<FfiOption<UiVal>>>(serializer);
+    register_transserializer::<MaterialData>(serializer);
+    register_transserializer::<MaterialDataEntry>(serializer);
+    register_transserializer::<MaterialDataValue>(serializer);
     register_transserializer::<StandardVertex>(serializer);
     register_transserializer::<FfiVec<StandardVertex>>(serializer);
     register_transserializer::<Camera>(serializer);
@@ -220,11 +235,17 @@ pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry
     register_transserializer::<LineBoundType>(serializer);
 }
 
-pub fn register_transserializer<T: 'static + Default + for<'a> Serializable<TransSerializerCtxState<'a>>>(serializer: &mut TransSerializerRegistry) {
+pub fn register_transserializer<T: 'static + Default + for<'a> Serializable<TransSerializerCtxState<'a>>>(
+    serializer: &mut TransSerializerRegistry,
+) {
     serializer.register(StandardSerializer::<T>::default());
 }
 
-pub fn register_self_and_related_common_transserializers<T: 'static + Default + for<'a> Serializable<TransSerializerCtxState<'a>>>(serializer: &mut TransSerializerRegistry) {
+pub fn register_self_and_related_common_transserializers<
+    T: 'static + Default + for<'a> Serializable<TransSerializerCtxState<'a>>,
+>(
+    serializer: &mut TransSerializerRegistry,
+) {
     serializer.register(StandardSerializer::<T>::default());
     register_related_common_transserializers::<T>(serializer)
 }

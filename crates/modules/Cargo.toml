@@ -13,6 +13,7 @@ aphyn_ecs = { path = "../ecs" }
 aphyn_render_ecs = { path = "../render_ecs" }
 aphyn_audio = { path = "../audio" }
 aphyn_render = { path = "../render" }
+aphyn_render_features = { path = "../render_features" }
 aphyn_ui = { path = "../ui" }
 aphyn_transform = { path = "../transform" }
 aphyn_collision = { path = "../collision" }

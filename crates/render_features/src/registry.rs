@@ -1,8 +1,8 @@
 use aphyn_ecs::{Schedule, World};
 use aphyn_ffi::{FfiIndexMap, FfiString, FfiVec};
-use aphyn_render::{CurrentRenderingResource, RenderApiResource};
+use aphyn_render::{CurrentRenderingResource, Material, MaterialData, RenderApiResource};
 
-use crate::{RenderFeature, RenderPassEntry, RenderSlot};
+use crate::{MaterialStep, MaterialTemplate, RenderFeature, RenderPassEntry, RenderSlot};
 
 #[repr(C)]
 #[derive(Default)]
@@ -10,20 +10,37 @@ pub struct RenderRegistry {
     names: FfiIndexMap<FfiString, u32>,
     slots: FfiVec<RenderSlot>,
     entries: FfiVec<RenderPassEntry>,
+    materials: MaterialStep,
 }
 
 impl RenderRegistry {
     pub fn add_feature<F: RenderFeature>(&mut self, name: &str, feature: F) -> bool {
-        if self.names.contains_key(name) {
-            return false;
-        }
+        !self.names.contains_key(name) && self.add_slot(name, RenderSlot::from_feature(feature))
+    }
 
-        let slot = u32::try_from(self.slots.len()).expect("too many render slots");
+    pub fn add_material_template<T: MaterialTemplate>(&mut self, name: &str, template: T) -> bool {
+        !self.names.contains_key(name) && self.add_slot(name, RenderSlot::from_template(template))
+    }
 
-        self.slots.push(RenderSlot::from_feature(feature));
-        self.names.insert(name.into(), slot);
+    fn add_slot(&mut self, name: &str, slot: RenderSlot) -> bool {
+        let index = u32::try_from(self.slots.len()).expect("too many render slots");
+
+        self.slots.push(slot);
+        self.names.insert(name.into(), index);
 
         true
+    }
+
+    pub fn create_material(&self, template: &str) -> Option<Material> {
+        Some(Material {
+            template: template.into(),
+            data: self.template_default_data(template)?,
+        })
+    }
+
+    pub fn template_default_data(&self, template: &str) -> Option<MaterialData> {
+        let slot = *self.names.get(template)?;
+        self.slots[slot as u64].default_data()
     }
 
     pub fn render_view(&mut self, world: &mut World, view: CurrentRenderingResource) {
@@ -60,21 +77,47 @@ impl RenderRegistry {
 
     pub(crate) fn collect_passes(&mut self, world: &mut World) {
         self.entries.clear();
-
-        let data = world.data_mut();
-        let world_ffi = unsafe { data.ffi() };
-
         for i in 0..self.slots.len() {
-            let slot = &mut self.slots[i];
-            slot.clear_passes();
+            self.slots[i].clear_passes();
+        }
 
-            unsafe {
-                let types = (*world_ffi).types();
-                slot.add_passes(i as u32, world_ffi, types, &mut self.entries);
+        let mut data = world.data_mut();
+        self.materials.gather(data.as_ref(), &self.names, &self.slots);
+        self.materials.write_instances(data.as_mut());
+
+        let world_ffi = unsafe { data.ffi() };
+        let mut cursor = 0;
+
+        for templates in [true, false] {
+            for i in 0..self.slots.len() {
+                let slot = &mut self.slots[i];
+                if slot.is_template() != templates {
+                    continue;
+                }
+
+                let batches = match templates {
+                    true => self.materials.next_template_batches(i as u32, &mut cursor),
+                    false => &[],
+                };
+
+                unsafe {
+                    let types = (*world_ffi).types();
+                    slot.add_passes(i as u32, world_ffi, types, &mut self.entries, batches);
+                }
             }
         }
 
         self.entries.sort_unstable_by_key(|entry| entry.order);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn gathered(&self) -> &aphyn_ffi::FfiVec<crate::GatheredInstance> {
+        self.materials.gathered()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn logged_materials(&self) -> &aphyn_ffi::FfiIndexSet<aphyn_asset_storage::AssetHandle<Material>> {
+        self.materials.logged()
     }
 
     #[cfg(test)]
