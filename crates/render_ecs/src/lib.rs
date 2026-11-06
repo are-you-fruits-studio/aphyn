@@ -152,8 +152,11 @@
 //! group in `Update` lets other modules and games keep ordering their systems
 //! `before_group(SYSTEM_GROUP_RENDER)`.
 //!
-//! Everything else runs in [`Schedule::RenderCamera`], which `aphyn_app` executes after `Update`
-//! with a [`CurrentRenderingResource`](aphyn_render::CurrentRenderingResource) present. The
+//! Everything else runs in [`Schedule::RenderCamera`], which `RenderRegistry::render_view`
+//! (`aphyn_render_features`) executes for each rendered view, before the registered material
+//! templates and render features, with a
+//! [`CurrentRenderingResource`](aphyn_render::CurrentRenderingResource) present. `aphyn_app`
+//! calls `render_view` once per frame after `Update`, and the editor for its scene window. The
 //! explicit order is: recreate any intermediate target that no longer matches the current render
 //! target (depth, transparent, exposure, bloom, color grading), clear the depth and transparent
 //! targets, update the camera matrix, upload the lights, update the global

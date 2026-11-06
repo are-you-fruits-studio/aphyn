@@ -34,18 +34,9 @@ pub struct StandardMaterialComponent {
 #[repr(C)]
 #[derive(Component, Clone, Copy, Serializable)]
 pub enum StandardLightComponent {
-    Point {
-        color: Vec3<f32>,
-        range: f32,
-    },
-    Spot {
-        color: Vec3<f32>,
-        range: f32,
-        fov: f32,
-    },
-    Directional {
-        color: Vec3<f32>,
-    },
+    Point { color: Vec3<f32>, range: f32 },
+    Spot { color: Vec3<f32>, range: f32, fov: f32 },
+    Directional { color: Vec3<f32> },
 }
 impl Default for StandardLightComponent {
     fn default() -> Self {

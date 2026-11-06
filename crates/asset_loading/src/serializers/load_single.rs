@@ -91,15 +91,7 @@ pub fn load_asset_single<R>(
             .load_from_deserialized(ctx.deserialize_default("", value), assets_dir_path)
         },
     });
-    serializer_local.register(SingleDirectLoadTransSerializer {
-        assets: materials,
-        assets_dir_path,
-        asset_key,
-        loader: |mut ctx, value, _assets_dir_path| {
-            // todo: use real path?
-            MaterialLoader.load_from_deserialized(ctx.deserialize_default("", value))
-        },
-    });
+    serializer_local.register(material_direct_load_serializer(materials, assets_dir_path, asset_key));
     serializer_local.register(SingleDirectLoadTransSerializer {
         assets: meshes,
         assets_dir_path,
@@ -139,6 +131,32 @@ pub fn load_asset_single<R>(
     });
 
     f(serializer_local, serializers)
+}
+
+pub(crate) fn material_direct_load_serializer<'m, 'brw: 'm>(
+    materials: &'m Mutex<&'brw mut AssetStorageResource<Material>>,
+    assets_dir_path: &'m Path,
+    asset_key: &'m str,
+) -> SingleDirectLoadTransSerializer<
+    'm,
+    'brw,
+    Material,
+    impl 'm + Send + Sync + Fn(SerializerCtx<TransSerializerCtxState>, &SerializedValue, &Path) -> Option<Material>,
+> {
+    SingleDirectLoadTransSerializer {
+        assets: materials,
+        assets_dir_path,
+        asset_key,
+        loader: |mut ctx, value, _assets_dir_path| {
+            // todo: use real path?
+            let mut material = MaterialLoader.load_from_deserialized(ctx.deserialize_default("", value))?;
+            let materials = materials.lock().unwrap();
+            if let Some(old) = materials.get_registered(asset_key).and_then(|handle| materials.get(handle)) {
+                material.data.carry_snapshots_from(&old.data);
+            }
+            Some(material)
+        },
+    }
 }
 
 pub struct SingleLoadTransSerializer<'m, 'brw: 'm, T: 'static> {

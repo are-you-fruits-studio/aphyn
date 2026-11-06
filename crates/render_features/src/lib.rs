@@ -105,10 +105,10 @@
 //! An entity is drawn when it has a [`MeshComponent`], a [`MaterialComponent`] and a
 //! `GlobalTransform`. The material is an [`aphyn_render::Material`] in
 //! `AssetStorageResource<Material>` (inserted by [`add_render_features_module_to`], which
-//! `add_defult_modules_to` calls): a template name plus a [`MaterialData`](aphyn_render::MaterialData)
-//! map of named values. Create one from a registered template with
-//! [`create_material`](RenderRegistry::create_material), which fills the data with the template's
-//! defaults. [`template_default_data`](RenderRegistry::template_default_data) returns those
+//! `add_defult_modules_to` calls): a template name plus a
+//! [`MaterialData`](aphyn_render::MaterialData) map of named values. Create one from a
+//! registered template with [`create_material`](RenderRegistry::create_material), which fills
+//! the data with the template's defaults. [`template_default_data`](RenderRegistry::template_default_data) returns those
 //! defaults alone (the editor uses it to show a template's fields). Both return `None` for a name
 //! that is unknown or belongs to a feature.
 //!
@@ -198,7 +198,9 @@
 //! A template owns the GPU data of the materials it draws (uniform buffers, bind groups), cached
 //! per material handle. Every mutable access to a `MaterialData` entry bumps its
 //! [`snapshot`](aphyn_render::MaterialDataEntry::snapshot), so the template remembers the last
-//! snapshot it uploaded per entry and rewrites only entries whose snapshot changed.
+//! snapshot it uploaded per entry and rewrites only entries whose snapshot changed. Reloading a
+//! material asset under its key (an inspector edit) replaces the stored `Material` but carries
+//! the snapshots forward, so the same check picks the change up.
 //!
 //! # How to maintain
 //!
@@ -208,10 +210,10 @@
 //! [`Schedule::RenderCamera`](aphyn_ecs::Schedule) (`// todo: remove after migration`, so the old
 //! hardcoded rendering keeps working), then `collect_passes`. That step clears the list, runs the
 //! material step (below), calls every feature slot's `add_passes` in registration order and
-//! unstable-sorts the list by order. Next,
-//! run every entry through its slot, then remove the resource. The render API comes from the
-//! world's `RenderApiResource`, cloned once per call (shallow handle clones, though `RenderApi`'s
-//! FFI clone boxes its `Arc`) so that the pass context can hold it next to a mutable world. Without that resource nothing is collected or
+//! unstable-sorts the list by order. Next, run every entry through its slot, then remove the
+//! resource. The render API comes from the world's `RenderApiResource`, cloned once per call
+//! (shallow handle clones, though `RenderApi`'s FFI clone boxes its `Arc`) so that the pass
+//! context can hold it next to a mutable world. Without that resource nothing is collected or
 //! run, but the legacy schedule still ran and the resource is still removed.
 //!
 //! #### Material step
@@ -272,7 +274,9 @@
 //! collections. The material step's gathered vec, batch vec and logged set are reused the same
 //! way. **Known exception:** the material step's ECS query allocates every frame (it builds its
 //! archetype list on each call). This is accepted for phase 1 and stays until the ECS has a
-//! reusable, allocation-free query (`// todo` at the query in `material.rs`).
+//! reusable, allocation-free query (`// todo` at the query in `material.rs`). Likewise
+//! `render_view` clones `RenderApiResource` once per call, which is one boxed `Arc` allocation
+//! per rendered view (see `render_view` steps).
 //!
 //! #### Dynamic library drop order
 //!

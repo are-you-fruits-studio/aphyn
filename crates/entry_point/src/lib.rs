@@ -41,11 +41,11 @@
 //! The generated function only calls `AppInitCtxFfi::init_app` (in `aphyn_app`)
 //! with the caller's setup function. That method dereferences the four raw pointers
 //! (`world_mut`, `types_ref`, `window_mut`, `render_mut`) back into references, wraps the type
-//! registry in a `TypesRegistryCache`, rebuilds a safe `AppInitCtx` (a `WorldBuilderMut`
-//! plus `&mut WindowState`), and invokes the setup function with it inside an inner
-//! scope, so the borrows end before the function returns. `AppInitCtxFfi` is resolved
-//! through `::aphyn` in the expanded code, so a game crate must depend on
-//! `aphyn` for the macro output to compile.
+//! registry in a `TypesRegistryCache`, rebuilds a safe `AppInitCtx` (a `WorldBuilderMut`,
+//! `&mut WindowState` and the `&mut RenderRegistry` of the launcher's app), and invokes the
+//! setup function with it inside an inner scope, so the borrows end before the function returns.
+//! `AppInitCtxFfi` is resolved through `::aphyn` in the expanded code, so a game crate must
+//! depend on `aphyn` for the macro output to compile.
 //!
 //! Caveats for maintainers: the macro performs no validation — it pastes the
 //! argument string directly into a call expression, so a malformed argument

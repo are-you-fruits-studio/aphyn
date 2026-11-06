@@ -488,13 +488,18 @@
 //! `MaterialData` is `#[repr(transparent)]` over `FfiIndexMap<FfiString, MaterialDataEntry>`, the entry
 //! is `#[repr(C)]` and the value `#[repr(C, u8)]`, so all of them cross the dylib boundary. The entry
 //! snapshot starts at `1` and is advanced by `next_snapshot` (wrapping, never `0`) on every mutable
-//! access and on every deserialization into the entry, which is what makes inspector edits visible to
-//! consumers. Entries that deserialization creates are reset to snapshot `1` by `MaterialData`, so only
-//! entries that already existed are bumped. The snapshot is never serialized: `MaterialDataEntry` serializes as
-//! its value only, and `MaterialData` delegates to the inner `FfiIndexMap`. Serialization is generic
-//! over the context state, so texture handles go through the same handle serializers as
-//! `StandardMaterialAssetMetadata`. `MaterialDataValue::default()` is `F32(0.0)` only because the
-//! derive and the map need a `Default`; a deserialized value replaces it with the stored variant.
+//! access and on every deserialization into an existing entry. Entries that deserialization creates
+//! are reset to snapshot `1` by `MaterialData`, so only entries that already existed are bumped.
+//! Inspector edits and reloads do not deserialize in place: `aphyn_asset_loading` loads a fresh
+//! `Material` (all entries at `1`) and replaces the stored one under the same handle, first calling
+//! [`carry_snapshots_from`](MaterialData::carry_snapshots_from) with the old data so every name that
+//! existed before continues from `next_snapshot(old)`. That is what makes the edit visible to a
+//! template caching per handle by snapshot. The snapshot is never serialized: `MaterialDataEntry`
+//! serializes as its value only, and `MaterialData` delegates to the inner `FfiIndexMap`.
+//! Serialization is generic over the context state, so texture handles go through the same
+//! handle serializers as `StandardMaterialAssetMetadata`. `MaterialDataValue::default()` is
+//! `F32(0.0)` only because the derive and the map need a `Default`; a deserialized value replaces
+//! it with the stored variant.
 //!
 //! #### Helpers and unfinished parts
 //!

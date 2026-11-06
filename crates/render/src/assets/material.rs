@@ -312,6 +312,14 @@ impl MaterialData {
         self.0.get(name)
     }
 
+    pub fn carry_snapshots_from(&mut self, old: &MaterialData) {
+        for (name, entry) in self.0.iter_mut() {
+            if let Some(old_entry) = old.0.get(name.as_str()) {
+                entry.snapshot = next_snapshot(old_entry.snapshot);
+            }
+        }
+    }
+
     material_data_get_impl!(F32, f32, get_f32, get_f32_mut, get_f32_or, 0.0);
     material_data_get_impl!(Vec4, Vec4<f32>, get_vec4, get_vec4_mut, get_vec4_or, Vec4::splat(0.0));
     material_data_get_impl!(
@@ -552,6 +560,22 @@ mod tests {
 
         assert_eq!(restored.entry("speed").unwrap().snapshot(), 1);
         assert_eq!(restored.entry("color").unwrap().snapshot(), 1);
+    }
+
+    #[test]
+    fn carry_snapshots_from_bumps_existing_keys_only() {
+        let mut old = sample_data();
+        *old.get_f32_mut("speed").unwrap() = 0.4;
+        *old.get_f32_mut("speed").unwrap() = 0.5;
+
+        let mut replacement = sample_data();
+        replacement.insert("glow", MaterialDataValue::F32(1.0));
+        replacement.carry_snapshots_from(&old);
+
+        assert_eq!(replacement.entry("speed").unwrap().snapshot(), 4);
+        assert_eq!(replacement.entry("color").unwrap().snapshot(), 2);
+        assert_eq!(replacement.entry("glow").unwrap().snapshot(), 1);
+        assert_eq!(replacement.get_f32("speed"), Some(&0.3));
     }
 
     #[test]

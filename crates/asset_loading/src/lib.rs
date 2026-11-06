@@ -163,6 +163,16 @@
 //! ([`SingleDirectLoadTransSerializer`]) while resolving other handles only from what is already
 //! registered ([`SingleLoadTransSerializer`]). Each of these has a `*_from_world` variant that
 //! fetches the resources out of [`aphyn_ecs::ResourcesHolderMut`] through raw pointers.
+//! The loading variants need `AssetStorageResource<Material>` in the world, which this module
+//! does not insert: `aphyn_render_features::add_render_features_module_to` does (called by
+//! `add_defult_modules_to`). Without it `load_asset_transitively_from_world` and
+//! `load_asset_single_from_world` return `None`, so startup loading loads nothing.
+//!
+//! When [`load_asset_single`] loads a key that is already registered, the new asset replaces the
+//! stored one under the same handle (the editor inspector applies edits this way). For a
+//! `Material` the loader first calls `MaterialData::carry_snapshots_from` with the stored data,
+//! so entries that existed keep advancing their snapshot and templates caching per handle by
+//! snapshot re-upload the edited values.
 //!
 //! #### Loaders
 //!

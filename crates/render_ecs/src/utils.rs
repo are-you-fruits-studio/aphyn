@@ -26,7 +26,10 @@ pub fn create_window_to_clip_matrix(width: f32, height: f32, near: f32, far: f32
     ])
 }
 
-pub(crate) fn custom_shader<'a>(material: &StandardMaterial, shaders: &'a AssetStorageResource<StandardShader>) -> Option<&'a StandardShader> {
+pub(crate) fn custom_shader<'a>(
+    material: &StandardMaterial,
+    shaders: &'a AssetStorageResource<StandardShader>,
+) -> Option<&'a StandardShader> {
     match &material.meta().shader {
         StandardMaterialShader::Engine(_) => None,
         StandardMaterialShader::Custom(shader) => shaders.get(shader),
