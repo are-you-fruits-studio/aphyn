@@ -43,7 +43,9 @@ impl<'d, A: ArchetypeIteratorItem, F: QueryFilter> EntitiesHolderQuery<'d, A, F>
                 entities,
                 types,
                 type_cache: <<A as ArchetypeIteratorItem>::Item<'static> as ArchetypeIteratorItem>::TypeCache::new(types),
-                type_cache_readonly: <<A as ArchetypeIteratorItem>::ReadOnlyItem<'static> as ArchetypeIteratorItem>::TypeCache::new(types),
+                type_cache_readonly: <<A as ArchetypeIteratorItem>::ReadOnlyItem<'static> as ArchetypeIteratorItem>::TypeCache::new(
+                    types,
+                ),
                 type_cache_filter,
                 _phantom: Default::default(),
             };
@@ -63,7 +65,8 @@ impl<'d, A: ArchetypeIteratorItem, F: QueryFilter> EntitiesHolderQuery<'d, A, F>
                     types,
                     archetype_indices: Vec::new(),
                     type_cache: <<A as ArchetypeIteratorItem>::Item<'static> as ArchetypeIteratorItem>::TypeCache::new(types),
-                    type_cache_readonly: <<A as ArchetypeIteratorItem>::ReadOnlyItem<'static> as ArchetypeIteratorItem>::TypeCache::new(types),
+                    type_cache_readonly:
+                        <<A as ArchetypeIteratorItem>::ReadOnlyItem<'static> as ArchetypeIteratorItem>::TypeCache::new(types),
                     type_cache_filter,
                     _phantom: Default::default(),
                 };
@@ -90,7 +93,9 @@ impl<'d, A: ArchetypeIteratorItem, F: QueryFilter> EntitiesHolderQuery<'d, A, F>
                 entities,
                 types,
                 type_cache: <<A as ArchetypeIteratorItem>::Item<'static> as ArchetypeIteratorItem>::TypeCache::new(types),
-                type_cache_readonly: <<A as ArchetypeIteratorItem>::ReadOnlyItem<'static> as ArchetypeIteratorItem>::TypeCache::new(types),
+                type_cache_readonly: <<A as ArchetypeIteratorItem>::ReadOnlyItem<'static> as ArchetypeIteratorItem>::TypeCache::new(
+                    types,
+                ),
                 type_cache_filter,
                 _phantom: Default::default(),
             };
@@ -116,7 +121,9 @@ impl<'d, A: ArchetypeIteratorItem, F: QueryFilter> EntitiesHolderQuery<'d, A, F>
             types,
             archetype_indices: suitable_archetypes,
             type_cache: <<A as ArchetypeIteratorItem>::Item<'static> as ArchetypeIteratorItem>::TypeCache::new(types),
-            type_cache_readonly: <<A as ArchetypeIteratorItem>::ReadOnlyItem<'static> as ArchetypeIteratorItem>::TypeCache::new(types),
+            type_cache_readonly: <<A as ArchetypeIteratorItem>::ReadOnlyItem<'static> as ArchetypeIteratorItem>::TypeCache::new(
+                types,
+            ),
             type_cache_filter,
             _phantom: Default::default(),
         }
@@ -170,8 +177,10 @@ impl<'d, A: ArchetypeIteratorItem, F: QueryFilter> EntitiesHolderQuery<'d, A, F>
                 chunk_entity_idx: archetype.layout().entity_in_chunk_index(location.entity_archetype_index),
             };
 
-            let mut iter_state =
-                <A::ReadOnlyItem<'static> as ArchetypeIteratorItem>::prepare_iter_state(archetype.layout(), self.type_cache_readonly);
+            let mut iter_state = <A::ReadOnlyItem<'static> as ArchetypeIteratorItem>::prepare_iter_state(
+                archetype.layout(),
+                self.type_cache_readonly,
+            );
             let item = <A::ReadOnlyItem<'static> as ArchetypeIteratorItem>::next(&iter_item, &mut iter_state);
 
             Some(item)
@@ -204,7 +213,8 @@ impl<'d, A: ArchetypeIteratorItem, F: QueryFilter> EntitiesHolderQuery<'d, A, F>
                 chunk_entity_idx: archetype.layout().entity_in_chunk_index(location.entity_archetype_index),
             };
 
-            let mut iter_state = <A::Item<'static> as ArchetypeIteratorItem>::prepare_iter_state(archetype.layout(), self.type_cache);
+            let mut iter_state =
+                <A::Item<'static> as ArchetypeIteratorItem>::prepare_iter_state(archetype.layout(), self.type_cache);
             let item = <A::Item<'static> as ArchetypeIteratorItem>::next(&iter_item, &mut iter_state);
 
             Some(item)
@@ -247,7 +257,10 @@ pub struct QueryIter<'a, A: ArchetypeIteratorItem> {
 }
 
 impl<'a, A: ArchetypeIteratorItem> QueryIter<'a, A> {
-    fn new(iter: ArchetypesIter<'a>, type_cache: <<A as ArchetypeIteratorItem>::ReadOnlyItem<'static> as ArchetypeIteratorItem>::TypeCache) -> Self {
+    fn new(
+        iter: ArchetypesIter<'a>,
+        type_cache: <<A as ArchetypeIteratorItem>::ReadOnlyItem<'static> as ArchetypeIteratorItem>::TypeCache,
+    ) -> Self {
         Self {
             iter,
             iter2: None,
@@ -281,7 +294,10 @@ pub struct QueryIterMut<'a, A: ArchetypeIteratorItem> {
 }
 
 impl<'a, A: ArchetypeIteratorItem> QueryIterMut<'a, A> {
-    fn new(iter: ArchetypesIter<'a>, type_cache: <<A as ArchetypeIteratorItem>::Item<'static> as ArchetypeIteratorItem>::TypeCache) -> Self {
+    fn new(
+        iter: ArchetypesIter<'a>,
+        type_cache: <<A as ArchetypeIteratorItem>::Item<'static> as ArchetypeIteratorItem>::TypeCache,
+    ) -> Self {
         Self {
             iter,
             iter2: None,

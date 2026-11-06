@@ -232,6 +232,12 @@
 //! kept as `FfiAny` values in [`ResourcesHolderUnsafeFfi`], `EventsHolderNative`, archetype
 //! memory) allocates and drops values purely from this type info.
 //!
+//! Code across the boundary that receives only a raw `*mut WorldDataUnsafeFfi` (a render feature
+//! from a game library, see `aphyn_render_features`) reads the world's registry through
+//! [`WorldDataUnsafeFfi::types`], builds its own [`TypesRegistryCache`] from a clone of it, and
+//! pairs both with the unsafe [`WorldDataMut::new`]. A cache is only valid for the registry it was
+//! built from.
+//!
 //! #### Archetype storage
 //!
 //! Entities are grouped into archetypes — one contiguous store per distinct set of component types —

@@ -36,7 +36,9 @@ impl SystemResourcesHolderNative {
 
         // todo
         let mem = unsafe {
-            let Some(layout) = std::alloc::Layout::from_size_align(type_info.short().size() as usize, type_info.short().align() as usize).ok() else {
+            let Some(layout) =
+                std::alloc::Layout::from_size_align(type_info.short().size() as usize, type_info.short().align() as usize).ok()
+            else {
                 panic!("Invalid type layout");
             };
 
@@ -60,9 +62,10 @@ impl Drop for SystemResourcesHolderNative {
             unsafe {
                 type_info.drop(mem as *mut c_void);
 
-                let layout = std::alloc::Layout::from_size_align(type_info.short().size() as usize, type_info.short().align() as usize)
-                    .ok()
-                    .unwrap();
+                let layout =
+                    std::alloc::Layout::from_size_align(type_info.short().size() as usize, type_info.short().align() as usize)
+                        .ok()
+                        .unwrap();
 
                 std::alloc::dealloc(mem, layout)
             }

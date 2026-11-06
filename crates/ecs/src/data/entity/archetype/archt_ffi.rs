@@ -240,7 +240,11 @@ impl ArchetypeUnsafeFfi {
             return false;
         }
 
-        for &ComponentPtr { ptr: component_ptr, id: component_id } in components {
+        for &ComponentPtr {
+            ptr: component_ptr,
+            id: component_id,
+        } in components
+        {
             let item_layout = self.layout.get_component(component_id).unwrap();
             let location = self.layout.memory_physical_location(entity_index, item_layout);
 
@@ -271,7 +275,11 @@ impl ArchetypeUnsafeFfi {
         let new_types_count = components.iter().filter(|c| src.layout.get_component(c.id).is_none()).count();
 
         if dst.layout.components().len() != src.layout.components().len() + new_types_count
-            || !src.layout.components().iter().all(|c| dst.layout.get_component(c.type_info.id).is_some())
+            || !src
+                .layout
+                .components()
+                .iter()
+                .all(|c| dst.layout.get_component(c.type_info.id).is_some())
             || !components.iter().all(|c| dst.layout.get_component(c.id).is_some())
         {
             return None;
@@ -302,18 +310,28 @@ impl ArchetypeUnsafeFfi {
 
         unsafe {
             std::ptr::copy_nonoverlapping(
-                src.archetype.get_memory(&src.layout.entity_memory_physical_location(src_entity_index)),
-                dst.archetype.get_memory(&dst.layout.entity_memory_physical_location(dst_entity_index)),
+                src.archetype
+                    .get_memory(&src.layout.entity_memory_physical_location(src_entity_index)),
+                dst.archetype
+                    .get_memory(&dst.layout.entity_memory_physical_location(dst_entity_index)),
                 src.layout.entity_item_layout().type_info.short().size() as usize,
             );
         }
 
-        for &ComponentPtr { ptr: component_ptr, id: component_id } in components {
+        for &ComponentPtr {
+            ptr: component_ptr,
+            id: component_id,
+        } in components
+        {
             let item_layout = dst.layout.get_component(component_id).unwrap();
             let location = dst.layout.memory_physical_location(dst_entity_index, item_layout);
 
             unsafe {
-                std::ptr::copy_nonoverlapping(component_ptr, dst.archetype.get_memory(&location), item_layout.type_info.short().size() as usize);
+                std::ptr::copy_nonoverlapping(
+                    component_ptr,
+                    dst.archetype.get_memory(&location),
+                    item_layout.type_info.short().size() as usize,
+                );
             }
         }
 

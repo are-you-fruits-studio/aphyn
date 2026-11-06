@@ -54,5 +54,5 @@ impl EventsHolderUnsafeFfi {
     }
 }
 
-unsafe impl Send for EventsHolderUnsafeFfi { }
-unsafe impl Sync for EventsHolderUnsafeFfi { }
+unsafe impl Send for EventsHolderUnsafeFfi {}
+unsafe impl Sync for EventsHolderUnsafeFfi {}

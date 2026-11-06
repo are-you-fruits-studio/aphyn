@@ -47,11 +47,8 @@ pub fn create_ordering_graph(ordered_systems: &[SystemFfi], explicit_ordering: &
     let mut systems_all = HashSet::<usize>::new();
     let mut systems_any_mutable = HashSet::<usize>::new();
 
-    let data_usage_extractors: [fn(&WorldDataUsage) -> &WorldPartDataUsage; _] = [
-        (|u| u.resources()),
-        (|u| u.entities()),
-        (|u| u.events()),
-    ];
+    let data_usage_extractors: [fn(&WorldDataUsage) -> &WorldPartDataUsage; _] =
+        [(|u| u.resources()), (|u| u.entities()), (|u| u.events())];
 
     for data_usage_extractor in data_usage_extractors {
         system_by_data_readonly.clear();
@@ -157,10 +154,13 @@ pub fn sort_systems_by_order(
     for ty in system_names_ordered {
         graph.insert_node(ty);
     }
-    
+
     let graph_vec = match graph.to_vec() {
         Ok(x) => x,
-        Err(err) => panic!("The systems graph contains circular dependencies:\n{}", err.into_iter().collect::<Vec<_>>().join("\n")),
+        Err(err) => panic!(
+            "The systems graph contains circular dependencies:\n{}",
+            err.into_iter().collect::<Vec<_>>().join("\n")
+        ),
     };
 
     graph_vec
@@ -206,7 +206,7 @@ fn get_systems<'a>(
                 single_value_buffer.clear();
                 single_value_buffer
             }
-        },
+        }
         OrderEntryType::System => {
             single_value_buffer.clear();
             single_value_buffer.insert(node.id.clone());
@@ -231,7 +231,10 @@ fn flatten_groups(groups: &HashMap<FfiString, HashSet<OrderEntry>>) -> HashMap<F
 
     let group_hierarchy_vec = match group_hierarchy.to_vec_rev() {
         Ok(x) => x,
-        Err(err) => panic!("The systems graph contains circular dependencies:\n{}", err.into_iter().collect::<Vec<_>>().join("\n")),
+        Err(err) => panic!(
+            "The systems graph contains circular dependencies:\n{}",
+            err.into_iter().collect::<Vec<_>>().join("\n")
+        ),
     };
 
     for group in group_hierarchy_vec {

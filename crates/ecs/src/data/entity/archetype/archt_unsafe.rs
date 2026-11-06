@@ -22,10 +22,7 @@ unsafe impl<C: Component> ArchetypeIteratorItem for &C {
     type TypeCache = RegistrySpecificTypeId<C>;
 
     unsafe fn prepare_iter_state(layout: &ArchetypeLayout, type_cache: Self::TypeCache) -> Self::IterState {
-        layout
-            .get_component(type_cache.id())
-            .map(|i| i.chunk_offset)
-            .unwrap_or(0)
+        layout.get_component(type_cache.id()).map(|i| i.chunk_offset).unwrap_or(0)
     }
 
     unsafe fn next<'w>(item: &ArchetypeUnsafeFfiIteratorItem, iter_state: &mut Self::IterState) -> Self::Item<'w> {
@@ -54,10 +51,7 @@ unsafe impl<C: Component> ArchetypeIteratorItem for &mut C {
     type TypeCache = RegistrySpecificTypeId<C>;
 
     unsafe fn prepare_iter_state(layout: &ArchetypeLayout, type_cache: Self::TypeCache) -> Self::IterState {
-        layout
-            .get_component(type_cache.id())
-            .map(|i| i.chunk_offset)
-            .unwrap_or(0)
+        layout.get_component(type_cache.id()).map(|i| i.chunk_offset).unwrap_or(0)
     }
 
     unsafe fn next<'w>(item: &ArchetypeUnsafeFfiIteratorItem, iter_state: &mut Self::IterState) -> Self::Item<'w> {

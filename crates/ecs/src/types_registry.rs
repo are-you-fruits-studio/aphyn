@@ -1,5 +1,9 @@
 use std::{
-    any::TypeId, collections::HashMap, ffi::c_void, marker::PhantomData, sync::{Arc, RwLock}
+    any::TypeId,
+    collections::HashMap,
+    ffi::c_void,
+    marker::PhantomData,
+    sync::{Arc, RwLock},
 };
 
 use aphyn_ffi::{FfiExtendedTypeInfo, FfiOption, FfiStrSliceRef};
@@ -288,7 +292,7 @@ impl<T: 'static> Copy for RegistrySpecificTypeId<T> {}
 
 //
 
-pub trait TypeCache : 'static + Copy {
+pub trait TypeCache: 'static + Copy {
     fn new(types: &TypesRegistryCache) -> Self;
 }
 
@@ -330,7 +334,6 @@ type_cache_tuple!(C0, C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11);
 type_cache_tuple!(C0, C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12);
 type_cache_tuple!(C0, C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12, C13);
 type_cache_tuple!(C0, C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12, C13, C14);
-
 
 //
 

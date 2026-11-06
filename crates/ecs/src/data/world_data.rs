@@ -20,6 +20,10 @@ impl WorldDataUnsafeFfi {
             ent: EntitiesHolderUnsafeFfi::new(types),
         }
     }
+
+    pub fn types(&self) -> &TypesRegistryAccessFfi {
+        &self.res.types
+    }
 }
 
 //
@@ -162,7 +166,7 @@ impl<'w: 'r, 'r> WorldDataMut<'w> {
     pub fn as_tuple_mut(&'r mut self) -> (ResourcesHolderMut<'r>, EntitiesHolderMut<'r>, EventsHolderMut<'r>) {
         self.as_mut().into_tuple_mut()
     }
-    
+
     pub fn as_mut(&'r mut self) -> WorldDataMut<'r> {
         WorldDataMut {
             world: self.world,
