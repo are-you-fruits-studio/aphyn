@@ -76,7 +76,7 @@
 //! to [`init_app_from_library`], which resolves the `aphyn_entry_point` C symbol (an
 //! `unsafe extern "C-unwind" fn(AppInitCtxFfi)` that the game library exports through the
 //! `aphyn_entry_point!` macro) and calls it with `AppInitCtx::into_ffi`: the world builder,
-//! type registry and window state packed as raw pointers into an [`AppInitCtxFfi`]. The
+//! type registry, window state and render registry packed as raw pointers into an [`AppInitCtxFfi`]. The
 //! library reconstructs a safe [`AppInitCtx`] on the other side and runs the game's setup.
 //! [`init_app_from_library`] can be called again on an already-loaded library with another
 //! ctx to set up another world (the editor rebuilds its simulated world this way when
@@ -112,7 +112,9 @@ pub fn launch_app_dynamically() {
 
     aphyn_modules::add_defult_modules_to(app.ecs_mut().as_mut());
 
-    let lib_path = std::env::current_exe().unwrap().with_file_name(format!("lib_app{}", std::env::consts::DLL_SUFFIX));
+    let lib_path = std::env::current_exe()
+        .unwrap()
+        .with_file_name(format!("lib_app{}", std::env::consts::DLL_SUFFIX));
     let lib = unsafe { init_app_dynamically(app.init_ctx_mut(), lib_path).unwrap() };
 
     app.run();

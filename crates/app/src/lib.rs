@@ -207,18 +207,21 @@
 //! [`AppInitCtx`] lives here rather than in `aphyn_ecs` because it carries a
 //! `aphyn_window::WindowState`, and `aphyn_window` depends on `aphyn_ecs`. [`AppInitCtxFfi`] is
 //! its `#[repr(C)]` form for the dynamic-library boundary: raw pointers to the world builder, the
-//! type registry, and the window state. `AppInitCtx::into_ffi` packs them on the host side and
+//! type registry, the window state, and the render registry (`render_mut`). `AppInitCtx::into_ffi` packs them on the host side and
 //! `AppInitCtxFfi::init_app` unpacks them inside the game library (called by the
 //! `aphyn_entry_point!` expansion). The pointers are only valid while the ctx's borrows are,
-//! and the layout must match on both sides of the boundary.
+//! and the layout must match on both sides of the boundary (change `AppInitCtxFfi` and the
+//! `aphyn_entry_point!` expansion in lockstep). The registry must be dropped before a game library
+//! that registered features into it is unloaded; `App::run` drops it on return, before the launcher
+//! closes the library.
 
 mod app;
 mod event_loop_handler;
 mod init_ctx;
-mod render_target;
 mod input_resource;
-mod window_resources;
+mod render_target;
 mod window_events;
+mod window_resources;
 
 pub use app::*;
 pub use init_ctx::*;

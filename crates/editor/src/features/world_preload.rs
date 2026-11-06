@@ -139,8 +139,10 @@ fn build_simulated_world(
         ..Default::default()
     };
 
+    let mut render = RenderRegistry::default();
+
     if let Some(lib) = lib
-        && let Err(err) = unsafe { init_app_from_library(AppInitCtx { world: world.as_mut(), window: &mut window_state }, lib) }
+        && let Err(err) = unsafe { init_app_from_library(AppInitCtx { world: world.as_mut(), window: &mut window_state, render: &mut render }, lib) }
     {
         println!("failed to init scripts lib: {err}");
     }

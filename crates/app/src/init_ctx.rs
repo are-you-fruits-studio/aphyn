@@ -1,4 +1,5 @@
 use aphyn_ecs::{TypesRegistryAccessFfi, TypesRegistryCache, WorldBuilderMut, WorldBuilderUnsafeFfi};
+use aphyn_render_features::RenderRegistry;
 use aphyn_window::WindowState;
 
 #[repr(C)]
@@ -6,16 +7,22 @@ pub struct AppInitCtxFfi {
     pub types_ref: *const TypesRegistryAccessFfi,
     pub world_mut: *mut WorldBuilderUnsafeFfi,
     pub window_mut: *mut WindowState,
+    pub render_mut: *mut RenderRegistry,
 }
 
 pub struct AppInitCtx<'a> {
     pub world: WorldBuilderMut<'a>,
     pub window: &'a mut WindowState,
+    pub render: &'a mut RenderRegistry,
 }
 
 impl<'a> AppInitCtx<'a> {
     pub unsafe fn into_ffi(self) -> AppInitCtxFfi {
-        let AppInitCtx { mut world, window } = self;
+        let AppInitCtx {
+            mut world,
+            window,
+            render,
+        } = self;
 
         unsafe {
             let (world_builder_ffi, types) = world.into_raw_parts();
@@ -24,6 +31,7 @@ impl<'a> AppInitCtx<'a> {
                 types_ref: &raw const *types.registry(),
                 world_mut: &raw mut *world_builder_ffi,
                 window_mut: &raw mut *window,
+                render_mut: &raw mut *render,
             }
         }
     }
@@ -34,16 +42,14 @@ impl AppInitCtxFfi {
         let world = unsafe { &mut *self.world_mut };
         let types_ref = unsafe { &*self.types_ref };
         let window = unsafe { &mut *self.window_mut };
+        let render = unsafe { &mut *self.render_mut };
 
         let types = TypesRegistryCache::new(types_ref.clone());
 
         {
             let world = WorldBuilderMut::new(world, &types);
 
-            let ctx = AppInitCtx {
-                world,
-                window,
-            };
+            let ctx = AppInitCtx { world, window, render };
 
             let _init_result: () = { f(ctx) };
         }

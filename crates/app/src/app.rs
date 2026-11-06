@@ -1,4 +1,5 @@
 use aphyn_ecs::WorldBuilder;
+use aphyn_render_features::RenderRegistry;
 use aphyn_window::WindowState;
 use winit::event_loop::EventLoop;
 
@@ -7,6 +8,7 @@ use crate::{AppInitCtx, event_loop_handler::EventLoopHandler};
 pub struct App {
     ecs_world: WorldBuilder,
     window_state: WindowState,
+    render: RenderRegistry,
 }
 
 impl App {
@@ -14,7 +16,12 @@ impl App {
         Self {
             ecs_world: WorldBuilder::new(),
             window_state: WindowState::default(),
+            render: RenderRegistry::default(),
         }
+    }
+
+    pub fn render_mut(&mut self) -> &mut RenderRegistry {
+        &mut self.render
     }
 
     pub fn ecs(&self) -> &WorldBuilder {
@@ -29,12 +36,15 @@ impl App {
         AppInitCtx {
             world: self.ecs_world.as_mut(),
             window: &mut self.window_state,
+            render: &mut self.render,
         }
     }
 
     pub fn run(self) {
         let event_loop = EventLoop::new().unwrap();
         event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
-        event_loop.run_app(&mut EventLoopHandler::new(self.ecs_world, self.window_state)).unwrap();
+        event_loop
+            .run_app(&mut EventLoopHandler::new(self.ecs_world, self.window_state, self.render))
+            .unwrap();
     }
 }

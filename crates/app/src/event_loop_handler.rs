@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use aphyn_ecs::{ResourcesHolderMut, Schedule, World, WorldBuilder, WorldDataMut};
-use aphyn_render_ecs::CameraComponent;
 use aphyn_render::{CurrentRenderingResource, RenderApiResource};
+use aphyn_render_ecs::CameraComponent;
+use aphyn_render_features::RenderRegistry;
 use aphyn_transform::GlobalTransform;
 use gilrs::Gilrs;
 use winit::{
@@ -23,41 +24,43 @@ use crate::{
 use aphyn_window::{WindowResource, WindowState};
 
 enum EventLoopHandlerState {
-    Created(WorldBuilder, WindowState),
+    Created(WorldBuilder, WindowState, RenderRegistry),
     Starting,
     Polling {
         world: World,
         window: Arc<Window>,
         gamepad_host: Option<Gilrs>,
         render_target: RenderTarget,
+        render: RenderRegistry,
     },
 }
 
 impl EventLoopHandlerState {
-    fn try_start_creating(&mut self) -> Option<(WorldBuilder, WindowState)> {
+    fn try_start_creating(&mut self) -> Option<(WorldBuilder, WindowState, RenderRegistry)> {
         let EventLoopHandlerState::Created { .. } = self else {
             return None;
         };
 
-        let EventLoopHandlerState::Created(world, window_state) = std::mem::replace(self, EventLoopHandlerState::Starting) else {
+        let EventLoopHandlerState::Created(world, window_state, render) = std::mem::replace(self, EventLoopHandlerState::Starting)
+        else {
             return None;
         };
 
-        Some((world, window_state))
+        Some((world, window_state, render))
     }
 }
 
 pub struct EventLoopHandler(EventLoopHandlerState);
 
 impl EventLoopHandler {
-    pub fn new(world: WorldBuilder, window_state: WindowState) -> Self {
-        Self(EventLoopHandlerState::Created(world, window_state))
+    pub fn new(world: WorldBuilder, window_state: WindowState, render: RenderRegistry) -> Self {
+        Self(EventLoopHandlerState::Created(world, window_state, render))
     }
 }
 
 impl ApplicationHandler for EventLoopHandler {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let Some((mut world, mut window_state)) = self.0.try_start_creating() else {
+        let Some((mut world, mut window_state, render)) = self.0.try_start_creating() else {
             return;
         };
 
@@ -90,6 +93,7 @@ impl ApplicationHandler for EventLoopHandler {
             window,
             gamepad_host: gamepad_host.ok(),
             render_target,
+            render,
         };
     }
 
@@ -116,6 +120,7 @@ impl ApplicationHandler for EventLoopHandler {
             window,
             gamepad_host,
             render_target,
+            render,
         } = &mut self.0
         else {
             return;
@@ -152,11 +157,11 @@ impl ApplicationHandler for EventLoopHandler {
                     MouseScrollDelta::LineDelta(x, y) => {
                         input.mouse.scroll_delta_lines[0] += x;
                         input.mouse.scroll_delta_lines[1] += y;
-                    },
+                    }
                     MouseScrollDelta::PixelDelta(physical_position) => {
                         input.mouse.scroll_delta_pixels[0] += physical_position.x;
                         input.mouse.scroll_delta_pixels[1] += physical_position.y;
-                    },
+                    }
                 }
             }
             WindowEvent::KeyboardInput { event, .. } => {
@@ -188,7 +193,7 @@ impl ApplicationHandler for EventLoopHandler {
 
                 world.execute_iteration(Schedule::Update);
 
-                core_system_render(world, render_target);
+                core_system_render(world, render_target, render);
 
                 core_system_clear_events_and_input(world.data_mut());
                 core_system_update_window(world.data_mut(), window);
@@ -225,7 +230,9 @@ fn core_system_gamepad(mut res: ResourcesHolderMut, gamepad_host: &mut Option<Gi
                 gilrs::EventType::Disconnected => _ = input.gamepads.remove_swap(&gamepad_id),
                 gilrs::EventType::ButtonPressed(button, _) => get_or_create_gamepad(input, gamepad_id).press(button),
                 gilrs::EventType::ButtonReleased(button, _) => get_or_create_gamepad(input, gamepad_id).release(button),
-                gilrs::EventType::AxisChanged(axis, axis_value, _) => get_or_create_gamepad(input, gamepad_id).write_axis(axis, axis_value),
+                gilrs::EventType::AxisChanged(axis, axis_value, _) => {
+                    get_or_create_gamepad(input, gamepad_id).write_axis(axis, axis_value)
+                }
                 // todo: handle other gamepad events
                 _ => (),
             }
@@ -233,7 +240,7 @@ fn core_system_gamepad(mut res: ResourcesHolderMut, gamepad_host: &mut Option<Gi
     }
 }
 
-fn core_system_render(world: &mut World, render_target: &mut RenderTarget) {
+fn core_system_render(world: &mut World, render_target: &mut RenderTarget, render: &mut RenderRegistry) {
     let render_api = world
         .data_mut()
         .as_ref()
@@ -258,17 +265,16 @@ fn core_system_render(world: &mut World, render_target: &mut RenderTarget) {
         .map(|(transform, camera)| (*transform, camera.0));
 
     if let Some((camera_transform, camera)) = camera {
-        world.data_mut().resources_mut().insert(CurrentRenderingResource {
-            camera_position: camera_transform.position,
-            camera_scale_rotation: camera_transform.scale_rotation,
-            camera,
-            light: None,
-            target: render_target.texture.clone(),
-        });
-
-        world.execute_iteration(Schedule::RenderCamera);
-
-        world.data_mut().resources_mut().remove::<CurrentRenderingResource>();
+        render.render_view(
+            world,
+            CurrentRenderingResource {
+                camera_position: camera_transform.position,
+                camera_scale_rotation: camera_transform.scale_rotation,
+                camera,
+                light: None,
+                target: render_target.texture.clone(),
+            },
+        );
     }
 
     render_target.render_to_surface(&render_api);

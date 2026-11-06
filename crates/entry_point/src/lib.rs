@@ -39,8 +39,8 @@
 //! `AppInitCtxFfi`.
 //!
 //! The generated function only calls `AppInitCtxFfi::init_app` (in `aphyn_app`)
-//! with the caller's setup function. That method dereferences the three raw pointers
-//! (`world_mut`, `types_ref`, `window_mut`) back into references, wraps the type
+//! with the caller's setup function. That method dereferences the four raw pointers
+//! (`world_mut`, `types_ref`, `window_mut`, `render_mut`) back into references, wraps the type
 //! registry in a `TypesRegistryCache`, rebuilds a safe `AppInitCtx` (a `WorldBuilderMut`
 //! plus `&mut WindowState`), and invokes the setup function with it inside an inner
 //! scope, so the borrows end before the function returns. `AppInitCtxFfi` is resolved
