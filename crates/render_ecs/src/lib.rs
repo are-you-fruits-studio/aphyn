@@ -166,8 +166,8 @@
 //!
 //! #### GPU access
 //!
-//! The crate names no backend GPU types. It depends on `aphyn_render_core` directly, because the
-//! `aphyn` facade does not export it, and reaches the API through `RenderApiResource::core`.
+//! The crate names no backend GPU types. It depends on `aphyn_render_core` directly, like every
+//! engine crate below the facade, and reaches the API through `RenderApiResource::core`.
 //! Material draws go through `RenderApiResource::draw_instanced` and `draw_batched`; the
 //! fullscreen passes, the bloom passes, and gizmos call `RenderApiNew::draw` themselves. The GPU
 //! resources hold core handles (`GpuShader`, `GpuTexture`, `GpuSampler`, `GpuUniformStorageBuffer`,

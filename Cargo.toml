@@ -42,6 +42,7 @@ members = [
     "crates/example/audio_screen_saver",
     "crates/example/normals",
     "crates/example/bloom",
+    "crates/example/material",
     "crates/ui",
     "crates/file_storage",
     "crates/window",
@@ -76,6 +77,7 @@ aphyn_control_flow_macros = { path = "./crates/control_flow_macros" }
 aphyn_transform = { path = "./crates/transform" }
 aphyn_render_ecs = { path = "./crates/render_ecs" }
 aphyn_render = { path = "./crates/render" }
+aphyn_render_core = { path = "./crates/render_core" }
 aphyn_render_features = { path = "./crates/render_features" }
 aphyn_collision = { path = "./crates/collision" }
 aphyn_prefab = { path = "./crates/prefab" }

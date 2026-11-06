@@ -500,8 +500,8 @@
 //!
 //! [`clear_color_target`] clears mip level 0 of a color texture through core (used by `aphyn_app`
 //! and the editor). `render_graph.rs` is an unfinished render-graph sketch whose methods are
-//! `todo!()`; it is compiled but not exported. The `aphyn` facade does not export
-//! `aphyn_render_core`.
+//! `todo!()`; it is compiled but not exported. The `aphyn` facade re-exports
+//! `aphyn_render_core` next to this crate.
 //!
 //! #### WGSL composer
 //!

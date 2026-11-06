@@ -16,6 +16,7 @@ pub use aphyn_transform::*;
 pub use aphyn_render_ecs::*;
 pub use aphyn_ui::*;
 pub use aphyn_render::*;
+pub use aphyn_render_core::*;
 pub use aphyn_render_features::*;
 pub use aphyn_collision::*;
 pub use aphyn_prefab::*;

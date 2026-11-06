@@ -4,7 +4,7 @@
 //! the queue, the window surface, and every GPU resource, and hands out [`GpuVertexBuffer`], [`GpuUniformStorageBuffer`],
 //! [`GpuIndexBuffer`], [`GpuTexture`], [`GpuSampler`],
 //! and [`GpuShader`] handles. It is the only crate that names wgpu: `aphyn_render`, `aphyn_render_ecs`
-//! and `aphyn_app` do all their GPU work through it. The `aphyn` facade does not export it.
+//! and `aphyn_app` do all their GPU work through it. The `aphyn` facade re-exports it.
 //!
 //! # How to use
 //!
@@ -114,9 +114,9 @@
 //!
 //! This crate sits below `aphyn_render`, which re-exports [`GpuVertexBufferLayout`], its entry types
 //! and [`GpuFilterMode`] (as `FilterMode`) from here. `aphyn_render_ecs` and `aphyn_app` depend on it
-//! directly. It must not depend on `aphyn_render` or on the ECS. Whether the `aphyn` facade should
-//! export it is still open; nothing in the way of names blocks it any more, since `aphyn_render`'s
-//! buffer types are named `Typed*`.
+//! directly. It must not depend on `aphyn_render` or on the ECS. The `aphyn` facade glob-re-exports
+//! it next to `aphyn_render`; no names clash, since `aphyn_render`'s buffer types are named `Typed*`
+//! and the shared types are the same items. Keep new public names distinct from `aphyn_render`'s.
 //!
 //! #### FFI
 //!
