@@ -5,9 +5,11 @@ use aphyn::*;
 fn main() {
     let mut app = App::new();
 
-    let world = app.ecs_mut();
+    let AppInitCtx {
+        mut data, mut behavior, ..
+    } = app.init_ctx_mut();
 
-    let mut world_behavior = world.behavior_mut();
+    let mut world_behavior = behavior.as_mut();
 
     world_behavior
         .get_mut(Schedule::Update)
@@ -17,9 +19,9 @@ fn main() {
         .insert_system(test_resource_existence);
     world_behavior.get_mut(Schedule::Update).insert_system(test_optionals);
 
-    //app.ecs_mut().data_mut().resources_mut().insert(SomeResource).ok().unwrap();
+    //data.as_mut().resources_mut().insert(SomeResource).ok().unwrap();
 
-    let mut world_data = world.data_mut();
+    let mut world_data = data.as_mut();
 
     let mut ec = world_data.entities_mut();
 

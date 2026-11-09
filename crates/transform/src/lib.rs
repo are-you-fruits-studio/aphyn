@@ -13,7 +13,8 @@
 //! use aphyn::*;
 //!
 //! let mut app = App::new();
-//! add_defult_modules_to(app.ecs_mut().as_mut());
+//! let ctx = app.init_ctx_mut();
+//! add_defult_modules_to(ctx.data, ctx.behavior, ctx.render);
 //! ```
 //!
 //! Once registered, attach the components below to entities. The matching `Global*` companions
@@ -190,13 +191,14 @@ mod utils;
 
 pub use self::{components::*, systems::*, utils::*};
 
-use aphyn_ecs::{Schedule, SystemsHolderBuilderMut, WorldBuilderMut};
+use aphyn_ecs::{Schedule, SystemsHolderBuilderMut, WorldBehaviorBuilderMut, WorldDataMut};
 
 pub const SYSTEM_GROUP_TRANSFORM: &'static str = "aphyn_transform";
 
-pub fn add_transform_module_to(mut world: WorldBuilderMut) {
-    add_module_to_schedule(world.behavior_mut().get_mut(Schedule::Start));
-    add_module_to_schedule(world.behavior_mut().get_mut(Schedule::Update));
+// todo: bundle registration params; RenderFeatureRegistry is not passed here because aphyn_render_features depends on this crate
+pub fn add_transform_module_to(_data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut) {
+    add_module_to_schedule(behavior.get_mut(Schedule::Start));
+    add_module_to_schedule(behavior.get_mut(Schedule::Update));
 }
 
 fn add_module_to_schedule(mut schedule: SystemsHolderBuilderMut) {

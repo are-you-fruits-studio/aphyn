@@ -22,25 +22,27 @@ fn fullscreen_state_apply(fullscreen: FullscreenState, window: &Window) {
         FullscreenState::Windowed => {
             window.set_maximized(false);
             window.set_fullscreen(None);
-        },
+        }
         FullscreenState::WindowedMaximized => {
             window.set_maximized(true);
             window.set_fullscreen(None);
-        },
+        }
         FullscreenState::Borderless => {
             window.set_maximized(false);
             window.set_fullscreen(Some(Fullscreen::Borderless(None)));
-        },
+        }
         FullscreenState::Exclusive => {
             window.set_maximized(false);
 
-            let fullscreen = if let Some(monitor) = window.current_monitor() && let Some(video_mode) = monitor.video_modes().next() {
+            let fullscreen = if let Some(monitor) = window.current_monitor()
+                && let Some(video_mode) = monitor.video_modes().next()
+            {
                 Fullscreen::Exclusive(video_mode)
             } else {
                 Fullscreen::Borderless(None)
             };
             window.set_fullscreen(Some(fullscreen));
-        },
+        }
     }
 }
 
@@ -51,7 +53,10 @@ fn window_size_from_window(window: &Window) -> [u32; 2] {
 }
 
 fn window_size_apply(size: [u32; 2], window: &Window) {
-    _ = window.request_inner_size(winit::dpi::Size::Physical(PhysicalSize { width: size[0], height: size[1], }));
+    _ = window.request_inner_size(winit::dpi::Size::Physical(PhysicalSize {
+        width: size[0],
+        height: size[1],
+    }));
 }
 
 fn window_icon_to_winit(icon: &WindowIcon) -> Option<Icon> {
@@ -75,7 +80,9 @@ pub(crate) fn window_attributes_from_state(state: &WindowState, event_loop: &Act
         FullscreenState::Windowed | FullscreenState::WindowedMaximized => None,
         FullscreenState::Borderless => Some(Fullscreen::Borderless(None)),
         FullscreenState::Exclusive => Some(
-            if let Some(monitor) = event_loop.primary_monitor() && let Some(video_mode) = monitor.video_modes().next() {
+            if let Some(monitor) = event_loop.primary_monitor()
+                && let Some(video_mode) = monitor.video_modes().next()
+            {
                 Fullscreen::Exclusive(video_mode)
             } else {
                 Fullscreen::Borderless(None)

@@ -2,19 +2,18 @@ use aphyn_asset_storage::AssetHandle;
 use aphyn_ecs::Component;
 use aphyn_ffi::FfiVec;
 use aphyn_math::Vec3;
-use aphyn_render_core::{Camera, StandardMaterial, StandardMesh, StandardVertex};
+use aphyn_render::{Camera, Material, StandardMesh, StandardVertex};
 use aphyn_serialization::*;
 
 #[repr(C)]
-#[derive(Component, Default, Serializable)]
-pub struct StandardRenderComponent {
-    pub mesh: AssetHandle<StandardMesh>,
-    pub material: AssetHandle<StandardMaterial>,
+#[derive(Default, Component, Clone, Serializable)]
+pub struct MaterialComponent {
+    pub material: AssetHandle<Material>,
 }
 
 #[repr(C)]
 #[derive(Default, Component, Clone, Serializable)]
-pub struct StandardMeshComponent {
+pub struct MeshComponent {
     pub mesh: AssetHandle<StandardMesh>,
 }
 
@@ -26,27 +25,13 @@ pub struct BatchedMeshComponent {
 }
 
 #[repr(C)]
-#[derive(Default, Component, Clone, Serializable)]
-pub struct StandardMaterialComponent {
-    pub material: AssetHandle<StandardMaterial>,
-}
-
-#[repr(C)]
 #[derive(Component, Clone, Copy, Serializable)]
 pub enum StandardLightComponent {
-    Point {
-        color: Vec3<f32>,
-        range: f32,
-    },
-    Spot {
-        color: Vec3<f32>,
-        range: f32,
-        fov: f32,
-    },
-    Directional {
-        color: Vec3<f32>,
-    },
+    Point { color: Vec3<f32>, range: f32 },
+    Spot { color: Vec3<f32>, range: f32, fov: f32 },
+    Directional { color: Vec3<f32> },
 }
+
 impl Default for StandardLightComponent {
     fn default() -> Self {
         Self::Point {

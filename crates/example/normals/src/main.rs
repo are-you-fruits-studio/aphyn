@@ -2,50 +2,77 @@ use aphyn::*;
 
 fn main() {
     let mut app = App::new();
-    let world = app.ecs_mut();
+    let AppInitCtx {
+        mut data,
+        mut behavior,
+        render,
+        ..
+    } = app.init_ctx_mut();
 
-    add_defult_modules_to(world.as_mut());
+    add_defult_modules_to(data.as_mut(), behavior.as_mut(), render);
 
-    let mut behavior = world.behavior_mut();
+    let mut behavior = behavior.as_mut();
 
     let mut start = behavior.get_mut(Schedule::Start);
 
     start.insert_system(init_scene_system);
-    
-    start
-        .order_group(SYSTEM_GROUP_ASSETS)
-        .before_system(init_scene_system);
+
+    start.order_group(SYSTEM_GROUP_ASSETS).before_system(init_scene_system);
 
     let mut update = behavior.get_mut(Schedule::Update);
-    
+
     update.insert_system(follow_cursor_system);
 
-    let mut ec = world.data_mut().into_entities_mut();
+    let mut ec = data.as_mut().into_entities_mut();
 
     let ent_camera = ec.create_entity();
 
-    ec.add_component(ent_camera, GlobalTransform {
-        scale_rotation: Mat::IDENTITY,
-        position: Vec3::new(0.0, 0.0, -1.0),
-    }).ok().unwrap();
-    ec.add_component(ent_camera, CameraComponent(Camera {
-        near: 0.1_f32,
-        far: 1_000_f32,
-        projection: CameraProjection::Perspective { fov: 90_f32.to_radians() },
-    })).ok().unwrap();
+    ec.add_component(
+        ent_camera,
+        GlobalTransform {
+            scale_rotation: Mat::IDENTITY,
+            position: Vec3::new(0.0, 0.0, -1.0),
+        },
+    )
+    .ok()
+    .unwrap();
+    ec.add_component(
+        ent_camera,
+        CameraComponent(Camera {
+            near: 0.1_f32,
+            far: 1_000_f32,
+            projection: CameraProjection::Perspective {
+                fov: 90_f32.to_radians(),
+            },
+        }),
+    )
+    .ok()
+    .unwrap();
 
     let ent_light = ec.create_entity();
 
     ec.add_component(ent_light, GlobalTransform::default()).ok().unwrap();
-    ec.add_component(ent_light, LocalTransform {
-        position: Vec3::new(0.0, 0.0, 0.0),
-        ..Default::default()
-    }).ok().unwrap();
-    ec.add_component(ent_light, StandardLightComponent::Point {
-        color: Vec3::new(1.0, 1.0, 1.0) * 1.0_f32,
-        range: 100.0,
-    }).ok().unwrap();
-    ec.add_component(ent_light, FollowCursorComponent { distance: 1.5 }).ok().unwrap();
+    ec.add_component(
+        ent_light,
+        LocalTransform {
+            position: Vec3::new(0.0, 0.0, 0.0),
+            ..Default::default()
+        },
+    )
+    .ok()
+    .unwrap();
+    ec.add_component(
+        ent_light,
+        StandardLightComponent::Point {
+            color: Vec3::new(1.0, 1.0, 1.0) * 1.0_f32,
+            range: 100.0,
+        },
+    )
+    .ok()
+    .unwrap();
+    ec.add_component(ent_light, FollowCursorComponent { distance: 1.5 })
+        .ok()
+        .unwrap();
 
     app.run();
 }
@@ -56,24 +83,19 @@ struct FollowCursorComponent {
 }
 
 fn init_scene_system(mut world: WorldDataMut) {
-    let render_api = world.resources().get::<RenderApiResource>().unwrap();
     let textures = world.resources().get::<AssetStorageResource<StandardTexture>>().unwrap();
 
     let texture_normal = textures.get_registered("normal_map.asset").cloned().unwrap_or_default();
 
-    let material = render_api.create_material(StandardMaterialAssetMetadata {
-        shader: StandardEngineShader::OpaqueLit.into(),
-        alpha_threshold: 0.0,
-        color: Vec4::splat(1.0),
-        metallic: 0.0,
-        roughness: 1.0,
-        emission_color: Vec4::splat(0.0),
-        color_tex: texture_normal.clone(),
-        normal_tex: texture_normal,
-        ..Default::default()
-    });
+    let mut data = MaterialData::new();
+    data.insert("alpha_threshold", MaterialDataValue::F32(0.0));
+    data.insert("roughness", MaterialDataValue::F32(1.0));
+    data.insert("color_tex", MaterialDataValue::Texture(texture_normal.clone()));
+    data.insert("normal_tex", MaterialDataValue::Texture(texture_normal));
 
-    let materials = world.resources_mut().into_get_mut::<AssetStorageResource<StandardMaterial>>().unwrap();
+    let material = create_material_from_template_key(world.resources(), BUILTIN_TEMPLATE_OPAQUE_LIT, data).unwrap();
+
+    let materials = world.resources_mut().into_get_mut::<AssetStorageResource<Material>>().unwrap();
 
     let material = materials.insert(material);
 
@@ -95,7 +117,7 @@ fn init_scene_system(mut world: WorldDataMut) {
         scale: Vec3::splat(1.0),
         ..Default::default()
     }).ok().unwrap();
-    ent.add_component(ent_normal, StandardMaterialComponent { material }).ok().unwrap();
+    ent.add_component(ent_normal, MaterialComponent { material }).ok().unwrap();
     ent.add_component(ent_normal, BatchedMeshComponent {
         vertices: vec![
             create_vertex([0.0, 0.0], [-1.0, -1.0, 0.0]),

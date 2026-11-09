@@ -10,6 +10,7 @@ pub struct WorldDataUnsafeFfi {
     pub res: ResourcesHolderUnsafeFfi,
     pub evt: EventsHolderUnsafeFfi,
     pub ent: EntitiesHolderUnsafeFfi,
+    types: TypesRegistryAccessFfi,
 }
 
 impl WorldDataUnsafeFfi {
@@ -17,8 +18,13 @@ impl WorldDataUnsafeFfi {
         Self {
             res: ResourcesHolderUnsafeFfi::new(types.clone()),
             evt: EventsHolderUnsafeFfi::new(types.clone()),
-            ent: EntitiesHolderUnsafeFfi::new(types),
+            ent: EntitiesHolderUnsafeFfi::new(types.clone()),
+            types,
         }
+    }
+
+    pub fn types(&self) -> &TypesRegistryAccessFfi {
+        &self.types
     }
 }
 
@@ -37,6 +43,10 @@ impl WorldData {
                 types,
             }
         }
+    }
+
+    pub fn types(&self) -> &TypesRegistryCache {
+        &self.types
     }
 
     pub fn resources<'r>(&'r self) -> ResourcesHolderRef<'r> {
@@ -90,6 +100,12 @@ impl WorldData {
     }
 }
 
+impl Default for WorldData {
+    fn default() -> Self {
+        Self::new(TypesRegistryCache::new(TypesRegistryAccessFfi::new()))
+    }
+}
+
 unsafe impl<'w> Send for WorldData {}
 unsafe impl<'w> Sync for WorldData {}
 
@@ -124,7 +140,7 @@ impl<'w> WorldDataMut<'w> {
         unsafe { EventsHolderMut::new(&raw mut (*self.world).evt, self.types) }
     }
 
-    pub unsafe fn ffi(&self) -> *mut WorldDataUnsafeFfi {
+    pub fn ffi(&self) -> *mut WorldDataUnsafeFfi {
         self.world
     }
 
@@ -162,7 +178,7 @@ impl<'w: 'r, 'r> WorldDataMut<'w> {
     pub fn as_tuple_mut(&'r mut self) -> (ResourcesHolderMut<'r>, EntitiesHolderMut<'r>, EventsHolderMut<'r>) {
         self.as_mut().into_tuple_mut()
     }
-    
+
     pub fn as_mut(&'r mut self) -> WorldDataMut<'r> {
         WorldDataMut {
             world: self.world,

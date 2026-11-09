@@ -1,25 +1,28 @@
-use std::{ffi::{OsStr, OsString}, path::Path};
+use std::{
+    ffi::{OsStr, OsString},
+    path::Path,
+};
 
 use crate::{
     features::{
-        generic_dropdown::{GenericDropdownResource, select_generic_dropdown_system}, inspector_window::data::{InspectedAssetResource, InspectedEntityResource, OpenedEntitiesAssetResource}, project_window_create::ProjectEntryCreateMenuResource, project_window_rename::{ProjectEntryRenameResource, get_entry_dir}, world_preload::SimulatedWorldResource,
-    }, *,
+        generic_dropdown::{GenericDropdownResource, select_generic_dropdown_system},
+        inspector_window::data::{InspectedAssetResource, InspectedEntityResource, OpenedEntitiesAssetResource},
+        project_window_create::ProjectEntryCreateMenuResource,
+        project_window_rename::{ProjectEntryRenameResource, get_entry_dir},
+        world_preload::SimulatedWorldResource,
+    },
+    *,
 };
 
-pub fn register_feature(mut world: WorldBuilderMut) {
-    world
-        .data_mut()
-        .resources_mut()
-        .insert(SelectedFileResource::default());
-    world
-        .data_mut()
-        .resources_mut()
-        .insert(ProjectEntryContextMenuResource::default());
+// todo: bundle registration params
+pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+    data.resources_mut().insert(SelectedFileResource::default());
+    data.resources_mut().insert(ProjectEntryContextMenuResource::default());
 
-    let mut behavior = world.behavior_mut();
     let mut update = behavior.get_mut(Schedule::Update);
 
-    update.group(SYSTEM_GROUP)
+    update
+        .group(SYSTEM_GROUP)
         .insert_child_system(select_file_system)
         .insert_child_system(update_project_entry_selection_system)
         .insert_child_system(open_project_entry_context_menu_system)
@@ -55,7 +58,10 @@ pub fn select_file_system(
     mut select_evt: EvtMut<FileSelectedEvent>,
     mut open_evt: EvtMut<FileOpenedEvent>,
 ) {
-    let Some((entry_c, button_c)) = entry_q.iter().find(|(_, b)| b.was_clicked_this_frame || b.was_right_clicked_this_frame) else {
+    let Some((entry_c, button_c)) = entry_q
+        .iter()
+        .find(|(_, b)| b.was_clicked_this_frame || b.was_right_clicked_this_frame)
+    else {
         return;
     };
 
@@ -146,12 +152,19 @@ pub fn open_project_entry_context_menu_system(
     // todo: support file changes in play mode
     let actions = actions
         .into_iter()
-        .filter(|a| !simulated_world.is_playing() || matches!(a, ProjectEntryContextAction::ShowInExplorer | ProjectEntryContextAction::CopyAssetKey))
+        .filter(|a| {
+            !simulated_world.is_playing()
+                || matches!(
+                    a,
+                    ProjectEntryContextAction::ShowInExplorer | ProjectEntryContextAction::CopyAssetKey
+                )
+        })
         .collect::<Vec<_>>();
     return_if!(actions.is_empty());
 
     let position = Vec2::from_array(input_res.mouse.position.map(|v| v as f32));
-    context_menu_res.request_id = generic_dropdown_res.request(actions.iter().map(|a| FfiString::from(a.label())).collect(), position);
+    context_menu_res.request_id =
+        generic_dropdown_res.request(actions.iter().map(|a| FfiString::from(a.label())).collect(), position);
     context_menu_res.path = path;
     context_menu_res.position = position;
     context_menu_res.actions = actions;
@@ -178,7 +191,11 @@ pub fn apply_project_entry_context_menu_system(
     match context_menu.actions[idx as usize] {
         ProjectEntryContextAction::Create => {
             let path = Path::new(&context_menu.path);
-            let dir = if path.is_dir() { Some(path.to_path_buf()) } else { get_entry_dir(path) };
+            let dir = if path.is_dir() {
+                Some(path.to_path_buf())
+            } else {
+                get_entry_dir(path)
+            };
 
             match dir {
                 Some(dir) => create_menu_res.request(&mut generic_dropdown_res, dir, context_menu.position),
@@ -195,7 +212,11 @@ pub fn apply_project_entry_context_menu_system(
         ProjectEntryContextAction::Delete => {
             let path = Path::new(&context_menu.path);
 
-            let result = if path.is_dir() { std::fs::remove_dir_all(path) } else { std::fs::remove_file(path) };
+            let result = if path.is_dir() {
+                std::fs::remove_dir_all(path)
+            } else {
+                std::fs::remove_file(path)
+            };
             if let Err(err) = result {
                 eprintln!("failed to delete {:?}. {}", path, err);
             }
@@ -248,14 +269,22 @@ pub fn apply_project_path_change(
         PathChange::Unaffected => {}
         PathChange::Removed => *selected_file = SelectedFileResource::default(),
         PathChange::Moved(path) => {
-            *selected_file = SelectedFileResource { potential_asset_key: get_potential_asset_key(&path, open_project), path };
+            *selected_file = SelectedFileResource {
+                potential_asset_key: get_potential_asset_key(&path, open_project),
+                path,
+            };
         }
     }
 
     match get_path_change(&inspected_asset.path, old_path, new_path) {
         PathChange::Unaffected => {}
         PathChange::Removed => *inspected_asset = InspectedAssetResource::default(),
-        PathChange::Moved(path) => *inspected_asset = InspectedAssetResource { asset_key: get_potential_asset_key(&path, open_project), path },
+        PathChange::Moved(path) => {
+            *inspected_asset = InspectedAssetResource {
+                asset_key: get_potential_asset_key(&path, open_project),
+                path,
+            }
+        }
     }
 
     let is_opened_asset_removed = match get_path_change(&opened_asset.path, old_path, new_path) {
@@ -275,7 +304,7 @@ pub fn apply_project_path_change(
 
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
 
-    let (mut res, mut ent, _) = simulated_world.world.data_mut().into_tuple_mut();
+    let (mut res, mut ent, _) = simulated_world.data.as_mut().into_tuple_mut();
 
     if is_opened_asset_removed {
         for entity in ent.query::<EntityId>().iter().collect::<Vec<_>>() {
@@ -288,7 +317,9 @@ pub fn apply_project_path_change(
     let new_key = new_key.as_deref();
 
     rekey_registered_assets::<StandardTexture>(res.as_mut(), &old_key, new_key);
-    rekey_registered_assets::<StandardMaterial>(res.as_mut(), &old_key, new_key);
+    rekey_registered_assets::<Material>(res.as_mut(), &old_key, new_key);
+    rekey_registered_assets::<MaterialTemplate>(res.as_mut(), &old_key, new_key);
+    rekey_registered_assets::<Shader>(res.as_mut(), &old_key, new_key);
     rekey_registered_assets::<StandardMesh>(res.as_mut(), &old_key, new_key);
     rekey_registered_assets::<Font>(res.as_mut(), &old_key, new_key);
     rekey_registered_assets::<AudioClip>(res.as_mut(), &old_key, new_key);
@@ -302,7 +333,10 @@ fn rekey_registered_assets<T: 'static + Send + Sync>(res: ResourcesHolderMut, ol
     let keys = storage
         .get_all()
         .filter_map(|(_, key)| key)
-        .filter(|key| key.strip_prefix(old_key).is_some_and(|rest| rest.is_empty() || rest.starts_with('/')))
+        .filter(|key| {
+            key.strip_prefix(old_key)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+        })
         .map(String::from)
         .collect::<Vec<_>>();
 

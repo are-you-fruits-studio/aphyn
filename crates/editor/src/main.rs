@@ -8,7 +8,10 @@ mod systems;
 mod utils;
 
 use crate::{
-    components::*, features::{inspector_window::data::OpenProjectResource, ui_interaction::*}, resources::*, utils::*,
+    components::*,
+    features::{inspector_window::data::OpenProjectResource, ui_interaction::*},
+    resources::*,
+    utils::*,
 };
 
 use aphyn::*;
@@ -79,54 +82,60 @@ fn main() {
 fn run_editor_app(project_path: &str) {
     let mut app = App::new();
 
-    let world = app.ecs_mut();
+    let AppInitCtx {
+        mut data,
+        mut behavior,
+        window,
+        render,
+    } = app.init_ctx_mut();
 
-    add_defult_modules_to(world.as_mut());
-
-    let mut world_behavior = world.behavior_mut();
+    add_defult_modules_to(data.as_mut(), behavior.as_mut(), render);
 
     {
-        let mut start = world_behavior.get_mut(Schedule::Start);
+        let mut start = behavior.get_mut(Schedule::Start);
 
         start.insert_system(init_system);
 
-        start.order_system(create_standard_ui_assets_resource)
+        start
+            .order_system(create_standard_ui_assets_resource)
             .before_system(init_system);
+        start.order_group(SYSTEM_GROUP_RENDER).before_system(init_system);
     }
 
     {
-        let mut update = world_behavior.get_mut(Schedule::Update);
+        let mut update = behavior.get_mut(Schedule::Update);
 
         update.order_group(SYSTEM_GROUP).before_group(SYSTEM_GROUP_RENDER);
         update.order_group(SYSTEM_GROUP).before_group(SYSTEM_GROUP_TRANSFORM);
     }
 
-    features::world_preload::register_feature(world.as_mut());
-    features::scroll::register_feature(world.as_mut());
-    features::ui_interaction::register_feature(world.as_mut());
-    features::project_window_entries::register_feature(world.as_mut());
-    features::project_window_selection::register_feature(world.as_mut());
-    features::project_window_rename::register_feature(world.as_mut());
-    features::project_window_create::register_feature(world.as_mut());
-    features::inspector_window::register_feature(world.as_mut());
-    features::input_field::register_feature(world.as_mut());
-    features::number_drag::register_feature(world.as_mut());
-    features::dropdown::register_feature(world.as_mut());
-    features::generic_dropdown::register_feature(world.as_mut());
-    features::serialization::register_feature(world.as_mut());
-    features::test_window::register_feature(world.as_mut());
-    features::ui_window::register_feature(world.as_mut());
-    features::windows_layout::register_feature(world.as_mut());
-    features::scene_window::register_feature(world.as_mut());
-    features::game_window::register_feature(world.as_mut());
-    features::play_mode::register_feature(world.as_mut());
-    features::foldout::register_feature(world.as_mut());
+    features::world_preload::register_feature(data.as_mut(), behavior.as_mut(), render);
+    features::scroll::register_feature(data.as_mut(), behavior.as_mut(), render);
+    features::ui_interaction::register_feature(data.as_mut(), behavior.as_mut(), render);
+    features::project_window_entries::register_feature(data.as_mut(), behavior.as_mut(), render);
+    features::project_window_selection::register_feature(data.as_mut(), behavior.as_mut(), render);
+    features::project_window_rename::register_feature(data.as_mut(), behavior.as_mut(), render);
+    features::project_window_create::register_feature(data.as_mut(), behavior.as_mut(), render);
+    features::inspector_window::register_feature(data.as_mut(), behavior.as_mut(), render);
+    features::input_field::register_feature(data.as_mut(), behavior.as_mut(), render);
+    features::number_drag::register_feature(data.as_mut(), behavior.as_mut(), render);
+    features::dropdown::register_feature(data.as_mut(), behavior.as_mut(), render);
+    features::generic_dropdown::register_feature(data.as_mut(), behavior.as_mut(), render);
+    features::serialization::register_feature(data.as_mut(), behavior.as_mut(), render);
+    features::test_window::register_feature(data.as_mut(), behavior.as_mut(), render);
+    features::ui_window::register_feature(data.as_mut(), behavior.as_mut(), render);
+    features::windows_layout::register_feature(data.as_mut(), behavior.as_mut(), render);
+    features::scene_window::register_feature(data.as_mut(), behavior.as_mut(), render);
+    features::game_window::register_feature(data.as_mut(), behavior.as_mut(), render);
+    features::play_mode::register_feature(data.as_mut(), behavior.as_mut(), render);
+    features::foldout::register_feature(data.as_mut(), behavior.as_mut(), render);
 
-    world.as_mut().data_mut().resources_mut().insert(OpenProjectResource { dir_path: project_path.to_string() });
+    data.resources_mut().insert(OpenProjectResource {
+        dir_path: project_path.to_string(),
+    });
 
     {
-        let mut world_data = world.data_mut();
-        let mut ec = world_data.entities_mut();
+        let mut ec = data.entities_mut();
 
         let camera = ec.create_entity();
         ec.add_component(camera, GlobalTransform::default()).ok().unwrap();
@@ -135,14 +144,16 @@ fn run_editor_app(project_path: &str) {
             CameraComponent(Camera {
                 near: 0.1,
                 far: 1_000.0,
-                projection: CameraProjection::Perspective { fov: 90_f32.to_radians() },
+                projection: CameraProjection::Perspective {
+                    fov: 90_f32.to_radians(),
+                },
             }),
         )
         .ok()
         .unwrap();
     }
 
-    app.init_ctx_mut().window.fullscreen = FullscreenState::WindowedMaximized;
+    window.fullscreen = FullscreenState::WindowedMaximized;
 
     app.run();
 }
@@ -155,33 +166,14 @@ fn init_system(mut world: WorldDataMut) {
     let font = standard_ui_assets.font_px_8_12.clone();
     let texture_text = standard_ui_assets.texture_text_px_8_8.clone();
 
-    let material_panel = StandardMaterialAssetMetadata {
-        shader: StandardEngineShader::UiOpaqueUnlit.into(),
-        color: Vec4::splat(1.0),
-        color_tex: AssetHandle::EMPTY,
-        alpha_threshold: 0.5,
-        ..Default::default()
-    };
+    let material_panel =
+        create_material_from_template_key(res.as_ref(), BUILTIN_TEMPLATE_UI_OPAQUE_UNLIT, MaterialData::new()).unwrap();
 
-    let material_text = StandardMaterialAssetMetadata {
-        shader: StandardEngineShader::UiOpaqueUnlit.into(),
-        color: Vec4::splat(1.0),
-        color_tex: texture_text.clone(),
-        alpha_threshold: 0.5,
-        ..Default::default()
-    };
+    let mut text_data = MaterialData::new();
+    text_data.insert("color_tex", MaterialDataValue::Texture(texture_text.clone()));
+    let material_text = create_material_from_template_key(res.as_ref(), BUILTIN_TEMPLATE_UI_OPAQUE_UNLIT, text_data).unwrap();
 
-    let material_panel = res.as_ref()
-        .get::<RenderApiResource>()
-        .unwrap()
-        .create_material(material_panel);
-
-    let material_text = res.as_ref()
-        .get::<RenderApiResource>()
-        .unwrap()
-        .create_material(material_text);
-
-    let materials_res = res.get_mut::<AssetStorageResource<StandardMaterial>>().unwrap();
+    let materials_res = res.get_mut::<AssetStorageResource<Material>>().unwrap();
 
     let material_panel = materials_res.insert(material_panel);
     let material_text = materials_res.insert(material_text);

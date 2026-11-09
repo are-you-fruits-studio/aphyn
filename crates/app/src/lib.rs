@@ -7,9 +7,12 @@
 //!
 //! #### Creating and running an app
 //!
-//! [`App`] wraps the engine's world builder. Register systems and seed entities on
-//! [`ecs_mut`](App::ecs_mut), then call [`run`](App::run) to open the window and start the
-//! frame loop. `run` blocks until the window closes.
+//! [`App`] holds the engine's world as sibling parts: the world data
+//! ([`data_mut`](App::data_mut)), the systems builder ([`behavior_mut`](App::behavior_mut)), and the
+//! render feature registry ([`render_mut`](App::render_mut)). Seed entities and register systems on them,
+//! then call [`run`](App::run) to open the window and start the frame loop. `run` blocks until the
+//! window closes. When several parts are needed at once (module registration functions take all
+//! three), borrow them together through [`init_ctx_mut`](App::init_ctx_mut).
 //!
 //! ```ignore
 //! use aphyn::*;
@@ -18,10 +21,11 @@
 //!     let mut app = App::new();
 //!
 //!     // Pull in the engine's default subsystems (collision, transform, rendering, ...).
-//!     add_defult_modules_to(app.ecs_mut().as_mut());
+//!     let AppInitCtx { mut data, mut behavior, render, .. } = app.init_ctx_mut();
+//!     add_defult_modules_to(data.as_mut(), behavior.as_mut(), render);
 //!
-//!     app.ecs_mut()
-//!         .behavior_mut()
+//!     app.behavior_mut()
+//!         .as_mut()
 //!         .get_mut(Schedule::Update)
 //!         .insert_system(move_player);
 //!
@@ -39,7 +43,8 @@
 //!
 //! [`App`] holds the initial [`WindowState`](aphyn_window::WindowState) (its `Default`: windowed
 //! 800x600, titled "aphyn app"). [`init_ctx_mut`](App::init_ctx_mut) returns an
-//! [`AppInitCtx`] borrowing both the world builder and that state; whatever the state holds when
+//! [`AppInitCtx`] borrowing the world data, the systems builder, the render feature registry and that
+//! state; whatever the state holds when
 //! [`run`](App::run) creates the window is used as the window's creation attributes. The same ctx
 //! is what `launch_app_statically` and a game library's `aphyn_entry_point!` setup receive.
 //!
@@ -51,6 +56,27 @@
 //! ctx.window.title = "My game".into();
 //! ctx.window.fullscreen = FullscreenState::WindowedMaximized;
 //! app.run();
+//! ```
+//!
+//! #### Registering render features
+//!
+//! [`App`] owns the `RenderFeatureRegistry` (from `aphyn_render_features`) that renders every frame.
+//! Add render features to it through [`render_mut`](App::render_mut), or through
+//! [`AppInitCtx::render`] in `launch_app_statically` and an `aphyn_entry_point!` setup. Materials are
+//! data (shader and material template assets), drawn by the engine's material feature:
+//!
+//! ```ignore
+//! use aphyn::*;
+//!
+//! let mut app = App::new();
+//! let mut ctx = app.init_ctx_mut();
+//! add_defult_modules_to(ctx.data.as_mut(), ctx.behavior.as_mut(), ctx.render);
+//! app.render_mut().add_feature("vignette", VignetteFeature::default());
+//! app.run();
+//!
+//! fn setup(ctx: AppInitCtx) {
+//!     ctx.render.add_feature("vignette", VignetteFeature::default());
+//! }
 //! ```
 //!
 //! #### Reading keyboard, mouse, and gamepad input
@@ -127,47 +153,55 @@
 //!
 //! #### The event loop
 //!
-//! [`App::run`] hands the world builder and the initial window state to an internal
-//! `EventLoopHandler` and runs it under `winit` with `ControlFlow::Poll`, so the loop keeps
-//! ticking even without OS events. The handler is a three-state machine: it starts holding only
-//! the unbuilt `WorldBuilder` and the `WindowState`, moves through a transient `Starting` state
-//! on the first `resumed` callback, and then stays in a `Polling` state owning the built
-//! [`World`](aphyn_ecs::World), the window, and the optional gamepad host.
+//! [`App::run`] hands the world data, the systems builder, the initial window state and the
+//! render feature registry to an internal `EventLoopHandler` and runs it under `winit` with
+//! `ControlFlow::Poll`, so the loop keeps ticking even without OS events. The handler is a
+//! three-state machine: it starts holding the [`WorldData`](aphyn_ecs::WorldData), the unbuilt
+//! [`WorldBehaviorBuilder`](aphyn_ecs::WorldBehaviorBuilder) and the `WindowState`, moves through a
+//! transient `Starting` state on the first `resumed` callback, and then stays in a `Polling` state
+//! owning the data, the built [`WorldBehavior`](aphyn_ecs::WorldBehavior), the window, and the
+//! optional gamepad host.
 //!
 //! On the first `resumed` the handler creates the window from the window state
 //! (`window_attributes_from_state`: title, inner size, resizable, icon, maximized and fullscreen;
 //! exclusive fullscreen uses the primary monitor's first video mode, else borderless), applies
 //! cursor grab and visibility to the created window (no creation attributes exist for them),
-//! re-reads fullscreen mode and size from it, builds the renderer's
-//! `RenderApiResource`, inserts [`InputResource`] and [`WindowResource`](aphyn_window::WindowResource) into the world,
-//! finalizes the world, runs the [`Schedule::Start`](aphyn_ecs::Schedule) pass once, applies the
-//! window state it requested, and initializes `gilrs` for gamepad support. A `gilrs` failure is logged and leaves gamepads
-//! disabled rather than aborting.
+//! re-reads fullscreen mode and size from it, builds the renderer's `RenderApiResource`, inserts
+//! [`InputResource`] and [`WindowResource`](aphyn_window::WindowResource) into the world,
+//! builds the behavior, runs the [`Schedule::Start`](aphyn_ecs::Schedule) pass once, applies the
+//! window state it requested, and initializes `gilrs` for gamepad support. A `gilrs` failure is
+//! logged and leaves gamepads disabled rather than aborting.
 //!
 //! #### The frame
 //!
 //! Each `RedrawRequested` is one frame. Before the world runs, the window state is read back from
-//! the real window, and every gamepad `gilrs` currently
-//! reports gets an entry in [`InputResource`], then pending `gilrs` events are drained into
-//! it: connect/disconnect maintain the per-id gamepad map, and
-//! button/axis events update the matching [`GamepadInputStorage`]. The
-//! [`Schedule::Update`](aphyn_ecs::Schedule) pass then runs, followed by the render core system,
-//! after which the handler clears the frame's events, calls `clear_frame` on the input storages,
-//! reconciles the window state, and requests the next redraw. Mouse (buttons, cursor, wheel), keyboard, and resize events
-//! arrive as their own `winit` callbacks and write directly into the resources between frames.
+//! the real window, and every gamepad `gilrs` currently reports gets an entry in
+//! [`InputResource`], then pending `gilrs` events are drained into it: connect/disconnect
+//! maintain the per-id gamepad map, and button/axis events update the matching
+//! [`GamepadInputStorage`]. The [`Schedule::Update`](aphyn_ecs::Schedule) pass then runs,
+//! followed by the render core system, after which the handler clears the frame's events, calls
+//! `clear_frame` on the input storages, reconciles the window state, and requests the next
+//! redraw. Mouse (buttons, cursor, wheel), keyboard, and resize events arrive as their own
+//! `winit` callbacks and write directly into the resources between frames.
 //!
 //! #### Rendering
 //!
 //! The handler owns the frame's color target outside the world: an `Rgba16Float` texture
-//! (`RENDER_TARGET_FORMAT` from `aphyn_render_core`) the size of the surface, rebuilt whenever the
-//! `RenderApiResource` size changes, plus the pipeline that copies it onto the surface
-//! (`assets/copy_texture.wgsl`, nearest sampling, `REPLACE` blend). Each frame the render
-//! core system clears the target, takes the first entity with a `GlobalTransform` and a
-//! `CameraComponent`, inserts a `CurrentRenderingResource` describing that camera and the target,
-//! runs the [`Schedule::RenderCamera`](aphyn_ecs::Schedule) pass, and removes the resource again.
-//! Further cameras are ignored for now, and with no camera the pass does not run. Finally the
-//! target is copied onto the surface texture and presented; if the surface texture cannot be
-//! acquired the presentation is skipped for that frame.
+//! (`RENDER_TARGET_FORMAT` from `aphyn_render`) the size of the surface, rebuilt whenever the
+//! `RenderApiResource` size changes, plus the `aphyn_render_core` shader and sampler that copy it
+//! onto the surface (`assets/copy_texture.wgsl`, nearest sampling, `REPLACE` blend). Each frame
+//! the render core system clears the target, takes the first entity with a `GlobalTransform` and
+//! a `CameraComponent`, and calls `RenderFeatureRegistry::render_view` on the app's registry with the
+//! world data and a `CurrentRenderingResource` describing that camera and the target.
+//! `render_view` inserts the resource, collects and runs the passes of every registered render
+//! feature, and removes the resource again. Further cameras are ignored for now, and
+//! with no camera nothing is rendered. Finally the target is copied onto the surface with one
+//! `RenderApiNew::draw_to_surface` call, which acquires, draws and presents; if the surface
+//! texture cannot be acquired the presentation is skipped for that frame.
+//!
+//! The `RenderFeatureRegistry` lives in [`App`] beside the world data and the systems, at the same
+//! distance from the data as the systems, and is moved into the event loop handler with them; a
+//! game library's setup reaches all three through `AppInitCtxFfi` (see Init ctx).
 //!
 //! #### Frame-scoped input
 //!
@@ -205,19 +239,25 @@
 //!
 //! [`AppInitCtx`] lives here rather than in `aphyn_ecs` because it carries a
 //! `aphyn_window::WindowState`, and `aphyn_window` depends on `aphyn_ecs`. [`AppInitCtxFfi`] is
-//! its `#[repr(C)]` form for the dynamic-library boundary: raw pointers to the world builder, the
-//! type registry, and the window state. `AppInitCtx::into_ffi` packs them on the host side and
-//! `AppInitCtxFfi::init_app` unpacks them inside the game library (called by the
-//! `aphyn_entry_point!` expansion). The pointers are only valid while the ctx's borrows are,
-//! and the layout must match on both sides of the boundary.
+//! its `#[repr(C)]` form for the dynamic-library boundary: raw pointers to the type registry, the
+//! world data (`data_mut`), the systems builder (`behavior_mut`), the window state, and the render
+//! registry (`render_mut`). Engine modules cannot take an `AppInitCtx` (this crate depends on
+//! them), so their registration functions take the data, behavior and render feature registry as separate
+//! parameters.
+//! `AppInitCtx::into_ffi` packs them on the host side and `AppInitCtxFfi::init_app` unpacks them
+//! inside the game library (called by the `aphyn_entry_point!` expansion). The pointers are only
+//! valid while the ctx's borrows are, and the layout must match on both sides of the boundary
+//! (change `AppInitCtxFfi` and the `aphyn_entry_point!` expansion in lockstep). The registry must
+//! be dropped before a game library that registered features into it is unloaded; `App::run`
+//! drops it on return, before the launcher closes the library.
 
 mod app;
 mod event_loop_handler;
 mod init_ctx;
-mod render_target;
 mod input_resource;
-mod window_resources;
+mod render_target;
 mod window_events;
+mod window_resources;
 
 pub use app::*;
 pub use init_ctx::*;

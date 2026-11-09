@@ -21,13 +21,10 @@ use crate::{
     *,
 };
 
-pub fn register_feature(mut world: WorldBuilderMut) {
-    world
-        .data_mut()
-        .resources_mut()
-        .insert(ProjectEntryCreateMenuResource::default());
+// todo: bundle registration params
+pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+    data.resources_mut().insert(ProjectEntryCreateMenuResource::default());
 
-    let mut behavior = world.behavior_mut();
     let mut update = behavior.get_mut(Schedule::Update);
 
     update
@@ -67,6 +64,8 @@ pub fn register_feature(mut world: WorldBuilderMut) {
 enum ProjectEntryCreateKind {
     Folder,
     Material,
+    MaterialTemplate,
+    Shader,
     Prefab,
     Scene,
     Texture,
@@ -75,9 +74,11 @@ enum ProjectEntryCreateKind {
 }
 
 impl ProjectEntryCreateKind {
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 9] = [
         Self::Folder,
         Self::Material,
+        Self::MaterialTemplate,
+        Self::Shader,
         Self::Prefab,
         Self::Scene,
         Self::Texture,
@@ -89,6 +90,8 @@ impl ProjectEntryCreateKind {
         match self {
             Self::Folder => "Folder",
             Self::Material => "Material",
+            Self::MaterialTemplate => "Material template",
+            Self::Shader => "Shader",
             Self::Prefab => "Prefab",
             Self::Scene => "Scene",
             Self::Texture => "Texture",
@@ -101,6 +104,8 @@ impl ProjectEntryCreateKind {
         match self {
             Self::Folder => "New Folder",
             Self::Material => "New Material",
+            Self::MaterialTemplate => "New Material Template",
+            Self::Shader => "New Shader",
             Self::Prefab => "New Prefab",
             Self::Scene => "New Scene",
             Self::Texture => "New Texture",
@@ -113,6 +118,8 @@ impl ProjectEntryCreateKind {
         match self {
             Self::Folder => None,
             Self::Material => Some(AssetType::Material),
+            Self::MaterialTemplate => Some(AssetType::MaterialTemplate),
+            Self::Shader => Some(AssetType::Shader),
             Self::Prefab => Some(AssetType::Prefab),
             Self::Scene => Some(AssetType::Scene),
             Self::Texture => Some(AssetType::Texture),
@@ -203,11 +210,19 @@ fn create_asset(
         return None;
     };
 
-    let mut res = simulated_world.world.data_mut().into_resources_mut();
+    let mut res = simulated_world.data.as_mut().into_resources_mut();
 
     let serialized = match asset_type {
         AssetType::Texture => serialize_default_metadata::<StandardTextureAssetMetadata>(res.as_ref(), asset_type),
-        AssetType::Material => serialize_default_metadata::<StandardMaterialAssetMetadata>(res.as_ref(), asset_type),
+        AssetType::Material => {
+            let template = res
+                .get::<AssetStorageResource<MaterialTemplate>>()
+                .and_then(|templates| templates.get_registered(BUILTIN_TEMPLATE_OPAQUE_LIT).cloned())
+                .unwrap_or_default();
+            serialize_metadata(res.as_ref(), asset_type, &Material::new(template, MaterialData::new()))
+        }
+        AssetType::Shader => serialize_default_metadata::<ShaderAssetMetadata>(res.as_ref(), asset_type),
+        AssetType::MaterialTemplate => serialize_default_metadata::<MaterialTemplate>(res.as_ref(), asset_type),
         AssetType::Mesh => serialize_default_metadata::<StandardMeshAssetMetadata>(res.as_ref(), asset_type),
         AssetType::AudioClip => serialize_default_metadata::<AudioClipAssetMetadata>(res.as_ref(), asset_type),
         AssetType::Prefab => {
@@ -238,7 +253,12 @@ fn create_asset(
 
     if matches!(
         asset_type,
-        AssetType::Texture | AssetType::Material | AssetType::Mesh | AssetType::AudioClip
+        AssetType::Texture
+            | AssetType::Material
+            | AssetType::Mesh
+            | AssetType::AudioClip
+            | AssetType::Shader
+            | AssetType::MaterialTemplate
     ) {
         let assets_dir_path = open_project.dir_path.to_string() + PROJECT_ASSETS_SUBPATH;
         load_asset_to_world_res(res.as_mut(), &key, &serialized, asset_type, &assets_dir_path);
@@ -252,7 +272,11 @@ fn create_asset(
 }
 
 fn serialize_default_metadata<T: 'static + Default>(res: ResourcesHolderRef, asset_type: AssetType) -> Option<SerializedValue> {
-    let mut serialized = serialize_with_world_serializers(res, &T::default())?;
+    serialize_metadata(res, asset_type, &T::default())
+}
+
+fn serialize_metadata<T: 'static>(res: ResourcesHolderRef, asset_type: AssetType, value: &T) -> Option<SerializedValue> {
+    let mut serialized = serialize_with_world_serializers(res, value)?;
     enrich_serialized_with_asset_type(&mut serialized, asset_type);
     Some(serialized)
 }

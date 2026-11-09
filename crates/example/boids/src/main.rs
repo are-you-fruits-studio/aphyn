@@ -5,18 +5,21 @@ use aphyn::*;
 fn main() {
     let mut app = App::new();
 
-    add_defult_modules_to(app.ecs_mut().as_mut());
+    let AppInitCtx {
+        mut data,
+        mut behavior,
+        render,
+        ..
+    } = app.init_ctx_mut();
 
-    let ecs = app.ecs_mut();
+    add_defult_modules_to(data.as_mut(), behavior.as_mut(), render);
 
-    ecs.data_mut()
-        .resources_mut()
-        .insert(BoidSettings {
-            attraction_threshold: 1.0,
-            damping_factor: 0.2,
-        });
+    data.as_mut().resources_mut().insert(BoidSettings {
+        attraction_threshold: 1.0,
+        damping_factor: 0.2,
+    });
 
-    let mut systems = ecs.behavior_mut();
+    let mut systems = behavior.as_mut();
 
     systems.get_mut(Schedule::Start).insert_system(init);
     systems
@@ -76,10 +79,8 @@ struct BoidSettings {
 fn init(mut world: WorldDataMut) {
     let render_api = world.as_ref().resources().get::<RenderApiResource>().unwrap();
 
-    let material = render_api.create_material(StandardMaterialAssetMetadata {
-        shader: StandardEngineShader::OpaqueUnlit.into(),
-        ..Default::default()
-    });
+    let material =
+        create_material_from_template_key(world.as_ref().resources(), BUILTIN_TEMPLATE_OPAQUE_UNLIT, MaterialData::new()).unwrap();
 
     let mut vertices = [
         StandardVertex {
@@ -114,7 +115,7 @@ fn init(mut world: WorldDataMut) {
 
     let material = world.as_mut()
         .resources_mut()
-        .get_mut::<AssetStorageResource<StandardMaterial>>()
+        .get_mut::<AssetStorageResource<Material>>()
         .unwrap()
         .insert(material);
     let mesh = world.as_mut()
@@ -128,12 +129,12 @@ fn init(mut world: WorldDataMut) {
     for _ in 0..100 {
         let entity = ec.create_entity();
 
-        ec.add_component(entity, StandardMeshComponent { mesh: mesh.clone() })
+        ec.add_component(entity, MeshComponent { mesh: mesh.clone() })
             .ok()
             .unwrap();
         ec.add_component(
             entity,
-            StandardMaterialComponent {
+            MaterialComponent {
                 material: material.clone(),
             },
         )

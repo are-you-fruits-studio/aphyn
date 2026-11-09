@@ -56,33 +56,25 @@ impl<I: RenderGraphNodeInputDescriptor + RenderGraphTuple> RenderGraphNodeBuilde
 
 //
 
-pub trait RenderGraphNodeInput {
-
-}
+pub trait RenderGraphNodeInput {}
 
 pub trait RenderGraphNodeInputDescriptor {
     type NodeInput: RenderGraphNodeInput;
-    
+
     fn into_input(self) -> Self::NodeInput;
 }
 
 //
 
-pub struct RenderGraphBufferInput {
+pub struct RenderGraphBufferInput {}
 
-}
+impl RenderGraphNodeInput for RenderGraphBufferInput {}
 
-impl RenderGraphNodeInput for RenderGraphBufferInput {
-
-}
-
-pub struct RenderGraphBufferInputDescriptor {
-
-}
+pub struct RenderGraphBufferInputDescriptor {}
 
 impl RenderGraphNodeInputDescriptor for RenderGraphBufferInputDescriptor {
     type NodeInput = RenderGraphBufferInput;
-    
+
     fn into_input(self) -> Self::NodeInput {
         todo!()
     }
@@ -100,7 +92,7 @@ macro_rules! impl_render_graph_tuple {
     ($($P: ident),*) => {
         impl<$($P),*> RenderGraphTuple for ($($P,)*) {
             type With<PN> = ($($P,)* PN,);
-            
+
             fn into_tuple_with<PN>(self, n: PN) -> Self::With<PN> {
                 #[allow(non_snake_case)]
                 let (
@@ -129,7 +121,7 @@ macro_rules! impl_render_graph_node_input_descriptor_tuple {
     ($($P: ident),*) => {
         impl<$($P: RenderGraphNodeInputDescriptor),*> RenderGraphNodeInputDescriptor for ($($P,)*) {
             type NodeInput = ($($P::NodeInput,)*);
-            
+
             fn into_input(self) -> Self::NodeInput {
                 #[allow(non_snake_case)]
                 let (

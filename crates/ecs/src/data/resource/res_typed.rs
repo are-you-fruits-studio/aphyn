@@ -9,7 +9,11 @@ pub trait Resource: 'static + Send + Sync {}
 fn resources_holder_get_ptr<T: Resource>(res: &ResourcesHolderUnsafeFfi, types: &TypesRegistryCache) -> Option<*mut T> {
     res.get(types.get_or_register::<T>()).map(|p| p.downcast_ptr().unwrap())
 }
-fn resources_holder_get_ptr_any(res: &ResourcesHolderUnsafeFfi, types: &TypesRegistryCache, type_info: &'static FfiExtendedTypeInfo) -> Option<FfiAnyPtr> {
+fn resources_holder_get_ptr_any(
+    res: &ResourcesHolderUnsafeFfi,
+    types: &TypesRegistryCache,
+    type_info: &'static FfiExtendedTypeInfo,
+) -> Option<FfiAnyPtr> {
     unsafe { res.get(types.registry().get_or_register(type_info)) }
 }
 fn resources_holder_get_all(res: &ResourcesHolderUnsafeFfi, mut handler: impl FnMut(FfiAnyPtr)) {
@@ -19,28 +23,45 @@ fn resources_holder_get_all(res: &ResourcesHolderUnsafeFfi, mut handler: impl Fn
 fn resources_holder_get<'r, T: Resource>(res: &'r ResourcesHolderUnsafeFfi, types: &TypesRegistryCache) -> Option<&'r T> {
     unsafe { resources_holder_get_ptr(res, types).map(|p| &*p) }
 }
-fn resources_holder_get_any<'r>(res: &'r ResourcesHolderUnsafeFfi, types: &TypesRegistryCache, type_info: &'static FfiExtendedTypeInfo) -> Option<FfiAnyRef<'r>> {
+fn resources_holder_get_any<'r>(
+    res: &'r ResourcesHolderUnsafeFfi,
+    types: &TypesRegistryCache,
+    type_info: &'static FfiExtendedTypeInfo,
+) -> Option<FfiAnyRef<'r>> {
     unsafe { resources_holder_get_ptr_any(res, types, type_info).map(|p| p.as_any_ref()) }
 }
 
-fn resources_holder_get_mut<'r, T: Resource>(res: &'r mut ResourcesHolderUnsafeFfi, types: &TypesRegistryCache) -> Option<&'r mut T> {
+fn resources_holder_get_mut<'r, T: Resource>(
+    res: &'r mut ResourcesHolderUnsafeFfi,
+    types: &TypesRegistryCache,
+) -> Option<&'r mut T> {
     unsafe { resources_holder_get_ptr(res, types).map(|p| &mut *p) }
 }
-fn resources_holder_get_mut_any<'r>(res: &'r mut ResourcesHolderUnsafeFfi, types: &TypesRegistryCache, type_info: &'static FfiExtendedTypeInfo) -> Option<FfiAnyMut<'r>> {
+fn resources_holder_get_mut_any<'r>(
+    res: &'r mut ResourcesHolderUnsafeFfi,
+    types: &TypesRegistryCache,
+    type_info: &'static FfiExtendedTypeInfo,
+) -> Option<FfiAnyMut<'r>> {
     unsafe { resources_holder_get_ptr_any(res, types, type_info).map(|p| p.as_any_mut()) }
 }
 
 fn resources_holder_insert<T: Resource>(res: &mut ResourcesHolderUnsafeFfi, types: &TypesRegistryCache, data: T) -> Option<T> {
-    res.insert(types.get_or_register::<T>(), FfiAny::new(data)).map(|a| a.downcast::<T>().unwrap().into_inner())
+    res.insert(types.get_or_register::<T>(), FfiAny::new(data))
+        .map(|a| a.downcast::<T>().unwrap().into_inner())
 }
 fn resources_holder_insert_any(res: &mut ResourcesHolderUnsafeFfi, types: &TypesRegistryCache, data: FfiAny) -> Option<FfiAny> {
     unsafe { res.insert(types.registry().get_or_register(data.type_info()), FfiAny::new(data)) }
 }
 
 fn resources_holder_remove<T: Resource>(res: &mut ResourcesHolderUnsafeFfi, types: &TypesRegistryCache) -> Option<T> {
-    res.remove(types.get_or_register::<T>()).map(|a| a.downcast::<T>().unwrap().into_inner())
+    res.remove(types.get_or_register::<T>())
+        .map(|a| a.downcast::<T>().unwrap().into_inner())
 }
-fn resources_holder_remove_any(res: &mut ResourcesHolderUnsafeFfi, types: &TypesRegistryCache, type_info: &'static FfiExtendedTypeInfo) -> Option<FfiAny> {
+fn resources_holder_remove_any(
+    res: &mut ResourcesHolderUnsafeFfi,
+    types: &TypesRegistryCache,
+    type_info: &'static FfiExtendedTypeInfo,
+) -> Option<FfiAny> {
     unsafe { res.remove(types.registry().get_or_register(type_info)) }
 }
 
@@ -125,8 +146,8 @@ impl<'r: 'p, 'p> ResourcesHolderMut<'r> {
     }
 }
 
-unsafe impl<'r> Send for ResourcesHolderMut<'r> { }
-unsafe impl<'r> Sync for ResourcesHolderMut<'r> { }
+unsafe impl<'r> Send for ResourcesHolderMut<'r> {}
+unsafe impl<'r> Sync for ResourcesHolderMut<'r> {}
 
 //
 
@@ -159,5 +180,5 @@ impl<'r> ResourcesHolderRef<'r> {
     }
 }
 
-unsafe impl<'r> Send for ResourcesHolderRef<'r> { }
-unsafe impl<'r> Sync for ResourcesHolderRef<'r> { }
+unsafe impl<'r> Send for ResourcesHolderRef<'r> {}
+unsafe impl<'r> Sync for ResourcesHolderRef<'r> {}

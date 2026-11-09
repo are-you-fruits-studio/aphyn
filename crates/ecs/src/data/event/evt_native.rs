@@ -32,9 +32,15 @@ impl EventsHolderNative {
 
         events
             .entry(type_id)
-            .or_insert_with(|| UnsafeCell::new(unsafe {
-                FfiOpaqueVec::new(type_info.short().size(), type_info.short().align(), Some(type_info.raw_drop_fn()))
-            }))
+            .or_insert_with(|| {
+                UnsafeCell::new(unsafe {
+                    FfiOpaqueVec::new(
+                        type_info.short().size(),
+                        type_info.short().align(),
+                        Some(type_info.raw_drop_fn()),
+                    )
+                })
+            })
             .get()
     }
 

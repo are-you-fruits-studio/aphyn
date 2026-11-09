@@ -1,13 +1,15 @@
 use std::{collections::VecDeque, time::Instant};
 
-use aphyn_ecs::{ResMut, Resource, Schedule, WorldBuilderMut};
+use aphyn_ecs::{ResMut, Resource, Schedule, WorldBehaviorBuilderMut, WorldDataMut};
+use aphyn_render_features::RenderFeatureRegistry;
 
 // todo: ffi?
 
-pub fn add_module_to(mut world: WorldBuilderMut) {
-    world.data_mut().resources_mut().insert(FpsResource::default());
+// todo: bundle registration params
+pub fn add_module_to(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+    data.resources_mut().insert(FpsResource::default());
 
-    world.behavior_mut().get_mut(Schedule::Update).insert_system(count_fps_system);
+    behavior.get_mut(Schedule::Update).insert_system(count_fps_system);
 }
 
 #[derive(Resource, Default)]

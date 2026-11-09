@@ -7,4 +7,3 @@ license.workspace = true
 [dependencies]
 aphyn = { path = "../../../" }
 png = "0.18"
-wgpu = "27"

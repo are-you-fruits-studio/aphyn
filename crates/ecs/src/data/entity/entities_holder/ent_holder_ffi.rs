@@ -2,7 +2,6 @@ use aphyn_ffi::{FfiExtendedTypeInfo, FfiFnMutMut, FfiSliceRef};
 
 use crate::*;
 
-
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum PtrState {
@@ -146,7 +145,9 @@ impl EntitiesHolderUnsafeFfi {
 
         if let Some(component_layout) = archetype.layout().get_component(component_id) {
             let size = component_layout.type_info.short().size() as usize;
-            let stored_ptr = archetype.get_component_ptr(entity_location.entity_archetype_index, component_id).unwrap();
+            let stored_ptr = archetype
+                .get_component_ptr(entity_location.entity_archetype_index, component_id)
+                .unwrap();
 
             unsafe { std::ptr::swap_nonoverlapping(stored_ptr, component_ptr, size) };
 
@@ -164,7 +165,10 @@ impl EntitiesHolderUnsafeFfi {
         let mut input_components_set = UniqueComponentsSetBuilder::new();
 
         for &ComponentPtr { id: component_id, .. } in components {
-            assert!(input_components_set.insert(component_id), "duplicate component type in set_components");
+            assert!(
+                input_components_set.insert(component_id),
+                "duplicate component type in set_components"
+            );
         }
 
         let Some(entity_location) = self.entities_meta.get(entity) else {
@@ -205,8 +209,13 @@ impl EntitiesHolderUnsafeFfi {
 
         // Safety. Access is unique and is only used in the method scope.
         let last_entity = unsafe {
-            ArchetypeUnsafeFfi::set_components(src_archetype, dst_archetype, entity_location.entity_archetype_index, components)
-                .unwrap()
+            ArchetypeUnsafeFfi::set_components(
+                src_archetype,
+                dst_archetype,
+                entity_location.entity_archetype_index,
+                components,
+            )
+            .unwrap()
         };
 
         if last_entity != entity {
@@ -285,14 +294,18 @@ impl EntitiesHolderUnsafeFfi {
             return;
         };
 
-        let arch = self.archetypes
-            .by_id_ref(entity_location.archetype_id)
-            .unwrap();
+        let arch = self.archetypes.by_id_ref(entity_location.archetype_id).unwrap();
 
-        arch.layout().components().iter().map(|c| {
-            let ptr = arch.get_component_ptr(entity_location.entity_archetype_index, c.type_info.id).unwrap();
+        arch.layout()
+            .components()
+            .iter()
+            .map(|c| {
+                let ptr = arch
+                    .get_component_ptr(entity_location.entity_archetype_index, c.type_info.id)
+                    .unwrap();
 
-            handler.execute((ptr, c.type_info.data))
-        }).collect()
+                handler.execute((ptr, c.type_info.data))
+            })
+            .collect()
     }
 }

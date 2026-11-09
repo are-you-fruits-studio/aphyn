@@ -31,17 +31,26 @@ fn main() {
 
     let mut app = App::new();
 
-    let ctx = app.init_ctx_mut();
-    ctx.window.size = WINDOW_SIZE;
-    ctx.window.is_resizable = false;
-    ctx.window.title = "aphyn showcase".into();
+    let AppInitCtx {
+        mut data,
+        mut behavior,
+        render,
+        window,
+        ..
+    } = app.init_ctx_mut();
+    window.size = WINDOW_SIZE;
+    window.is_resizable = false;
+    window.title = "aphyn showcase".into();
 
-    add_defult_modules_to(app.ecs_mut().as_mut());
+    add_defult_modules_to(data.as_mut(), behavior.as_mut(), render);
 
-    let ecs = app.ecs_mut();
-    ecs.data_mut().resources_mut().insert(LoopClock::default());
+    data.as_mut().resources_mut().insert(LoopClock::default());
 
-    let mut behavior = ecs.behavior_mut();
+    if let Some(dir) = &capture_dir {
+        capture::register(data.as_mut(), behavior.as_mut(), render, dir.clone());
+    }
+
+    let mut behavior = behavior.as_mut();
 
     let mut start = behavior.get_mut(Schedule::Start);
     start.insert_system(scene::setup_post_processing);
@@ -73,13 +82,11 @@ fn main() {
         .before_system(flock::integrate_boids);
     update.order_system(scene::draw_gizmos).before_group(SYSTEM_GROUP_RENDER);
 
-    if let Some(dir) = capture_dir {
+    if capture_dir.is_some() {
         update.insert_system(capture::measure_loop_seam);
         update
             .order_system(flock::integrate_boids)
             .before_system(capture::measure_loop_seam);
-
-        capture::register(app.ecs_mut().as_mut(), dir);
     }
 
     app.run();

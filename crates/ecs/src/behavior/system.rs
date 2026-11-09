@@ -114,7 +114,10 @@ pub struct SystemFfi {
 
 impl SystemFfi {
     pub fn new<S: SystemWithMarker<M>, M: 'static>(system: S, types: TypesRegistryCache) -> Self {
-        unsafe extern "C-unwind" fn ffi_execute<S: SystemWithMarker<M>, M: 'static>(system_native_data: *const c_void, ctx: SystemCtxFfi) {
+        unsafe extern "C-unwind" fn ffi_execute<S: SystemWithMarker<M>, M: 'static>(
+            system_native_data: *const c_void,
+            ctx: SystemCtxFfi,
+        ) {
             unsafe {
                 let system_native_data = &*(system_native_data as *const SystemNativeData<S, M>);
 
@@ -133,9 +136,12 @@ impl SystemFfi {
         let mut data_usage = DataUsageBuilder::new();
 
         system.fill_data_usage(&mut data_usage, &types);
-        
+
         let Some(data_usage) = data_usage.build() else {
-            panic!("aphyn: Invalid system DataUsage: {}. {data_usage:?}", std::any::type_name::<S>());
+            panic!(
+                "aphyn: Invalid system DataUsage: {}. {data_usage:?}",
+                std::any::type_name::<S>()
+            );
         };
 
         Self {

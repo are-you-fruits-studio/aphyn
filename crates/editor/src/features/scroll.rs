@@ -4,19 +4,17 @@ use crate::{SYSTEM_GROUP, features::ui_interaction::UiRaycastResource};
 
 const MIN_HANDLE_HEIGHT: f32 = 20.0;
 
-pub fn register_feature(mut world: WorldBuilderMut) {
-    world
-        .data_mut()
-        .resources_mut()
-        .insert(ScrollResource {
-            active_scroll: EntityId::EMPTY,
-            grab_offset: 0.0,
-        });
+// todo: bundle registration params
+pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+    data.resources_mut().insert(ScrollResource {
+        active_scroll: EntityId::EMPTY,
+        grab_offset: 0.0,
+    });
 
-    let mut behavior = world.behavior_mut();
     let mut update = behavior.get_mut(Schedule::Update);
 
-    update.group(SYSTEM_GROUP)
+    update
+        .group(SYSTEM_GROUP)
         .insert_child_system(update_scroll_handle_size_system)
         .insert_child_system(start_end_scrolling_system)
         .insert_child_system(move_scroll_handle_system);

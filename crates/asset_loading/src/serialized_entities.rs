@@ -5,13 +5,17 @@ use aphyn_audio::AudioClip;
 use aphyn_ecs::*;
 use aphyn_ffi::{FfiIndexMap, FfiString};
 use aphyn_prefab::{Prefab, Scene, SerializedEntities, deserialize_component, deserialize_entity_components, serialize_components};
-use aphyn_render_core::{StandardMaterial, StandardMesh, StandardShader, StandardTexture};
+use aphyn_render::{Material, MaterialTemplate, Shader, StandardMesh, StandardTexture};
 use aphyn_serialization::*;
+use aphyn_serialization_ecs::SerializersResource;
 use aphyn_ui::Font;
 
 use crate::save_load_with_asset_serializers_from_world;
 
-pub fn deserialize_entities_no_deps(mut ctx: SerializerCtx<PureSerializerCtxState>, serialized: &SerializedValue) -> SerializedEntities {
+pub fn deserialize_entities_no_deps(
+    mut ctx: SerializerCtx<PureSerializerCtxState>,
+    serialized: &SerializedValue,
+) -> SerializedEntities {
     let mut deserialized_entities = SerializedEntities::default();
 
     ctx.deserialize_map_fields("", serialized)
@@ -37,10 +41,11 @@ pub fn instantiate_serialized_entities(
     let serializers_global = res.get::<SerializersResource>().unwrap();
 
     let textures = res.get::<AssetStorageResource<StandardTexture>>();
-    let materials = res.get::<AssetStorageResource<StandardMaterial>>();
+    let materials = res.get::<AssetStorageResource<Material>>();
+    let templates = res.get::<AssetStorageResource<MaterialTemplate>>();
     let meshes = res.get::<AssetStorageResource<StandardMesh>>();
     let audio_clips = res.get::<AssetStorageResource<AudioClip>>();
-    let shaders = res.get::<AssetStorageResource<StandardShader>>();
+    let shaders = res.get::<AssetStorageResource<Shader>>();
     let fonts = res.get::<AssetStorageResource<Font>>();
     let prefabs = res.get::<AssetStorageResource<Prefab>>();
     let scenes = res.get::<AssetStorageResource<Scene>>();
@@ -54,9 +59,13 @@ pub fn instantiate_serialized_entities(
     {
         let mut serializers_local = TransSerializerRegistry::new();
 
-        serializers_local.register(EntityTransSerializer::new(EntityIdDecoder::Restricted(&id_to_ent), EntityIdEncoder::Empty));
+        serializers_local.register(EntityTransSerializer::new(
+            EntityIdDecoder::Restricted(&id_to_ent),
+            EntityIdEncoder::Empty,
+        ));
         serializers_local.register(AssetInstantiateTransSerializer::new(textures));
         serializers_local.register(AssetInstantiateTransSerializer::new(materials));
+        serializers_local.register(AssetInstantiateTransSerializer::new(templates));
         serializers_local.register(AssetInstantiateTransSerializer::new(meshes));
         serializers_local.register(AssetInstantiateTransSerializer::new(audio_clips));
         serializers_local.register(AssetInstantiateTransSerializer::new(shaders));
@@ -66,7 +75,9 @@ pub fn instantiate_serialized_entities(
 
         let mut err_handler = |err| println!("[{}:{}] {err}", file!(), line!());
         let serializer_ctx_state = serializers_global.to_ctx_state();
-        let mut serializer_ctx = serializer_ctx_state.wrap_with_local(&serializers_local).into_ctx(&mut err_handler);
+        let mut serializer_ctx = serializer_ctx_state
+            .wrap_with_local(&serializers_local)
+            .into_ctx(&mut err_handler);
 
         for (&entity_id, entity_components) in &serialized_entities.0 {
             let entity = *id_to_ent.get(&entity_id).unwrap();
@@ -104,7 +115,11 @@ pub fn record_serialized_entities(
     let ent_to_id = if can_serialize_any_entity {
         EntityIdEncoder::World(ent)
     } else {
-        ent_to_id = entities_ordered.iter().copied().map(|e| (e, ent.encode_entity_as_id(e))).collect::<HashMap<_, _>>();
+        ent_to_id = entities_ordered
+            .iter()
+            .copied()
+            .map(|e| (e, ent.encode_entity_as_id(e)))
+            .collect::<HashMap<_, _>>();
         EntityIdEncoder::Restricted(&ent_to_id)
     };
 
@@ -164,7 +179,8 @@ pub fn record_entity_components(
 
         serialize_components(entity, serializer_ctx, ent)
         // todo: maybe return option?
-    }).unwrap_or_default()
+    })
+    .unwrap_or_default()
 }
 
 // todo
@@ -193,7 +209,9 @@ pub fn override_entity_components(
     let mut err_handler = |err| println!("[{}:{}] {err}", file!(), line!());
 
     let serializer_ctx_state = serializers_global.to_ctx_state();
-    let serializer_ctx = serializer_ctx_state.wrap_with_local(&serializers_local).into_ctx(&mut err_handler);
+    let serializer_ctx = serializer_ctx_state
+        .wrap_with_local(&serializers_local)
+        .into_ctx(&mut err_handler);
 
     deserialize_entity_components(components, entity, serializer_ctx, ent)
 }
@@ -207,12 +225,16 @@ pub fn deserialize_entity_component_at_path(
     serialized: &SerializedValue,
 ) -> bool {
     let serializers_global = res.get::<SerializersResource>().unwrap();
-    
+
     // todo: optimize and don't id-cache the whole world
-    let id_to_ent = ent.query::<EntityId>().iter().map(|e| (ent.encode_entity_as_id(e), e)).collect::<HashMap<_, _>>();
+    let id_to_ent = ent
+        .query::<EntityId>()
+        .iter()
+        .map(|e| (ent.encode_entity_as_id(e), e))
+        .collect::<HashMap<_, _>>();
 
     let mut serializers_sublocal = TransSerializerRegistry::new();
-    
+
     serializers_sublocal.register(EntityTransSerializer {
         entities_deserialized: EntityIdDecoder::Restricted(&id_to_ent),
         entities_serialized: EntityIdEncoder::Empty,
@@ -228,13 +250,14 @@ pub fn deserialize_entity_component_at_path(
             .into_ctx(&mut err_handler);
 
         deserialize_component(ent, entity, component_id, serializer_ctx, path, serialized)
-    }).unwrap_or(false)
+    })
+    .unwrap_or(false)
 }
 
 pub enum EntityIdEncoder<'a> {
     Empty,
     World(EntitiesHolderRef<'a>),
-    Restricted(&'a HashMap<EntityId, u64>)
+    Restricted(&'a HashMap<EntityId, u64>),
 }
 
 impl<'a> EntityIdEncoder<'a> {
@@ -250,7 +273,7 @@ impl<'a> EntityIdEncoder<'a> {
 pub enum EntityIdDecoder<'a> {
     Empty,
     World(EntitiesHolderRef<'a>),
-    Restricted(&'a HashMap<u64, EntityId>)
+    Restricted(&'a HashMap<u64, EntityId>),
 }
 
 impl<'a> EntityIdDecoder<'a> {
@@ -269,10 +292,7 @@ pub struct EntityTransSerializer<'brw> {
 }
 
 impl<'brw> EntityTransSerializer<'brw> {
-    pub fn new(
-        entities_deserialized: EntityIdDecoder<'brw>,
-        entities_serialized: EntityIdEncoder<'brw>,
-    ) -> Self {
+    pub fn new(entities_deserialized: EntityIdDecoder<'brw>, entities_serialized: EntityIdEncoder<'brw>) -> Self {
         Self {
             entities_deserialized,
             entities_serialized,
@@ -299,17 +319,17 @@ impl<'brw, S: Copy> Serializer<S> for EntityTransSerializer<'brw> {
         }
 
         let result = match serialized {
-            SerializedValue::Primitive(SerializedPrimitive::Int(number)) => {
-                match *number {
-                    0 => Some(EntityId::EMPTY),
-                    number => Some(self.entities_deserialized.entity_from_id(number as u64)),
-                }
+            SerializedValue::Primitive(SerializedPrimitive::Int(number)) => match *number {
+                0 => Some(EntityId::EMPTY),
+                number => Some(self.entities_deserialized.entity_from_id(number as u64)),
             },
             _ => None,
         };
 
         if result.is_none() {
-            ctx.report_err(SerializationError::InvalidInput { message: "failed to parse entity".into() });
+            ctx.report_err(SerializationError::InvalidInput {
+                message: "failed to parse entity".into(),
+            });
         }
 
         *value = result.unwrap_or_else(|| EntityId::EMPTY)
@@ -321,13 +341,11 @@ impl<'brw, S: Copy> Serializer<S> for EntityTransSerializer<'brw> {
 }
 
 pub struct AssetInstantiateTransSerializer<'a, T: 'static> {
-    asset_storage: Option<&'a AssetStorageResource<T>>
+    asset_storage: Option<&'a AssetStorageResource<T>>,
 }
 impl<'a, T: 'static> AssetInstantiateTransSerializer<'a, T> {
     pub fn new(asset_storage: Option<&'a AssetStorageResource<T>>) -> Self {
-        Self {
-            asset_storage,
-        }
+        Self { asset_storage }
     }
 }
 impl<'a, T: 'static, S: Copy> Serializer<S> for AssetInstantiateTransSerializer<'a, T> {
@@ -345,14 +363,22 @@ impl<'a, T: 'static, S: Copy> Serializer<S> for AssetInstantiateTransSerializer<
         *value = Default::default();
 
         let SerializedValue::Primitive(SerializedPrimitive::String(serialized)) = serialized else {
-            ctx.report_err(SerializationError::InvalidInput { message: "AssetHandle can only be deserialized from string".into() });
+            ctx.report_err(SerializationError::InvalidInput {
+                message: "AssetHandle can only be deserialized from string".into(),
+            });
             return;
         };
 
-        let asset_handle = self.asset_storage.map(|s| s.get_registered(serialized.as_str())).flatten().cloned();
+        let asset_handle = self
+            .asset_storage
+            .map(|s| s.get_registered(serialized.as_str()))
+            .flatten()
+            .cloned();
 
         let Some(asset_handle) = asset_handle else {
-            ctx.report_err(SerializationError::InvalidInput { message: format!("AssetHandle {serialized} cannot be loaded").into() });
+            ctx.report_err(SerializationError::InvalidInput {
+                message: format!("AssetHandle {serialized} cannot be loaded").into(),
+            });
             return;
         };
 

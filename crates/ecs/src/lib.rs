@@ -14,9 +14,12 @@
 //!
 //! #### Building a world and running its systems
 //!
-//! Register systems on a [`WorldBuilder`], seed entities and resources, then [`build`](WorldBuilder::build)
-//! the [`World`] and drive it one schedule pass at a time with
-//! [`execute_iteration`](World::execute_iteration).
+//! A world is two sibling parts: [`WorldData`] holds the entities, resources, and events, and
+//! [`WorldBehaviorBuilder`] collects the systems per schedule. Seed the data, register systems,
+//! [`build`](WorldBehaviorBuilder::build) the [`WorldBehavior`], and drive it one schedule pass at a
+//! time with [`execute_iteration`](WorldBehavior::execute_iteration), passing the data it runs on.
+//! Both parts must come from one type registry, so create the builder from the data's
+//! [`types`](WorldData::types).
 //!
 //! ```rust,no_run
 //! use aphyn_ecs::*;
@@ -34,15 +37,15 @@
 //!     }
 //! }
 //!
-//! let mut builder = WorldBuilder::new();
+//! let mut data = WorldData::default();
+//! let mut behavior = WorldBehaviorBuilder::new(data.types().clone());
 //!
-//! builder
-//!     .behavior_mut()
+//! behavior
+//!     .as_mut()
 //!     .get_mut(Schedule::Update)
 //!     .insert_system(integrate);
 //!
 //! {
-//!     let mut data = builder.data_mut();
 //!     let mut entities = data.entities_mut();
 //!
 //!     let e = entities.create_entity();
@@ -50,8 +53,8 @@
 //!     entities.add_component(e, Velocity { x: 1.0, y: 0.0 }).ok().unwrap();
 //! }
 //!
-//! let mut world = builder.build();
-//! world.execute_iteration(Schedule::Update);
+//! let mut behavior = behavior.build();
+//! behavior.execute_iteration(Schedule::Update, data.as_mut());
 //! ```
 //!
 //! #### Querying entities and their components
@@ -98,10 +101,12 @@
 //!     println!("score is {}", score.0);
 //! }
 //!
-//! let mut builder = WorldBuilder::new();
-//! builder.data_mut().resources_mut().insert(Score(0));
-//! builder.behavior_mut().get_mut(Schedule::Update).insert_system(add_point);
-//! builder.behavior_mut().get_mut(Schedule::Update).insert_system(announce);
+//! let mut data = WorldData::default();
+//! data.resources_mut().insert(Score(0));
+//!
+//! let mut behavior = WorldBehaviorBuilder::new(data.types().clone());
+//! behavior.as_mut().get_mut(Schedule::Update).insert_system(add_point);
+//! behavior.as_mut().get_mut(Schedule::Update).insert_system(announce);
 //! ```
 //!
 //! #### Reading and writing events
@@ -191,8 +196,9 @@
 //! fn step_physics() {}
 //! fn draw() {}
 //!
-//! let mut builder = WorldBuilder::new();
-//! let mut behavior = builder.behavior_mut();
+//! let data = WorldData::default();
+//! let mut builder = WorldBehaviorBuilder::new(data.types().clone());
+//! let mut behavior = builder.as_mut();
 //! let mut update = behavior.get_mut(Schedule::Update);
 //!
 //! update.insert_system(read_input);
@@ -214,7 +220,12 @@
 //! exposes only pointer-based, `unsafe` operations; a borrow-checked wrapper (`*Mut` / `*Ref`) pairs
 //! that storage with a [`TypesRegistryCache`] and presents the safe, generic API the rest of the
 //! crate uses. [`WorldDataUnsafeFfi`] bundles the three stores — resources, events, and entities —
-//! and [`WorldUnsafeFfi`] adds the per-schedule behavior. The stable `#[repr(C)]` layout is what lets
+//! and [`WorldBehaviorBuilderFfi`] / [`WorldBehaviorFfi`] hold the per-schedule systems as a separate
+//! sibling. Nothing owns both: a schedule runs by handing the data pointer to
+//! [`WorldBehavior::execute_iteration`], the same way `aphyn_render_features` hands it to render
+//! features. The two must share one [`TypesRegistryAccessFfi`] (ids are per registry), which is why
+//! [`WorldBehaviorBuilder::new`] takes the cache from [`WorldData::types`]; nothing checks this at
+//! run time. The stable `#[repr(C)]` layout is what lets
 //! these structures cross the FFI boundary, which is why type identity is carried as a runtime `u64`
 //! rather than a Rust generic. Schedule builders are driven through `SystemsHolderBuilderFfiVTable`
 //! (insert, order, group, clear, build); changing that vtable changes its layout, so game libraries
@@ -231,6 +242,12 @@
 //! lazily through `get_or_register` the first time they are used. Untyped storage (resources
 //! kept as `FfiAny` values in [`ResourcesHolderUnsafeFfi`], `EventsHolderNative`, archetype
 //! memory) allocates and drops values purely from this type info.
+//!
+//! Code across the boundary that receives only a raw `*mut WorldDataUnsafeFfi` (a render feature
+//! from a game library, see `aphyn_render_features`) reads the world's registry through
+//! [`WorldDataUnsafeFfi::types`], builds its own [`TypesRegistryCache`] from a clone of it, and
+//! pairs both with the unsafe [`WorldDataMut::new`]. A cache is only valid for the registry it was
+//! built from.
 //!
 //! #### Archetype storage
 //!
@@ -275,22 +292,20 @@
 //!
 //! #### Schedules
 //!
-//! [`Schedule`] is a fixed set of passes ([`Start`](Schedule::Start), [`Update`](Schedule::Update),
-//! [`RenderCamera`](Schedule::RenderCamera)). The world holds one independent system set per schedule,
-//! and the driving application chooses when each pass runs — typically `Start` once, `Update` every
-//! frame, and `RenderCamera` once per rendered camera after `Update`.
+//! [`Schedule`] is a fixed set of passes ([`Start`](Schedule::Start), [`Update`](Schedule::Update)).
+//! The world holds one independent system set per schedule, and the driving application chooses when
+//! each pass runs — typically `Start` once and `Update` every frame. Rendering is not a schedule: it
+//! runs through the render features of `aphyn_render_features`.
 
 mod behavior;
 mod data;
 mod data_usage;
 mod types_registry;
-mod world;
 
 pub use behavior::*;
 pub use data::*;
 pub use data_usage::*;
 pub use types_registry::*;
-pub use world::*;
 
 pub use aphyn_ecs_macros::*;
 

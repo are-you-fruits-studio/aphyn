@@ -2,7 +2,7 @@ use std::path::Path;
 
 use aphyn_asset_storage::AssetStorageResource;
 use aphyn_ecs::{ResourcesHolderMut, ResourcesHolderRef};
-use aphyn_render_core::{FilterMode, RenderApiResource, StandardTexture, StandardTextureAssetMetadata};
+use aphyn_render::{FilterMode, RenderApiResource, StandardTexture, StandardTextureAssetMetadata};
 
 use aphyn_serialization::{PureSerializerCtxState, SerializedValue, SerializerCtx, SerializerCtxState};
 use image::EncodableLayout;
@@ -16,10 +16,12 @@ pub struct TextureHandleLoader<'a> {
 
 impl<'a> TextureHandleLoader<'a> {
     pub fn from_world(res: ResourcesHolderMut<'a>) -> Option<Self> {
-        Some(unsafe { Self {
-            render_api: &*res.get_ptr::<RenderApiResource>()?,
-            textures: &mut *res.get_ptr::<AssetStorageResource<StandardTexture>>()?,
-        }})
+        Some(unsafe {
+            Self {
+                render_api: &*res.get_ptr::<RenderApiResource>()?,
+                textures: &mut *res.get_ptr::<AssetStorageResource<StandardTexture>>()?,
+            }
+        })
     }
 }
 
@@ -34,11 +36,17 @@ impl<'a, S: Copy + SerializerCtxState<StandardTextureAssetMetadata>> AssetLoader
     fn get_related_asset_storage(&mut self) -> &mut AssetStorageResource<Self::Asset> {
         self.textures
     }
-    
-    fn load_from_serialized(&mut self, mut ctx: SerializerCtx<S>, value: &SerializedValue, assets_dir_path: impl AsRef<Path>) -> Option<Self::Asset> {
+
+    fn load_from_serialized(
+        &mut self,
+        mut ctx: SerializerCtx<S>,
+        value: &SerializedValue,
+        assets_dir_path: impl AsRef<Path>,
+    ) -> Option<Self::Asset> {
         TextureLoader {
             render_api: self.render_api,
-        }.load_from_deserialized(ctx.deserialize_default("", value), assets_dir_path)
+        }
+        .load_from_deserialized(ctx.deserialize_default("", value), assets_dir_path)
     }
 }
 
@@ -60,15 +68,19 @@ impl<'a> TextureLoader<'a> {
         let mut ctx = SerializerCtx::new(PureSerializerCtxState, &mut err_handler);
         let deserialized = ctx.deserialize_default::<StandardTextureAssetMetadata>("", value);
 
-        self.load_from_deserialized(
-            deserialized,
-            assets_dir_path,
-        )
+        self.load_from_deserialized(deserialized, assets_dir_path)
     }
 
-    pub fn load_from_deserialized(&mut self, deserialized: StandardTextureAssetMetadata, assets_dir_path: impl AsRef<Path>) -> Option<StandardTexture> {
+    pub fn load_from_deserialized(
+        &mut self,
+        deserialized: StandardTextureAssetMetadata,
+        assets_dir_path: impl AsRef<Path>,
+    ) -> Option<StandardTexture> {
         if deserialized.raw_texture.as_str().is_empty() {
-            return Some(self.render_api.create_texture(FilterMode::Nearest, [1, 1], &[255; 4], deserialized));
+            return Some(
+                self.render_api
+                    .create_texture(FilterMode::Nearest, [1, 1], &[255; 4], deserialized),
+            );
         }
 
         let mut path = assets_dir_path.as_ref().to_path_buf();
@@ -83,7 +95,9 @@ impl<'a> TextureLoader<'a> {
     pub fn load_from_bytes(&mut self, bytes: &[u8], meta: StandardTextureAssetMetadata) -> Option<StandardTexture> {
         let img = image::load_from_memory(bytes).ok()?.to_rgba8();
 
-        let texture = self.render_api.create_texture(FilterMode::Nearest, img.dimensions().into(), &img.as_bytes(), meta);
+        let texture = self
+            .render_api
+            .create_texture(FilterMode::Nearest, img.dimensions().into(), &img.as_bytes(), meta);
 
         Some(texture)
     }

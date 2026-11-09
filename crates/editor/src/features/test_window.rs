@@ -11,13 +11,14 @@ use crate::{
     prefabs::{self, WindowComponent},
 };
 
-pub fn register_feature(mut world: WorldBuilderMut) {
-    world.data_mut().resources_mut().insert(WindowsDropdownResource::default());
+// todo: bundle registration params
+pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+    data.resources_mut().insert(WindowsDropdownResource::default());
 
-    let mut behavior = world.behavior_mut();
     let mut update = behavior.get_mut(Schedule::Update);
 
-    update.group(SYSTEM_GROUP)
+    update
+        .group(SYSTEM_GROUP)
         .insert_child_system(open_windows_dropdown_system)
         .insert_child_system(open_windows_system);
 
@@ -47,7 +48,13 @@ pub const WINDOW_KIND_INSPECTOR: &str = "Inspector Window";
 pub const WINDOW_KIND_SCENE: &str = "Scene Window";
 pub const WINDOW_KIND_GAME: &str = "Game Window";
 
-const WINDOW_KINDS: [&str; 5] = [WINDOW_KIND_PROJECT, WINDOW_KIND_HIERARCHY, WINDOW_KIND_INSPECTOR, WINDOW_KIND_SCENE, WINDOW_KIND_GAME];
+const WINDOW_KINDS: [&str; 5] = [
+    WINDOW_KIND_PROJECT,
+    WINDOW_KIND_HIERARCHY,
+    WINDOW_KIND_INSPECTOR,
+    WINDOW_KIND_SCENE,
+    WINDOW_KIND_GAME,
+];
 
 fn open_windows_dropdown_system(
     button_q: WorldQuery<(&ButtonComponent, &GlobalRectComponent), WithFilter<WindowsButtonComponent>>,
@@ -76,13 +83,24 @@ pub fn open_windows_system(mut world: WorldDataMut) {
 
 pub fn open_window_by_kind(world: WorldDataMut, kind: &str) -> Option<EntityId> {
     match kind {
-        WINDOW_KIND_PROJECT => open_specific_window(world, kind, ProjectWindowComponent::default(), prefabs::init_window_as_project),
-        WINDOW_KIND_HIERARCHY => {
-            open_specific_window(world, kind, HierarchyWindowComponent::default(), prefabs::init_window_as_hierarchy)
-        }
-        WINDOW_KIND_INSPECTOR => {
-            open_specific_window(world, kind, InspectorWindowComponent::default(), prefabs::init_window_as_inspector)
-        }
+        WINDOW_KIND_PROJECT => open_specific_window(
+            world,
+            kind,
+            ProjectWindowComponent::default(),
+            prefabs::init_window_as_project,
+        ),
+        WINDOW_KIND_HIERARCHY => open_specific_window(
+            world,
+            kind,
+            HierarchyWindowComponent::default(),
+            prefabs::init_window_as_hierarchy,
+        ),
+        WINDOW_KIND_INSPECTOR => open_specific_window(
+            world,
+            kind,
+            InspectorWindowComponent::default(),
+            prefabs::init_window_as_inspector,
+        ),
         WINDOW_KIND_SCENE => open_specific_window(world, kind, SceneWindowComponent, prefabs::init_window_as_scene),
         WINDOW_KIND_GAME => open_specific_window(world, kind, GameWindowComponent, prefabs::init_window_as_game),
         _ => None,

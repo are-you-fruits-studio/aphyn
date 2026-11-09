@@ -11,9 +11,10 @@ crate-type = ["lib"]
 
 [dependencies]
 aphyn_ecs = { path = "../ecs" }
-aphyn_render = { path = "../render" }
 aphyn_audio = { path = "../audio" }
+aphyn_render = { path = "../render" }
 aphyn_render_core = { path = "../render_core" }
+aphyn_render_features = { path = "../render_features" }
 aphyn_ui = { path = "../ui" }
 aphyn_transform = { path = "../transform" }
 aphyn_collision = { path = "../collision" }
@@ -21,5 +22,6 @@ aphyn_prefab = { path = "../prefab" }
 aphyn_asset_storage = { path = "../asset_storage" }
 aphyn_asset_loading = { path = "../asset_loading" }
 aphyn_serialization = { path = "../serialization" }
+aphyn_serialization_ecs = { path = "../serialization_ecs" }
 aphyn_math = { path = "../math" }
 aphyn_ffi = { path = "../ffi" }

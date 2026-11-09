@@ -1,0 +1,11 @@
+[package]
+name = "aphyn_serialization_ecs"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+aphyn_ecs = { path = "../ecs" }
+aphyn_serialization = { path = "../serialization" }

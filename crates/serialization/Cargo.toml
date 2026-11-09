@@ -11,7 +11,6 @@ crate-type = ["lib"]
 
 [dependencies]
 aphyn_serialization_macros = { path = "../serialization_macros" }
-aphyn_ecs = { path = "../ecs" }
 aphyn_math = { path = "../math" }
 aphyn_ffi = { path = "../ffi" }
 serde = { version = "1" }

@@ -9,10 +9,10 @@ use crate::{
     prefabs::WindowComponent,
 };
 
-pub fn register_feature(mut world: WorldBuilderMut) {
-    world.data_mut().resources_mut().insert(WindowsOrderResource::default());
+// todo: bundle registration params
+pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+    data.resources_mut().insert(WindowsOrderResource::default());
 
-    let mut behavior = world.behavior_mut();
     let mut update = behavior.get_mut(Schedule::Update);
 
     update
@@ -31,9 +31,15 @@ pub fn register_feature(mut world: WorldBuilderMut) {
         .before_system(highlit_window_scale_handles_system)
         .before_system(rescale_window_system);
 
-    update.order_system(drag_window_system).before_system(keep_windows_inside_dock_system);
-    update.order_system(rescale_window_system).before_system(keep_windows_inside_dock_system);
-    update.order_system(check_ui_interaction_system).before_system(order_windows_system);
+    update
+        .order_system(drag_window_system)
+        .before_system(keep_windows_inside_dock_system);
+    update
+        .order_system(rescale_window_system)
+        .before_system(keep_windows_inside_dock_system);
+    update
+        .order_system(check_ui_interaction_system)
+        .before_system(order_windows_system);
     update.order_system(close_window_system).before_system(order_windows_system);
 }
 
@@ -188,7 +194,7 @@ pub fn highlit_window_scale_handles_system(
             let Some((hover_c, image_c)) = handle_q.get_mut(ent_scale_border) else {
                 continue;
             };
-            
+
             image_c.color.w = match hover_c.is_hovered {
                 true => 1.0,
                 false => 0.0,
@@ -220,8 +226,14 @@ pub fn rescale_window_system(
             (window_c.scale_border_bottom, [None, Some(ScaleEdge::Max)]),
             (window_c.scale_corner_top_left, [Some(ScaleEdge::Min), Some(ScaleEdge::Min)]),
             (window_c.scale_corner_top_right, [Some(ScaleEdge::Max), Some(ScaleEdge::Min)]),
-            (window_c.scale_corner_bottom_left, [Some(ScaleEdge::Min), Some(ScaleEdge::Max)]),
-            (window_c.scale_corner_bottom_right, [Some(ScaleEdge::Max), Some(ScaleEdge::Max)]),
+            (
+                window_c.scale_corner_bottom_left,
+                [Some(ScaleEdge::Min), Some(ScaleEdge::Max)],
+            ),
+            (
+                window_c.scale_corner_bottom_right,
+                [Some(ScaleEdge::Max), Some(ScaleEdge::Max)],
+            ),
         ];
 
         for (handle, edges) in handles {
@@ -255,14 +267,18 @@ fn px_scale(rect: &LocalRectComponent, axis: usize) -> f32 {
 
 fn drag_max_edge(rect: &mut LocalRectComponent, axis: usize, diff: f32, bounds: Bounds) {
     let offset = px_offset(rect, axis);
-    let size = (px_scale(rect, axis) + diff).min(bounds.max[axis] - offset).max(MIN_WINDOW_SIZE[axis]);
+    let size = (px_scale(rect, axis) + diff)
+        .min(bounds.max[axis] - offset)
+        .max(MIN_WINDOW_SIZE[axis]);
     rect.scale[axis] = UiVal::px(size).into();
 }
 
 fn drag_min_edge(rect: &mut LocalRectComponent, axis: usize, diff: f32, bounds: Bounds) {
     let old_offset = px_offset(rect, axis);
     let max_edge = old_offset + px_scale(rect, axis);
-    let offset = (old_offset + diff).max(bounds.min[axis]).min(max_edge - MIN_WINDOW_SIZE[axis]);
+    let offset = (old_offset + diff)
+        .max(bounds.min[axis])
+        .min(max_edge - MIN_WINDOW_SIZE[axis]);
     rect.scale[axis] = UiVal::px(max_edge - offset).into();
     rect.offset[axis] = UiVal::px(offset);
 }

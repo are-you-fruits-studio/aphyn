@@ -1,7 +1,8 @@
 use aphyn::*;
 
-pub fn register_feature(mut world: WorldBuilderMut) {
-    let mut data = world.data_mut();
+// todo: bundle registration params
+pub fn register_feature(mut data: WorldDataMut, _behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+    let mut data = data.as_mut();
     let mut res = data.resources_mut();
     let serializer = res.get_mut::<SerializersResource>().unwrap();
 

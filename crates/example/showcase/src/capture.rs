@@ -1,7 +1,6 @@
 use std::{fs::File, io::BufWriter, path::PathBuf, thread::JoinHandle};
 
 use aphyn::*;
-use wgpu::*;
 
 use crate::{CAPTURE_FPS, LOOP_STEPS, LoopClock, SIM_HZ, WARMUP_LOOPS, WINDOW_SIZE, flock::FlockMember};
 
@@ -9,7 +8,9 @@ const FIRST_STEP: u64 = (WARMUP_LOOPS * LOOP_STEPS) as u64;
 const STEPS_PER_FRAME: u64 = (SIM_HZ / CAPTURE_FPS) as u64;
 const FRAMES: u64 = LOOP_STEPS as u64 / STEPS_PER_FRAME;
 const PENDING_WRITES_MAX: usize = 8;
-const CAPTURE_FORMAT: TextureFormat = TextureFormat::Rgba8UnormSrgb;
+const CAPTURE_FORMAT: GpuTextureFormat = GpuTextureFormat::Rgba8UnormSrgb;
+// after every engine pass, gizmos included, so the capture matches what the window shows
+const RENDER_ORDER_CAPTURE: u64 = RENDER_ORDER_GIZMOS + 50_000;
 
 const SHADER: &str = r#"
 #include "aphyn/fullscreen.wgsl"
@@ -27,88 +28,29 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
 }
 "#;
 
-#[derive(Resource)]
-pub struct CaptureRequest(pub PathBuf);
-
-#[derive(Resource)]
-pub struct CaptureResource {
-    dir: PathBuf,
-    bind_group_layout: BindGroupLayout,
-    pipeline: RenderPipeline,
-    readback: Option<Readback>,
-    writes: Vec<JoinHandle<()>>,
+#[derive(Resource, Default)]
+pub struct LoopSeamResource {
     previous_loop: Vec<Vec3<f32>>,
 }
 
-struct Readback {
-    size: [u32; 2],
-    texture: Texture,
-    view: TextureView,
-    buffer: Buffer,
-    padded_row: u32,
-}
-
-pub fn register(mut world: WorldBuilderMut, dir: PathBuf) {
+pub fn register(mut data: WorldDataMut, _behavior: WorldBehaviorBuilderMut, render: &mut RenderFeatureRegistry, dir: PathBuf) {
     std::fs::create_dir_all(&dir).expect("cannot create the capture directory");
-    world.data_mut().resources_mut().insert(CaptureRequest(dir));
+    data.resources_mut().insert(LoopSeamResource::default());
 
-    let mut behavior = world.behavior_mut();
-
-    behavior.get_mut(Schedule::Start).insert_system(setup_capture);
-
-    let mut render_camera = behavior.get_mut(Schedule::RenderCamera);
-    render_camera.insert_system(capture_frame);
-    render_camera.order_group(SYSTEM_GROUP_RENDER).before_system(capture_frame);
-}
-
-pub fn setup_capture(mut world: WorldDataMut) {
-    let mut res = world.resources_mut();
-    let dir = res.get::<CaptureRequest>().unwrap().0.clone();
-    let render_state = unsafe { res.get::<RenderApiResource>().unwrap().raw() };
-    let device = render_state.device();
-
-    let bind_group_layout = create_bind_group_layout(
-        device,
-        Some("Showcase Capture Bind Group Layout"),
-        &[CreateBindGroupLayoutEntry::Texture],
-    );
-    let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-        label: Some("Showcase Capture Pipeline Layout"),
-        bind_group_layouts: &[&bind_group_layout],
-        push_constant_ranges: &[],
-    });
-    let shader = WgslComposer::with_engine_libraries()
-        .create_shader_module(device, "showcase_capture.wgsl", SHADER, &[])
-        .unwrap();
-    let pipeline = create_render_pipeline(
-        device,
-        Some("Showcase Capture Pipeline"),
-        &pipeline_layout,
-        &shader,
-        &[],
-        ColorTargetState {
-            format: CAPTURE_FORMAT,
-            blend: None,
-            write_mask: ColorWrites::ALL,
-        },
-        None,
-        PrimitiveTopology::TriangleList,
-        None,
-    );
-
-    res.insert(CaptureResource {
-        dir,
-        bind_group_layout,
-        pipeline,
-        readback: None,
-        writes: Vec::new(),
-        previous_loop: Vec::new(),
-    });
+    assert!(render.add_feature(
+        "showcase_capture",
+        CaptureFeature {
+            dir,
+            shader: None,
+            texture: None,
+            writes: Vec::new(),
+        }
+    ));
 }
 
 pub fn measure_loop_seam(
     clock: Res<LoopClock>,
-    mut capture: ResMut<CaptureResource>,
+    mut seam: ResMut<LoopSeamResource>,
     boids: WorldQuery<(&FlockMember, &GlobalTransform)>,
 ) {
     if !clock.step.is_multiple_of(LOOP_STEPS as u64) {
@@ -117,10 +59,10 @@ pub fn measure_loop_seam(
 
     let positions: Vec<_> = boids.iter().map(|(_, transform)| transform.position).collect();
 
-    if !capture.previous_loop.is_empty() {
+    if !seam.previous_loop.is_empty() {
         let drift = positions
             .iter()
-            .zip(capture.previous_loop.iter())
+            .zip(seam.previous_loop.iter())
             .map(|(end, start)| (*end - *start).length())
             .fold(0.0, f64::max);
         println!(
@@ -129,147 +71,111 @@ pub fn measure_loop_seam(
         );
     }
 
-    capture.previous_loop = positions;
+    seam.previous_loop = positions;
 }
 
-pub fn capture_frame(
-    clock: Res<LoopClock>,
-    mut capture: ResMut<CaptureResource>,
-    render_api: Res<RenderApiResource>,
-    current: Res<CurrentRenderingResource>,
-) {
-    if clock.step < FIRST_STEP || !(clock.step - FIRST_STEP).is_multiple_of(STEPS_PER_FRAME) {
-        return;
-    }
-
-    let frame = (clock.step - FIRST_STEP) / STEPS_PER_FRAME;
-
-    if frame == FRAMES {
-        for write in capture.writes.drain(..) {
-            write.join().unwrap();
-        }
-        println!("captured {FRAMES} frames into {}", capture.dir.display());
-        std::process::exit(0);
-    }
-
-    let render_state = unsafe { render_api.raw() };
-    let (device, queue) = (render_state.device(), render_state.queue());
-    let size = current.target_size();
-
-    if capture.readback.as_ref().is_none_or(|readback| readback.size != size) {
-        if size != WINDOW_SIZE {
-            eprintln!(
-                "warning: capturing {}x{}, expected {}x{}",
-                size[0], size[1], WINDOW_SIZE[0], WINDOW_SIZE[1]
-            );
-        }
-        capture.readback = Some(Readback::new(device, size));
-    }
-
-    let readback = capture.readback.as_ref().unwrap();
-    let bind_group = create_bind_group(
-        device,
-        Some("Showcase Capture Bind Group"),
-        &capture.bind_group_layout,
-        &[CreateBindGroupEntry::Texture(&current.target_view)],
-    );
-
-    let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
-        label: Some("Showcase Capture Encoder"),
-    });
-    {
-        let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("Showcase Capture Pass"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: &readback.view,
-                resolve_target: None,
-                ops: Operations {
-                    load: LoadOp::Clear(Color::BLACK),
-                    store: StoreOp::Store,
-                },
-                depth_slice: None,
-            })],
-            ..Default::default()
-        });
-        pass.set_pipeline(&capture.pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
-        pass.draw(0..3, 0..1);
-    }
-    encoder.copy_texture_to_buffer(
-        readback.texture.as_image_copy(),
-        TexelCopyBufferInfo {
-            buffer: &readback.buffer,
-            layout: TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(readback.padded_row),
-                rows_per_image: Some(size[1]),
-            },
-        },
-        Extent3d {
-            width: size[0],
-            height: size[1],
-            depth_or_array_layers: 1,
-        },
-    );
-    queue.submit(std::iter::once(encoder.finish()));
-
-    let rgb = readback.read(device);
-    let path = capture.dir.join(format!("frame_{frame:04}.png"));
-
-    if capture.writes.len() >= PENDING_WRITES_MAX {
-        capture.writes.remove(0).join().unwrap();
-    }
-    capture.writes.push(std::thread::spawn(move || write_png(path, size, &rgb)));
+struct CaptureFeature {
+    dir: PathBuf,
+    shader: Option<GpuShader>,
+    texture: Option<GpuTexture>,
+    writes: Vec<JoinHandle<()>>,
 }
 
-impl Readback {
-    fn new(device: &Device, size: [u32; 2]) -> Self {
-        let texture = device.create_texture(&TextureDescriptor {
-            label: Some("Showcase Capture Texture"),
-            size: Extent3d {
-                width: size[0],
-                height: size[1],
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: CAPTURE_FORMAT,
-            usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
-        let view = texture.create_view(&TextureViewDescriptor::default());
-        let padded_row = (size[0] * 4).div_ceil(COPY_BYTES_PER_ROW_ALIGNMENT) * COPY_BYTES_PER_ROW_ALIGNMENT;
-        let buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("Showcase Capture Buffer"),
-            size: padded_row as u64 * size[1] as u64,
-            usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
+impl RenderFeature for CaptureFeature {
+    fn add_passes(&mut self, world: WorldDataMut, passes: &mut RenderPassWriter<Self>) {
+        let Some(clock) = world.resources().get::<LoopClock>() else {
+            return;
+        };
 
-        Self {
-            size,
-            texture,
-            view,
-            buffer,
-            padded_row,
+        if clock.step < FIRST_STEP || !(clock.step - FIRST_STEP).is_multiple_of(STEPS_PER_FRAME) {
+            return;
         }
+
+        let frame = (clock.step - FIRST_STEP) / STEPS_PER_FRAME;
+
+        passes.add(RENDER_ORDER_CAPTURE, move |this, ctx| this.capture(frame, ctx));
     }
+}
 
-    fn read(&self, device: &Device) -> Vec<u8> {
-        let slice = self.buffer.slice(..);
-        slice.map_async(MapMode::Read, |result| result.unwrap());
-        device.poll(PollType::wait_indefinitely()).unwrap();
-
-        let mut rgb = Vec::with_capacity((self.size[0] * self.size[1] * 3) as usize);
-        for row in slice.get_mapped_range().chunks(self.padded_row as usize) {
-            for pixel in row[..self.size[0] as usize * 4].chunks(4) {
-                rgb.extend_from_slice(&pixel[..3]);
+impl CaptureFeature {
+    fn capture(&mut self, frame: u64, ctx: &mut RenderPassCtx) {
+        if frame == FRAMES {
+            for write in self.writes.drain(..) {
+                write.join().unwrap();
             }
+            println!("captured {FRAMES} frames into {}", self.dir.display());
+            std::process::exit(0);
         }
-        self.buffer.unmap();
 
-        rgb
+        let core = ctx.render_api.core();
+        let Some(current) = ctx.world.resources().get::<CurrentRenderingResource>() else {
+            return;
+        };
+        let target = current.target.texture();
+        let size = target.size();
+
+        let shader = self.shader.get_or_insert_with(|| {
+            let code = WgslComposer::with_engine_libraries()
+                .compose("showcase_capture.wgsl", SHADER, &[])
+                .unwrap();
+            let desc = GpuShaderDesc {
+                cull_mode: GpuCullMode::None,
+                depth_write: false,
+                ..Default::default()
+            };
+
+            core.create_shader(Some("showcase capture"), &code, desc).unwrap()
+        });
+
+        if self.texture.as_ref().is_none_or(|texture| texture.size() != size) {
+            if size != WINDOW_SIZE.map(|x| x as usize) {
+                eprintln!(
+                    "warning: capturing {}x{}, expected {}x{}",
+                    size[0], size[1], WINDOW_SIZE[0], WINDOW_SIZE[1]
+                );
+            }
+            self.texture = Some(core.create_texture(Some("showcase capture"), size, CAPTURE_FORMAT, 1));
+        }
+
+        let texture = self.texture.as_ref().unwrap();
+
+        core.draw(
+            &GpuRenderPass {
+                shader,
+                target: Some(GpuRenderPassTarget {
+                    view: texture,
+                    mip_level: 0,
+                    ops: GpuPassOps::Clear([0.0, 0.0, 0.0, 1.0]),
+                }),
+                depth: None,
+                bind_groups: &[&[(
+                    0,
+                    GpuBinding::Texture {
+                        texture: target,
+                        mip_level: None,
+                    },
+                )]],
+                vertex_buffers: &[],
+                viewport: None,
+                scissor: None,
+            },
+            0..3,
+            0..1,
+        );
+
+        let Some(rgba) = core.read_texture(texture, 0) else {
+            eprintln!("failed to read back frame {frame}");
+            return;
+        };
+
+        let rgb = rgba.chunks(4).flat_map(|pixel| &pixel[..3]).copied().collect::<Vec<_>>();
+        let path = self.dir.join(format!("frame_{frame:04}.png"));
+        let size = size.map(|x| x as u32);
+
+        if self.writes.len() >= PENDING_WRITES_MAX {
+            self.writes.remove(0).join().unwrap();
+        }
+        self.writes.push(std::thread::spawn(move || write_png(path, size, &rgb)));
     }
 }
 

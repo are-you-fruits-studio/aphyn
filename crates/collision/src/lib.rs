@@ -14,7 +14,8 @@
 //! use aphyn::*;
 //!
 //! let mut app = App::new();
-//! add_defult_modules_to(app.ecs_mut().as_mut());
+//! let ctx = app.init_ctx_mut();
+//! add_defult_modules_to(ctx.data, ctx.behavior, ctx.render);
 //! ```
 //!
 //! #### Making an entity collidable
@@ -115,18 +116,16 @@ pub use resources::*;
 pub use systems::*;
 pub use utils::*;
 
-use aphyn_ecs::{Schedule, WorldBuilderMut};
+use aphyn_ecs::{Schedule, WorldBehaviorBuilderMut, WorldDataMut};
+use aphyn_render_features::RenderFeatureRegistry;
 
 pub const SYSTEM_GROUP_COLLISION: &'static str = "aphyn_collision";
 
-pub fn add_collision_module_to(mut world: WorldBuilderMut) {
-    world
-        .data_mut()
-        .resources_mut()
-        .insert(CollisionWorldResource::default());
+// todo: bundle registration params
+pub fn add_collision_module_to(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+    data.resources_mut().insert(CollisionWorldResource::default());
 
-    world
-        .behavior_mut()
+    behavior
         .get_mut(Schedule::Update)
         .group(SYSTEM_GROUP_COLLISION)
         .insert_child_system(update_collision_world);

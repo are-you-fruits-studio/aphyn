@@ -2,33 +2,41 @@ use aphyn::*;
 
 fn main() {
     let mut app = App::new();
-    let world = app.ecs_mut();
+    let AppInitCtx {
+        mut data,
+        mut behavior,
+        render,
+        ..
+    } = app.init_ctx_mut();
 
-    add_defult_modules_to(world.as_mut());
-    fps_counter::add_module_to(world.as_mut());
+    add_defult_modules_to(data.as_mut(), behavior.as_mut(), render);
+    fps_counter::add_module_to(data.as_mut(), behavior.as_mut(), render);
 
-    world.behavior_mut().get_mut(Schedule::Start).insert_system(init);
-    world.behavior_mut().get_mut(Schedule::Update).insert_system(update_cursor_system);
+    behavior.as_mut().get_mut(Schedule::Start).insert_system(init);
+    behavior
+        .as_mut()
+        .get_mut(Schedule::Update)
+        .insert_system(update_cursor_system);
 
-    world
-        .behavior_mut()
+    behavior
+        .as_mut()
         .get_mut(Schedule::Start)
         .order_group(SYSTEM_GROUP_RENDER)
         .before_system(init);
 
-    world
-        .behavior_mut()
+    behavior
+        .as_mut()
         .get_mut(Schedule::Start)
         .order_group(SYSTEM_GROUP_UI)
         .before_system(init);
 
-    world
-        .behavior_mut()
+    behavior
+        .as_mut()
         .get_mut(Schedule::Update)
         .order_system(update_cursor_system)
         .before_group(SYSTEM_GROUP_TRANSFORM);
 
-    let mut world_data = world.data_mut();
+    let mut world_data = data.as_mut();
 
     let mut ec = world_data.entities_mut();
 
@@ -61,39 +69,24 @@ fn init(mut world: WorldDataMut) {
     let texture_text_handle = standard_ui_assets.texture_text_px_8_12.clone();
     let font = standard_ui_assets.font_px_8_12.clone();
 
-    let material_white = world.as_mut()
-        .resources_mut()
-        .get_mut::<RenderApiResource>()
-        .unwrap()
-        .create_material(StandardMaterialAssetMetadata {
-            shader: StandardEngineShader::UiOpaqueUnlit.into(),
-            color_tex: AssetHandle::EMPTY,
-            color: Vec4::splat(1.0),
-            alpha_threshold: 0.5,
-            ..Default::default()
-        });
+    let material_white =
+        create_material_from_template_key(world.as_ref().resources(), BUILTIN_TEMPLATE_UI_OPAQUE_UNLIT, MaterialData::new())
+            .unwrap();
 
-    let material_text = world.as_ref()
-        .resources()
-        .get::<RenderApiResource>()
-        .unwrap()
-        .create_material(StandardMaterialAssetMetadata {
-            shader: StandardEngineShader::UiOpaqueUnlit.into(),
-            color_tex: texture_text_handle.clone(),
-            color: Vec4::splat(1.0),
-            alpha_threshold: 0.5,
-            ..Default::default()
-        });
+    let mut text_data = MaterialData::new();
+    text_data.insert("color_tex", MaterialDataValue::Texture(texture_text_handle.clone()));
+    let material_text =
+        create_material_from_template_key(world.as_ref().resources(), BUILTIN_TEMPLATE_UI_OPAQUE_UNLIT, text_data).unwrap();
 
     let material_white = world.as_mut()
         .resources_mut()
-        .get_mut::<AssetStorageResource<StandardMaterial>>()
+        .get_mut::<AssetStorageResource<Material>>()
         .unwrap()
         .insert(material_white);
 
     let material_text = world.as_mut()
         .resources_mut()
-        .get_mut::<AssetStorageResource<StandardMaterial>>()
+        .get_mut::<AssetStorageResource<Material>>()
         .unwrap()
         .insert(material_text);
 
@@ -115,7 +108,7 @@ fn init(mut world: WorldDataMut) {
     ec.add_component(ent1, BatchedMeshComponent::default()).ok().unwrap();
     ec.add_component(
         ent1,
-        StandardMaterialComponent {
+        MaterialComponent {
             material: material_white.clone(),
         },
     )
@@ -146,7 +139,7 @@ fn init(mut world: WorldDataMut) {
     ec.add_component(ent2, BatchedMeshComponent::default()).ok().unwrap();
     ec.add_component(
         ent2,
-        StandardMaterialComponent {
+        MaterialComponent {
             material: material_white.clone(),
         },
     )
@@ -179,7 +172,7 @@ fn init(mut world: WorldDataMut) {
     ec.add_component(ent3, BatchedMeshComponent::default()).ok().unwrap();
     ec.add_component(
         ent3,
-        StandardMaterialComponent {
+        MaterialComponent {
             material: material_white.clone(),
         },
     )
@@ -211,7 +204,7 @@ fn init(mut world: WorldDataMut) {
     ec.add_component(ent4, BatchedMeshComponent::default()).ok().unwrap();
     ec.add_component(
         ent4,
-        StandardMaterialComponent {
+        MaterialComponent {
             material: material_text.clone(),
         },
     )
@@ -285,7 +278,7 @@ fn init(mut world: WorldDataMut) {
     ec.add_component(ent10, BatchedMeshComponent::default()).ok().unwrap();
     ec.add_component(
         ent10,
-        StandardMaterialComponent {
+        MaterialComponent {
             material: material_white.clone(),
         },
     )
@@ -315,7 +308,7 @@ fn init(mut world: WorldDataMut) {
     ec.add_component(ent11, BatchedMeshComponent::default()).ok().unwrap();
     ec.add_component(
         ent11,
-        StandardMaterialComponent {
+        MaterialComponent {
             material: material_white.clone(),
         },
     )
@@ -345,7 +338,7 @@ fn init(mut world: WorldDataMut) {
     ec.add_component(ent12, BatchedMeshComponent::default()).ok().unwrap();
     ec.add_component(
         ent12,
-        StandardMaterialComponent {
+        MaterialComponent {
             material: material_white.clone(),
         },
     )
@@ -375,7 +368,7 @@ fn init(mut world: WorldDataMut) {
     ec.add_component(ent13, BatchedMeshComponent::default()).ok().unwrap();
     ec.add_component(
         ent13,
-        StandardMaterialComponent {
+        MaterialComponent {
             material: material_white.clone(),
         },
     )
@@ -403,7 +396,7 @@ fn init(mut world: WorldDataMut) {
         ..Default::default()
     }).ok().unwrap();
     ec.add_component(ent_cursor, BatchedMeshComponent::default()).ok().unwrap();
-    ec.add_component(ent_cursor, StandardMaterialComponent { material: material_white.clone() }).ok().unwrap();
+    ec.add_component(ent_cursor, MaterialComponent { material: material_white.clone() }).ok().unwrap();
     ec.add_component(ent_cursor, ImageComponent {
         color: Vec4::new(1.0, 1.0, 1.0, 1.0),
         ..Default::default()

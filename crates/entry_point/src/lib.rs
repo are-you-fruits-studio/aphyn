@@ -10,14 +10,14 @@
 //! Mark the function that populates the world so the launcher can find and call it
 //! after loading the game library. The function takes an `AppInitCtx` (from
 //! `aphyn_app`), registers the game's components, systems, and resources on
-//! `ctx.world`, and may adjust the initial window through `ctx.window` (a
+//! `ctx.data` and `ctx.behavior`, and may adjust the initial window through `ctx.window` (a
 //! `WindowState`, applied when the launcher creates the window).
 //!
 //! ```ignore
 //! use aphyn::*;
 //!
 //! fn setup(ctx: AppInitCtx) {
-//!     // Register your components, systems, and resources on `ctx.world`.
+//!     // Register your components, systems, and resources on `ctx.data` and `ctx.behavior`.
 //!     ctx.window.title = "My game".into();
 //! }
 //!
@@ -39,13 +39,14 @@
 //! `AppInitCtxFfi`.
 //!
 //! The generated function only calls `AppInitCtxFfi::init_app` (in `aphyn_app`)
-//! with the caller's setup function. That method dereferences the three raw pointers
-//! (`world_mut`, `types_ref`, `window_mut`) back into references, wraps the type
-//! registry in a `TypesRegistryCache`, rebuilds a safe `AppInitCtx` (a `WorldBuilderMut`
-//! plus `&mut WindowState`), and invokes the setup function with it inside an inner
-//! scope, so the borrows end before the function returns. `AppInitCtxFfi` is resolved
-//! through `::aphyn` in the expanded code, so a game crate must depend on
-//! `aphyn` for the macro output to compile.
+//! with the caller's setup function. That method dereferences the five raw pointers
+//! (`types_ref`, `data_mut`, `behavior_mut`, `window_mut`, `render_mut`) back into
+//! references, wraps the type registry in a `TypesRegistryCache`, rebuilds a safe `AppInitCtx` (a
+//! `WorldDataMut`, a `WorldBehaviorBuilderMut`, `&mut WindowState` and the `&mut RenderFeatureRegistry` of
+//! the launcher's app), and invokes the setup function with it inside an inner scope, so the
+//! borrows end before the function returns.
+//! `AppInitCtxFfi` is resolved through `::aphyn` in the expanded code, so a game crate must
+//! depend on `aphyn` for the macro output to compile.
 //!
 //! Caveats for maintainers: the macro performs no validation — it pastes the
 //! argument string directly into a call expression, so a malformed argument

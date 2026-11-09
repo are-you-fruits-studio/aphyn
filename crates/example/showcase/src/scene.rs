@@ -63,7 +63,7 @@ pub fn setup_scene(mut world: WorldDataMut) {
     let (font, font_texture) = (ui_assets.font_px_8_12.clone(), ui_assets.texture_text_px_8_12.clone());
 
     let normal_map = render_api.create_texture(
-        wgpu::FilterMode::Linear,
+        FilterMode::Linear,
         [512, 512],
         &mesh::make_tile_normal_map(512, 1),
         StandardTextureAssetMetadata {
@@ -77,54 +77,64 @@ pub fn setup_scene(mut world: WorldDataMut) {
         .unwrap()
         .insert(normal_map);
 
-    let background_color = gamma(pre_tonemap(srgb(NIGHT_900)), 1.0);
+    let background_color = linear(pre_tonemap(srgb(NIGHT_900)), 1.0);
+
+    let material = |template: &str, values: Vec<(&str, MaterialDataValue)>| {
+        let mut data = MaterialData::new();
+        for (name, value) in values {
+            data.insert(name, value);
+        }
+        create_material_from_template_key(res.as_ref(), template, data).unwrap()
+    };
+    let vec4 = MaterialDataValue::Vec4;
+    let f32 = MaterialDataValue::F32;
 
     let materials = [
-        StandardMaterialAssetMetadata {
-            shader: StandardEngineShader::OpaqueUnlit.into(),
-            color: background_color,
-            ..Default::default()
-        },
-        StandardMaterialAssetMetadata {
-            shader: StandardEngineShader::OpaqueLit.into(),
-            color: gamma(srgb(NIGHT_800), 1.0),
-            emission_color: background_color,
-            metallic: 0.1,
-            roughness: 0.5,
-            normal_tex: normal_map,
-            ..Default::default()
-        },
-        StandardMaterialAssetMetadata {
-            shader: StandardEngineShader::OpaqueLit.into(),
-            color: gamma(srgb(BILBERRY_600), 1.0),
-            emission_color: gamma(srgb(BILBERRY_500), 0.15),
-            roughness: 0.3,
-            ..Default::default()
-        },
-        StandardMaterialAssetMetadata {
-            shader: StandardEngineShader::OpaqueLit.into(),
-            color: gamma(srgb(BILBERRY_500), 1.0),
-            emission_color: gamma(srgb(BILBERRY_400), 0.35),
-            roughness: 0.5,
-            ..Default::default()
-        },
-        StandardMaterialAssetMetadata {
-            shader: StandardEngineShader::OpaqueLit.into(),
-            color: gamma(srgb(BILBERRY_200), 1.0),
-            emission_color: gamma(srgb(BILBERRY_300), 3.5),
-            roughness: 0.5,
-            ..Default::default()
-        },
-        StandardMaterialAssetMetadata {
-            shader: StandardEngineShader::UiOpaqueUnlit.into(),
-            color_tex: font_texture,
-            alpha_threshold: 0.5,
-            ..Default::default()
-        },
-    ]
-    .map(|meta| render_api.create_material(meta));
+        material(BUILTIN_TEMPLATE_OPAQUE_UNLIT, vec![("color", vec4(background_color))]),
+        material(
+            BUILTIN_TEMPLATE_OPAQUE_LIT,
+            vec![
+                ("color", vec4(linear(srgb(NIGHT_800), 1.0))),
+                ("emission_color", vec4(background_color)),
+                ("metallic", f32(0.1)),
+                ("roughness", f32(0.5)),
+                ("normal_tex", MaterialDataValue::Texture(normal_map)),
+            ],
+        ),
+        material(
+            BUILTIN_TEMPLATE_OPAQUE_LIT,
+            vec![
+                ("color", vec4(linear(srgb(BILBERRY_600), 1.0))),
+                ("emission_color", vec4(linear(srgb(BILBERRY_500), 0.15))),
+                ("roughness", f32(0.3)),
+            ],
+        ),
+        material(
+            BUILTIN_TEMPLATE_OPAQUE_LIT,
+            vec![
+                ("color", vec4(linear(srgb(BILBERRY_500), 1.0))),
+                ("emission_color", vec4(linear(srgb(BILBERRY_400), 0.35))),
+                ("roughness", f32(0.5)),
+            ],
+        ),
+        material(
+            BUILTIN_TEMPLATE_OPAQUE_LIT,
+            vec![
+                ("color", vec4(linear(srgb(BILBERRY_200), 1.0))),
+                ("emission_color", vec4(linear(srgb(BILBERRY_300), 3.5))),
+                ("roughness", f32(0.5)),
+            ],
+        ),
+        material(
+            BUILTIN_TEMPLATE_UI_OPAQUE_UNLIT,
+            vec![
+                ("color_tex", MaterialDataValue::Texture(font_texture)),
+                ("alpha_threshold", f32(0.5)),
+            ],
+        ),
+    ];
 
-    let material_storage = res.get_mut::<AssetStorageResource<StandardMaterial>>().unwrap();
+    let material_storage = res.get_mut::<AssetStorageResource<Material>>().unwrap();
     let [
         background_material,
         ground_material,
@@ -143,24 +153,23 @@ pub fn setup_scene(mut world: WorldDataMut) {
     ]
     .map(|(vertices, indices)| mesh_storage.insert(render_api.create_mesh(&vertices, &indices, None)));
 
-    let spawn_mesh =
-        |ec: &mut EntitiesHolderMut, mesh: &AssetHandle<StandardMesh>, material: &AssetHandle<StandardMaterial>, position| {
-            let entity = ec.create_entity();
-            ec.set_components(
-                entity,
-                (
-                    StandardMeshComponent { mesh: mesh.clone() },
-                    StandardMaterialComponent {
-                        material: material.clone(),
-                    },
-                    GlobalTransform {
-                        position,
-                        scale_rotation: Mat3::IDENTITY,
-                    },
-                ),
-            );
-            entity
-        };
+    let spawn_mesh = |ec: &mut EntitiesHolderMut, mesh: &AssetHandle<StandardMesh>, material: &AssetHandle<Material>, position| {
+        let entity = ec.create_entity();
+        ec.set_components(
+            entity,
+            (
+                MeshComponent { mesh: mesh.clone() },
+                MaterialComponent {
+                    material: material.clone(),
+                },
+                GlobalTransform {
+                    position,
+                    scale_rotation: Mat3::IDENTITY,
+                },
+            ),
+        );
+        entity
+    };
 
     spawn_mesh(&mut ec, &background_mesh, &background_material, Vec3::splat(0.0));
     spawn_mesh(&mut ec, &ground_mesh, &ground_material, Vec3::new(0.0, -2.3, 0.0));
@@ -250,7 +259,7 @@ pub fn setup_scene(mut world: WorldDataMut) {
             entity,
             (
                 BatchedMeshComponent::default(),
-                StandardMaterialComponent {
+                MaterialComponent {
                     material: text_material.clone(),
                 },
                 GlobalRectComponent::default(),
@@ -362,7 +371,12 @@ fn pre_tonemap(linear: Vec3<f32>) -> Vec3<f32> {
     Vec3::new(inverse_aces(linear.x), inverse_aces(linear.y), inverse_aces(linear.z)) / multiplier
 }
 
-// Material and batched vertex colors are decoded with a 2.2 gamma before shading.
+// Material inputs are uploaded as is, so they take linear colors.
+fn linear(linear: Vec3<f32>, w: f32) -> Vec4<f32> {
+    Vec4::new(linear.x, linear.y, linear.z, w)
+}
+
+// Batched vertex colors are decoded with a 2.2 gamma before shading.
 fn gamma(linear: Vec3<f32>, w: f32) -> Vec4<f32> {
     Vec4::new(
         linear.x.powf(1.0 / 2.2),

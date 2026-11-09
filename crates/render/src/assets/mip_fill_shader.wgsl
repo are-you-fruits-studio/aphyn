@@ -31,5 +31,5 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let src_color = textureSampleLevel(src_texture, src_sampler, in.uv, f32(in.mip_index));
 
-    return vec4f(src_color.xyz, 1.0);
+    return src_color;
 }

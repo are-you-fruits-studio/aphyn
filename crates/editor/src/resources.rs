@@ -8,7 +8,7 @@ pub struct UiInteractionResource {
 
 #[derive(Resource, Clone)]
 pub struct StandardAssetsResource {
-    pub material_panel: AssetHandle<StandardMaterial>,
-    pub material_text: AssetHandle<StandardMaterial>,
+    pub material_panel: AssetHandle<Material>,
+    pub material_text: AssetHandle<Material>,
     pub font: AssetHandle<Font>,
 }

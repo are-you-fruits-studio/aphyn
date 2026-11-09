@@ -1,6 +1,6 @@
 use aphyn_asset_storage::AssetHandle;
 use aphyn_ecs::Resource;
-use aphyn_render_core::StandardTexture;
+use aphyn_render::StandardTexture;
 
 use crate::Font;
 

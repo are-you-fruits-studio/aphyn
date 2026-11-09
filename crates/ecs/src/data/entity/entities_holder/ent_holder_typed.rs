@@ -41,14 +41,12 @@ fn entities_holder_set_component<C: 'static>(
             PtrState::Idle => {
                 component.assume_init_drop();
                 false
-            },
-            PtrState::Uninitialized => {
-                true
-            },
+            }
+            PtrState::Uninitialized => true,
             PtrState::Overwritten => {
                 component.assume_init_drop();
                 true
-            },
+            }
         }
     }
 }
@@ -169,7 +167,8 @@ fn entities_holder_get_all_components<'r>(
     mut handler: impl FnMut(FfiAnyRef<'r>),
 ) {
     unsafe {
-        let mut handler = |i: (*mut u8, &'static FfiExtendedTypeInfo)| handler(i.1.as_any(FfiOpaqueRef::from_raw(i.0 as *const c_void)));
+        let mut handler =
+            |i: (*mut u8, &'static FfiExtendedTypeInfo)| handler(i.1.as_any(FfiOpaqueRef::from_raw(i.0 as *const c_void)));
         let handler = FfiFnMutMut::new(&mut handler);
         entities.get_all_components_ptrs(entity, handler)
     }
@@ -181,7 +180,8 @@ fn entities_holder_get_all_components_mut<'r>(
     mut handler: impl FnMut(FfiAnyMut<'r>),
 ) {
     unsafe {
-        let mut handler = |i: (*mut u8, &'static FfiExtendedTypeInfo)| handler(i.1.as_any_mut(FfiOpaqueMut::from_raw(i.0 as *mut c_void)));
+        let mut handler =
+            |i: (*mut u8, &'static FfiExtendedTypeInfo)| handler(i.1.as_any_mut(FfiOpaqueMut::from_raw(i.0 as *mut c_void)));
         let handler = FfiFnMutMut::new(&mut handler);
         entities.get_all_components_ptrs(entity, handler)
     }
@@ -194,7 +194,6 @@ fn entities_holder_get_component_mut<'r, C: 'static>(
 ) -> Option<&'r mut C> {
     unsafe { entities_holder_get_component_ptr::<C>(entities, types, entity).map(|p| &mut *p) }
 }
-
 
 fn entities_holder_entities_count(entities: &EntitiesHolderUnsafeFfi) -> u64 {
     entities.entities_count()
@@ -215,7 +214,6 @@ fn entities_holder_create_entity(entities: &mut EntitiesHolderUnsafeFfi) -> Enti
 fn entities_holder_destroy_entity(entities: &mut EntitiesHolderUnsafeFfi, entity: EntityId) -> bool {
     entities.destroy_entity(entity)
 }
-
 
 //
 
@@ -278,7 +276,9 @@ impl<'e> EntitiesHolderMut<'e> {
     }
 
     pub fn decode_entity_from_id(&self, id: u64) -> EntityId {
-        if id != 0 && let Some(entity) = self.get_entity_by_idx_only(id) {
+        if id != 0
+            && let Some(entity) = self.get_entity_by_idx_only(id)
+        {
             entity
         } else {
             EntityId::EMPTY
@@ -425,7 +425,9 @@ impl<'e> EntitiesHolderRef<'e> {
     }
 
     pub fn decode_entity_from_id(&self, id: u64) -> EntityId {
-        if id != 0 && let Some(entity) = self.get_entity_by_idx_only(id) {
+        if id != 0
+            && let Some(entity) = self.get_entity_by_idx_only(id)
+        {
             entity
         } else {
             EntityId::EMPTY
@@ -458,7 +460,7 @@ mod sealed {
     use std::mem::MaybeUninit;
 
     pub trait Sealed {}
-    
+
     macro_rules! components_tuple_impl {
         ($($t: ident),+) => {
             impl<$($t: 'static),+> Sealed for ($($t,)+) { }
@@ -506,4 +508,3 @@ mod sealed {
 pub trait ComponentsTuple: sealed::Sealed {
     fn set_as_components_into_entities_holder(ec: EntitiesHolderMut, entity: EntityId, components: Self) -> bool;
 }
-

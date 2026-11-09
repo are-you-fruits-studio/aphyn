@@ -4,33 +4,35 @@ use aphyn::*;
 
 fn main() {
     let mut app = App::new();
-    let world = app.ecs_mut();
+    let AppInitCtx {
+        mut data,
+        mut behavior,
+        render,
+        ..
+    } = app.init_ctx_mut();
 
-    add_defult_modules_to(world.as_mut());
+    add_defult_modules_to(data.as_mut(), behavior.as_mut(), render);
 
-    world.behavior_mut().get_mut(Schedule::Start).insert_system(init_resources);
-    world
-        .behavior_mut()
-        .get_mut(Schedule::Start)
-        .insert_system(init_mesh_material);
-    world.behavior_mut().get_mut(Schedule::Update).insert_system(update_time);
-    world.behavior_mut().get_mut(Schedule::Update).insert_system(move_cube_new);
-    world.behavior_mut().get_mut(Schedule::Update).insert_system(rotate_cube);
-    world.behavior_mut().get_mut(Schedule::Update).insert_system(log_fps);
-    //world.behavior_mut().get_mut(Schedule::Update).insert_system(log_entities);
+    behavior.as_mut().get_mut(Schedule::Start).insert_system(init_resources);
+    behavior.as_mut().get_mut(Schedule::Start).insert_system(init_mesh_material);
+    behavior.as_mut().get_mut(Schedule::Update).insert_system(update_time);
+    behavior.as_mut().get_mut(Schedule::Update).insert_system(move_cube_new);
+    behavior.as_mut().get_mut(Schedule::Update).insert_system(rotate_cube);
+    behavior.as_mut().get_mut(Schedule::Update).insert_system(log_fps);
+    //behavior.as_mut().get_mut(Schedule::Update).insert_system(log_entities);
 
-    world
-        .behavior_mut()
+    behavior
+        .as_mut()
         .get_mut(Schedule::Start)
         .order_system(init_resources)
         .before_system(init_mesh_material);
-    world
-        .behavior_mut()
+    behavior
+        .as_mut()
         .get_mut(Schedule::Start)
         .order_group(SYSTEM_GROUP_RENDER)
         .before_system(init_mesh_material);
 
-    let mut ec = world.data_mut().into_entities_mut();
+    let mut ec = data.as_mut().into_entities_mut();
 
     let entity = ec.create_entity();
 
@@ -103,10 +105,8 @@ fn init_mesh_material(mut world: WorldDataMut) {
         return;
     };
 
-    let material = render_api.create_material(StandardMaterialAssetMetadata {
-        shader: StandardEngineShader::OpaqueLit.into(),
-        ..Default::default()
-    });
+    let material =
+        create_material_from_template_key(world.as_ref().resources(), BUILTIN_TEMPLATE_OPAQUE_UNLIT, MaterialData::new()).unwrap();
 
     let mut vertices = [
         StandardVertex {
@@ -192,7 +192,7 @@ fn init_mesh_material(mut world: WorldDataMut) {
 
     let material = world.as_mut()
         .resources_mut()
-        .get_mut::<AssetStorageResource<StandardMaterial>>()
+        .get_mut::<AssetStorageResource<Material>>()
         .unwrap()
         .insert(material);
     let mesh = world.as_mut()
@@ -213,12 +213,12 @@ fn init_mesh_material(mut world: WorldDataMut) {
 
         let entity = ec.create_entity();
 
-        ec.add_component(entity, StandardMeshComponent { mesh: mesh.clone() })
+        ec.add_component(entity, MeshComponent { mesh: mesh.clone() })
             .ok()
             .unwrap();
         ec.add_component(
             entity,
-            StandardMaterialComponent {
+            MaterialComponent {
                 material: material.clone(),
             },
         )

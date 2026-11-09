@@ -20,41 +20,55 @@ fn main() {
 fn run_samples_visualization_app() {
     let mut app = App::new();
 
-    let ecs = app.ecs_mut();
+    let AppInitCtx {
+        mut data,
+        mut behavior,
+        render,
+        ..
+    } = app.init_ctx_mut();
 
-    add_render_module_to(ecs.as_mut());
-    add_asset_module_to(ecs.as_mut());
+    add_render_features_module_to(data.as_mut(), behavior.as_mut(), render);
+    add_asset_module_to(data.as_mut(), behavior.as_mut(), render);
 
-    ecs.data_mut().resources_mut().insert(SamplesResource(Vec::new()));
+    data.resources_mut().insert(SamplesResource(Vec::new()));
 
-    let clip = ecs.data_mut().resources_mut().get::<AssetStorageResource<AudioClip>>().unwrap().get_registered("Through space.asset").unwrap().clone();
-   
-    let mut data = ecs.data_mut();
+    let clip = data
+        .resources_mut()
+        .get::<AssetStorageResource<AudioClip>>()
+        .unwrap()
+        .get_registered("Through space.asset")
+        .unwrap()
+        .clone();
+
     let mut ent = data.entities_mut();
     let audio_ent = ent.create_entity();
-    ent.add_component(audio_ent, AudioSource {
-        clip: clip.clone(),
-        playback_time: 0.0,
-        is_playing: true,
-        should_force_playback_time: true,
-        is_looped: true,
-        volume: 1.0,
-    }).ok().unwrap();
+    ent.add_component(
+        audio_ent,
+        AudioSource {
+            clip: clip.clone(),
+            playback_time: 0.0,
+            is_playing: true,
+            should_force_playback_time: true,
+            is_looped: true,
+            volume: 1.0,
+        },
+    )
+    .ok()
+    .unwrap();
 
-    let mut beh = ecs.behavior_mut();
+    let mut beh = behavior.as_mut();
 
     beh.get_mut(aphyn::Schedule::Start).insert_system(generate_samples);
     beh.get_mut(aphyn::Schedule::Update).insert_system(visualize_samples);
     beh.get_mut(aphyn::Schedule::Update).insert_system(try_restart_audio_sources);
-    beh.get_mut(aphyn::Schedule::Update).order_system(visualize_samples).before_group(SYSTEM_GROUP_RENDER);
+    beh.get_mut(aphyn::Schedule::Update)
+        .order_system(visualize_samples)
+        .before_group(SYSTEM_GROUP_RENDER);
 
     app.run();
 }
 
-fn try_restart_audio_sources(
-    mut last_restart: Local<Option<Instant>>,
-    mut _sources_q: WorldQuery<&mut AudioSource>,
-) {
+fn try_restart_audio_sources(mut last_restart: Local<Option<Instant>>, mut _sources_q: WorldQuery<&mut AudioSource>) {
     if last_restart.is_none() {
         *last_restart = Some(Instant::now());
         return;

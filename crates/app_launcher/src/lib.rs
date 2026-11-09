@@ -14,8 +14,9 @@
 //!
 //! Use this when the game's components, systems, and resources are compiled into
 //! the same executable. Pass a closure that receives an [`AppInitCtx`]: populate
-//! `ctx.world` and adjust the initial window through `ctx.window` (a `WindowState`
-//! starting from its default; it is turned into the window's creation attributes).
+//! `ctx.data` and `ctx.behavior` (and `ctx.render` for render features) and adjust the
+//! initial window through `ctx.window` (a `WindowState` starting from its default; it is
+//! turned into the window's creation attributes).
 //! Everything else (default engine modules, the window, the main loop) is set up for you.
 //!
 //! ```no_run
@@ -24,7 +25,7 @@
 //!
 //! fn main() {
 //!     launch_app_statically(|ctx: AppInitCtx| {
-//!         // Register your components, systems, and resources on `ctx.world`.
+//!         // Register your components, systems, and resources on `ctx.data` and `ctx.behavior`.
 //!         ctx.window.title = "My game".into();
 //!         ctx.window.size = [1280, 720];
 //!     });
@@ -51,7 +52,7 @@
 //! use aphyn::*;
 //!
 //! fn setup(ctx: AppInitCtx) {
-//!     // Register your components, systems, and resources on `ctx.world`.
+//!     // Register your components, systems, and resources on `ctx.data` and `ctx.behavior`.
 //!     ctx.window.fullscreen = FullscreenState::Borderless;
 //! }
 //!
@@ -67,7 +68,7 @@
 //!
 //! [`launch_app_statically`] is the simple path: the caller's closure is invoked
 //! directly with the [`AppInitCtx`] from [`App::init_ctx_mut`], which borrows the
-//! in-process [`App`]'s world builder and initial window state.
+//! in-process [`App`]'s world data, systems builder, render feature registry and initial window state.
 //!
 //! [`launch_app_dynamically`] crosses an FFI boundary. It looks for a shared library
 //! named `lib_app` plus the platform's library suffix (`lib_app.dll`, `lib_app.so`, …)
@@ -75,8 +76,8 @@
 //! [`init_app_dynamically`]. That function loads the library via `libloading` and passes it
 //! to [`init_app_from_library`], which resolves the `aphyn_entry_point` C symbol (an
 //! `unsafe extern "C-unwind" fn(AppInitCtxFfi)` that the game library exports through the
-//! `aphyn_entry_point!` macro) and calls it with `AppInitCtx::into_ffi`: the world builder,
-//! type registry and window state packed as raw pointers into an [`AppInitCtxFfi`]. The
+//! `aphyn_entry_point!` macro) and calls it with `AppInitCtx::into_ffi`: the world data, systems
+//! builder, type registry, window state and render feature registry packed as raw pointers into an [`AppInitCtxFfi`]. The
 //! library reconstructs a safe [`AppInitCtx`] on the other side and runs the game's setup.
 //! [`init_app_from_library`] can be called again on an already-loaded library with another
 //! ctx to set up another world (the editor rebuilds its simulated world this way when
@@ -100,7 +101,8 @@ use libloading::Library;
 pub fn launch_app_statically(f: impl FnOnce(AppInitCtx)) {
     let mut app = App::new();
 
-    aphyn_modules::add_defult_modules_to(app.ecs_mut().as_mut());
+    let ctx = app.init_ctx_mut();
+    aphyn_modules::add_defult_modules_to(ctx.data, ctx.behavior, ctx.render);
 
     f(app.init_ctx_mut());
 
@@ -110,9 +112,12 @@ pub fn launch_app_statically(f: impl FnOnce(AppInitCtx)) {
 pub fn launch_app_dynamically() {
     let mut app = App::new();
 
-    aphyn_modules::add_defult_modules_to(app.ecs_mut().as_mut());
+    let ctx = app.init_ctx_mut();
+    aphyn_modules::add_defult_modules_to(ctx.data, ctx.behavior, ctx.render);
 
-    let lib_path = std::env::current_exe().unwrap().with_file_name(format!("lib_app{}", std::env::consts::DLL_SUFFIX));
+    let lib_path = std::env::current_exe()
+        .unwrap()
+        .with_file_name(format!("lib_app{}", std::env::consts::DLL_SUFFIX));
     let lib = unsafe { init_app_dynamically(app.init_ctx_mut(), lib_path).unwrap() };
 
     app.run();

@@ -8,8 +8,8 @@ pub const FILE_NAME_SCRIPTS_LIB_DST: &str = if cfg!(windows) { "lib_app.dll" } e
 
 pub fn path_scripts_lib_src(project_path: &str) -> PathBuf {
     [project_path, "scripts", "target", "release", FILE_NAME_SCRIPTS_LIB_SRC]
-            .into_iter()
-            .collect::<PathBuf>()
+        .into_iter()
+        .collect::<PathBuf>()
 }
 
 pub fn build_app(project_path: &str) {
@@ -26,7 +26,9 @@ pub fn build_app(project_path: &str) {
 
     copy_file(
         path_scripts_lib_src(project_path),
-        [project_path, "builds", FILE_NAME_SCRIPTS_LIB_DST].iter().collect::<PathBuf>(),
+        [project_path, "builds", FILE_NAME_SCRIPTS_LIB_DST]
+            .iter()
+            .collect::<PathBuf>(),
     )
     .unwrap();
 
@@ -34,9 +36,7 @@ pub fn build_app(project_path: &str) {
         [project_path, "launcher", "target", "release", launcher_exe.as_str()]
             .iter()
             .collect::<PathBuf>(),
-        [project_path, "builds", build_exe.as_str()]
-            .iter()
-            .collect::<PathBuf>(),
+        [project_path, "builds", build_exe.as_str()].iter().collect::<PathBuf>(),
     )
     .unwrap();
 

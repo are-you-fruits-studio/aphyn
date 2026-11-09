@@ -4,12 +4,17 @@ use aphyn::*;
 
 fn main() {
     let mut app = App::new();
-    let world = app.ecs_mut();
+    let AppInitCtx {
+        mut data,
+        mut behavior,
+        render,
+        ..
+    } = app.init_ctx_mut();
 
-    add_defult_modules_to(world.as_mut());
-    fps_counter::add_module_to(world.as_mut());
+    add_defult_modules_to(data.as_mut(), behavior.as_mut(), render);
+    fps_counter::add_module_to(data.as_mut(), behavior.as_mut(), render);
 
-    let mut world_behavior = world.behavior_mut();
+    let mut world_behavior = behavior.as_mut();
 
     world_behavior.get_mut(Schedule::Start).insert_system(init);
     world_behavior.get_mut(Schedule::Update).insert_system(update_time);
@@ -25,7 +30,7 @@ fn main() {
         .order_group(SYSTEM_GROUP_UI)
         .before_system(init);
 
-    let mut world_data = world.data_mut();
+    let mut world_data = data.as_mut();
 
     let mut ec = world_data.entities_mut();
 
@@ -68,21 +73,15 @@ fn init(mut world: WorldDataMut) {
     let texture_text_handle = standard_ui_assets.texture_text_px_5_7.clone();
     let font = standard_ui_assets.font_px_5_7.clone();
 
-    let material = StandardMaterialAssetMetadata {
-        shader: StandardEngineShader::OpaqueUnlit.into(),
-        color_tex: texture_text_handle.clone(),
-        ..Default::default()
-    };
+    let mut data = MaterialData::new();
+    data.insert("color_tex", MaterialDataValue::Texture(texture_text_handle.clone()));
 
-    let material = world.as_ref()
-        .resources()
-        .get::<RenderApiResource>()
-        .unwrap()
-        .create_material(material);
+    let material =
+        create_material_from_template_key(world.as_ref().resources(), BUILTIN_TEMPLATE_OPAQUE_UNLIT, data).unwrap();
 
     let material = world.as_mut()
         .resources_mut()
-        .get_mut::<AssetStorageResource<StandardMaterial>>()
+        .get_mut::<AssetStorageResource<Material>>()
         .unwrap()
         .insert(material);
 
@@ -102,7 +101,7 @@ fn init(mut world: WorldDataMut) {
     ec.add_component(ent_text, BatchedMeshComponent::default()).ok().unwrap();
     ec.add_component(
         ent_text,
-        StandardMaterialComponent {
+        MaterialComponent {
             material: material.clone(),
         },
     )

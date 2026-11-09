@@ -20,10 +20,9 @@ const FILE_NAME: &str = "foldouts.json";
 pub const FOLDOUT_WIDTH: f32 = 20.0;
 const FOLDOUT_ARROW_SIZE: f32 = 16.0;
 
-pub fn register_feature(mut world: WorldBuilderMut) {
-    world.data_mut().resources_mut().insert(FoldoutResource::default());
-
-    let mut behavior = world.behavior_mut();
+// todo: bundle registration params
+pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+    data.resources_mut().insert(FoldoutResource::default());
 
     {
         let mut start = behavior.get_mut(Schedule::Start);
@@ -34,14 +33,23 @@ pub fn register_feature(mut world: WorldBuilderMut) {
     {
         let mut update = behavior.get_mut(Schedule::Update);
 
-        update.group(SYSTEM_GROUP)
+        update
+            .group(SYSTEM_GROUP)
             .insert_child_system(toggle_foldout_system)
             .insert_child_system(update_foldout_arrows_system);
 
-        update.order_system(check_ui_interaction_system).before_system(toggle_foldout_system);
-        update.order_system(toggle_foldout_system).before_system(update_foldout_arrows_system);
-        update.order_system(toggle_foldout_system).before_system(update_hierarchy_window_system);
-        update.order_system(toggle_foldout_system).before_system(update_inspector_window_system);
+        update
+            .order_system(check_ui_interaction_system)
+            .before_system(toggle_foldout_system);
+        update
+            .order_system(toggle_foldout_system)
+            .before_system(update_foldout_arrows_system);
+        update
+            .order_system(toggle_foldout_system)
+            .before_system(update_hierarchy_window_system);
+        update
+            .order_system(toggle_foldout_system)
+            .before_system(update_inspector_window_system);
     }
 }
 
@@ -104,16 +112,36 @@ impl FoldoutResource {
         let mut expanded = BTreeSet::new();
 
         for project in current {
-            expanded.extend(project.project_entries.into_iter().map(|path| FoldoutKey::ProjectEntry { path }));
-            expanded.extend(project.hierarchy_entities.into_iter().map(|e| FoldoutKey::HierarchyEntity { asset_key: e.asset_key, entity_id: e.entity_id }));
-            expanded.extend(project.inspector_components.into_iter().map(|component_id| FoldoutKey::InspectorComponent { component_id }));
+            expanded.extend(
+                project
+                    .project_entries
+                    .into_iter()
+                    .map(|path| FoldoutKey::ProjectEntry { path }),
+            );
+            expanded.extend(project.hierarchy_entities.into_iter().map(|e| FoldoutKey::HierarchyEntity {
+                asset_key: e.asset_key,
+                entity_id: e.entity_id,
+            }));
+            expanded.extend(
+                project
+                    .inspector_components
+                    .into_iter()
+                    .map(|component_id| FoldoutKey::InspectorComponent { component_id }),
+            );
         }
 
-        Self { project_dir, expanded, other_projects }
+        Self {
+            project_dir,
+            expanded,
+            other_projects,
+        }
     }
 
     fn to_file(&self) -> FoldoutsFile {
-        let mut current = ProjectFoldouts { project_dir: self.project_dir.clone(), ..Default::default() };
+        let mut current = ProjectFoldouts {
+            project_dir: self.project_dir.clone(),
+            ..Default::default()
+        };
 
         for key in &self.expanded {
             match key {
@@ -198,7 +226,11 @@ pub fn toggle_foldout_system(
     mut foldout_res: ResMut<FoldoutResource>,
     mut toggled_evt: EvtMut<FoldoutToggledEvent>,
 ) {
-    let toggled = button_q.iter().filter(|(_, b)| b.was_clicked_this_frame).map(|(f, _)| f.key.clone()).collect::<Vec<_>>();
+    let toggled = button_q
+        .iter()
+        .filter(|(_, b)| b.was_clicked_this_frame)
+        .map(|(f, _)| f.key.clone())
+        .collect::<Vec<_>>();
 
     return_if!(toggled.is_empty());
 
@@ -243,8 +275,8 @@ pub fn spawn_foldout_arrow(
     ent_name: EntityId,
     indent: f32,
     foldout: Option<(FoldoutKey, bool)>,
-    material_panel: &AssetHandle<StandardMaterial>,
-    material_text: &AssetHandle<StandardMaterial>,
+    material_panel: &AssetHandle<Material>,
+    material_text: &AssetHandle<Material>,
     font: &AssetHandle<Font>,
 ) -> EntityId {
     if let Some(local_rect_c) = ec.get_component_mut::<LocalRectComponent>(ent_name) {
@@ -258,47 +290,62 @@ pub fn spawn_foldout_arrow(
     let ent_arrow = ec.create_entity();
     let ent_arrow_text = ec.create_entity();
 
-    ec.set_components(ent_arrow, (
-        GlobalRectComponent::default(),
-        LocalRectComponent {
-            anchor: Vec2::new(0.0, 0.5),
-            pivot: Vec2::new(0.0, 0.5),
-            offset: Vec2::new(UiVal::px(indent + (FOLDOUT_WIDTH - FOLDOUT_ARROW_SIZE) * 0.5), UiVal::px(0.0)),
-            scale: Vec2::splat(Some(UiVal::px(FOLDOUT_ARROW_SIZE)).into()),
-            ..Default::default()
-        },
-        ChildComponent { parent: ent_row },
-        ParentComponent { children: vec![ent_arrow_text].into() },
-        ButtonComponent::default(),
-        FoldoutButtonComponent { key, arrow_text: ent_arrow_text },
-        BatchedMeshComponent::default(),
-        StandardMaterialComponent { material: material_panel.clone() },
-        ImageComponent {
-            color: Vec4::from_array(rgba_f32_array!("#00000030")),
-            ..Default::default()
-        },
-    ));
+    ec.set_components(
+        ent_arrow,
+        (
+            GlobalRectComponent::default(),
+            LocalRectComponent {
+                anchor: Vec2::new(0.0, 0.5),
+                pivot: Vec2::new(0.0, 0.5),
+                offset: Vec2::new(UiVal::px(indent + (FOLDOUT_WIDTH - FOLDOUT_ARROW_SIZE) * 0.5), UiVal::px(0.0)),
+                scale: Vec2::splat(Some(UiVal::px(FOLDOUT_ARROW_SIZE)).into()),
+                ..Default::default()
+            },
+            ChildComponent { parent: ent_row },
+            ParentComponent {
+                children: vec![ent_arrow_text].into(),
+            },
+            ButtonComponent::default(),
+            FoldoutButtonComponent {
+                key,
+                arrow_text: ent_arrow_text,
+            },
+            BatchedMeshComponent::default(),
+            MaterialComponent {
+                material: material_panel.clone(),
+            },
+            ImageComponent {
+                color: Vec4::from_array(rgba_f32_array!("#00000030")),
+                ..Default::default()
+            },
+        ),
+    );
     if let Some(parent_c) = ec.get_component_mut::<ParentComponent>(ent_row) {
         parent_c.children.push(ent_arrow);
     }
 
-    ec.set_components(ent_arrow_text, (
-        GlobalRectComponent::default(),
-        LocalRectComponent::default(),
-        ChildComponent { parent: ent_arrow },
-        BatchedMeshComponent::default(),
-        StandardMaterialComponent { material: material_text.clone() },
-        TextComponent {
-            color: Vec4::from_array(parse_color_rgba_f32("#000000ff").unwrap()),
-            font: font.clone(),
-            font_size: UiVal::px(16.0),
-            is_y_inverted: true,
-            text: arrow_str(is_expanded).into(),
-            horizontal_spacing: UiVal::px(0.0),
-            vertical_align: VerticalAlign::Middle,
-            horizontal_align: HorizontalAlign::Middle,
-        },
-    ));
+    ec.set_components(
+        ent_arrow_text,
+        (
+            GlobalRectComponent::default(),
+            LocalRectComponent::default(),
+            ChildComponent { parent: ent_arrow },
+            BatchedMeshComponent::default(),
+            MaterialComponent {
+                material: material_text.clone(),
+            },
+            TextComponent {
+                color: Vec4::from_array(parse_color_rgba_f32("#000000ff").unwrap()),
+                font: font.clone(),
+                font_size: UiVal::px(16.0),
+                is_y_inverted: true,
+                text: arrow_str(is_expanded).into(),
+                horizontal_spacing: UiVal::px(0.0),
+                vertical_align: VerticalAlign::Middle,
+                horizontal_align: HorizontalAlign::Middle,
+            },
+        ),
+    );
 
     ent_arrow
 }

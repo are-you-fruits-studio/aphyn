@@ -10,16 +10,17 @@ crate-type = ["lib"]
 [dependencies]
 aphyn_utils = { path = "../utils" }
 aphyn_ecs = { path = "../ecs" }
+aphyn_render_features = { path = "../render_features" }
 aphyn_math = { path = "../math" }
 aphyn_ffi = { path = "../ffi" }
 aphyn_transform = { path = "../transform" }
 aphyn_wavefront = { path = "../wavefront" }
-aphyn_render_core = { path = "../render_core" }
 aphyn_render = { path = "../render" }
 aphyn_asset_storage = { path = "../asset_storage" }
 aphyn_audio = { path = "../audio" }
 aphyn_prefab = { path = "../prefab" }
 aphyn_serialization = { path = "../serialization" }
+aphyn_serialization_ecs = { path = "../serialization_ecs" }
 aphyn_ui = { path = "../ui" }
 image = "0.25"
 serde = { version = "1", features = ["derive"] }

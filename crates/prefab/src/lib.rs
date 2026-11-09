@@ -11,7 +11,7 @@
 //! #### Opting a component into prefabs
 //!
 //! Prefab components are (de)serialized by type name through the world's
-//! [`SerializersResource`], so a component type only round-trips once a serializer for it is
+//! `SerializersResource` (`aphyn_serialization_ecs`), so a component type only round-trips once a serializer for it is
 //! registered there. Without one, the component is recorded with a `Null` payload (and a
 //! `MissingSerializer` error is reported) and skipped when the prefab is instantiated:
 //!
@@ -21,8 +21,7 @@
 //! #[derive(Component, Serializable, Default)]
 //! struct Health(f32);
 //!
-//! fn register_serializers(mut world: WorldBuilderMut) {
-//!     let mut data = world.data_mut();
+//! fn register_serializers(mut data: WorldDataMut) {
 //!     let mut res = data.resources_mut();
 //!     let serializers = res.get_mut::<SerializersResource>().unwrap();
 //!

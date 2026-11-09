@@ -1,6 +1,12 @@
 use aphyn::*;
 
-use crate::{features::{play_mode::PlayButtonComponent, test_window::WindowsButtonComponent, ui_interaction::ButtonComponent, ui_window::DockComponent}, resources::StandardAssetsResource};
+use crate::{
+    features::{
+        play_mode::PlayButtonComponent, test_window::WindowsButtonComponent, ui_interaction::ButtonComponent,
+        ui_window::DockComponent,
+    },
+    resources::StandardAssetsResource,
+};
 
 fn create_header_button<C: 'static>(
     mut ent: EntitiesHolderMut,
@@ -17,51 +23,53 @@ fn create_header_button<C: 'static>(
         parent_c.children.push(ent_root);
     }
 
-    ent.set_components(ent_root, (
-        GlobalRectComponent::default(),
-        LocalRectComponent {
-            scale: Vec2::new(width.into(), UiVal::pd(1.0).into()),
-            ..Default::default()
-        },
-        ChildComponent {
-            parent: parent,
-        },
-        ParentComponent {
-            children: vec![ent_text].into(),
-        },
-        ButtonComponent::default(),
-        BatchedMeshComponent::default(),
-        StandardMaterialComponent {
-            material: assets_res.material_panel.clone(),
-        },
-        ImageComponent {
-            color: Vec4::new(0.3, 0.3, 0.3, 1.0),
-            ..Default::default()
-        },
-        component,
-    ));
+    ent.set_components(
+        ent_root,
+        (
+            GlobalRectComponent::default(),
+            LocalRectComponent {
+                scale: Vec2::new(width.into(), UiVal::pd(1.0).into()),
+                ..Default::default()
+            },
+            ChildComponent { parent },
+            ParentComponent {
+                children: vec![ent_text].into(),
+            },
+            ButtonComponent::default(),
+            BatchedMeshComponent::default(),
+            MaterialComponent {
+                material: assets_res.material_panel.clone(),
+            },
+            ImageComponent {
+                color: Vec4::new(0.3, 0.3, 0.3, 1.0),
+                ..Default::default()
+            },
+            component,
+        ),
+    );
 
-    ent.set_components(ent_text, (
-        GlobalRectComponent::default(),
-        LocalRectComponent::default(),
-        ChildComponent {
-            parent: ent_root,
-        },
-        BatchedMeshComponent::default(),
-        StandardMaterialComponent {
-            material: assets_res.material_text.clone(),
-        },
-        TextComponent {
-            color: Vec4::splat(1.0),
-            font: assets_res.font.clone(),
-            font_size: UiVal::px(20.0),
-            horizontal_align: HorizontalAlign::Middle,
-            vertical_align: VerticalAlign::Middle,
-            horizontal_spacing: UiVal::px(0.0),
-            is_y_inverted: true,
-            text: text,
-        },
-    ));
+    ent.set_components(
+        ent_text,
+        (
+            GlobalRectComponent::default(),
+            LocalRectComponent::default(),
+            ChildComponent { parent: ent_root },
+            BatchedMeshComponent::default(),
+            MaterialComponent {
+                material: assets_res.material_text.clone(),
+            },
+            TextComponent {
+                color: Vec4::splat(1.0),
+                font: assets_res.font.clone(),
+                font_size: UiVal::px(20.0),
+                horizontal_align: HorizontalAlign::Middle,
+                vertical_align: VerticalAlign::Middle,
+                horizontal_spacing: UiVal::px(0.0),
+                is_y_inverted: true,
+                text,
+            },
+        ),
+    );
 }
 
 pub fn editor_window(mut world: WorldDataMut) -> EntityId {
@@ -77,93 +85,113 @@ pub fn editor_window(mut world: WorldDataMut) -> EntityId {
     let ent_play_bar = ent.create_entity();
     let ent_dock = ent.create_entity();
 
-    ent.set_components(ent_root, (
-        GlobalRectComponent::default(),
-        LocalRectComponent::default(),
-        ParentComponent {
-            children: vec![ent_header, ent_play_bar, ent_dock].into(),
-        },
-    ));
+    ent.set_components(
+        ent_root,
+        (
+            GlobalRectComponent::default(),
+            LocalRectComponent::default(),
+            ParentComponent {
+                children: vec![ent_header, ent_play_bar, ent_dock].into(),
+            },
+        ),
+    );
 
-    ent.set_components(ent_header, (
-        GlobalRectComponent::default(),
-        LocalRectComponent {
-            anchor: Vec2::new(0.5, 0.0),
-            pivot: Vec2::new(0.5, 0.0),
-            scale: Vec2::new(UiVal::pd(1.0).into(), UiVal::px(HEADER_HEIGHT).into()),
-            ..Default::default()
-        },
-        ChildComponent {
-            parent: ent_root,
-        },
-        ParentComponent::default(),
-        RectChildAlignComponent {
-            anchor: Vec2::new(0.0, 0.5),
-            direction: UiDirection::Horizontal,
-            min_gap: UiVal::px(1.0),
-            spacing: UiSpacing::Chunk,
-        },
-        BatchedMeshComponent::default(),
-        StandardMaterialComponent {
-            material: assets_res.material_panel.clone(),
-        },
-        ImageComponent {
-            color: Vec4::new(0.2, 0.2, 0.2, 1.0),
-            ..Default::default()
-        },
-    ));
+    ent.set_components(
+        ent_header,
+        (
+            GlobalRectComponent::default(),
+            LocalRectComponent {
+                anchor: Vec2::new(0.5, 0.0),
+                pivot: Vec2::new(0.5, 0.0),
+                scale: Vec2::new(UiVal::pd(1.0).into(), UiVal::px(HEADER_HEIGHT).into()),
+                ..Default::default()
+            },
+            ChildComponent { parent: ent_root },
+            ParentComponent::default(),
+            RectChildAlignComponent {
+                anchor: Vec2::new(0.0, 0.5),
+                direction: UiDirection::Horizontal,
+                min_gap: UiVal::px(1.0),
+                spacing: UiSpacing::Chunk,
+            },
+            BatchedMeshComponent::default(),
+            MaterialComponent {
+                material: assets_res.material_panel.clone(),
+            },
+            ImageComponent {
+                color: Vec4::new(0.2, 0.2, 0.2, 1.0),
+                ..Default::default()
+            },
+        ),
+    );
 
-    ent.set_components(ent_play_bar, (
-        GlobalRectComponent::default(),
-        LocalRectComponent {
-            anchor: Vec2::new(0.5, 0.0),
-            pivot: Vec2::new(0.5, 0.0),
-            offset: Vec2::new(UiVal::px(0.0), UiVal::px(HEADER_HEIGHT)),
-            scale: Vec2::new(UiVal::pd(1.0).into(), UiVal::px(PLAY_BAR_HEIGHT).into()),
-            ..Default::default()
-        },
-        ChildComponent {
-            parent: ent_root,
-        },
-        ParentComponent::default(),
-        RectChildAlignComponent {
-            anchor: Vec2::new(0.5, 0.5),
-            direction: UiDirection::Horizontal,
-            min_gap: UiVal::px(1.0),
-            spacing: UiSpacing::Chunk,
-        },
-        BatchedMeshComponent::default(),
-        StandardMaterialComponent {
-            material: assets_res.material_panel.clone(),
-        },
-        ImageComponent {
-            color: Vec4::new(0.15, 0.15, 0.15, 1.0),
-            ..Default::default()
-        },
-    ));
+    ent.set_components(
+        ent_play_bar,
+        (
+            GlobalRectComponent::default(),
+            LocalRectComponent {
+                anchor: Vec2::new(0.5, 0.0),
+                pivot: Vec2::new(0.5, 0.0),
+                offset: Vec2::new(UiVal::px(0.0), UiVal::px(HEADER_HEIGHT)),
+                scale: Vec2::new(UiVal::pd(1.0).into(), UiVal::px(PLAY_BAR_HEIGHT).into()),
+                ..Default::default()
+            },
+            ChildComponent { parent: ent_root },
+            ParentComponent::default(),
+            RectChildAlignComponent {
+                anchor: Vec2::new(0.5, 0.5),
+                direction: UiDirection::Horizontal,
+                min_gap: UiVal::px(1.0),
+                spacing: UiSpacing::Chunk,
+            },
+            BatchedMeshComponent::default(),
+            MaterialComponent {
+                material: assets_res.material_panel.clone(),
+            },
+            ImageComponent {
+                color: Vec4::new(0.15, 0.15, 0.15, 1.0),
+                ..Default::default()
+            },
+        ),
+    );
 
-    ent.set_components(ent_dock, (
-        GlobalRectComponent::default(),
-        LocalRectComponent {
-            parent_padding_min: Vec2::new(UiVal::px(0.0), UiVal::px(HEADER_HEIGHT + PLAY_BAR_HEIGHT)),
-            ..Default::default()
-        },
-        ChildComponent {
-            parent: ent_root,
-        },
-        BatchedMeshComponent::default(),
-        StandardMaterialComponent {
-            material: assets_res.material_panel.clone(),
-        },
-        ImageComponent {
-            color: Vec4::new(0.1, 0.1, 0.1, 1.0),
-            ..Default::default()
-        },
-        DockComponent,
-    ));
+    ent.set_components(
+        ent_dock,
+        (
+            GlobalRectComponent::default(),
+            LocalRectComponent {
+                parent_padding_min: Vec2::new(UiVal::px(0.0), UiVal::px(HEADER_HEIGHT + PLAY_BAR_HEIGHT)),
+                ..Default::default()
+            },
+            ChildComponent { parent: ent_root },
+            BatchedMeshComponent::default(),
+            MaterialComponent {
+                material: assets_res.material_panel.clone(),
+            },
+            ImageComponent {
+                color: Vec4::new(0.1, 0.1, 0.1, 1.0),
+                ..Default::default()
+            },
+            DockComponent,
+        ),
+    );
 
-    create_header_button(ent.as_mut(), assets_res, ent_header, WindowsButtonComponent, "Windows".into(), UiVal::px(100.0));
-    create_header_button(ent.as_mut(), assets_res, ent_play_bar, PlayButtonComponent, "Play".into(), UiVal::px(60.0));
+    create_header_button(
+        ent.as_mut(),
+        assets_res,
+        ent_header,
+        WindowsButtonComponent,
+        "Windows".into(),
+        UiVal::px(100.0),
+    );
+    create_header_button(
+        ent.as_mut(),
+        assets_res,
+        ent_play_bar,
+        PlayButtonComponent,
+        "Play".into(),
+        UiVal::px(60.0),
+    );
 
     ent_root
 }

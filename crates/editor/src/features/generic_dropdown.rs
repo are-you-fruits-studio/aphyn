@@ -1,17 +1,19 @@
 use crate::*;
 
-pub fn register_feature(mut world: WorldBuilderMut) {
-    world.data_mut().resources_mut().insert(GenericDropdownResource::default());
+// todo: bundle registration params
+pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+    data.resources_mut().insert(GenericDropdownResource::default());
 
-    let mut behavior = world.behavior_mut();
     let mut update = behavior.get_mut(Schedule::Update);
 
-    update.group(SYSTEM_GROUP)
+    update
+        .group(SYSTEM_GROUP)
         .insert_child_system(delete_generic_dropdown_system)
         .insert_child_system(spawn_generic_dropdown_system)
         .insert_child_system(select_generic_dropdown_system);
 
-    update.order_system(check_ui_interaction_system)
+    update
+        .order_system(check_ui_interaction_system)
         .before_system(delete_generic_dropdown_system)
         .before_system(spawn_generic_dropdown_system)
         .before_system(select_generic_dropdown_system);
@@ -38,7 +40,9 @@ pub enum GenericDropdownStateTy {
     #[default]
     Dismissed,
     Waiting,
-    Selected { idx: u64 },
+    Selected {
+        idx: u64,
+    },
 }
 
 #[repr(C)]
@@ -59,11 +63,13 @@ impl GenericDropdownResource {
 
     pub fn get_state(&self, id: u64) -> &GenericDropdownState {
         if self.last_id != id {
-            return const { &GenericDropdownState {
-                variants: FfiVec::new(),
-                position: Vec2::new(0.0, 0.0),
-                ty: GenericDropdownStateTy::Dismissed,
-            } };
+            return const {
+                &GenericDropdownState {
+                    variants: FfiVec::new(),
+                    position: Vec2::new(0.0, 0.0),
+                    ty: GenericDropdownStateTy::Dismissed,
+                }
+            };
         }
 
         &self.last_state
@@ -131,7 +137,11 @@ pub fn delete_generic_dropdown_system(mut world: WorldDataMut) {
     let mut entities_to_destroy = Vec::new();
 
     if generic_dropdown_resource.last_state.ty != GenericDropdownStateTy::Waiting {
-        for ent_dropdown in ent.query_filtered::<EntityId, WithFilter<GenericDropdownComponent>>().iter().collect::<Vec<_>>() {
+        for ent_dropdown in ent
+            .query_filtered::<EntityId, WithFilter<GenericDropdownComponent>>()
+            .iter()
+            .collect::<Vec<_>>()
+        {
             entities_to_destroy.push(ent_dropdown);
         }
     } else {
@@ -161,8 +171,18 @@ pub fn spawn_generic_dropdown_system(mut world: WorldDataMut) {
         return;
     };
 
-    let font = res.get::<AssetStorageResource<Font>>().unwrap().get(&standard_assets_resource.font).unwrap();
-    let max_chars = generic_dropdown_resource.last_state.variants.iter().map(|v| v.chars().count()).max().unwrap_or(0);
+    let font = res
+        .get::<AssetStorageResource<Font>>()
+        .unwrap()
+        .get(&standard_assets_resource.font)
+        .unwrap();
+    let max_chars = generic_dropdown_resource
+        .last_state
+        .variants
+        .iter()
+        .map(|v| v.chars().count())
+        .max()
+        .unwrap_or(0);
     let dropdown_width =
         (max_chars as f32 * DROPDOWN_FONT_SIZE * font.character_ratio + 2.0 * DROPDOWN_ENTRY_PADDING).max(DROPDOWN_MIN_WIDTH);
 
@@ -175,89 +195,99 @@ pub fn spawn_generic_dropdown_system(mut world: WorldDataMut) {
 
     let ent_dropdown = ent.create_entity();
 
-    ent.set_components(ent_dropdown, (
-        GlobalRectComponent::default(),
-        LocalRectComponent {
-            anchor: Vec2::new(0.0, 0.0),
-            pivot: Vec2::new(0.0, 0.0),
-            offset: dropdown_pos.map(UiVal::px),
-            scale: Vec2::new(Some(UiVal::px(dropdown_width)).into(), None.into()),
-            z: -9_000.0,
-            ..Default::default()
-        },
-        ParentComponent::default(),
-        RectChildAlignComponent {
-            anchor: Vec2::new(0.0, 0.0),
-            direction: UiDirection::Vertical,
-            min_gap: UiVal::px(0.0),
-            spacing: UiSpacing::Chunk,
-        },
-        BatchedMeshComponent::default(),
-        StandardMaterialComponent {
-            material: standard_assets_resource.material_panel.clone(),
-        },
-        ImageComponent {
-            color: Vec4::from_array(rgba_f32_array!("#272727ff")),
-            is_y_inverted: true,
-            ..Default::default()
-        },
-        GenericDropdownComponent {
-            id: generic_dropdown_resource.last_id,
-            variants_container: ent_dropdown,
-        }
-    ));
+    ent.set_components(
+        ent_dropdown,
+        (
+            GlobalRectComponent::default(),
+            LocalRectComponent {
+                anchor: Vec2::new(0.0, 0.0),
+                pivot: Vec2::new(0.0, 0.0),
+                offset: dropdown_pos.map(UiVal::px),
+                scale: Vec2::new(Some(UiVal::px(dropdown_width)).into(), None.into()),
+                z: -9_000.0,
+                ..Default::default()
+            },
+            ParentComponent::default(),
+            RectChildAlignComponent {
+                anchor: Vec2::new(0.0, 0.0),
+                direction: UiDirection::Vertical,
+                min_gap: UiVal::px(0.0),
+                spacing: UiSpacing::Chunk,
+            },
+            BatchedMeshComponent::default(),
+            MaterialComponent {
+                material: standard_assets_resource.material_panel.clone(),
+            },
+            ImageComponent {
+                color: Vec4::from_array(rgba_f32_array!("#272727ff")),
+                is_y_inverted: true,
+                ..Default::default()
+            },
+            GenericDropdownComponent {
+                id: generic_dropdown_resource.last_id,
+                variants_container: ent_dropdown,
+            },
+        ),
+    );
 
     for (idx, variant) in generic_dropdown_resource.last_state.variants.iter().enumerate() {
         let ent_dropdown_entry = ent.create_entity();
         let ent_dropdown_entry_text = ent.create_entity();
 
-        ent.get_component_mut::<ParentComponent>(ent_dropdown).unwrap().children.push(ent_dropdown_entry);
+        ent.get_component_mut::<ParentComponent>(ent_dropdown)
+            .unwrap()
+            .children
+            .push(ent_dropdown_entry);
 
-        ent.set_components(ent_dropdown_entry, (
-            GlobalRectComponent::default(),
-            LocalRectComponent {
-                scale: Vec2::new(Some(UiVal::pd(1.0)).into(), Some(UiVal::px(DROPDOWN_ENTRY_HEIGHT)).into()),
-                ..Default::default()
-            },
-            ChildComponent {
-                parent: ent_dropdown,
-            },
-            ParentComponent {
-                children: vec![ent_dropdown_entry_text].into(),
-            },
-            ButtonComponent::default(),
-            GenericDropdownEntryComponent {
-                dropdown: ent_dropdown,
-                text: ent_dropdown_entry_text,
-                idx: idx as u64,
-            }
-        ));
+        ent.set_components(
+            ent_dropdown_entry,
+            (
+                GlobalRectComponent::default(),
+                LocalRectComponent {
+                    scale: Vec2::new(Some(UiVal::pd(1.0)).into(), Some(UiVal::px(DROPDOWN_ENTRY_HEIGHT)).into()),
+                    ..Default::default()
+                },
+                ChildComponent { parent: ent_dropdown },
+                ParentComponent {
+                    children: vec![ent_dropdown_entry_text].into(),
+                },
+                ButtonComponent::default(),
+                GenericDropdownEntryComponent {
+                    dropdown: ent_dropdown,
+                    text: ent_dropdown_entry_text,
+                    idx: idx as u64,
+                },
+            ),
+        );
 
-        ent.set_components(ent_dropdown_entry_text, (
-            GlobalRectComponent::default(),
-            LocalRectComponent {
-                parent_padding_min: Vec2::new(UiVal::px(DROPDOWN_ENTRY_PADDING), UiVal::px(0.0)),
-                parent_padding_max: Vec2::new(UiVal::px(DROPDOWN_ENTRY_PADDING), UiVal::px(0.0)),
-                ..Default::default()
-            },
-            ChildComponent {
-                parent: ent_dropdown_entry,
-            },
-            BatchedMeshComponent::default(),
-            StandardMaterialComponent { 
-                material: standard_assets_resource.material_text.clone(),
-            },
-            TextComponent {
-                color: Vec4::splat(1.0),
-                font_size: UiVal::px(DROPDOWN_FONT_SIZE),
-                horizontal_align: HorizontalAlign::Left,
-                vertical_align: VerticalAlign::Middle,
-                horizontal_spacing: UiVal::px(0.0),
-                is_y_inverted: true,
-                text: variant.clone(),
-                font: standard_assets_resource.font.clone(),
-            }
-        ));
+        ent.set_components(
+            ent_dropdown_entry_text,
+            (
+                GlobalRectComponent::default(),
+                LocalRectComponent {
+                    parent_padding_min: Vec2::new(UiVal::px(DROPDOWN_ENTRY_PADDING), UiVal::px(0.0)),
+                    parent_padding_max: Vec2::new(UiVal::px(DROPDOWN_ENTRY_PADDING), UiVal::px(0.0)),
+                    ..Default::default()
+                },
+                ChildComponent {
+                    parent: ent_dropdown_entry,
+                },
+                BatchedMeshComponent::default(),
+                MaterialComponent {
+                    material: standard_assets_resource.material_text.clone(),
+                },
+                TextComponent {
+                    color: Vec4::splat(1.0),
+                    font_size: UiVal::px(DROPDOWN_FONT_SIZE),
+                    horizontal_align: HorizontalAlign::Left,
+                    vertical_align: VerticalAlign::Middle,
+                    horizontal_spacing: UiVal::px(0.0),
+                    is_y_inverted: true,
+                    text: variant.clone(),
+                    font: standard_assets_resource.font.clone(),
+                },
+            ),
+        );
     }
 }
 
@@ -276,7 +306,7 @@ pub fn select_generic_dropdown_system(
     input_res: Res<InputResource>,
     mut generic_dropdown_res: ResMut<GenericDropdownResource>,
     dropdown_q: WorldQuery<&GenericDropdownComponent>,
-    dropdown_entry_q: WorldQuery<(&GenericDropdownEntryComponent, &ButtonComponent)>
+    dropdown_entry_q: WorldQuery<(&GenericDropdownEntryComponent, &ButtonComponent)>,
 ) {
     for (dropdown_entry_c, button_c) in dropdown_entry_q.iter() {
         if !button_c.was_clicked_this_frame {

@@ -80,6 +80,27 @@
 //! assert_eq!(boxed.into_inner(), 42);
 //! ```
 //!
+//! #### Sharing a heap value between owners
+//!
+//! [`FfiArc<T>`] is the stable-layout counterpart of [`Arc<T>`](std::sync::Arc): an atomically
+//! reference-counted pointer that derefs to the shared value and drops it when the last clone
+//! goes away. [`strong_count`](FfiArc::strong_count) and [`ptr_eq`](FfiArc::ptr_eq) are
+//! associated functions, as on `Arc`. There are no weak references.
+//!
+//! ```
+//! use aphyn_ffi::FfiArc;
+//!
+//! let a = FfiArc::new(String::from("shared"));
+//! let b = a.clone();
+//!
+//! assert_eq!(*b, "shared");
+//! assert!(FfiArc::ptr_eq(&a, &b));
+//! assert_eq!(FfiArc::strong_count(&a), 2);
+//!
+//! drop(b);
+//! assert_eq!(FfiArc::strong_count(&a), 1);
+//! ```
+//!
 //! #### Mapping keys to values
 //!
 //! [`FfiHashMap<K, V>`] is the stable-layout counterpart of
@@ -168,6 +189,40 @@
 //! assert_eq!(total, 5);
 //! ```
 //!
+//! [`FfiFnOnceVec`] owns `FnOnce` closures instead of borrowing them. [`push`](FfiFnOnceVec::push)
+//! stores a closure and returns its index, [`call`](FfiFnOnceVec::call) consumes it (later calls
+//! with that index return `None`), and [`clear`](FfiFnOnceVec::clear) drops the closures never
+//! called and restarts indices at 0. Closures are packed into one arena-like buffer, so a push
+//! allocates only when that buffer grows.
+//!
+//! ```
+//! use std::rc::Rc;
+//! use aphyn_ffi::FfiFnOnceVec;
+//!
+//! #[repr(align(64))]
+//! struct Aligned(u32);
+//!
+//! let shared = Rc::new(());
+//! let held = shared.clone();
+//! let big = Aligned(7);
+//!
+//! let mut fns: FfiFnOnceVec<i32, i32> = FfiFnOnceVec::new();
+//! let small = 3u8;
+//! let a = fns.push(move |x| x + small as i32);
+//! let b = fns.push(move |x| x * big.0 as i32);
+//! let c = fns.push(move |x| { let _keep = held; x });
+//!
+//! assert_eq!(fns.call(b, 2), Some(14));
+//! assert_eq!(fns.call(b, 2), None);
+//! assert_eq!(fns.call(a, 1), Some(4));
+//! assert_eq!(fns.call(99, 0), None);
+//!
+//! assert_eq!(Rc::strong_count(&shared), 2);
+//! fns.clear();
+//! assert_eq!(Rc::strong_count(&shared), 1);
+//! assert_eq!(fns.call(c, 0), None);
+//! ```
+//!
 //! #### Passing an optional reference as a nullable pointer
 //!
 //! [`ref_into_nullable_ptr`] / [`mut_into_nullable_ptr`] turn an `Option<&T>` into a
@@ -203,7 +258,7 @@
 //!   own — a slice view is a pointer plus a [`u64`] length, an option is a tagged
 //!   union — so a fixed layout is all they need.
 //! - **Owning types that carry their behavior as embedded `extern "C-unwind"` function
-//!   pointers.** [`FfiAny`], [`FfiBox`], [`FfiDroppable`], [`FfiHashMap`],
+//!   pointers.** [`FfiAny`], [`FfiArc`], [`FfiBox`], [`FfiDroppable`], [`FfiHashMap`],
 //!   [`FfiIndexMap`], and [`FfiAllocator`]
 //!   store the operations they need (drop, deallocate, insert, look up) as function
 //!   pointers alongside the data, because the consuming side cannot monomorphize
@@ -231,6 +286,16 @@
 //! begins with a metadata header (an `extern "C-unwind"` drop function and a pointer to the
 //! value); dropping the `FfiDroppable` calls through that header. [`FfiTypedDroppable<T>`]
 //! is the typed wrapper that derefs to the value and forwards the standard traits.
+//!
+//! [`FfiArc<T>`] is a `#[repr(C)]` pointer to a single `#[repr(C)]` heap allocation laid out
+//! as an `AtomicUsize` strong count, an `extern "C-unwind"` drop function, then the value.
+//! Count and drop function come first so their offsets do not depend on `T`. Clones bump the
+//! count with `Relaxed` (aborting past `isize::MAX`, like `Arc`); drops decrement with
+//! `Release`, and the last one issues an `Acquire` fence and calls the stored drop function,
+//! which drops the value and frees the whole allocation. Going through that pointer rather
+//! than dropping in place means the value is always destroyed and freed by the code (and
+//! allocator) of the binary that created it, whichever side releases the last clone. It is
+//! `Send`/`Sync` only when `T: Send + Sync`, as `Arc` is.
 //! [`FfiStaticRef<T>`] is a `#[repr(transparent)]`, [`Copy`] pointer to a `'static`
 //! value, used to share these tables cheaply.
 //!
@@ -254,6 +319,16 @@
 //! `extern "C-unwind"` trampoline and only borrow the closure, tracked by their lifetime;
 //! [`FfiReturnHandle`] is the matching way to let the other side write a return value into
 //! an `Option<T>`, checked against an [`FfiShortTypeInfo`].
+//!
+//! [`FfiFnOnceVec`] writes each closure by value into one align-1 byte allocation, at an
+//! offset rounded up to the closure's alignment. The allocation is over-allocated by
+//! `max_align - 1` bytes (the largest closure alignment pushed so far) and the data base is
+//! shifted to that alignment, so on growth the used bytes are memcpy'd to an equally aligned
+//! base and every offset stays valid. Each entry is an offset plus `extern "C-unwind"`
+//! call-once / drop-in-place pointers held in an `FfiOption` (stored inline rather than
+//! behind a `'static` table so `I` and `O` need not be `'static`); it becomes `None` before
+//! the closure runs, so a spent or panicking closure is never dropped twice and indices stay
+//! stable until `clear`. Spent bytes are reclaimed only by `clear`.
 //!
 //! #### Allocation across the boundary
 //!
@@ -294,6 +369,7 @@
 //! unfinished work; leave them in place.
 
 mod alloc;
+mod arc;
 mod boxed;
 mod convert;
 mod drop;
@@ -313,6 +389,7 @@ mod return_val;
 mod ptr;
 
 pub use alloc::*;
+pub use arc::*;
 pub use boxed::*;
 pub use convert::*;
 pub use drop::*;

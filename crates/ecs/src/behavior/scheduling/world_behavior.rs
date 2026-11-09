@@ -5,11 +5,10 @@ use crate::*;
 pub enum Schedule {
     Start = 0,
     Update = 1,
-    RenderCamera = 2,
 }
 
 impl Schedule {
-    pub const COUNT: usize = 3;
+    pub const COUNT: usize = 2;
     pub const fn index(self) -> usize {
         self as usize
     }
@@ -61,6 +60,44 @@ impl WorldBehaviorFfi {
 
 //
 
+pub struct WorldBehaviorBuilder {
+    behavior: WorldBehaviorBuilderFfi,
+    types: TypesRegistryCache,
+}
+
+impl WorldBehaviorBuilder {
+    pub fn new(types: TypesRegistryCache) -> Self {
+        Self {
+            behavior: WorldBehaviorBuilderFfi::new(unsafe { types.registry().clone() }),
+            types,
+        }
+    }
+
+    pub fn as_mut<'r>(&'r mut self) -> WorldBehaviorBuilderMut<'r> {
+        WorldBehaviorBuilderMut::new(&mut self.behavior, &self.types)
+    }
+
+    pub fn build(self) -> WorldBehavior {
+        WorldBehavior {
+            behavior: self.behavior.build(),
+        }
+    }
+}
+
+//
+
+pub struct WorldBehavior {
+    behavior: WorldBehaviorFfi,
+}
+
+impl WorldBehavior {
+    pub fn execute_iteration(&mut self, schedule: Schedule, data: WorldDataMut) {
+        self.behavior.get_mut(schedule).execute_iteration(data.ffi());
+    }
+}
+
+//
+
 pub struct WorldBehaviorBuilderMut<'w> {
     world: &'w mut WorldBehaviorBuilderFfi,
     types: &'w TypesRegistryCache,
@@ -80,5 +117,19 @@ impl<'w> WorldBehaviorBuilderMut<'w> {
 
     pub fn clear(&mut self) {
         self.world.clear();
+    }
+
+    pub fn as_mut<'r>(&'r mut self) -> WorldBehaviorBuilderMut<'r>
+    where
+        'w: 'r,
+    {
+        WorldBehaviorBuilderMut {
+            world: self.world,
+            types: self.types,
+        }
+    }
+
+    pub unsafe fn into_raw_parts(self) -> (&'w mut WorldBehaviorBuilderFfi, &'w TypesRegistryCache) {
+        (self.world, self.types)
     }
 }

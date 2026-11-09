@@ -1,21 +1,28 @@
-use std::{ffi::OsStr, path::{Path, PathBuf}, sync::{Arc, Mutex}, time::Duration};
+use std::{
+    ffi::OsStr,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use aphyn::*;
 use libloading::Library;
 
 use crate::{PROJECT_ASSETS_SUBPATH, SYSTEM_GROUP, app_building, features::inspector_window::data::OpenProjectResource};
 
-pub fn register_feature(mut world: WorldBuilderMut) {
-    world.data_mut().resources_mut().insert(SimulatedWorldResource(None));
+// todo: bundle registration params
+pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+    data.resources_mut().insert(SimulatedWorldResource(None));
 
-    let mut behavior = world.behavior_mut();
     let mut update = behavior.get_mut(Schedule::Update);
 
-    update.group(SYSTEM_GROUP)
+    update
+        .group(SYSTEM_GROUP)
         .insert_child_system(preload_assets_into_simulated_world_system)
         .insert_child_system(tick_simulated_world_system);
 
-    update.order_system(preload_assets_into_simulated_world_system)
+    update
+        .order_system(preload_assets_into_simulated_world_system)
         .before_system(tick_simulated_world_system);
 }
 
@@ -26,15 +33,25 @@ pub enum SimulationMode {
 }
 
 pub struct SimulatedWorld {
-    pub world: World,
+    pub data: WorldData,
+    pub behavior: WorldBehavior,
+    pub render: RenderFeatureRegistry,
     pub library: Option<Library>,
     pub mode: SimulationMode,
     pub is_started: bool,
 }
 impl SimulatedWorld {
-    pub fn new(world: World, library: Option<Library>, mode: SimulationMode) -> Self {
+    pub fn new(
+        data: WorldData,
+        behavior: WorldBehavior,
+        render: RenderFeatureRegistry,
+        library: Option<Library>,
+        mode: SimulationMode,
+    ) -> Self {
         Self {
-            world,
+            data,
+            behavior,
+            render,
             library,
             mode,
             is_started: false,
@@ -43,7 +60,7 @@ impl SimulatedWorld {
 
     pub fn start_if_needed(&mut self) {
         if !self.is_started {
-            self.world.execute_iteration(Schedule::Start);
+            self.behavior.execute_iteration(Schedule::Start, self.data.as_mut());
             self.is_started = true;
         }
     }
@@ -73,9 +90,10 @@ pub fn preload_assets_into_simulated_world_system(
     }
 
     let lib = load_scripts_library(&open_project.dir_path);
-    let world = build_simulated_world(&open_project.dir_path, &render_api, lib.as_ref(), SimulationMode::Edit, "");
+    let (data, behavior, render) =
+        build_simulated_world(&open_project.dir_path, &render_api, lib.as_ref(), SimulationMode::Edit, "");
 
-    simulated_world.0 = Some(SimulatedWorld::new(world, lib, SimulationMode::Edit));
+    simulated_world.0 = Some(SimulatedWorld::new(data, behavior, render, lib, SimulationMode::Edit));
 }
 
 pub fn rebuild_simulated_world(
@@ -86,14 +104,24 @@ pub fn rebuild_simulated_world(
     play_scene_key: &str,
 ) {
     // the old world holds the library's types and function pointers, so it must be dropped before the library is reused
-    let library = simulated_world.0.take().and_then(|SimulatedWorld { world, library, .. }| {
-        drop(world);
-        library
-    });
+    let library = simulated_world.0.take().and_then(
+        |SimulatedWorld {
+             data,
+             behavior,
+             render,
+             library,
+             ..
+         }| {
+            drop(behavior);
+            drop(data);
+            drop(render);
+            library
+        },
+    );
 
-    let world = build_simulated_world(project_dir, render_api, library.as_ref(), mode, play_scene_key);
+    let (data, behavior, render) = build_simulated_world(project_dir, render_api, library.as_ref(), mode, play_scene_key);
 
-    simulated_world.0 = Some(SimulatedWorld::new(world, library, mode));
+    simulated_world.0 = Some(SimulatedWorld::new(data, behavior, render, library, mode));
 }
 
 fn load_scripts_library(project_dir: &str) -> Option<Library> {
@@ -119,18 +147,22 @@ fn build_simulated_world(
     lib: Option<&Library>,
     mode: SimulationMode,
     play_scene_key: &str,
-) -> World {
+) -> (WorldData, WorldBehavior, RenderFeatureRegistry) {
     let assets_dir = project_dir.to_string() + PROJECT_ASSETS_SUBPATH;
 
-    let mut world = WorldBuilder::new();
+    let mut data = WorldData::default();
+    let mut behavior = WorldBehaviorBuilder::new(data.types().clone());
+    let mut render = RenderFeatureRegistry::default();
 
     match mode {
-        SimulationMode::Edit => _ = world.data_mut().resources_mut().insert({
-            let mut serializers = SerializersResource::default();
-            register_common_transserializers(&mut *serializers);
-            serializers
-        }),
-        SimulationMode::Play => add_defult_modules_to(world.as_mut()),
+        SimulationMode::Edit => {
+            _ = data.resources_mut().insert({
+                let mut serializers = SerializersResource::default();
+                register_common_transserializers(&mut *serializers);
+                serializers
+            })
+        }
+        SimulationMode::Play => add_defult_modules_to(data.as_mut(), behavior.as_mut(), &mut render),
     }
 
     let mut window_state = WindowState {
@@ -140,51 +172,63 @@ fn build_simulated_world(
     };
 
     if let Some(lib) = lib
-        && let Err(err) = unsafe { init_app_from_library(AppInitCtx { world: world.as_mut(), window: &mut window_state }, lib) }
+        && let Err(err) = unsafe {
+            init_app_from_library(
+                AppInitCtx {
+                    data: data.as_mut(),
+                    behavior: behavior.as_mut(),
+                    window: &mut window_state,
+                    render: &mut render,
+                },
+                lib,
+            )
+        }
     {
         println!("failed to init scripts lib: {err}");
     }
 
     match mode {
         SimulationMode::Edit => {
-            world.behavior_mut().clear();
+            behavior.as_mut().clear();
 
-            add_collision_module_to(world.as_mut());
-            add_transform_module_to(world.as_mut());
-            add_ui_module_to(world.as_mut());
-            add_render_module_to(world.as_mut());
+            add_collision_module_to(data.as_mut(), behavior.as_mut(), &mut render);
+            add_transform_module_to(data.as_mut(), behavior.as_mut());
+            add_ui_module_to(data.as_mut(), behavior.as_mut(), &mut render);
+            add_render_features_module_to(data.as_mut(), behavior.as_mut(), &mut render);
 
-            world
-                .behavior_mut()
+            behavior
+                .as_mut()
                 .get_mut(Schedule::Update)
                 .order_group(SYSTEM_GROUP_COLLISION)
                 .before_group(SYSTEM_GROUP_TRANSFORM)
                 .before_group(SYSTEM_GROUP_RENDER);
         }
         SimulationMode::Play => {
-            world.data_mut().resources_mut().insert(AssetsDirResource(assets_dir.as_str().into()));
-            world.data_mut().resources_mut().insert(PlaySceneResource { asset_key: play_scene_key.into() });
+            data.resources_mut().insert(AssetsDirResource(assets_dir.as_str().into()));
+            data.resources_mut().insert(PlaySceneResource {
+                asset_key: play_scene_key.into(),
+            });
 
-            let mut behavior = world.behavior_mut();
+            let mut behavior = behavior.as_mut();
             let mut start = behavior.get_mut(Schedule::Start);
 
             start.group(SYSTEM_GROUP_ASSETS).insert_child_system(spawn_play_scene_system);
-            start.order_system(load_all_assets_system).before_system(spawn_play_scene_system);
+            start
+                .order_system(load_all_assets_system)
+                .before_system(spawn_play_scene_system);
         }
     }
 
-    let mut world = world.build();
+    let behavior = behavior.build();
 
     {
-        let mut res = world.data_mut().into_resources_mut();
+        let mut res = data.resources_mut();
 
         let serializer = res.get_mut::<SerializersResource>().unwrap();
         let serializer = &mut serializer.0;
 
         serializer.register(StandardSerializer::<SerializedValue>::default());
         serializer.register(StandardSerializer::<RenderSpace>::default());
-        serializer.register(StandardSerializer::<StandardMaterialShader>::default());
-        serializer.register(StandardSerializer::<StandardEngineShader>::default());
         serializer.register(StandardSerializer::<StandardTextureFormat>::default());
         serializer.register(StandardSerializer::<f32>::default());
         serializer.register(StandardSerializer::<bool>::default());
@@ -195,7 +239,7 @@ fn build_simulated_world(
         serializer.register(StandardSerializer::<FfiOption<f32>>::default());
         serializer.register(StandardSerializer::<Option<f32>>::default());
         serializer.register(StandardSerializer::<StandardTextureAssetMetadata>::default());
-        serializer.register(StandardSerializer::<StandardMaterialAssetMetadata>::default());
+        serializer.register(StandardSerializer::<ShaderAssetMetadata>::default());
         serializer.register(StandardSerializer::<StandardMeshAssetMetadata>::default());
         serializer.register(StandardSerializer::<AudioClipAssetMetadata>::default());
         // todo
@@ -211,7 +255,10 @@ fn build_simulated_world(
 
         match mode {
             SimulationMode::Edit => {
-                res.insert(AudioStateResource::new(FfiDroppable::new(()), WrappedAudioStateHandle::new(Arc::new(Mutex::new(AudioState::new())))));
+                res.insert(AudioStateResource::new(
+                    FfiDroppable::new(()),
+                    WrappedAudioStateHandle::new(Arc::new(Mutex::new(AudioState::new()))),
+                ));
                 res.insert(AssetStorageResource::<AudioClip>::new());
                 res.insert(AssetStorageResource::<Prefab>::new());
                 res.insert(AssetStorageResource::<Scene>::new());
@@ -222,14 +269,19 @@ fn build_simulated_world(
         }
     }
 
-    world
+    (data, behavior, render)
 }
 
 fn spawn_play_scene_system(mut world: WorldDataMut) {
     let (res, ent, _) = world.as_tuple_mut();
 
     return_if_not!(Some(play_scene) = res.get::<PlaySceneResource>());
-    return_if_not!(Some(scene) = res.get::<AssetStorageResource<Scene>>().and_then(|s| s.get_registered(play_scene.asset_key.as_str())).cloned());
+    return_if_not!(
+        Some(scene) = res
+            .get::<AssetStorageResource<Scene>>()
+            .and_then(|s| s.get_registered(play_scene.asset_key.as_str()))
+            .cloned()
+    );
 
     instantiate_scene(res.as_ref(), ent, scene);
 }
@@ -242,14 +294,16 @@ pub fn tick_simulated_world_system(mut simulated_world: ResMut<SimulatedWorldRes
 
     simulated_world.start_if_needed();
 
-    simulated_world.world.execute_iteration(Schedule::Update);
+    simulated_world
+        .behavior
+        .execute_iteration(Schedule::Update, simulated_world.data.as_mut());
 
-    simulated_world.world.data_mut().events_mut().clear();
+    simulated_world.data.events_mut().clear();
 }
 
 fn copy_lib_to_unique(project_path: impl AsRef<Path>, lib_path: impl AsRef<Path>) -> Option<PathBuf> {
     // todo: handle std::fs errs.
-    
+
     let lib_path = lib_path.as_ref();
 
     let Ok(true) = std::fs::exists(lib_path) else {
@@ -265,7 +319,10 @@ fn copy_lib_to_unique(project_path: impl AsRef<Path>, lib_path: impl AsRef<Path>
     let lib_ext = lib_path.extension();
     let lib_stem = lib_path.file_stem();
 
-    let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or(Duration::ZERO).as_millis();
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or(Duration::ZERO)
+        .as_millis();
     let mut new_file_name = lib_stem.unwrap_or(OsStr::new("")).to_owned();
     new_file_name.push(OsStr::new(&timestamp.to_string()));
     if let Some(lib_ext) = lib_ext {

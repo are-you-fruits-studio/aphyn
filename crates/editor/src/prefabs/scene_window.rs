@@ -27,7 +27,7 @@ fn init_window_as_view<C: 'static + Component>(mut world: WorldDataMut, ent_wind
             LocalRectComponent::default(),
             ChildComponent { parent: ent_scroll_view },
             BatchedMeshComponent::default(),
-            StandardMaterialComponent::default(),
+            MaterialComponent::default(),
             ImageComponent::default(),
             HoverAreaComponent::default(),
             view_image_c,

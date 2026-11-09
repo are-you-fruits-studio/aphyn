@@ -5,9 +5,9 @@ use aphyn::*;
 use crate::{
     SYSTEM_GROUP,
     features::{
+        game_window::GameViewImageComponent,
         inspector_window::{data::HierarchyWindowEntryComponent, systems::update_hierarchy_window_system},
         ui_interaction::{ButtonClickEvent, DOUBLE_CLICK_INTERVAL, HoverAreaComponent, check_ui_interaction_system},
-        game_window::GameViewImageComponent,
         world_preload::{SimulatedWorldResource, preload_assets_into_simulated_world_system, tick_simulated_world_system},
     },
 };
@@ -15,19 +15,19 @@ use crate::{
 const MOVE_SPEED: f32 = 5.0;
 const LOOK_SENSITIVITY: f32 = 0.004;
 const PITCH_LIMIT: f32 = 89.0_f32.to_radians();
-const CLEAR_COLOR: [f64; 4] = [0.05, 0.05, 0.05, 1.0];
+const CLEAR_COLOR: [f32; 4] = [0.05, 0.05, 0.05, 1.0];
 const SUN_YAW: f64 = 30.0_f64.to_radians();
 const SUN_PITCH: f64 = -50.0_f64.to_radians();
 const SUN_COLOR: Vec3<f32> = Vec3::splat(3.0);
 const FOCUS_DISTANCE_SCALE: f32 = 3.0;
 const FOCUS_MIN_DISTANCE: f32 = 2.0;
 
-pub fn register_feature(mut world: WorldBuilderMut) {
-    world.data_mut().resources_mut().insert(SceneCameraResource::default());
-    world.data_mut().resources_mut().insert(SceneViewResource::default());
-    world.data_mut().resources_mut().insert(HierarchyDoubleClickResource::default());
+// todo: bundle registration params
+pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+    data.resources_mut().insert(SceneCameraResource::default());
+    data.resources_mut().insert(SceneViewResource::default());
+    data.resources_mut().insert(HierarchyDoubleClickResource::default());
 
-    let mut behavior = world.behavior_mut();
     let mut update = behavior.get_mut(Schedule::Update);
 
     update
@@ -90,7 +90,9 @@ impl Default for SceneCameraResource {
             camera: Camera {
                 near: 0.1,
                 far: 1_000.0,
-                projection: CameraProjection::Perspective { fov: 90_f32.to_radians() },
+                projection: CameraProjection::Perspective {
+                    fov: 90_f32.to_radians(),
+                },
             },
             is_controlling: false,
             last_mouse_pos: Vec2::splat(0.0),
@@ -108,7 +110,7 @@ pub struct HierarchyDoubleClickResource {
 #[derive(Default)]
 pub struct SimulatedViewTarget {
     pub texture: Option<AssetHandle<StandardTexture>>,
-    pub material: Option<AssetHandle<StandardMaterial>>,
+    pub material: Option<AssetHandle<Material>>,
     pub size: [u32; 2],
 }
 
@@ -162,7 +164,10 @@ fn focus_scene_camera_on_entity_system(
     mut camera_res: ResMut<SceneCameraResource>,
 ) {
     // hierarchy entries are respawned every frame, so double-clicks are tracked by the simulated entity
-    let clicked_sim_ent = click_evt.iter().find_map(|e| entry_q.get(e.entity)).map(|c| c.simulated_entity);
+    let clicked_sim_ent = click_evt
+        .iter()
+        .find_map(|e| entry_q.get(e.entity))
+        .map(|c| c.simulated_entity);
 
     let Some(sim_ent) = clicked_sim_ent else {
         if input.mouse.is_just_pressed(MouseButton::Left) {
@@ -180,7 +185,13 @@ fn focus_scene_camera_on_entity_system(
 
     return_if!(!is_double_click);
     return_if_not!(Some(simulated_world) = &simulated_world.0);
-    return_if_not!(Some(transform) = simulated_world.world.data().entities().get_component::<GlobalTransform>(sim_ent));
+    return_if_not!(
+        Some(transform) = simulated_world
+            .data
+            .as_ref()
+            .entities()
+            .get_component::<GlobalTransform>(sim_ent)
+    );
 
     let scale = transform.scale_rotation.to_lossy_scale();
     let distance = (scale.x.max(scale.y).max(scale.z) * FOCUS_DISTANCE_SCALE).max(FOCUS_MIN_DISTANCE);
@@ -201,7 +212,12 @@ fn sync_simulated_window_system(
     return_if_not!(Some(rect_c) = game_rect_c.or_else(|| scene_image_q.iter().next()));
 
     let size = view_size(rect_c);
-    let window_res = simulated_world.world.data_mut().into_resources_mut().into_get_mut::<WindowResource>().unwrap();
+    let window_res = simulated_world
+        .data
+        .as_mut()
+        .into_resources_mut()
+        .into_get_mut::<WindowResource>()
+        .unwrap();
 
     // window changes requested by the simulated game are dropped
     _ = WindowResource::take_changes(window_res);
@@ -220,8 +236,10 @@ fn render_scene_window_system(
     mut view_res: ResMut<SceneViewResource>,
     mut simulated_world: ResMut<SimulatedWorldResource>,
     mut textures: ResMut<AssetStorageResource<StandardTexture>>,
-    mut materials: ResMut<AssetStorageResource<StandardMaterial>>,
-    mut image_q: WorldQuery<(&GlobalRectComponent, &mut StandardMaterialComponent), WithFilter<SceneViewImageComponent>>,
+    templates: Res<AssetStorageResource<MaterialTemplate>>,
+    shaders: Res<AssetStorageResource<Shader>>,
+    mut materials: ResMut<AssetStorageResource<Material>>,
+    mut image_q: WorldQuery<(&GlobalRectComponent, &mut MaterialComponent), WithFilter<SceneViewImageComponent>>,
 ) {
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
     return_if_not!(Some((rect_c, material_c)) = image_q.iter_mut().next());
@@ -233,7 +251,19 @@ fn render_scene_window_system(
         light: Some(sun_light()),
     };
 
-    render_simulated_view(&render_api, &mut view_res.0, &mut textures, &mut materials, rect_c, material_c, &mut simulated_world.world, Some(camera));
+    render_simulated_view(
+        &render_api,
+        &mut view_res.0,
+        &mut textures,
+        &mut materials,
+        &templates,
+        &shaders,
+        rect_c,
+        material_c,
+        &mut simulated_world.data,
+        &mut simulated_world.render,
+        Some(camera),
+    );
 }
 
 pub struct ViewCamera {
@@ -247,10 +277,13 @@ pub fn render_simulated_view(
     render_api: &RenderApiResource,
     view: &mut SimulatedViewTarget,
     textures: &mut AssetStorageResource<StandardTexture>,
-    materials: &mut AssetStorageResource<StandardMaterial>,
+    materials: &mut AssetStorageResource<Material>,
+    templates: &AssetStorageResource<MaterialTemplate>,
+    shaders: &AssetStorageResource<Shader>,
     rect_c: &GlobalRectComponent,
-    material_c: &mut StandardMaterialComponent,
-    world: &mut World,
+    material_c: &mut MaterialComponent,
+    data: &mut WorldData,
+    render: &mut RenderFeatureRegistry,
     camera: Option<ViewCamera>,
 ) {
     let size = view_size(rect_c);
@@ -273,13 +306,14 @@ pub fn render_simulated_view(
             _ => {
                 let texture_handle = textures.insert(texture);
 
-                let material = render_api.create_material(StandardMaterialAssetMetadata {
-                    shader: StandardEngineShader::UiOpaqueUnlit.into(),
-                    color: Vec4::splat(1.0),
-                    alpha_threshold: 0.5,
-                    color_tex: texture_handle.clone(),
-                    ..Default::default()
-                });
+                let mut data = MaterialData::new();
+                data.insert("color_tex", MaterialDataValue::Texture(texture_handle.clone()));
+
+                let template = templates
+                    .get_registered(BUILTIN_TEMPLATE_UI_OPAQUE_UNLIT)
+                    .cloned()
+                    .unwrap_or_default();
+                let material = render_api.create_material(templates, shaders, template, data);
 
                 view.texture = Some(texture_handle);
                 view.material = Some(materials.insert(material));
@@ -295,25 +329,22 @@ pub fn render_simulated_view(
 
     material_c.material = material_handle.clone();
 
-    let target_texture = unsafe { textures.get(texture_handle).unwrap().native() }.texture.clone();
-    let target_view = target_texture.create_view(&Default::default());
+    let target = textures.get(texture_handle).unwrap().clone();
 
-    clear_color_target(&*unsafe { render_api.raw() }, &target_view, CLEAR_COLOR);
+    clear_color_target(render_api, &target, CLEAR_COLOR);
 
     return_if_not!(Some(camera) = camera);
 
-    world.data_mut().resources_mut().insert(CurrentRenderingResource {
-        camera_position: camera.position,
-        camera_scale_rotation: camera.scale_rotation,
-        camera: camera.camera,
-        light: camera.light,
-        target_texture,
-        target_view,
-    });
-
-    world.execute_iteration(Schedule::RenderCamera);
-
-    world.data_mut().resources_mut().remove::<CurrentRenderingResource>();
+    render.render_view(
+        data,
+        CurrentRenderingResource {
+            camera_position: camera.position,
+            camera_scale_rotation: camera.scale_rotation,
+            camera: camera.camera,
+            light: camera.light,
+            target,
+        },
+    );
 }
 
 fn sun_light() -> StandardLight {

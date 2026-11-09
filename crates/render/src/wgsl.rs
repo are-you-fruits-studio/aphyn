@@ -4,14 +4,11 @@ use std::{
     fmt,
 };
 
-use wgpu::{Device, ShaderModule, ShaderModuleDescriptor, ShaderSource};
+pub const STANDARD_SHADER_WGSL: &str = include_str!("./assets/wgsl/shader_standard.wgsl");
 
 const ENGINE_LIBRARIES: &[(&str, &str)] = &[
     ("aphyn/fullscreen.wgsl", include_str!("./assets/wgsl/fullscreen.wgsl")),
-    (
-        "aphyn/standard_types.wgsl",
-        include_str!("./assets/wgsl/standard_types.wgsl"),
-    ),
+    ("aphyn/standard_types.wgsl", include_str!("./assets/wgsl/standard_types.wgsl")),
     (
         "aphyn/standard_bindings.wgsl",
         include_str!("./assets/wgsl/standard_bindings.wgsl"),
@@ -50,21 +47,6 @@ impl WgslComposer {
         let mut included = HashSet::new();
         self.compose_into(&mut output, &mut included, name, source, defs)?;
         Ok(output)
-    }
-
-    pub fn create_shader_module(
-        &self,
-        device: &Device,
-        name: &str,
-        source: &str,
-        defs: &[&str],
-    ) -> Result<ShaderModule, WgslComposeError> {
-        let code = self.compose(name, source, defs)?;
-
-        Ok(device.create_shader_module(ShaderModuleDescriptor {
-            label: Some(name),
-            source: ShaderSource::Wgsl(code.into()),
-        }))
     }
 
     fn compose_into<'a>(
@@ -252,6 +234,30 @@ mod tests {
             "mip_fill_shader.wgsl",
             include_str!("./assets/mip_fill_shader.wgsl"),
         );
+
+        let standard_defs: &[&[&str]] = &[
+            &[],
+            &["LIT"],
+            &["TRANSPARENT"],
+            &["LIT", "TRANSPARENT"],
+            &["UI"],
+            &["UI", "TRANSPARENT"],
+        ];
+
+        for defs in standard_defs {
+            let code = composer
+                .compose(
+                    "shader_standard.wgsl",
+                    include_str!("./assets/wgsl/shader_standard.wgsl"),
+                    defs,
+                )
+                .unwrap();
+            let module =
+                naga::front::wgsl::parse_str(&code).unwrap_or_else(|error| panic!("{defs:?}\n{}", error.emit_to_string(&code)));
+            naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::all())
+                .validate(&module)
+                .unwrap_or_else(|error| panic!("{defs:?}\n{}", error.emit_to_string(&code)));
+        }
     }
 
     #[test]

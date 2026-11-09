@@ -14,7 +14,8 @@
 //! Two states ship with the crate: [`PureSerializerCtxState`] dispatches statically to each
 //! type's own [`Serializable`] impl, and [`TransSerializerCtxState`] looks the serializer up at
 //! runtime in a [`TransSerializerRegistry`]. Inside the engine the shared registry already lives
-//! in the world as [`SerializersResource`], inserted (and filled with the common types) by the
+//! in the world as `SerializersResource` (crate `aphyn_serialization_ecs`, which keeps this crate
+//! independent of the ECS), inserted (and filled with the common types) by the
 //! engine's default-modules setup.
 //!
 //! #### Round-trip a value without a registry
@@ -238,7 +239,7 @@
 //! serializer for `T` in its registry, then in each wider state it wraps
 //! ([`wrap_with_local`](TransSerializerCtxState::wrap_with_local)), innermost first. This is how
 //! the asset and prefab code in `aphyn_asset_loading` layers transient, borrowing serializers
-//! (for example one that remaps `EntityId`s) over the shared [`SerializersResource`].
+//! (for example one that remaps `EntityId`s) over the shared `SerializersResource`.
 //! [`SerializerCtx::map_state`] swaps the state, which the prefab loader uses to drop from a
 //! registry-backed context to a pure one.
 //!
@@ -331,7 +332,6 @@ mod serialization_pure;
 mod serialization_registry;
 mod serialization_impls;
 mod serialization_model;
-mod serialization_ecs;
 mod serialization_utils;
 mod serialization_core;
 mod serialization_ctx;
@@ -341,7 +341,6 @@ pub use serialization_transitive::*;
 pub use serialization_pure::*;
 pub use serialization_registry::*;
 pub use serialization_model::*;
-pub use serialization_ecs::*;
 pub use serialization_utils::*;
 pub use serialization_core::*;
 pub use serialization_ctx::*;

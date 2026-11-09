@@ -15,7 +15,8 @@
 //! use aphyn::*;
 //!
 //! let mut app = App::new();
-//! add_defult_modules_to(app.ecs_mut().as_mut());
+//! let ctx = app.init_ctx_mut();
+//! add_defult_modules_to(ctx.data, ctx.behavior, ctx.render);
 //! // ... register your own systems and entities ...
 //! app.run();
 //! ```
@@ -29,8 +30,9 @@
 //! use aphyn::*;
 //!
 //! let mut app = App::new();
-//! add_defult_modules_to(app.ecs_mut().as_mut());
-//! fps_counter::add_module_to(app.ecs_mut().as_mut());
+//! let AppInitCtx { mut data, mut behavior, render, .. } = app.init_ctx_mut();
+//! add_defult_modules_to(data.as_mut(), behavior.as_mut(), render);
+//! fps_counter::add_module_to(data.as_mut(), behavior.as_mut(), render);
 //! app.run();
 //! ```
 //!
@@ -48,8 +50,7 @@
 //! #[derive(Component, Serializable, Default)]
 //! struct Health(f32);
 //!
-//! fn register_serializers(mut world: WorldBuilderMut) {
-//!     let mut data = world.data_mut();
+//! fn register_serializers(mut data: WorldDataMut) {
 //!     let mut res = data.resources_mut();
 //!     let serializers = res.get_mut::<SerializersResource>().unwrap();
 //!
@@ -62,24 +63,26 @@
 //! #### Default module set and ordering
 //!
 //! [`add_defult_modules_to`] is the assembly point. It registers the collision,
-//! transform, UI, render, audio, and asset subsystems through their own `add_*_module_to`
+//! transform, UI, render (`aphyn_render_features`), audio, and asset
+//! subsystems through their own `add_*_module_to`
 //! helpers, inserts a [`SerializersResource`] filled by [`register_common_transserializers`],
 //! then constrains the [`Update`](aphyn_ecs::Schedule::Update) schedule so the
 //! [`SYSTEM_GROUP_COLLISION`](aphyn_collision::SYSTEM_GROUP_COLLISION) group runs before
 //! [`SYSTEM_GROUP_TRANSFORM`](aphyn_transform::SYSTEM_GROUP_TRANSFORM), which runs before
-//! [`SYSTEM_GROUP_RENDER`](aphyn_render::SYSTEM_GROUP_RENDER): colliders settle, transforms
-//! propagate, the frame renders. The name carries an upstream misspelling (`defult`);
+//! [`SYSTEM_GROUP_RENDER`](aphyn_render_features::SYSTEM_GROUP_RENDER): colliders settle, transforms
+//! propagate, the frame renders. In `Start` it orders `SYSTEM_GROUP_RENDER` (which inserts the built-in
+//! shaders and material templates) before `SYSTEM_GROUP_ASSETS`, so asset files can reference them. The name carries an upstream misspelling (`defult`);
 //! callers must match it exactly.
 //!
 //! #### Shared serializer registry
 //!
-//! [`SerializersResource`] (defined in `aphyn_serialization`) is a newtype over a `'static`
+//! [`SerializersResource`] (defined in `aphyn_serialization_ecs`) is a newtype over a `'static`
 //! [`TransSerializerRegistry`] that derefs to it. It is filled here, with the world, because
 //! this crate is the one that depends on every subsystem whose types it registers.
 //! [`register_common_transserializers`] registers a [`StandardSerializer`] for exactly the
 //! types the engine needs: every engine component (transform, render, UI, audio, collision,
-//! [`DebugNameComponent`]), the texture/mesh/material/audio asset metadata types the asset
-//! loaders read, and, recursively, the type of every field they contain, generic instantiations
+//! [`DebugNameComponent`]), the texture/mesh/shader/audio asset metadata types, the `Material` and
+//! `MaterialTemplate` assets the asset loaders read (with `GpuShaderDesc` and its parts), and, recursively, the type of every field they contain, generic instantiations
 //! included (`Vec2<FfiOption<UiVal>>`, `[[f32; 3]; 3]` behind `Mat3<f32>`, `f64` behind
 //! `Quat<f32>`, ...). The list is maintained by hand: adding a component or a field type means
 //! adding it here, otherwise (de)serialization reports `MissingSerializer`. `AssetHandle<T>` and
@@ -102,44 +105,61 @@
 //! only printed, not exposed to other systems.
 
 use aphyn_audio::{AudioClipAssetMetadata, AudioSource};
-use aphyn_collision::{CollisionAabb, CollisionBox, CollisionLine, CollisionShape, CollisionSphere, ColliderComponent, LineBoundType};
-use aphyn_ecs::{Component, Schedule, WorldBuilderMut};
-use aphyn_ffi::{FfiOption, FfiSmallString, FfiString, FfiVec};
+use aphyn_collision::{
+    ColliderComponent, CollisionAabb, CollisionBox, CollisionLine, CollisionShape, CollisionSphere, LineBoundType,
+};
+use aphyn_ecs::{Component, Schedule, WorldBehaviorBuilderMut, WorldDataMut};
+use aphyn_ffi::{FfiIndexMap, FfiOption, FfiSmallString, FfiString, FfiVec};
 use aphyn_math::{Mat, Mat3, Quat, Vec2, Vec3, Vec4};
-use aphyn_render::{BatchedMeshComponent, CameraComponent, StandardLightComponent, StandardMaterialComponent, StandardMeshComponent, StandardRenderComponent};
-use aphyn_render_core::{
-    Camera, CameraProjection, CoordinateSpaceType, RenderSpace, StandardEngineShader, StandardMaterialAssetMetadata, StandardMaterialShader, StandardMeshAssetMetadata, StandardTextureAssetMetadata,
+use aphyn_render::{
+    Camera, CameraProjection, CoordinateSpaceType, Material, MaterialData, MaterialDataEntry, MaterialDataValue, MaterialInput,
+    MaterialPassTarget, MaterialTemplate, MaterialTemplatePass, MaterialTextureBinding, MaterialTextureFallback,
+    MaterialValueBinding, RenderSpace, ShaderAssetMetadata, StandardMeshAssetMetadata, StandardTextureAssetMetadata,
     StandardTextureFormat, StandardVertex,
 };
+use aphyn_render_core::{
+    GpuBlendComponent, GpuBlendFactor, GpuBlendOperation, GpuBlendState, GpuColorWrites, GpuCompareFunction, GpuCullMode,
+    GpuFrontFace, GpuPrimitiveTopology, GpuShaderDesc,
+};
+use aphyn_render_features::{
+    BatchedMeshComponent, CameraComponent, MaterialComponent, MeshComponent, RenderFeatureRegistry, StandardLightComponent,
+};
 use aphyn_serialization::*;
+use aphyn_serialization_ecs::SerializersResource;
 use aphyn_transform::{
-    ChildComponent, GlobalDisableableComponent, GlobalRectComponent, GlobalTransform, LocalDisableableComponent, LocalRectComponent, LocalTransform,
-    ParentComponent, RectChildAlignComponent, UiDirection, UiSpacing, UiUnit, UiVal,
+    ChildComponent, GlobalDisableableComponent, GlobalRectComponent, GlobalTransform, LocalDisableableComponent, LocalRectComponent,
+    LocalTransform, ParentComponent, RectChildAlignComponent, UiDirection, UiSpacing, UiUnit, UiVal,
 };
 use aphyn_ui::{ChildrenRectMaskComponent, HorizontalAlign, ImageComponent, ImageFillSettings, TextComponent, VerticalAlign};
 
 pub mod fps_counter;
 
-pub fn add_defult_modules_to(mut world: WorldBuilderMut) {
-    aphyn_collision::add_collision_module_to(world.as_mut());
-    aphyn_transform::add_transform_module_to(world.as_mut());
-    aphyn_ui::add_ui_module_to(world.as_mut());
-    aphyn_render::add_render_module_to(world.as_mut());
-    aphyn_audio::add_audio_module_to(world.as_mut());
-    aphyn_asset_loading::add_asset_module_to(world.as_mut());
+// todo: bundle registration params
+pub fn add_defult_modules_to(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, render: &mut RenderFeatureRegistry) {
+    aphyn_collision::add_collision_module_to(data.as_mut(), behavior.as_mut(), render);
+    aphyn_transform::add_transform_module_to(data.as_mut(), behavior.as_mut());
+    aphyn_ui::add_ui_module_to(data.as_mut(), behavior.as_mut(), render);
+    aphyn_render_features::add_render_features_module_to(data.as_mut(), behavior.as_mut(), render);
+    aphyn_audio::add_audio_module_to(data.as_mut(), behavior.as_mut(), render);
+    aphyn_asset_loading::add_asset_module_to(data.as_mut(), behavior.as_mut(), render);
 
-    world.data_mut().resources_mut().insert({
+    data.resources_mut().insert({
         let mut serializers = SerializersResource::default();
         register_common_transserializers(&mut *serializers);
         serializers
     });
 
-    world
-        .behavior_mut()
+    behavior
         .get_mut(Schedule::Update)
         .order_group(aphyn_collision::SYSTEM_GROUP_COLLISION)
         .before_group(aphyn_transform::SYSTEM_GROUP_TRANSFORM)
-        .before_group(aphyn_render::SYSTEM_GROUP_RENDER);
+        .before_group(aphyn_render_features::SYSTEM_GROUP_RENDER);
+
+    // asset files may reference the built-in shaders and material templates
+    behavior
+        .get_mut(Schedule::Start)
+        .order_group(aphyn_render_features::SYSTEM_GROUP_RENDER)
+        .before_group(aphyn_asset_loading::SYSTEM_GROUP_ASSETS);
 }
 
 pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry) {
@@ -155,10 +175,9 @@ pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry
     register_transserializer::<GlobalDisableableComponent>(serializer);
     register_transserializer::<LocalDisableableComponent>(serializer);
     register_transserializer::<RectChildAlignComponent>(serializer);
-    register_transserializer::<StandardRenderComponent>(serializer);
-    register_transserializer::<StandardMeshComponent>(serializer);
     register_transserializer::<BatchedMeshComponent>(serializer);
-    register_transserializer::<StandardMaterialComponent>(serializer);
+    register_transserializer::<MeshComponent>(serializer);
+    register_transserializer::<MaterialComponent>(serializer);
     register_transserializer::<StandardLightComponent>(serializer);
     register_transserializer::<CameraComponent>(serializer);
     register_transserializer::<TextComponent>(serializer);
@@ -170,13 +189,18 @@ pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry
     // asset metadata
     register_transserializer::<StandardMeshAssetMetadata>(serializer);
     register_transserializer::<StandardTextureAssetMetadata>(serializer);
-    register_transserializer::<StandardMaterialAssetMetadata>(serializer);
+    register_transserializer::<ShaderAssetMetadata>(serializer);
     register_transserializer::<AudioClipAssetMetadata>(serializer);
+    register_transserializer::<Material>(serializer);
+    register_transserializer::<MaterialTemplate>(serializer);
 
     // field types
     register_transserializer::<bool>(serializer);
     register_transserializer::<u8>(serializer);
     register_transserializer::<u16>(serializer);
+    register_transserializer::<u64>(serializer);
+    register_transserializer::<usize>(serializer);
+    register_transserializer::<FfiOption<usize>>(serializer);
     register_transserializer::<f32>(serializer);
     register_transserializer::<f64>(serializer);
     register_transserializer::<FfiString>(serializer);
@@ -200,13 +224,34 @@ pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry
     register_transserializer::<Vec2<UiVal>>(serializer);
     register_transserializer::<FfiOption<UiVal>>(serializer);
     register_transserializer::<Vec2<FfiOption<UiVal>>>(serializer);
+    register_transserializer::<MaterialData>(serializer);
+    register_transserializer::<MaterialDataEntry>(serializer);
+    register_transserializer::<MaterialDataValue>(serializer);
     register_transserializer::<StandardVertex>(serializer);
     register_transserializer::<FfiVec<StandardVertex>>(serializer);
     register_transserializer::<Camera>(serializer);
     register_transserializer::<CameraProjection>(serializer);
     register_transserializer::<RenderSpace>(serializer);
-    register_transserializer::<StandardMaterialShader>(serializer);
-    register_transserializer::<StandardEngineShader>(serializer);
+    register_transserializer::<MaterialInput>(serializer);
+    register_transserializer::<FfiIndexMap<FfiString, MaterialInput>>(serializer);
+    register_transserializer::<MaterialTextureFallback>(serializer);
+    register_transserializer::<MaterialPassTarget>(serializer);
+    register_transserializer::<MaterialTemplatePass>(serializer);
+    register_transserializer::<FfiVec<MaterialTemplatePass>>(serializer);
+    register_transserializer::<MaterialValueBinding>(serializer);
+    register_transserializer::<FfiVec<MaterialValueBinding>>(serializer);
+    register_transserializer::<MaterialTextureBinding>(serializer);
+    register_transserializer::<FfiVec<MaterialTextureBinding>>(serializer);
+    register_transserializer::<GpuShaderDesc>(serializer);
+    register_transserializer::<GpuPrimitiveTopology>(serializer);
+    register_transserializer::<GpuFrontFace>(serializer);
+    register_transserializer::<GpuCullMode>(serializer);
+    register_transserializer::<GpuBlendState>(serializer);
+    register_transserializer::<GpuBlendComponent>(serializer);
+    register_transserializer::<GpuBlendFactor>(serializer);
+    register_transserializer::<GpuBlendOperation>(serializer);
+    register_transserializer::<GpuColorWrites>(serializer);
+    register_transserializer::<GpuCompareFunction>(serializer);
     register_transserializer::<CoordinateSpaceType>(serializer);
     register_transserializer::<StandardTextureFormat>(serializer);
     register_transserializer::<HorizontalAlign>(serializer);
@@ -220,11 +265,17 @@ pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry
     register_transserializer::<LineBoundType>(serializer);
 }
 
-pub fn register_transserializer<T: 'static + Default + for<'a> Serializable<TransSerializerCtxState<'a>>>(serializer: &mut TransSerializerRegistry) {
+pub fn register_transserializer<T: 'static + Default + for<'a> Serializable<TransSerializerCtxState<'a>>>(
+    serializer: &mut TransSerializerRegistry,
+) {
     serializer.register(StandardSerializer::<T>::default());
 }
 
-pub fn register_self_and_related_common_transserializers<T: 'static + Default + for<'a> Serializable<TransSerializerCtxState<'a>>>(serializer: &mut TransSerializerRegistry) {
+pub fn register_self_and_related_common_transserializers<
+    T: 'static + Default + for<'a> Serializable<TransSerializerCtxState<'a>>,
+>(
+    serializer: &mut TransSerializerRegistry,
+) {
     serializer.register(StandardSerializer::<T>::default());
     register_related_common_transserializers::<T>(serializer)
 }

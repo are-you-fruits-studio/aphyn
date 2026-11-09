@@ -1,4 +1,7 @@
-use std::{collections::{HashMap, HashSet}, fmt::Debug};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Debug,
+};
 
 use aphyn_ffi::FfiVec;
 
@@ -118,18 +121,25 @@ impl Debug for ByTypeWorldPartDataUsageBuilder {
 
 impl ByTypeWorldPartDataUsageBuilder {
     pub fn new() -> Self {
-        Self {
-            usage: HashMap::new(),
-        }
+        Self { usage: HashMap::new() }
     }
 
     pub fn add_type(&mut self, usage: DataUsageEntry) {
-        self.usage.entry(usage.type_id).or_insert_with(|| DataUsageDetailsBuilder::new()).add(usage.details);
+        self.usage
+            .entry(usage.type_id)
+            .or_insert_with(|| DataUsageDetailsBuilder::new())
+            .add(usage.details);
     }
 
     pub fn build(&self) -> Option<FfiVec<DataUsageEntry>> {
-        self.usage.iter()
-            .map(|(id, usage)| Some(DataUsageEntry { type_id: *id, details: usage.build()? }))
+        self.usage
+            .iter()
+            .map(|(id, usage)| {
+                Some(DataUsageEntry {
+                    type_id: *id,
+                    details: usage.build()?,
+                })
+            })
             .collect()
     }
 }
@@ -171,7 +181,10 @@ impl WorldPartDataUsageBuilder {
             Some(WorldPartDataUsage::ByType(self.by_type.build()?))
         } else if self.by_type.usage.is_empty() && self.global_writes == 1 && self.global_reads == 0 {
             Some(WorldPartDataUsage::Global { is_mut: true })
-        } else if self.global_writes == 0 && self.global_reads > 0 && self.by_type.usage.values().all(|v| v.writes == 0 && v.reads > 0) {
+        } else if self.global_writes == 0
+            && self.global_reads > 0
+            && self.by_type.usage.values().all(|v| v.writes == 0 && v.reads > 0)
+        {
             Some(WorldPartDataUsage::Global { is_mut: false })
         } else {
             None

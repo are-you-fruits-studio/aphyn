@@ -3,18 +3,19 @@ use aphyn::*;
 fn main() {
     let mut app = App::new();
 
-    add_defult_modules_to(app.ecs_mut().as_mut());
+    let AppInitCtx {
+        mut data,
+        mut behavior,
+        render,
+        ..
+    } = app.init_ctx_mut();
 
-    app.ecs_mut()
-        .behavior_mut()
-        .get_mut(Schedule::Update)
-        .insert_system(move_camera);
-    app.ecs_mut()
-        .behavior_mut()
-        .get_mut(Schedule::Update)
-        .insert_system(update_system);
+    add_defult_modules_to(data.as_mut(), behavior.as_mut(), render);
 
-    let mut world_data = app.ecs_mut().data_mut();
+    behavior.as_mut().get_mut(Schedule::Update).insert_system(move_camera);
+    behavior.as_mut().get_mut(Schedule::Update).insert_system(update_system);
+
+    let mut world_data = data.as_mut();
 
     let mut ec = world_data.entities_mut();
 

@@ -3,13 +3,18 @@ use aphyn::*;
 fn main() {
     let mut app = App::new();
 
-    add_defult_modules_to(app.ecs_mut().as_mut());
+    let AppInitCtx {
+        mut data,
+        mut behavior,
+        render,
+        ..
+    } = app.init_ctx_mut();
 
-    let ecs = app.ecs_mut();
+    add_defult_modules_to(data.as_mut(), behavior.as_mut(), render);
 
-    let mut behavior = ecs.behavior_mut();
+    let mut behavior = behavior.as_mut();
     let mut start = behavior.get_mut(Schedule::Start);
-    
+
     start.insert_system(setup_scene);
     start.order_group(SYSTEM_GROUP_ASSETS).before_system(setup_scene);
 
@@ -19,27 +24,16 @@ fn main() {
 fn setup_scene(mut world: WorldDataMut) {
     let (mut res, mut ent, _evt) = world.as_tuple_mut();
 
-    let render_api_res = res.get::<RenderApiResource>().unwrap();
-    let ground_material = render_api_res.create_material(StandardMaterialAssetMetadata {
-        color: Vec4::splat(1.0),
-        alpha_threshold: 0.5,
-        emission_color: Vec4::splat(0.0),
-        shader: StandardEngineShader::OpaqueLit.into(),
-        metallic: 0.0,
-        roughness: 1.0,
-        ..Default::default()
-    });
-    let light_material = render_api_res.create_material(StandardMaterialAssetMetadata {
-        color: Vec4::splat(1.0),
-        alpha_threshold: 0.5,
-        emission_color: Vec4::new(1.0, 1.0, 1.0, 10.0),
-        shader: StandardEngineShader::OpaqueUnlit.into(),
-        metallic: 0.0,
-        roughness: 1.0,
-        ..Default::default()
-    });
-    
-    let materials = res.get_mut::<AssetStorageResource<StandardMaterial>>().unwrap();
+    let mut ground_data = MaterialData::new();
+    ground_data.insert("roughness", MaterialDataValue::F32(1.0));
+    let ground_material = create_material_from_template_key(res.as_ref(), BUILTIN_TEMPLATE_OPAQUE_LIT, ground_data).unwrap();
+
+    let mut light_data = MaterialData::new();
+    light_data.insert("emission_color", MaterialDataValue::Vec4(Vec4::new(1.0, 1.0, 1.0, 10.0)));
+    light_data.insert("roughness", MaterialDataValue::F32(1.0));
+    let light_material = create_material_from_template_key(res.as_ref(), BUILTIN_TEMPLATE_OPAQUE_UNLIT, light_data).unwrap();
+
+    let materials = res.get_mut::<AssetStorageResource<Material>>().unwrap();
     let ground_material = materials.insert(ground_material);
     let light_material = materials.insert(light_material);
 
@@ -83,8 +77,8 @@ fn setup_scene(mut world: WorldDataMut) {
         color: Vec3::new(1.0, 1.0, 1.0) * 3000.0_f32,
         range: 1000.0,
     }).ok().unwrap();
-    ent.add_component(ent_light, StandardMaterialComponent { material: light_material.clone() }).ok().unwrap();
-    ent.add_component(ent_light, StandardMeshComponent {
+    ent.add_component(ent_light, MaterialComponent { material: light_material.clone() }).ok().unwrap();
+    ent.add_component(ent_light, MeshComponent {
         mesh: cube_mesh.clone(),
     }).ok().unwrap();
 
@@ -95,8 +89,8 @@ fn setup_scene(mut world: WorldDataMut) {
         scale: Vec3::splat(100.0),
         ..Default::default()
     }).ok().unwrap();
-    ent.add_component(ent_ground, StandardMaterialComponent { material: ground_material.clone() }).ok().unwrap();
-    ent.add_component(ent_ground, StandardMeshComponent {
+    ent.add_component(ent_ground, MaterialComponent { material: ground_material.clone() }).ok().unwrap();
+    ent.add_component(ent_ground, MeshComponent {
         mesh: cube_mesh.clone(),
     }).ok().unwrap();
 }

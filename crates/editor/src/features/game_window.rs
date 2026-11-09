@@ -9,11 +9,11 @@ use crate::{
     },
 };
 
-pub fn register_feature(mut world: WorldBuilderMut) {
-    world.data_mut().resources_mut().insert(GameViewResource::default());
-    world.data_mut().resources_mut().insert(GameViewFocusResource::default());
+// todo: bundle registration params
+pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+    data.resources_mut().insert(GameViewResource::default());
+    data.resources_mut().insert(GameViewFocusResource::default());
 
-    let mut behavior = world.behavior_mut();
     let mut update = behavior.get_mut(Schedule::Update);
 
     update
@@ -47,7 +47,9 @@ fn forward_game_input_system(
 ) {
     let image = image_q.iter().next();
 
-    let is_any_just_pressed = [MouseButton::Left, MouseButton::Right, MouseButton::Middle].into_iter().any(|b| input.mouse.is_just_pressed(b));
+    let is_any_just_pressed = [MouseButton::Left, MouseButton::Right, MouseButton::Middle]
+        .into_iter()
+        .any(|b| input.mouse.is_just_pressed(b));
 
     if is_any_just_pressed {
         focus_res.is_focused = image.is_some_and(|(_, hover_c)| hover_c.is_hovered);
@@ -58,13 +60,22 @@ fn forward_game_input_system(
     }
 
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
-    return_if_not!(Some(sim_input) = simulated_world.world.data_mut().into_resources_mut().into_get_mut::<InputResource>());
+    return_if_not!(
+        Some(sim_input) = simulated_world
+            .data
+            .as_mut()
+            .into_resources_mut()
+            .into_get_mut::<InputResource>()
+    );
 
     *sim_input = match image.filter(|_| focus_res.is_focused) {
         Some((rect_c, _)) => {
             let mut game_input = input.clone();
             let min = rect_c.center - rect_c.scale * 0.5;
-            game_input.mouse.position = [game_input.mouse.position[0] - min.x as f64, game_input.mouse.position[1] - min.y as f64];
+            game_input.mouse.position = [
+                game_input.mouse.position[0] - min.x as f64,
+                game_input.mouse.position[1] - min.y as f64,
+            ];
             game_input
         }
         None => InputResource::default(),
@@ -76,15 +87,17 @@ fn render_game_window_system(
     mut view_res: ResMut<GameViewResource>,
     mut simulated_world: ResMut<SimulatedWorldResource>,
     mut textures: ResMut<AssetStorageResource<StandardTexture>>,
-    mut materials: ResMut<AssetStorageResource<StandardMaterial>>,
-    mut image_q: WorldQuery<(&GlobalRectComponent, &mut StandardMaterialComponent), WithFilter<GameViewImageComponent>>,
+    templates: Res<AssetStorageResource<MaterialTemplate>>,
+    shaders: Res<AssetStorageResource<Shader>>,
+    mut materials: ResMut<AssetStorageResource<Material>>,
+    mut image_q: WorldQuery<(&GlobalRectComponent, &mut MaterialComponent), WithFilter<GameViewImageComponent>>,
 ) {
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
     return_if_not!(Some((rect_c, material_c)) = image_q.iter_mut().next());
 
     let camera = simulated_world
-        .world
-        .data()
+        .data
+        .as_ref()
         .entities()
         .query::<(&GlobalTransform, &CameraComponent)>()
         .iter()
@@ -96,5 +109,17 @@ fn render_game_window_system(
             light: None,
         });
 
-    render_simulated_view(&render_api, &mut view_res.0, &mut textures, &mut materials, rect_c, material_c, &mut simulated_world.world, camera);
+    render_simulated_view(
+        &render_api,
+        &mut view_res.0,
+        &mut textures,
+        &mut materials,
+        &templates,
+        &shaders,
+        rect_c,
+        material_c,
+        &mut simulated_world.data,
+        &mut simulated_world.render,
+        camera,
+    );
 }

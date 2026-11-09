@@ -8,13 +8,14 @@
 //! #### Enabling audio in a world
 //!
 //! Audio is part of the engine's default modules (`add_defult_modules_to`). To enable it on its
-//! own, call [`add_audio_module_to`] with the world builder:
+//! own, call [`add_audio_module_to`] with the world data, systems builder, and render feature registry:
 //!
 //! ```ignore
 //! use aphyn::*;
 //!
 //! let mut app = App::new();
-//! add_audio_module_to(app.ecs_mut().as_mut());
+//! let ctx = app.init_ctx_mut();
+//! add_audio_module_to(ctx.data, ctx.behavior, ctx.render);
 //! ```
 //!
 //! #### Playing a sound
@@ -139,13 +140,20 @@
 //! math crate. The longer-term scope of the crate — more input formats, native sample rates and bit
 //! depths, and 3D spatialization — is tracked in the `// todo:` list at the top of the file.
 
-use std::{collections::HashMap, sync::{Arc, Mutex}};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
-use cpal::{OutputCallbackInfo, StreamConfig, traits::{DeviceTrait, HostTrait, StreamTrait}};
 use aphyn_asset_storage::*;
 use aphyn_ecs::*;
 use aphyn_ffi::{FfiDroppable, FfiOption, FfiString, FfiVec};
+use aphyn_render_features::RenderFeatureRegistry;
 use aphyn_serialization::*;
+use cpal::{
+    OutputCallbackInfo, StreamConfig,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+};
 
 // todo:
 // + read different bits_per_sample (and sample type - f32, i32, i16, i8) -> convert to f32
@@ -165,26 +173,23 @@ pub const AUDIO_CHANNELS_COUNT: usize = 2;
 
 pub const SYSTEM_GROUP_AUDIO: &'static str = "aphyn_audio";
 
-pub fn add_audio_module_to(mut world: WorldBuilderMut) {
+// todo: bundle registration params
+pub fn add_audio_module_to(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
     let audio_state = Arc::new(Mutex::new(AudioState::new()));
     let stream = start_playback(Arc::clone(&audio_state));
 
-    world
-        .data_mut()
-        .resources_mut()
-        .insert(AudioStateResource::new(FfiDroppable::new(stream), WrappedAudioStateHandle::new(Arc::clone(&audio_state))));
+    data.resources_mut().insert(AudioStateResource::new(
+        FfiDroppable::new(stream),
+        WrappedAudioStateHandle::new(Arc::clone(&audio_state)),
+    ));
 
-    world
-        .data_mut()
-        .resources_mut()
-        .insert(AssetStorageResource::<AudioClip>::new());
+    data.resources_mut().insert(AssetStorageResource::<AudioClip>::new());
 
-    world.behavior_mut()
+    behavior
         .get_mut(Schedule::Update)
         .group(SYSTEM_GROUP_AUDIO)
         .insert_child_system(audio_system);
 }
-
 
 #[repr(C)]
 #[derive(Serializable, Clone, Default)]

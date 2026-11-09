@@ -11,6 +11,7 @@ crate-type = ["lib"]
 rand = "0.10"
 cpal = "0.17"
 aphyn_ecs = { path = "../ecs" }
+aphyn_render_features = { path = "../render_features" }
 aphyn_asset_storage = { path = "../asset_storage" }
 aphyn_ffi = { path = "../ffi" }
 aphyn_serialization = { path = "../serialization" }

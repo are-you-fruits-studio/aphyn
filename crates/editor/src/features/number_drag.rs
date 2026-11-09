@@ -10,10 +10,10 @@ const DRAG_THRESHOLD_PX: f64 = 3.0;
 const FLOAT_STEP_PER_PX: f64 = 0.01;
 const INT_PX_PER_STEP: f64 = 4.0;
 
-pub fn register_feature(mut world: WorldBuilderMut) {
-    world.data_mut().resources_mut().insert(NumberDragResource::default());
+// todo: bundle registration params
+pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+    data.resources_mut().insert(NumberDragResource::default());
 
-    let mut behavior = world.behavior_mut();
     let mut update = behavior.get_mut(Schedule::Update);
 
     update.group(SYSTEM_GROUP).insert_child_system(drag_number_input_field_system);

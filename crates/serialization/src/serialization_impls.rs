@@ -257,6 +257,8 @@ serializable_int_impl!(i32);
 serializable_int_impl!(u64);
 serializable_int_impl!(i64);
 serializable_int_impl!(i128);
+serializable_int_impl!(usize);
+serializable_int_impl!(isize);
 serializable_float_impl!(f32);
 serializable_float_impl!(f64);
 

@@ -22,13 +22,15 @@ members = [
     "crates/asset_storage",
     "crates/wavefront",
     "crates/control_flow_macros",
-    "crates/render",
     "crates/transform",
     "crates/collision",
     "crates/asset_storage",
+    "crates/render",
     "crates/render_core",
+    "crates/render_features",
     "crates/prefab",
     "crates/serialization_macros",
+    "crates/serialization_ecs",
     "crates/audio",
     "crates/example/cubes",
     "crates/example/boids",
@@ -41,6 +43,7 @@ members = [
     "crates/example/normals",
     "crates/example/bloom",
     "crates/example/showcase",
+    "crates/example/material",
     "crates/ui",
     "crates/file_storage",
     "crates/window",
@@ -69,6 +72,7 @@ aphyn_utils = { path = "./crates/utils" }
 aphyn_math = { path = "./crates/math" }
 aphyn_math_macros = { path = "./crates/math_macros" }
 aphyn_serialization = { path = "./crates/serialization" }
+aphyn_serialization_ecs = { path = "./crates/serialization_ecs" }
 aphyn_reflection = { path = "./crates/reflection" }
 aphyn_entry_point = { path = "./crates/entry_point" }
 aphyn_app_launcher = { path = "./crates/app_launcher" }
@@ -79,6 +83,7 @@ aphyn_control_flow_macros = { path = "./crates/control_flow_macros" }
 aphyn_transform = { path = "./crates/transform" }
 aphyn_render = { path = "./crates/render" }
 aphyn_render_core = { path = "./crates/render_core" }
+aphyn_render_features = { path = "./crates/render_features" }
 aphyn_collision = { path = "./crates/collision" }
 aphyn_prefab = { path = "./crates/prefab" }
 aphyn_ui = { path = "./crates/ui" }

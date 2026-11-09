@@ -5,39 +5,34 @@ use aphyn::*;
 fn main() {
     let mut app = App::new();
 
-    add_defult_modules_to(app.ecs_mut().as_mut());
-    fps_counter::add_module_to(app.ecs_mut().as_mut());
+    let AppInitCtx {
+        mut data,
+        mut behavior,
+        render,
+        ..
+    } = app.init_ctx_mut();
 
-    app.ecs_mut().behavior_mut().get_mut(Schedule::Start).insert_system(init);
+    add_defult_modules_to(data.as_mut(), behavior.as_mut(), render);
+    fps_counter::add_module_to(data.as_mut(), behavior.as_mut(), render);
 
-    app.ecs_mut()
-        .behavior_mut()
-        .get_mut(Schedule::Update)
-        .insert_system(move_camera);
-    app.ecs_mut()
-        .behavior_mut()
-        .get_mut(Schedule::Update)
-        .insert_system(draw_collisions);
-    app.ecs_mut()
-        .behavior_mut()
-        .get_mut(Schedule::Update)
-        .insert_system(update_colliders);
-    app.ecs_mut()
-        .behavior_mut()
+    behavior.as_mut().get_mut(Schedule::Start).insert_system(init);
+
+    behavior.as_mut().get_mut(Schedule::Update).insert_system(move_camera);
+    behavior.as_mut().get_mut(Schedule::Update).insert_system(draw_collisions);
+    behavior.as_mut().get_mut(Schedule::Update).insert_system(update_colliders);
+    behavior
+        .as_mut()
         .get_mut(Schedule::Update)
         .insert_system(draw_gizmo_components);
-    app.ecs_mut()
-        .behavior_mut()
-        .get_mut(Schedule::Update)
-        .insert_system(raycast_mouse);
+    behavior.as_mut().get_mut(Schedule::Update).insert_system(raycast_mouse);
 
-    app.ecs_mut()
-        .behavior_mut()
+    behavior
+        .as_mut()
         .get_mut(Schedule::Update)
         .order_system(raycast_mouse)
         .before_system(draw_gizmo_components);
-    app.ecs_mut()
-        .behavior_mut()
+    behavior
+        .as_mut()
         .get_mut(Schedule::Update)
         .order_system(draw_gizmo_components)
         .before_group(SYSTEM_GROUP_RENDER);

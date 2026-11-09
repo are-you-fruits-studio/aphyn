@@ -113,7 +113,7 @@
 //! [`get_mut`](AssetsStorageResource::get_mut) /
 //! [`get_or_create`](AssetsStorageResource::get_or_create) downcasting back to the
 //! concrete type. In the current engine, subsystems instead insert each
-//! `AssetStorageResource<T>` directly as its own ECS resource (see `aphyn_render`
+//! `AssetStorageResource<T>` directly as its own ECS resource (see `aphyn_render_ecs`
 //! and `aphyn_audio`), so the container is the alternative aggregate entry point
 //! rather than the path the engine wires up by default.
 

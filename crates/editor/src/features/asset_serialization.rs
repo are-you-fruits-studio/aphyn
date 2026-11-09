@@ -11,19 +11,26 @@ impl InspectedAsset {
     pub(crate) fn to_serialized(&self, mut ctx: SerializerCtx<TransSerializerCtxState>) -> SerializedValue {
         let mut serialized = match self.asset_type {
             AssetType::Texture => ctx.serialize(&DirectSerializableAsset::<StandardTexture>::Key(self.asset_key.clone()), ""),
-            AssetType::Material => ctx.serialize(&DirectSerializableAsset::<StandardMaterial>::Key(self.asset_key.clone()), ""),
+            AssetType::Material => ctx.serialize(&DirectSerializableAsset::<Material>::Key(self.asset_key.clone()), ""),
             AssetType::Mesh => ctx.serialize(&DirectSerializableAsset::<StandardMesh>::Key(self.asset_key.clone()), ""),
             AssetType::AudioClip => ctx.serialize(&DirectSerializableAsset::<AudioClip>::Key(self.asset_key.clone()), ""),
             AssetType::Font => ctx.serialize(&DirectSerializableAsset::<Font>::Key(self.asset_key.clone()), ""),
             AssetType::Prefab => ctx.serialize(&DirectSerializableAsset::<Prefab>::Key(self.asset_key.clone()), ""),
             AssetType::Scene => ctx.serialize(&DirectSerializableAsset::<Scene>::Key(self.asset_key.clone()), ""),
+            AssetType::Shader => ctx.serialize(&DirectSerializableAsset::<Shader>::Key(self.asset_key.clone()), ""),
+            AssetType::MaterialTemplate => {
+                ctx.serialize(&DirectSerializableAsset::<MaterialTemplate>::Key(self.asset_key.clone()), "")
+            }
         };
 
         if let SerializedValue::Composite(serialized_composite) = &mut serialized {
             if let SerializedCompositeValues::Map(serialized_map) = &mut serialized_composite.values {
                 let mut map = FfiIndexMap::new();
 
-                map.insert(FfiString::from("asset_type"), SerializedValue::Primitive(SerializedPrimitive::String(self.asset_type.serialized_str().into())));
+                map.insert(
+                    FfiString::from("asset_type"),
+                    SerializedValue::Primitive(SerializedPrimitive::String(self.asset_type.serialized_str().into())),
+                );
                 for (k, v) in &serialized_map.values {
                     map.insert(k.clone(), v.clone());
                 }
@@ -85,25 +92,49 @@ impl InspectedAsset {
 }
 
 pub fn get_asset_type(res: ResourcesHolderRef, key: &str) -> Option<AssetType> {
-    if let Some(storage) = res.get::<AssetStorageResource<StandardTexture>>() && storage.get_registered(key).is_some() {
+    if let Some(storage) = res.get::<AssetStorageResource<StandardTexture>>()
+        && storage.get_registered(key).is_some()
+    {
         return Some(AssetType::Texture);
     }
-    if let Some(storage) = res.get::<AssetStorageResource<StandardMaterial>>() && storage.get_registered(key).is_some() {
+    if let Some(storage) = res.get::<AssetStorageResource<Material>>()
+        && storage.get_registered(key).is_some()
+    {
         return Some(AssetType::Material);
     }
-    if let Some(storage) = res.get::<AssetStorageResource<StandardMesh>>() && storage.get_registered(key).is_some() {
+    if let Some(storage) = res.get::<AssetStorageResource<MaterialTemplate>>()
+        && storage.get_registered(key).is_some()
+    {
+        return Some(AssetType::MaterialTemplate);
+    }
+    if let Some(storage) = res.get::<AssetStorageResource<Shader>>()
+        && storage.get_registered(key).is_some()
+    {
+        return Some(AssetType::Shader);
+    }
+    if let Some(storage) = res.get::<AssetStorageResource<StandardMesh>>()
+        && storage.get_registered(key).is_some()
+    {
         return Some(AssetType::Mesh);
     }
-    if let Some(storage) = res.get::<AssetStorageResource<Font>>() && storage.get_registered(key).is_some() {
+    if let Some(storage) = res.get::<AssetStorageResource<Font>>()
+        && storage.get_registered(key).is_some()
+    {
         return Some(AssetType::Font);
     }
-    if let Some(storage) = res.get::<AssetStorageResource<AudioClip>>() && storage.get_registered(key).is_some() {
+    if let Some(storage) = res.get::<AssetStorageResource<AudioClip>>()
+        && storage.get_registered(key).is_some()
+    {
         return Some(AssetType::AudioClip);
     }
-    if let Some(storage) = res.get::<AssetStorageResource<Prefab>>() && storage.get_registered(key).is_some() {
+    if let Some(storage) = res.get::<AssetStorageResource<Prefab>>()
+        && storage.get_registered(key).is_some()
+    {
         return Some(AssetType::Prefab);
     }
-    if let Some(storage) = res.get::<AssetStorageResource<Scene>>() && storage.get_registered(key).is_some() {
+    if let Some(storage) = res.get::<AssetStorageResource<Scene>>()
+        && storage.get_registered(key).is_some()
+    {
         return Some(AssetType::Scene);
     }
 

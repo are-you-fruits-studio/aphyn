@@ -13,3 +13,4 @@ aphyn_ffi = { path = "../ffi" }
 aphyn_utils = { path = "../utils" }
 aphyn_ecs_macros = { path = "../ecs_macros" }
 aphyn_math = { path = "../math" }
+aphyn_serialization = { path = "../serialization" }
