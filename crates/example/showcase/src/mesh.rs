@@ -2,7 +2,7 @@ use std::f32::consts::PI;
 
 use aphyn::*;
 
-pub type MeshData = (Vec<StandardVertex>, Vec<u16>);
+pub type MeshData = (Vec<StandardVertex>, Vec<u32>);
 
 pub fn make_dart() -> MeshData {
     let tip = [0.0, 0.0, 0.14];
@@ -33,7 +33,7 @@ pub fn make_dart() -> MeshData {
             normal
         };
 
-        let base = vertices.len() as u16;
+        let base = vertices.len() as u32;
         for position in face {
             vertices.push(vertex(position, normal, [1.0, 0.0, 0.0, 1.0], [0.0, 0.0], [1.0; 4]));
         }
@@ -66,9 +66,9 @@ pub fn make_sphere(radius: f32, is_inside_out: bool) -> MeshData {
         }
     }
 
-    let cols = (SLICES + 1) as u16;
-    for i in 0..STACKS as u16 {
-        for j in 0..SLICES as u16 {
+    let cols = (SLICES + 1) as u32;
+    for i in 0..STACKS as u32 {
+        for j in 0..SLICES as u32 {
             let first = i * cols + j;
             let second = first + cols;
             for tri in [[first, second, first + 1], [first + 1, second, second + 1]] {
@@ -88,7 +88,7 @@ pub fn make_ground(cells: usize, cell_size: f32, fade_radius: [f32; 2]) -> MeshD
 
     for cz in 0..cells {
         for cx in 0..cells {
-            let base = vertices.len() as u16;
+            let base = vertices.len() as u32;
             for (u, v) in [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)] {
                 let x = (cx as f32 + u) * cell_size - half;
                 let z = (cz as f32 + v) * cell_size - half;
@@ -149,8 +149,8 @@ fn vertex(position: [f32; 3], normal: [f32; 3], tangent: [f32; 4], uv: [f32; 2],
 }
 
 // Front faces are wound so that cross(b - a, c - a) points into the solid (see fruits_pong3d's mesh.rs).
-fn push_front_tri(vertices: &[StandardVertex], indices: &mut Vec<u16>, tri: [u16; 3], outward: [f32; 3]) {
-    let p = |i: u16| vertices[i as usize].position;
+fn push_front_tri(vertices: &[StandardVertex], indices: &mut Vec<u32>, tri: [u32; 3], outward: [f32; 3]) {
+    let p = |i: u32| vertices[i as usize].position;
     let face_normal = cross(sub(p(tri[1]), p(tri[0])), sub(p(tri[2]), p(tri[0])));
 
     if dot(face_normal, outward) > 0.0 {

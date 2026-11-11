@@ -95,7 +95,7 @@
 //! [`GpuVertexBuffer`] holds vertices or instances, as set by its [`GpuVertexBufferLayout`], which
 //! computes tightly packed
 //! attribute offsets and rejects duplicate shader locations. [`GpuUniformStorageBuffer`] holds
-//! untyped bytes for bind groups, and [`GpuIndexBuffer`] stores its [`GpuIndexFormat`]. The
+//! untyped bytes for bind groups, and [`GpuIndexBuffer`] holds `u32` indices. The
 //! `write_*_buffer_with` methods take byte offsets and sizes; the size is clamped to the end of the
 //! buffer, and the write returns `false` if the offset or the clamped size is not a multiple of 4.
 //!

@@ -133,7 +133,7 @@ impl<'a> MeshLoader<'a> {
             }
         }
 
-        let mut indices = (0..vertices.len()).map(|i| i as u16).collect::<Vec<_>>();
+        let mut indices = (0..vertices.len()).map(|i| i as u32).collect::<Vec<_>>();
 
         if value.has_clockwise_winding {
             if value.coordinate_space == CoordinateSpaceType::RightHandZBack

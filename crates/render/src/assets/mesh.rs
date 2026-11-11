@@ -1,7 +1,6 @@
 use aphyn_ffi::{FfiOption, FfiString};
 use aphyn_render_core::{
-    GpuIndexBuffer, GpuIndexFormat, GpuVertexBuffer, GpuVertexBufferLayout, GpuVertexBufferLayoutEntryTy, GpuVertexStepMode,
-    RenderApi,
+    GpuIndexBuffer, GpuVertexBuffer, GpuVertexBufferLayout, GpuVertexBufferLayoutEntryTy, GpuVertexStepMode, RenderApi,
 };
 use aphyn_serialization::*;
 use aphyn_utils::mem::{AllBitVariationsValid, AllBitsInit};
@@ -66,7 +65,7 @@ impl StandardMesh {
     pub(crate) fn new(
         core: &RenderApi,
         vertices: &[StandardVertex],
-        indices: &[u16],
+        indices: &[u32],
         meta: Option<StandardMeshAssetMetadata>,
     ) -> Self {
         let label = meta
@@ -77,14 +76,8 @@ impl StandardMesh {
         let vertex_buffer = core.create_vertex_buffer(label, vertices.len(), StandardVertex::desc());
         crate::write_buffer_bytes(core, &vertex_buffer, 0, aphyn_utils::mem::as_bytes_slice(vertices));
 
-        // core only writes multiples of 4 bytes, so an odd count gets a padding index
-        let mut padded_indices = indices.to_vec();
-        if padded_indices.len() % 2 != 0 {
-            padded_indices.push(0);
-        }
-
-        let index_buffer = core.create_index_buffer(label, padded_indices.len(), GpuIndexFormat::U16);
-        crate::write_buffer_bytes(core, &index_buffer, 0, aphyn_utils::mem::as_bytes_slice(&padded_indices));
+        let index_buffer = core.create_index_buffer(label, indices.len());
+        crate::write_buffer_bytes(core, &index_buffer, 0, aphyn_utils::mem::as_bytes_slice(indices));
 
         Self {
             vertex_buffer,

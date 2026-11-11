@@ -50,7 +50,9 @@ fn main() {
         CameraComponent(Camera {
             near: 0.1_f32,
             far: 1_000_f32,
-            projection: CameraProjection::Perspective { fov: 90_f32.to_radians() },
+            projection: CameraProjection::Perspective {
+                fov: 90_f32.to_radians(),
+            },
         }),
     )
     .ok()
@@ -86,18 +88,14 @@ struct FpsResource {
 
 fn init_resources(mut world: WorldDataMut) {
     world.as_mut().resources_mut().insert(SampleResource {});
-    world.as_mut()
-        .resources_mut()
-        .insert(FpsResource {
-            last_measure_seconds: 0,
-            count: 0,
-        });
-    world.as_mut()
-        .resources_mut()
-        .insert(TimeResource {
-            time: 0.0_f32,
-            start: None,
-        });
+    world.as_mut().resources_mut().insert(FpsResource {
+        last_measure_seconds: 0,
+        count: 0,
+    });
+    world.as_mut().resources_mut().insert(TimeResource {
+        time: 0.0_f32,
+        start: None,
+    });
 }
 
 fn init_mesh_material(mut world: WorldDataMut) {
@@ -186,16 +184,18 @@ fn init_mesh_material(mut world: WorldDataMut) {
         }
     }
 
-    let indices = vertices.iter().enumerate().map(|(i, _)| i as u16).collect::<Vec<_>>();
+    let indices = vertices.iter().enumerate().map(|(i, _)| i as u32).collect::<Vec<_>>();
 
     let mesh = render_api.create_mesh(&vertices, &indices, None);
 
-    let material = world.as_mut()
+    let material = world
+        .as_mut()
         .resources_mut()
         .get_mut::<AssetStorageResource<Material>>()
         .unwrap()
         .insert(material);
-    let mesh = world.as_mut()
+    let mesh = world
+        .as_mut()
         .resources_mut()
         .get_mut::<AssetStorageResource<StandardMesh>>()
         .unwrap()
@@ -213,9 +213,7 @@ fn init_mesh_material(mut world: WorldDataMut) {
 
         let entity = ec.create_entity();
 
-        ec.add_component(entity, MeshComponent { mesh: mesh.clone() })
-            .ok()
-            .unwrap();
+        ec.add_component(entity, MeshComponent { mesh: mesh.clone() }).ok().unwrap();
         ec.add_component(
             entity,
             MaterialComponent {

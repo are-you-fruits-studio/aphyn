@@ -55,7 +55,6 @@ impl GpuUniformStorageBuffer {
 #[derive(Clone)]
 pub struct GpuIndexBuffer {
     pub(crate) id: VersionIndex,
-    pub(crate) format: GpuIndexFormat,
     pub(crate) len: usize,
     pub(crate) _guard: SharedResourceGuard,
 }
@@ -65,40 +64,12 @@ impl GpuIndexBuffer {
         GpuResourceId(ResourceKey::Buffer(self.id))
     }
 
-    pub fn format(&self) -> GpuIndexFormat {
-        self.format
-    }
-
     pub fn len(&self) -> usize {
         self.len
     }
 
     pub fn size(&self) -> usize {
-        self.len * self.format.gpu_size()
-    }
-}
-
-#[repr(C)]
-#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub enum GpuIndexFormat {
-    #[default]
-    U16,
-    U32,
-}
-
-impl GpuIndexFormat {
-    pub fn gpu_size(self) -> usize {
-        match self {
-            Self::U16 => 2,
-            Self::U32 => 4,
-        }
-    }
-
-    pub(crate) fn to_wgpu(self) -> wgpu::IndexFormat {
-        match self {
-            Self::U16 => wgpu::IndexFormat::Uint16,
-            Self::U32 => wgpu::IndexFormat::Uint32,
-        }
+        self.len * size_of::<u32>()
     }
 }
 

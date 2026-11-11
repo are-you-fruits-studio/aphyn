@@ -128,7 +128,7 @@ impl RenderApiResource {
     pub fn create_mesh(
         &self,
         vertices: &[StandardVertex],
-        indices: &[u16],
+        indices: &[u32],
         meta: Option<StandardMeshAssetMetadata>,
     ) -> StandardMesh {
         StandardMesh::new(&self.core, vertices, indices, meta)

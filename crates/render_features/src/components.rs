@@ -21,7 +21,7 @@ pub struct MeshComponent {
 #[derive(Component, Default, Clone, Serializable)]
 pub struct BatchedMeshComponent {
     pub vertices: FfiVec<StandardVertex>,
-    pub indices: FfiVec<u16>,
+    pub indices: FfiVec<u32>,
 }
 
 #[repr(C)]

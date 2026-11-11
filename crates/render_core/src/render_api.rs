@@ -27,10 +27,7 @@ use wgpu::{
 
 use crate::{
     BufferResource, RenderApiResources, RenderApiState, SamplerResource, ShaderResource, TextureResource,
-    buffers::{
-        GpuIndexBuffer, GpuIndexFormat, GpuUniformStorageBuffer, GpuVertexBuffer, GpuVertexBufferLayout,
-        GpuVertexBufferLayoutEntryTy,
-    },
+    buffers::{GpuIndexBuffer, GpuUniformStorageBuffer, GpuVertexBuffer, GpuVertexBufferLayout, GpuVertexBufferLayoutEntryTy},
 };
 
 #[repr(C)]
@@ -817,17 +814,11 @@ impl RenderApiInner {
         }
     }
 
-    fn create_index_buffer(&self, label: Option<&str>, len: usize, format: GpuIndexFormat) -> GpuIndexBuffer {
-        let id = self.create_buffer_resource(
-            label,
-            "aphyn index buffer",
-            len * format.gpu_size(),
-            wgpu::BufferUsages::INDEX,
-        );
+    fn create_index_buffer(&self, label: Option<&str>, len: usize) -> GpuIndexBuffer {
+        let id = self.create_buffer_resource(label, "aphyn index buffer", len * size_of::<u32>(), wgpu::BufferUsages::INDEX);
 
         GpuIndexBuffer {
             id,
-            format,
             len,
             _guard: self.create_guard(ResourceKey::Buffer(id)),
         }
@@ -1453,7 +1444,7 @@ impl RenderApiInner {
         let index_buffer = match index_buffer {
             None => None,
             Some(buffer) => match resources.buffers.get(buffer.id) {
-                Some(buffer_resource) => Some((buffer_resource, buffer.format)),
+                Some(buffer_resource) => Some(buffer_resource),
                 None => return false,
             },
         };
@@ -1502,8 +1493,8 @@ impl RenderApiInner {
             for (i, buffer) in vertex_buffers.iter().enumerate() {
                 render_pass.set_vertex_buffer(i as u32, buffer.buffer.slice(..));
             }
-            if let Some((buffer, format)) = index_buffer {
-                render_pass.set_index_buffer(buffer.buffer.slice(..), format.to_wgpu());
+            if let Some(buffer) = index_buffer {
+                render_pass.set_index_buffer(buffer.buffer.slice(..), wgpu::IndexFormat::Uint32);
             }
             if let Some(viewport) = viewport {
                 render_pass.set_viewport(
@@ -1622,12 +1613,8 @@ struct RenderApiVTable {
         label: FfiOption<FfiStrSliceRef<'_>>,
         size: usize,
     ) -> GpuUniformStorageBuffer,
-    create_index_buffer_fn: unsafe extern "C-unwind" fn(
-        this: *const c_void,
-        label: FfiOption<FfiStrSliceRef<'_>>,
-        len: usize,
-        format: GpuIndexFormat,
-    ) -> GpuIndexBuffer,
+    create_index_buffer_fn:
+        unsafe extern "C-unwind" fn(this: *const c_void, label: FfiOption<FfiStrSliceRef<'_>>, len: usize) -> GpuIndexBuffer,
     create_texture_fn: unsafe extern "C-unwind" fn(
         this: *const c_void,
         label: FfiOption<FfiStrSliceRef<'_>>,
@@ -1747,9 +1734,8 @@ impl RenderApi {
             this: *const c_void,
             label: FfiOption<FfiStrSliceRef<'_>>,
             len: usize,
-            format: GpuIndexFormat,
         ) -> GpuIndexBuffer {
-            unsafe { inner_ref(this) }.create_index_buffer(label_from_ffi(label), len, format)
+            unsafe { inner_ref(this) }.create_index_buffer(label_from_ffi(label), len)
         }
         unsafe extern "C-unwind" fn ffi_create_texture(
             this: *const c_void,
@@ -1907,8 +1893,8 @@ impl RenderApi {
         unsafe { (self.vtable.create_uniform_storage_buffer_fn)(self.data.get(), label_to_ffi(label), size) }
     }
 
-    pub fn create_index_buffer(&self, label: Option<&str>, len: usize, format: GpuIndexFormat) -> GpuIndexBuffer {
-        unsafe { (self.vtable.create_index_buffer_fn)(self.data.get(), label_to_ffi(label), len, format) }
+    pub fn create_index_buffer(&self, label: Option<&str>, len: usize) -> GpuIndexBuffer {
+        unsafe { (self.vtable.create_index_buffer_fn)(self.data.get(), label_to_ffi(label), len) }
     }
 
     pub fn create_texture(
@@ -3440,7 +3426,7 @@ mod tests {
 
         let vertices = api.create_vertex_buffer(None, 0, vertex_input_layout());
         let uniforms = api.create_uniform_storage_buffer(None, 0);
-        let indices = api.create_index_buffer(None, 0, GpuIndexFormat::U16);
+        let indices = api.create_index_buffer(None, 0);
 
         assert_eq!([vertices.size(), uniforms.size(), indices.size()], [0, 0, 0]);
         assert_eq!(api.inner().state.lock().unwrap().resources.buffers.len(), 3);
@@ -3470,7 +3456,7 @@ mod tests {
         };
 
         let uniforms = api.create_uniform_storage_buffer(None, 6);
-        let indices = api.create_index_buffer(None, 3, GpuIndexFormat::U16);
+        let indices = api.create_index_buffer(None, 3);
 
         assert!(!api.write_uniform_storage_buffer_with(&uniforms, 4, 2, |_| unreachable!()));
         assert!(!api.write_uniform_storage_buffer_with(&uniforms, 0, 6, |_| unreachable!()));
@@ -3518,8 +3504,8 @@ mod tests {
         let shader = api.create_shader(None, VERTEX_INPUT_WGSL, GpuShaderDesc::default()).unwrap();
         let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
         let vertices = api.create_vertex_buffer(None, 3, vertex_input_layout());
-        let empty = api.create_index_buffer(None, 0, GpuIndexFormat::U16);
-        let filled = api.create_index_buffer(None, 3, GpuIndexFormat::U16);
+        let empty = api.create_index_buffer(None, 0);
+        let filled = api.create_index_buffer(None, 3);
 
         let vertex_buffers = [&vertices];
         let pass = GpuRenderPass {
@@ -3603,7 +3589,7 @@ mod tests {
         let shader = api.create_shader(None, FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
         let vertices = api.create_vertex_buffer(None, 4, layout);
         let uniforms = api.create_uniform_storage_buffer(None, 16);
-        let indices = api.create_index_buffer(None, 4, GpuIndexFormat::U16);
+        let indices = api.create_index_buffer(None, 4);
 
         let counts = |api: &RenderApi| {
             let state = api.inner().state.lock().unwrap();
@@ -3784,7 +3770,7 @@ mod tests {
         let shader = api.create_shader(None, FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
         let vertices = api.create_vertex_buffer(None, 4, layout);
         let uniforms = api.create_uniform_storage_buffer(None, 16);
-        let indices = api.create_index_buffer(None, 4, GpuIndexFormat::U16);
+        let indices = api.create_index_buffer(None, 4);
 
         assert_eq!(texture.clone().id(), texture.id());
         assert_eq!(sampler.clone().id(), sampler.id());

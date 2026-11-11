@@ -197,8 +197,8 @@ pub fn update_image_batched_mesh(mut q: WorldQuery<(&ImageComponent, &mut Batche
                         mesh_c.vertices[i + 2] = create_vertex(uvs[i as usize + 2], poss[i as usize + 2]);
                     }
 
-                    mesh_c.indices[i * 3 + 0] = (i + 1) as u16;
-                    mesh_c.indices[i * 3 + 1] = (i + 2) as u16;
+                    mesh_c.indices[i * 3 + 0] = (i + 1) as u32;
+                    mesh_c.indices[i * 3 + 1] = (i + 2) as u32;
                     mesh_c.indices[i * 3 + 2] = 0;
                 }
             }
@@ -287,12 +287,12 @@ pub fn update_text_batched_mesh(
             mesh_c.vertices[i * VERTICES_PER_CHAR + 2] = create_vertex([char_uvs[0][0], char_uvs[1][1]], [pos[0][0], pos[0][1], rect.z]);
             mesh_c.vertices[i * VERTICES_PER_CHAR + 3] = create_vertex([char_uvs[1][0], char_uvs[1][1]], [pos[1][0], pos[0][1], rect.z]);
 
-            mesh_c.indices[i * INDICES_PER_CHAR + 0] = (i * VERTICES_PER_CHAR + 0) as u16;
-            mesh_c.indices[i * INDICES_PER_CHAR + 1] = (i * VERTICES_PER_CHAR + 3) as u16;
-            mesh_c.indices[i * INDICES_PER_CHAR + 2] = (i * VERTICES_PER_CHAR + 1) as u16;
-            mesh_c.indices[i * INDICES_PER_CHAR + 3] = (i * VERTICES_PER_CHAR + 0) as u16;
-            mesh_c.indices[i * INDICES_PER_CHAR + 4] = (i * VERTICES_PER_CHAR + 2) as u16;
-            mesh_c.indices[i * INDICES_PER_CHAR + 5] = (i * VERTICES_PER_CHAR + 3) as u16;
+            mesh_c.indices[i * INDICES_PER_CHAR + 0] = (i * VERTICES_PER_CHAR + 0) as u32;
+            mesh_c.indices[i * INDICES_PER_CHAR + 1] = (i * VERTICES_PER_CHAR + 3) as u32;
+            mesh_c.indices[i * INDICES_PER_CHAR + 2] = (i * VERTICES_PER_CHAR + 1) as u32;
+            mesh_c.indices[i * INDICES_PER_CHAR + 3] = (i * VERTICES_PER_CHAR + 0) as u32;
+            mesh_c.indices[i * INDICES_PER_CHAR + 4] = (i * VERTICES_PER_CHAR + 2) as u32;
+            mesh_c.indices[i * INDICES_PER_CHAR + 5] = (i * VERTICES_PER_CHAR + 3) as u32;
         }
     }
 }

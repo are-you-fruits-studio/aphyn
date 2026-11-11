@@ -214,7 +214,7 @@
 //!   UV fails the load), each face gets a tangent with handedness, and the vertices are fixed
 //!   up per `coordinate_space` (`RightHandZBack` negates Z, `RightHandZUp` swaps Y and Z).
 //!   `has_clockwise_winding` swaps triangle order only for the right-handed spaces, and
-//!   `has_inverted_u` / `has_inverted_v` flip the UVs. Indices are `u16`.
+//!   `has_inverted_u` / `has_inverted_v` flip the UVs. Indices are `u32`.
 //! - **Audio clip** — [`AudioClipLoader`] reads the `raw_audio` `.wav` with `hound`. Integer
 //!   samples are normalized to `f32`, the buffer is forced to stereo, and it is resampled to
 //!   the engine's sample rate when the file's rate differs.

@@ -18,7 +18,7 @@
 //!
 //! #### Uploading a mesh to the GPU
 //!
-//! Turn a vertex list and a `u16` index list into a [`StandardMesh`] that lives in GPU memory.
+//! Turn a vertex list and a `u32` index list into a [`StandardMesh`] that lives in GPU memory.
 //! Most code reaches the resource through the world it is running in:
 //!
 //! ```ignore
@@ -37,7 +37,7 @@
 //!     vertex([ 0.5, -0.5, 0.0], [1.0, 1.0]),
 //!     vertex([ 0.0,  0.5, 0.0], [0.5, 0.0]),
 //! ];
-//! let indices = [0u16, 1, 2];
+//! let indices = [0u32, 1, 2];
 //!
 //! // No asset metadata: the mesh was not loaded from an asset file.
 //! let mesh = render_api.create_mesh(&vertices, &indices, None);
@@ -373,8 +373,7 @@
 //! their optional asset metadata so the asset can be saved back.
 //!
 //! Core rejects buffer writes whose offset or size is not a multiple of 4 bytes, so every write here
-//! must be. All engine structs are; a mesh with an odd number of `u16` indices gets one padding index
-//! in its index buffer, while [`indices_count`](StandardMesh::indices_count) keeps the real count.
+//! must be. All engine structs and `u32` indices are.
 //! [`write_buffer_elements_with`] works on every core buffer kind through [`GpuWritableBuffer`]. It
 //! byte-copies each element into core's staging slice, which has no alignment guarantee for the
 //! element type, and produces elements in index order, so a callback may consume an iterator; the
