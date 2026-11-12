@@ -153,12 +153,19 @@
 //! [`add_asset_module_to`] inserts the `AssetStorageResource<Prefab>`,
 //! `AssetStorageResource<Scene>` and [`AssetsDirResource`], and registers
 //! [`load_all_assets_system`] in the `Start` schedule under [`SYSTEM_GROUP_ASSETS`]. It calls
-//! [`load_all_assets`] with the directory from [`AssetsDirResource`] (default: `assets` relative
-//! to the working directory; the editor points it at the opened project's `assets/`), which
+//! [`load_all_assets`] with the directory from [`AssetsDirResource`] (default:
+//! [`default_assets_dir`]; the editor points it at the opened project's `assets/`), which
 //! walks it recursively and, for every `.asset` file, reads the JSON, validates `asset_type`
 //! ([`AssetType`]), builds the key from the path, and deserializes that key *as an
 //! `AssetHandle<T>`* of the matching type; other files (`.wgsl` payloads, images, ...) are skipped. Failures are printed and the file is skipped; a
 //! `"font"` asset hits a `todo!()` and panics.
+//!
+//! [`default_assets_dir`] is `<dir>/assets` for the first non-empty runtime env var of
+//! `APHYN_PROJECT_DIR` (user override) and `CARGO_MANIFEST_DIR` (Cargo sets it for `cargo run`,
+//! from any working directory), otherwise `aphyn_file_storage::assets_path()` (`<exe dir>/assets`).
+//! A relative `APHYN_PROJECT_DIR` resolves against the working directory. Caveat: without the
+//! override, `cargo run` of a dynamically launched game's `scripts` package resolves to
+//! `<project>/scripts/assets`, not `<project>/assets`.
 //!
 //! #### Loading is driven by the serializers
 //!
@@ -311,8 +318,18 @@ pub struct AssetsDirResource(pub FfiString);
 
 impl Default for AssetsDirResource {
     fn default() -> Self {
-        Self("assets".into())
+        Self(default_assets_dir().to_string_lossy().as_ref().into())
     }
+}
+
+pub fn default_assets_dir() -> PathBuf {
+    // cargo run sets CARGO_MANIFEST_DIR at runtime, so it points at the crate being run
+    ["APHYN_PROJECT_DIR", "CARGO_MANIFEST_DIR"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .find(|dir| !dir.is_empty())
+        .map(|dir| PathBuf::from(dir).join("assets"))
+        .unwrap_or_else(aphyn_file_storage::assets_path)
 }
 
 // todo: bundle registration params
@@ -328,13 +345,11 @@ pub fn add_asset_module_to(mut data: WorldDataMut, mut behavior: WorldBehaviorBu
 }
 
 pub fn load_all_assets_system(res: ResourcesHolderMut) {
-    // todo: use aphyn_file_storage::assets_path() as the default instead of cwd-relative "assets"
-    let assets_dir_path = PathBuf::from(
-        res.as_ref()
-            .get::<AssetsDirResource>()
-            .map(|d| d.0.as_str())
-            .unwrap_or("assets"),
-    );
+    let assets_dir_path = res
+        .as_ref()
+        .get::<AssetsDirResource>()
+        .map(|d| PathBuf::from(d.0.as_str()))
+        .unwrap_or_else(default_assets_dir);
 
     load_all_assets(res, assets_dir_path);
 }

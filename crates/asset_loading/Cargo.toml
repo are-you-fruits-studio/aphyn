@@ -22,6 +22,7 @@ aphyn_prefab = { path = "../prefab" }
 aphyn_serialization = { path = "../serialization" }
 aphyn_serialization_ecs = { path = "../serialization_ecs" }
 aphyn_ui = { path = "../ui" }
+aphyn_file_storage = { path = "../file_storage" }
 image = "0.25"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
