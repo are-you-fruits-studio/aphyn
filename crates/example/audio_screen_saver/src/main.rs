@@ -1,4 +1,8 @@
-use std::{panic::catch_unwind, thread, time::{Duration, Instant}};
+use std::{
+    panic::catch_unwind,
+    thread,
+    time::{Duration, Instant},
+};
 
 use aphyn::*;
 
@@ -27,25 +31,57 @@ fn run_samples_visualization_app() {
         ..
     } = app.init_ctx_mut();
 
-    add_render_features_module_to(data.as_mut(), behavior.as_mut(), render);
-    add_asset_module_to(data.as_mut(), behavior.as_mut(), render);
+    add_defult_modules_to(data.as_mut(), behavior.as_mut(), render);
 
     data.resources_mut().insert(SamplesResource(Vec::new()));
 
-    let clip = data
-        .resources_mut()
+    let mut ent = data.entities_mut();
+    let camera = ent.create_entity();
+    ent.add_component(camera, GlobalTransform::IDENTITY).ok().unwrap();
+    ent.add_component(
+        camera,
+        CameraComponent(Camera {
+            near: 0.1_f32,
+            far: 1_000_f32,
+            projection: CameraProjection::Perspective {
+                fov: 90_f32.to_radians(),
+            },
+        }),
+    )
+    .ok()
+    .unwrap();
+
+    let mut beh = behavior.as_mut();
+
+    beh.get_mut(aphyn::Schedule::Start).insert_system(spawn_audio_source);
+    beh.get_mut(aphyn::Schedule::Start)
+        .order_group(SYSTEM_GROUP_ASSETS)
+        .before_system(spawn_audio_source);
+    beh.get_mut(aphyn::Schedule::Start).insert_system(generate_samples);
+    beh.get_mut(aphyn::Schedule::Update).insert_system(visualize_samples);
+    beh.get_mut(aphyn::Schedule::Update).insert_system(try_restart_audio_sources);
+    beh.get_mut(aphyn::Schedule::Update)
+        .order_system(visualize_samples)
+        .before_group(SYSTEM_GROUP_RENDER);
+
+    app.run();
+}
+
+fn spawn_audio_source(mut world: WorldDataMut) {
+    let (res, mut ent, _evt) = world.as_tuple_mut();
+
+    let clip = res
         .get::<AssetStorageResource<AudioClip>>()
         .unwrap()
         .get_registered("Through space.asset")
         .unwrap()
         .clone();
 
-    let mut ent = data.entities_mut();
     let audio_ent = ent.create_entity();
     ent.add_component(
         audio_ent,
         AudioSource {
-            clip: clip.clone(),
+            clip,
             playback_time: 0.0,
             is_playing: true,
             should_force_playback_time: true,
@@ -55,17 +91,6 @@ fn run_samples_visualization_app() {
     )
     .ok()
     .unwrap();
-
-    let mut beh = behavior.as_mut();
-
-    beh.get_mut(aphyn::Schedule::Start).insert_system(generate_samples);
-    beh.get_mut(aphyn::Schedule::Update).insert_system(visualize_samples);
-    beh.get_mut(aphyn::Schedule::Update).insert_system(try_restart_audio_sources);
-    beh.get_mut(aphyn::Schedule::Update)
-        .order_system(visualize_samples)
-        .before_group(SYSTEM_GROUP_RENDER);
-
-    app.run();
 }
 
 fn try_restart_audio_sources(mut last_restart: Local<Option<Instant>>, mut _sources_q: WorldQuery<&mut AudioSource>) {
@@ -91,7 +116,10 @@ fn generate_samples(mut samples: ResMut<SamplesResource>) {
     let sample_rate_resampled = 40;
     let sample_rate_detailed = 500;
 
-    let samples_original = (0..sample_rate_original).into_iter().map(|_| rand::random::<f32>() * 2.0 - 1.0).collect::<Vec<_>>();
+    let samples_original = (0..sample_rate_original)
+        .into_iter()
+        .map(|_| rand::random::<f32>() * 2.0 - 1.0)
+        .collect::<Vec<_>>();
     let samples_resampled1 = resample(&samples_original, sample_rate_resampled, interpolate_linear);
     let samples_resampled2 = resample(&samples_original, sample_rate_resampled, interpolate_cubic);
     let samples_detailed1 = resample(&samples_original, sample_rate_detailed, interpolate_cubic);
@@ -141,11 +169,7 @@ fn resample<F: FnMut(f32, f32, f32, f32, f32) -> f32>(samples: &[f32], new_sampl
     resampled_samples
 }
 
-fn visualize_samples(
-    _samples: Res<SamplesResource>,
-    audio: Res<AudioStateResource>,
-    mut gizmo: ResMut<GizmosResource>,
-) {
+fn visualize_samples(_samples: Res<SamplesResource>, audio: Res<AudioStateResource>, mut gizmo: ResMut<GizmosResource>) {
     let samples = audio.last_samples();
 
     if samples.len() <= 1 {
