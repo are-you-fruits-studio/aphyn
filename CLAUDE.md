@@ -22,6 +22,13 @@ Read-only git commands (`git status`, `diff`, `log`, `show`, `blame`, ...) are a
   bash .github/scripts/check-commit-authorship.sh origin/dev..HEAD
   ```
 
+## Releases
+
+All crates share one version, `[workspace.package] version` in the root `Cargo.toml` (`version.workspace = true` everywhere). Never bump it by hand:
+
+1. Run the **Prepare Release** workflow (major/minor/patch). It bumps the version, pushes `release/v<version>` and opens a PR into `dev` whose description is the generated changelog. Edit the description, then merge.
+2. Run the **Build Engine** workflow. It builds the version from `Cargo.toml`, tags `v<version>` and publishes the GitHub release with the release PR's description as notes.
+
 ## Commands
 
 Rust edition 2024, Cargo workspace rooted at `Cargo.toml` (the root package `aphyn` is itself a member).
