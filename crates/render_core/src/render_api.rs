@@ -643,7 +643,7 @@ fn unsupported_binding<T>(binding: &naga::ResourceBinding) -> Option<T> {
 
 fn create_instance() -> wgpu::Instance {
     wgpu::Instance::new(&wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::PRIMARY,
+        backends: wgpu::Backends::PRIMARY.with_env(),
         ..Default::default()
     })
 }
