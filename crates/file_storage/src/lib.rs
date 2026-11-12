@@ -31,7 +31,7 @@
 //! # How to maintain
 //!
 //! - [`app_path`] is the parent of [`std::env::current_exe`]. With the dynamic launch
-//!   this is the launcher exe's folder, which `aphyn_editor build` fills with `assets/`.
+//!   this is the game exe's folder, which `aphyn_editor build` fills with `assets/`.
 //! - Writable roots come from env vars:
 //!   - Windows: `%APPDATA%` (save), `%LOCALAPPDATA%` (cache).
 //!   - Linux: `$XDG_DATA_HOME` (save), `$XDG_CACHE_HOME` (cache); per the XDG spec, empty or

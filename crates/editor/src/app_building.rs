@@ -5,6 +5,7 @@ use std::{
 
 pub const FILE_NAME_SCRIPTS_LIB_SRC: &str = if cfg!(windows) { "lib_app.dll" } else { "liblib_app.so" };
 pub const FILE_NAME_SCRIPTS_LIB_DST: &str = if cfg!(windows) { "lib_app.dll" } else { "lib_app.so" };
+pub const FILE_NAME_SCRIPTS_BIN: &str = "launcher";
 
 pub fn path_scripts_lib_src(project_path: &str) -> PathBuf {
     [project_path, "scripts", "target", "release", FILE_NAME_SCRIPTS_LIB_SRC]
@@ -12,16 +13,44 @@ pub fn path_scripts_lib_src(project_path: &str) -> PathBuf {
         .collect::<PathBuf>()
 }
 
-pub fn build_app(project_path: &str) {
+pub fn path_scripts_bin_src(project_path: &str) -> PathBuf {
+    let bin_file_name = format!("{FILE_NAME_SCRIPTS_BIN}{}", std::env::consts::EXE_SUFFIX);
+
+    [project_path, "scripts", "target", "release", bin_file_name.as_str()]
+        .into_iter()
+        .collect::<PathBuf>()
+}
+
+pub fn build_app(project_path: &str) -> Result<(), Box<dyn Error>> {
     let project_name = PathBuf::from(project_path);
-    let project_name = project_name.file_name().unwrap().to_str().unwrap();
+    let project_name = project_name
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or("project path has no folder name")?;
 
-    try_create_launcher_project(project_path).unwrap();
+    let scripts_path = [project_path, "scripts"].iter().collect::<PathBuf>();
 
-    build_cargo_project([project_path, "launcher"].iter().collect::<PathBuf>()).unwrap();
-    build_cargo_project([project_path, "scripts"].iter().collect::<PathBuf>()).unwrap();
+    if !std::fs::exists(scripts_path.join("src").join("main.rs"))? {
+        return Err(format!(
+            "{} is missing: add it with `fn main() {{ aphyn::launch_app_dynamically(); }}` \
+             and a `[[bin]]` section with `name = \"{FILE_NAME_SCRIPTS_BIN}\"` and `path = \"src/main.rs\"` to scripts/Cargo.toml",
+            scripts_path.join("src").join("main.rs").display()
+        )
+        .into());
+    }
 
-    let launcher_exe = format!("launcher{}", std::env::consts::EXE_SUFFIX);
+    build_cargo_project(&scripts_path)?;
+
+    let bin_src = path_scripts_bin_src(project_path);
+
+    if !std::fs::exists(&bin_src)? {
+        return Err(format!(
+            "{} was not built: scripts/Cargo.toml needs a `[[bin]]` section with `name = \"{FILE_NAME_SCRIPTS_BIN}\"` and `path = \"src/main.rs\"`",
+            bin_src.display()
+        )
+        .into());
+    }
+
     let build_exe = format!("{project_name}{}", std::env::consts::EXE_SUFFIX);
 
     copy_file(
@@ -29,23 +58,21 @@ pub fn build_app(project_path: &str) {
         [project_path, "builds", FILE_NAME_SCRIPTS_LIB_DST]
             .iter()
             .collect::<PathBuf>(),
-    )
-    .unwrap();
+    )?;
 
     copy_file(
-        [project_path, "launcher", "target", "release", launcher_exe.as_str()]
-            .iter()
-            .collect::<PathBuf>(),
+        bin_src,
         [project_path, "builds", build_exe.as_str()].iter().collect::<PathBuf>(),
-    )
-    .unwrap();
+    )?;
 
     let assets_src = [project_path, "assets"].iter().collect::<PathBuf>();
     let assets_dst = [project_path, "builds", "assets"].iter().collect::<PathBuf>();
 
-    if std::fs::exists(assets_src).unwrap_or(true) {
-        copy_dir_all([project_path, "assets"].iter().collect::<PathBuf>(), assets_dst).unwrap();
+    if std::fs::exists(&assets_src).unwrap_or(true) {
+        copy_dir_all(assets_src, assets_dst)?;
     }
+
+    Ok(())
 }
 
 fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
@@ -90,56 +117,4 @@ fn copy_file(src_path: impl AsRef<Path>, dst_path: impl AsRef<Path>) -> Result<(
     std::fs::copy(src_path, dst_path)?;
 
     Ok(())
-}
-
-fn try_create_launcher_project(aphyn_project_path: impl AsRef<Path>) -> Result<bool, Box<dyn Error>> {
-    let mut path = PathBuf::from(aphyn_project_path.as_ref());
-    path.push("launcher");
-
-    if let Ok(true) = std::fs::exists(&path) {
-        return Ok(false);
-    }
-
-    std::fs::create_dir_all(&path)?;
-
-    let mut cargo_path = path.clone();
-    cargo_path.push("Cargo.toml");
-
-    std::fs::write(
-        cargo_path,
-        r#"
-[package]
-name = "launcher"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-aphyn = { git = "https://github.com/are-you-fruits-studio/aphyn.git", tag = "v0.18.0" }
-            "#
-        .replace("\r\n", "\n")
-        .replace("\r", "\n")
-        .trim(),
-    )?;
-
-    let mut src_path = path.clone();
-    src_path.push("src");
-
-    std::fs::create_dir_all(&src_path)?;
-
-    let mut main_path = src_path.clone();
-    main_path.push("main.rs");
-
-    std::fs::write(
-        main_path,
-        r#"
-fn main() {
-    aphyn::launch_app_dynamically();
-}
-            "#
-        .replace("\r\n", "\n")
-        .replace("\r", "\n")
-        .trim(),
-    )?;
-
-    Ok(true)
 }

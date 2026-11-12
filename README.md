@@ -103,7 +103,7 @@ To ship a game as a launcher plus a game library, see [Build a game](#build-a-ga
 
 ## Build a game
 
-A shipped game is two crates in one project folder: `launcher/`, a tiny binary, and `scripts/`, your game built as a `cdylib` named `lib_app`.
+A shipped game is one crate, `scripts/`, in the project folder. It has two targets: your game as a `cdylib` named `lib_app`, and a small binary named `launcher` that loads it.
 
 `scripts/Cargo.toml`:
 
@@ -116,11 +116,15 @@ edition = "2024"
 [lib]
 crate-type = ["cdylib"]
 
+[[bin]]
+name = "launcher"
+path = "src/main.rs"
+
 [dependencies]
 aphyn = { git = "https://github.com/are-you-fruits-studio/aphyn", tag = "v0.18.0" }
 ```
 
-Use the same tag as the `aphyn` binary you build with — the launcher and the game library must match. Tags before `v0.18.0` still use the old package name.
+Use the same tag as the `aphyn` binary you build with. Tags before `v0.18.0` still use the old package name. The binary must be named `launcher`: `aphyn build` looks for that name.
 
 `scripts/src/lib.rs` exports the setup function:
 
@@ -135,13 +139,15 @@ fn setup(ctx: AppInitCtx) {
 aphyn::aphyn_entry_point!(setup);
 ```
 
-`aphyn build` creates `launcher/` for you if it is missing, pinned to `v0.18.0`. If your game uses another tag, change it in `launcher/Cargo.toml` too. Its `src/main.rs` loads your library:
+`scripts/src/main.rs` loads your library. You can add your own startup code here:
 
 ```rust
 fn main() {
     aphyn::launch_app_dynamically();
 }
 ```
+
+`aphyn build` stops with an error if `src/main.rs` or the `[[bin]]` section is missing. Older projects had a separate `launcher/` folder. It is no longer used, so you can delete it.
 
 Then build with the `aphyn` binary. Download it from [GitHub Releases](https://github.com/are-you-fruits-studio/aphyn/releases) (`v0.18.0` or newer):
 
@@ -155,7 +161,7 @@ or run it from source:
 cargo run --release -p aphyn_editor -- build path/to/my_game
 ```
 
-This compiles both crates and copies the launcher, `lib_app` and `assets/` into `path/to/my_game/builds/`. The executable is named after the project folder (`my_game`). It needs `cargo` in your `PATH`. On Windows, keep the project path short (MSVC's 260-character path limit) and without spaces.
+This compiles `scripts/` and copies the launcher, `lib_app` and `assets/` into `path/to/my_game/builds/`. The executable is named after the project folder (`my_game`). It needs `cargo` in your `PATH`. On Windows, keep the project path short (MSVC's 260-character path limit) and without spaces.
 
 ## Examples
 

@@ -24,7 +24,8 @@
 //! aphyn::aphyn_entry_point!(setup);
 //! ```
 //!
-//! The launcher binary then loads the library and runs the host with
+//! The launcher binary (in an editor project, the `src/main.rs` `[[bin]]` of the same
+//! `scripts/` crate) then loads the library and runs the host with
 //! `aphyn::launch_app_dynamically()`. Only one `aphyn_entry_point!`
 //! invocation belongs in a game library, since it defines the single exported
 //! symbol the launcher looks up.

@@ -34,11 +34,13 @@
 //!
 //! #### Launch a game from a dynamic library
 //!
-//! Use this when the game is built as a separate shared library (for example, a
-//! thin launcher driven by the editor). The launcher binary only starts the host;
-//! the game library supplies its setup through the `aphyn_entry_point!` macro.
+//! Use this when the game is built as a shared library (for example, a project
+//! built by the editor). A thin launcher binary only starts the host; the game
+//! library supplies its setup through the `aphyn_entry_point!` macro. In an editor
+//! project both live in the `scripts/` crate: the `cdylib` from `src/lib.rs` and a
+//! `[[bin]]` named `launcher` from `src/main.rs`.
 //!
-//! The launcher executable:
+//! The launcher binary (`src/main.rs`):
 //!
 //! ```ignore
 //! fn main() {
@@ -46,7 +48,7 @@
 //! }
 //! ```
 //!
-//! The game library exposes its setup function to the launcher:
+//! The game library (`src/lib.rs`) exposes its setup function to the launcher:
 //!
 //! ```ignore
 //! use aphyn::*;

@@ -67,7 +67,10 @@ fn main() {
     }
 
     if args[1].as_str() == "build" {
-        app_building::build_app(&args[2]);
+        if let Err(err) = app_building::build_app(&args[2]) {
+            eprintln!("build failed: {err}");
+            std::process::exit(1);
+        }
     }
 
     if args[1].as_str() == "run" {
