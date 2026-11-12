@@ -1,21 +1,15 @@
 ﻿name: Build Engine
 
+# Publishes the version committed in Cargo.toml ([workspace.package] version) as
+# release v<version>. Bump it first with `Prepare Release`; the description of
+# the merged release PR becomes the release notes.
+
 on:
   workflow_dispatch:
-    inputs:
-      bump_type:
-        description: "Version bump type"
-        required: true
-        default: "patch"
-        type: choice
-        options:
-          - major
-          - minor
-          - patch
-          - random
 
 permissions:
   contents: write
+  pull-requests: read
 
 jobs:
   version:
@@ -27,39 +21,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Calculate version
+      - name: Read version
         id: setver
         shell: bash
         run: |
           set -euo pipefail
-          
-          last_tag=$(git tag --list "v[0-9]*.[0-9]*.[0-9]*" --sort=-v:refname | head -n1)
-          if [[ -z "$last_tag" ]]; then last_tag="0.0.0"; fi
-          
-          last_tag="${last_tag#v}"
-          last_tag="${last_tag//$'\r'/}"
-          echo "Last tag: $last_tag"
-
-          branch="${GITHUB_REF_NAME:-}"
-          reltype="${{ github.event.inputs.bump_type }}"
-
-          if [[ "$reltype" != "random" ]]; then
-            IFS='.' read -r major minor patch <<< "$last_tag"
-            case "$reltype" in
-              major) major=$((major+1)); minor=0; patch=0 ;;
-              minor) minor=$((minor+1)); patch=0 ;;
-              *)     patch=$((patch+1)) ;;
-            esac
-            new_tag="${major}.${minor}.${patch}"
-          else
-            postfix=$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c5 || true)
-            [[ -z "$postfix" ]] && postfix=$((RANDOM % 10000))
-            new_tag="${last_tag}-${postfix}"
+          version=$(bash .github/scripts/workspace-version.sh get)
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "::error::v$version is already released. Bump the version with the Prepare Release workflow first."
+            exit 1
           fi
-          
-          echo "New tag: $new_tag"
-          echo "VERSION_TAG=$new_tag" >> $GITHUB_OUTPUT
-          echo "BUILD_DATE=$(date +'%d.%m.%Y %H:%M')" >> $GITHUB_OUTPUT
+          echo "Releasing v$version"
+          echo "VERSION_TAG=$version" >> "$GITHUB_OUTPUT"
 
   build:
     needs: version
@@ -127,7 +100,26 @@ jobs:
   release:
     needs: [version, build]
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
+      - name: Release notes from the release PR
+        id: notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          body=$(gh pr list --repo "$GITHUB_REPOSITORY" --state merged --head "release/v$VERSION" \
+            --json body --jq '.[0].body // ""')
+          if [[ -n "$body" ]]; then
+            printf '%s\n' "$body" > "$RUNNER_TEMP/release-notes.md"
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No merged PR from release/v$VERSION; falling back to generated release notes"
+            : > "$RUNNER_TEMP/release-notes.md"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -145,4 +137,5 @@ jobs:
             dist/**/**/*.tar.gz.sha256
             dist/**/**/*.zip
             dist/**/**/*.zip.sha256
-          generate_release_notes: true
+          body_path: ${{ runner.temp }}/release-notes.md
+          generate_release_notes: ${{ steps.notes.outputs.found != 'true' }}

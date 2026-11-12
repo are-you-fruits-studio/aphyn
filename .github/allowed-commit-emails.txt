@@ -25,3 +25,6 @@ unknown.musician.t@gmail.com
 
 # Are You Fruits studio account
 are.you.fruits@gmail.com
+
+# GitHub Actions bot, author of the version bump commits made by .github/workflows/prepare-release.yml
+41898282+github-actions[bot]@users.noreply.github.com

@@ -1,0 +1,92 @@
+name: Prepare Release
+
+# Bumps the workspace version and opens a release PR into dev. The PR description
+# is the changelog: edit it before merging, `Build Engine` publishes it as the
+# release notes.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: "Version bump type"
+        required: true
+        default: "patch"
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: Bump version
+        id: bump
+        shell: bash
+        run: |
+          set -euo pipefail
+          previous=$(bash .github/scripts/workspace-version.sh get)
+          version=$(bash .github/scripts/workspace-version.sh bump "${{ inputs.bump_type }}")
+          branch="release/v$version"
+
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "::error::Tag v$version already exists"
+            exit 1
+          fi
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            echo "::error::Branch $branch already exists; merge or delete its PR first"
+            exit 1
+          fi
+
+          echo "Bumping $previous -> $version"
+          echo "previous=$previous" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+      - name: Generate changelog
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.bump.outputs.version }}"
+          previous_tag=$(git tag --list "v[0-9]*.[0-9]*.[0-9]*" --sort=-v:refname | head -n1)
+
+          args=(-f "tag_name=v$version" -f "target_commitish=dev")
+          [[ -n "$previous_tag" ]] && args+=(-f "previous_tag_name=$previous_tag")
+
+          gh api -X POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" "${args[@]}" --jq .body > "$RUNNER_TEMP/changelog.md"
+          cat "$RUNNER_TEMP/changelog.md"
+
+      - name: Open release PR
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.bump.outputs.version }}"
+          branch="${{ steps.bump.outputs.branch }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -am "chore: release v$version"
+          git push origin "$branch"
+
+          gh pr create \
+            --base dev \
+            --head "$branch" \
+            --title "chore: release v$version" \
+            --body-file "$RUNNER_TEMP/changelog.md"
