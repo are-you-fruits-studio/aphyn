@@ -2,7 +2,7 @@ use std::{
     ffi::OsStr,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use aphyn::*;
@@ -39,6 +39,7 @@ pub struct SimulatedWorld {
     pub library: Option<Library>,
     pub mode: SimulationMode,
     pub is_started: bool,
+    pub last_tick: Option<Instant>,
 }
 impl SimulatedWorld {
     pub fn new(
@@ -55,6 +56,7 @@ impl SimulatedWorld {
             library,
             mode,
             is_started: false,
+            last_tick: None,
         }
     }
 
@@ -252,6 +254,7 @@ fn build_simulated_world(
 
         res.insert(render_api.clone());
         res.insert(WindowResource::new(window_state));
+        res.insert(TimeResource::default());
 
         match mode {
             SimulationMode::Edit => {
@@ -294,9 +297,13 @@ pub fn tick_simulated_world_system(mut simulated_world: ResMut<SimulatedWorldRes
 
     simulated_world.start_if_needed();
 
-    simulated_world
-        .behavior
-        .execute_iteration(Schedule::Update, simulated_world.data.as_mut());
+    let now = Instant::now();
+    let real_delta_time = simulated_world
+        .last_tick
+        .map_or(0.0, |last| now.duration_since(last).as_secs_f32());
+    simulated_world.last_tick = Some(now);
+
+    run_frame_schedules(&mut simulated_world.behavior, simulated_world.data.as_mut(), real_delta_time);
 
     simulated_world.data.events_mut().clear();
 }

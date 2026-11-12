@@ -19,6 +19,7 @@ pub use aphyn_render::*;
 pub use aphyn_render_core::*;
 pub use aphyn_render_features::*;
 pub use aphyn_collision::*;
+pub use aphyn_physics::*;
 pub use aphyn_prefab::*;
 pub use aphyn_audio::*;
 pub use aphyn_file_storage::*;

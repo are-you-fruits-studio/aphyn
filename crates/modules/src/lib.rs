@@ -1,7 +1,7 @@
 //! # aphyn_modules
 //!
 //! Bundles the engine's built-in subsystems into a single registration step, so an
-//! app starts from a world that already has collision, transforms, UI, rendering, audio,
+//! app starts from a world that already has collision, physics, transforms, UI, rendering, audio,
 //! asset loading, and serialization wired together.
 //!
 //! # How to use
@@ -62,7 +62,8 @@
 //!
 //! #### Default module set and ordering
 //!
-//! [`add_defult_modules_to`] is the assembly point. It registers the collision,
+//! [`add_defult_modules_to`] is the assembly point. It registers the collision, physics
+//! (whose step runs alone in the `FixedUpdate` schedule, so it needs no ordering here),
 //! transform, UI, render (`aphyn_render_features`), audio, and asset
 //! subsystems through their own `add_*_module_to`
 //! helpers, inserts a [`SerializersResource`] filled by [`register_common_transserializers`],
@@ -80,7 +81,7 @@
 //! [`TransSerializerRegistry`] that derefs to it. It is filled here, with the world, because
 //! this crate is the one that depends on every subsystem whose types it registers.
 //! [`register_common_transserializers`] registers a [`StandardSerializer`] for exactly the
-//! types the engine needs: every engine component (transform, render, UI, audio, collision,
+//! types the engine needs: every engine component (transform, render, UI, audio, collision, physics,
 //! [`DebugNameComponent`]), the texture/mesh/shader/audio asset metadata types, the `Material` and
 //! `MaterialTemplate` assets the asset loaders read (with `GpuShaderDesc` and its parts), and, recursively, the type of every field they contain, generic instantiations
 //! included (`Vec2<FfiOption<UiVal>>`, `[[f32; 3]; 3]` behind `Mat3<f32>`, `f64` behind
@@ -106,11 +107,13 @@
 
 use aphyn_audio::{AudioClipAssetMetadata, AudioSource};
 use aphyn_collision::{
-    ColliderComponent, CollisionAabb, CollisionBox, CollisionLine, CollisionShape, CollisionSphere, LineBoundType,
+    ColliderComponent, ColliderShape, CollisionAabb, CollisionBox, CollisionLayer, CollisionLine, CollisionShape, CollisionSphere,
+    LineBoundType, MeshCollider,
 };
 use aphyn_ecs::{Component, Schedule, WorldBehaviorBuilderMut, WorldDataMut};
 use aphyn_ffi::{FfiIndexMap, FfiOption, FfiSmallString, FfiString, FfiVec};
 use aphyn_math::{Mat, Mat3, Quat, Vec2, Vec3, Vec4};
+use aphyn_physics::{PhysicsMaterial, PhysicsMaterialComponent, RigidbodyComponent, RigidbodyForces, RigidbodyType};
 use aphyn_render::{
     Camera, CameraProjection, CoordinateSpaceType, Material, MaterialData, MaterialDataEntry, MaterialDataValue, MaterialInput,
     MaterialPassTarget, MaterialTemplate, MaterialTemplatePass, MaterialTextureBinding, MaterialTextureFallback,
@@ -137,6 +140,7 @@ pub mod fps_counter;
 // todo: bundle registration params
 pub fn add_defult_modules_to(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, render: &mut RenderFeatureRegistry) {
     aphyn_collision::add_collision_module_to(data.as_mut(), behavior.as_mut(), render);
+    aphyn_physics::add_physics_module_to(data.as_mut(), behavior.as_mut(), render);
     aphyn_transform::add_transform_module_to(data.as_mut(), behavior.as_mut());
     aphyn_ui::add_ui_module_to(data.as_mut(), behavior.as_mut(), render);
     aphyn_render_features::add_render_features_module_to(data.as_mut(), behavior.as_mut(), render);
@@ -185,6 +189,8 @@ pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry
     register_transserializer::<ChildrenRectMaskComponent>(serializer);
     register_transserializer::<AudioSource>(serializer);
     register_transserializer::<ColliderComponent>(serializer);
+    register_transserializer::<RigidbodyComponent>(serializer);
+    register_transserializer::<PhysicsMaterialComponent>(serializer);
 
     // asset metadata
     register_transserializer::<StandardMeshAssetMetadata>(serializer);
@@ -263,6 +269,12 @@ pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry
     register_transserializer::<CollisionBox>(serializer);
     register_transserializer::<CollisionSphere>(serializer);
     register_transserializer::<LineBoundType>(serializer);
+    register_transserializer::<ColliderShape>(serializer);
+    register_transserializer::<CollisionLayer>(serializer);
+    register_transserializer::<MeshCollider>(serializer);
+    register_transserializer::<RigidbodyType>(serializer);
+    register_transserializer::<RigidbodyForces>(serializer);
+    register_transserializer::<PhysicsMaterial>(serializer);
 }
 
 pub fn register_transserializer<T: 'static + Default + for<'a> Serializable<TransSerializerCtxState<'a>>>(

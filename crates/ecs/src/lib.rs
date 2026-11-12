@@ -292,10 +292,12 @@
 //!
 //! #### Schedules
 //!
-//! [`Schedule`] is a fixed set of passes ([`Start`](Schedule::Start), [`Update`](Schedule::Update)).
-//! The world holds one independent system set per schedule, and the driving application chooses when
-//! each pass runs — typically `Start` once and `Update` every frame. Rendering is not a schedule: it
-//! runs through the render features of `aphyn_render_features`.
+//! [`Schedule`] is a fixed set of passes ([`Start`](Schedule::Start),
+//! [`FixedUpdate`](Schedule::FixedUpdate), [`Update`](Schedule::Update)). The world holds one
+//! independent system set per schedule, and the driving application chooses when each pass runs.
+//! `aphyn_app` and the editor's simulated world run `Start` once, then per frame zero or more
+//! `FixedUpdate` passes (one per elapsed fixed time step) followed by exactly one `Update` pass.
+//! Rendering is not a schedule: it runs through the render features of `aphyn_render_features`.
 
 mod behavior;
 mod data;

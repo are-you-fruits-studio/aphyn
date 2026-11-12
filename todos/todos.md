@@ -14,7 +14,6 @@
 - implement animation
 - implement Skybox
 - implement shadows
-- implement physics
 - implement SSR (Screen-Space Reflections)
 - implement initializing app_id for the window
 - make sure prefab root entity is the first one serialized

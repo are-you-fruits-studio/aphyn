@@ -117,6 +117,36 @@
 //! }
 //! ```
 //!
+//! #### Time and fixed updates
+//!
+//! [`TimeResource`] is inserted before the `Start` pass and advanced outside the ECS once per frame.
+//! `delta_time`/`frame_time`/`frame_number` describe the frame (`Update`), while
+//! `fixed_delta_time`/`fixed_frame_time`/`fixed_frame_number` describe the current
+//! [`FixedUpdate`](aphyn_ecs::Schedule::FixedUpdate) step. Every frame the real elapsed time multiplied
+//! by `time_scale` is accumulated, and one `FixedUpdate` pass runs per whole `fixed_time_step` in the
+//! accumulator (zero, one or several per frame), always before that frame's `Update` pass. Systems may
+//! write `time_scale` and `fixed_time_step`; they take effect from the next frame / step:
+//!
+//! ```
+//! use aphyn_app::TimeResource;
+//!
+//! let mut time = TimeResource::default();
+//! time.fixed_time_step = 0.02;
+//!
+//! assert_eq!(time.begin_frame(0.005), 0);
+//! assert_eq!(time.begin_frame(0.1), 5);
+//! for _ in 0..5 {
+//!     time.begin_fixed_step();
+//! }
+//! assert_eq!(time.fixed_frame_number, 5);
+//!
+//! time.time_scale = 0.5;
+//! assert_eq!(time.begin_frame(0.1), 2);
+//! ```
+//!
+//! [`run_frame_schedules`] performs one frame (advance time, the due `FixedUpdate` passes, then
+//! `Update`); the app and the editor's simulated world both use it so their order stays identical.
+//!
 //! #### Reacting to typed text
 //!
 //! The text a key press produces (as resolved by the platform's keyboard layout) is emitted as
@@ -167,7 +197,7 @@
 //! exclusive fullscreen uses the primary monitor's first video mode, else borderless), applies
 //! cursor grab and visibility to the created window (no creation attributes exist for them),
 //! re-reads fullscreen mode and size from it, builds the renderer's `RenderApiResource`, inserts
-//! [`InputResource`] and [`WindowResource`](aphyn_window::WindowResource) into the world,
+//! [`InputResource`], [`TimeResource`] and [`WindowResource`](aphyn_window::WindowResource) into the world,
 //! builds the behavior, runs the [`Schedule::Start`](aphyn_ecs::Schedule) pass once, applies the
 //! window state it requested, and initializes `gilrs` for gamepad support. A `gilrs` failure is
 //! logged and leaves gamepads disabled rather than aborting.
@@ -178,8 +208,10 @@
 //! the real window, and every gamepad `gilrs` currently reports gets an entry in
 //! [`InputResource`], then pending `gilrs` events are drained into it: connect/disconnect
 //! maintain the per-id gamepad map, and button/axis events update the matching
-//! [`GamepadInputStorage`]. The [`Schedule::Update`](aphyn_ecs::Schedule) pass then runs,
-//! followed by the render core system, after which the handler clears the frame's events, calls
+//! [`GamepadInputStorage`]. Then [`run_frame_schedules`] advances [`TimeResource`] by the real time
+//! since the previous redraw (measured by the handler's `last_frame` instant) and runs the due
+//! `FixedUpdate` passes and one `Update` pass. Fixed catch-up steps are not clamped yet, so a very long
+//! frame runs many fixed steps. Then the render core system runs, after which the handler clears the frame's events, calls
 //! `clear_frame` on the input storages, reconciles the window state, and requests the next
 //! redraw. Mouse (buttons, cursor, wheel), keyboard, and resize events arrive as their own
 //! `winit` callbacks and write directly into the resources between frames.
@@ -256,10 +288,12 @@ mod event_loop_handler;
 mod init_ctx;
 mod input_resource;
 mod render_target;
+mod time_resource;
 mod window_events;
 mod window_resources;
 
 pub use app::*;
 pub use init_ctx::*;
 pub use input_resource::*;
+pub use time_resource::*;
 pub use window_events::*;

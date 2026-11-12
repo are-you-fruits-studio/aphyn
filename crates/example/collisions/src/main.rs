@@ -101,13 +101,10 @@ fn create_button_entity(mut ec: EntitiesHolderMut, pos: Vec3<f32>, scale: Vec3<f
     .unwrap();
     ec.add_component(
         e,
-        ColliderComponent {
-            shape: CollisionShape::Aabb(CollisionAabb {
-                center: Vec3::splat(0.0),
-                extents: Vec3::splat(0.0),
-            })
-            .into(),
-        },
+        ColliderComponent::new(CollisionAabb {
+            center: Vec3::splat(0.0),
+            extents: Vec3::splat(0.0),
+        }),
     )
     .ok()
     .unwrap();
@@ -115,14 +112,14 @@ fn create_button_entity(mut ec: EntitiesHolderMut, pos: Vec3<f32>, scale: Vec3<f
 
 fn update_colliders(mut q: WorldQuery<(&GlobalTransform, &LocalTransform, &mut ColliderComponent)>) {
     for (global_transform, local_transform, collider) in q.iter_mut() {
-        let CollisionShape::Aabb(mut collision_aabb) = collider.shape.into() else {
+        let ColliderShape::Primitive(CollisionShape::Aabb(mut collision_aabb)) = collider.shape else {
             todo!();
         };
 
         collision_aabb.center = global_transform.position;
         collision_aabb.extents = local_transform.scale * 0.5;
 
-        collider.shape = CollisionShape::from(collision_aabb);
+        collider.shape = collision_aabb.into();
     }
 }
 
@@ -141,7 +138,7 @@ fn raycast_mouse(collision_world: Res<CollisionWorldResource>, input: Res<InputR
     };
 
     let mut results = Vec::new();
-    collision_world.overlaps(line.into(), &mut results);
+    collision_world.overlaps(line.into(), COLLISION_MASK_ALL, &mut results);
     for e in results {
         let Some(gizmo_component) = q.get_mut(e) else {
             continue;
@@ -156,7 +153,7 @@ fn raycast_mouse(collision_world: Res<CollisionWorldResource>, input: Res<InputR
 
 fn draw_gizmo_components(q: WorldQuery<(&GizmoComponent, &ColliderComponent)>, mut gizmos: ResMut<GizmosResource>) {
     for (gizmo, collider) in q.iter() {
-        let CollisionShape::Aabb(collision_aabb) = collider.shape.into() else {
+        let ColliderShape::Primitive(CollisionShape::Aabb(collision_aabb)) = collider.shape else {
             todo!();
         };
 

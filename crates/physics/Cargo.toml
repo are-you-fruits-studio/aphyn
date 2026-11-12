@@ -1,0 +1,18 @@
+[package]
+name = "aphyn_physics"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+aphyn_app = { path = "../app" }
+aphyn_collision = { path = "../collision" }
+aphyn_ecs = { path = "../ecs" }
+aphyn_ffi = { path = "../ffi" }
+aphyn_math = { path = "../math" }
+aphyn_render_features = { path = "../render_features" }
+aphyn_serialization = { path = "../serialization" }
+aphyn_transform = { path = "../transform" }

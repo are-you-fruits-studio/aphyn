@@ -227,6 +227,26 @@ impl CollisionAabb {
 
         Self::from_min_max(min, max)
     }
+
+    pub fn overlaps_aabb(&self, other: Self) -> bool {
+        let d = self.center - other.center;
+        let e = self.extents + other.extents;
+        d.zip_copied(e, |d, e| d.abs() <= e).all()
+    }
+
+    pub fn corners(&self) -> [Vec3<f32>; 8] {
+        let (c, e) = (self.center, self.extents);
+        core::array::from_fn(|i| {
+            let sx = if i & 1 == 0 { -1.0 } else { 1.0 };
+            let sy = if i & 2 == 0 { -1.0 } else { 1.0 };
+            let sz = if i & 4 == 0 { -1.0 } else { 1.0 };
+            c + e * Vec3::new(sx, sy, sz)
+        })
+    }
+
+    pub fn transformed(&self, mat: Mat4<f32>) -> Self {
+        Self::from_points(self.corners().into_iter().map(|p| mat.mul_with_projection(p)))
+    }
 }
 
 #[repr(C)]

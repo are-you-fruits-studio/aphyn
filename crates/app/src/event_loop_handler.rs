@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use aphyn_ecs::{ResourcesHolderMut, Schedule, WorldBehavior, WorldBehaviorBuilder, WorldData, WorldDataMut};
 use aphyn_render::{CurrentRenderingResource, RenderApiResource};
@@ -15,8 +15,9 @@ use winit::{
 };
 
 use crate::{
-    GamepadInputStorage, InputResource, TextInputEvent,
+    GamepadInputStorage, InputResource, TextInputEvent, TimeResource,
     render_target::RenderTarget,
+    run_frame_schedules,
     window_resources::{
         window_attributes_from_state, window_state_apply_changes, window_state_apply_cursor, window_state_refresh_from_window,
     },
@@ -33,6 +34,7 @@ enum EventLoopHandlerState {
         gamepad_host: Option<Gilrs>,
         render_target: RenderTarget,
         render: RenderFeatureRegistry,
+        last_frame: Instant,
     },
 }
 
@@ -79,6 +81,7 @@ impl ApplicationHandler for EventLoopHandler {
 
         data.resources_mut().insert(state);
         data.resources_mut().insert(InputResource::default());
+        data.resources_mut().insert(TimeResource::default());
         data.resources_mut().insert(WindowResource::new(window_state));
         let mut behavior = behavior.build();
         behavior.execute_iteration(Schedule::Start, data.as_mut());
@@ -97,6 +100,7 @@ impl ApplicationHandler for EventLoopHandler {
             gamepad_host: gamepad_host.ok(),
             render_target,
             render,
+            last_frame: Instant::now(),
         };
     }
 
@@ -125,6 +129,7 @@ impl ApplicationHandler for EventLoopHandler {
             gamepad_host,
             render_target,
             render,
+            last_frame,
         } = &mut self.0
         else {
             return;
@@ -194,7 +199,11 @@ impl ApplicationHandler for EventLoopHandler {
                 core_system_gamepad(res, gamepad_host);
                 core_system_read_window(data.as_mut(), window);
 
-                behavior.execute_iteration(Schedule::Update, data.as_mut());
+                let now = Instant::now();
+                let real_delta_time = now.duration_since(*last_frame).as_secs_f32();
+                *last_frame = now;
+
+                run_frame_schedules(behavior, data.as_mut(), real_delta_time);
 
                 core_system_render(data, render_target, render);
 

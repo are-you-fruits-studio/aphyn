@@ -18,6 +18,7 @@ aphyn_render_features = { path = "../render_features" }
 aphyn_ui = { path = "../ui" }
 aphyn_transform = { path = "../transform" }
 aphyn_collision = { path = "../collision" }
+aphyn_physics = { path = "../physics" }
 aphyn_prefab = { path = "../prefab" }
 aphyn_asset_storage = { path = "../asset_storage" }
 aphyn_asset_loading = { path = "../asset_loading" }

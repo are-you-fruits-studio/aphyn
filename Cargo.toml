@@ -24,6 +24,7 @@ members = [
     "crates/control_flow_macros",
     "crates/transform",
     "crates/collision",
+    "crates/physics",
     "crates/asset_storage",
     "crates/render",
     "crates/render_core",
@@ -37,6 +38,7 @@ members = [
     "crates/example/ecs",
     "crates/example/gizmos",
     "crates/example/collisions",
+    "crates/example/physics",
     "crates/example/text",
     "crates/example/ui",
     "crates/example/audio_screen_saver",
@@ -85,6 +87,7 @@ aphyn_render = { path = "./crates/render" }
 aphyn_render_core = { path = "./crates/render_core" }
 aphyn_render_features = { path = "./crates/render_features" }
 aphyn_collision = { path = "./crates/collision" }
+aphyn_physics = { path = "./crates/physics" }
 aphyn_prefab = { path = "./crates/prefab" }
 aphyn_ui = { path = "./crates/ui" }
 aphyn_file_storage = { path = "./crates/file_storage" }
