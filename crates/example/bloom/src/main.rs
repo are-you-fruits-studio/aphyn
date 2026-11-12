@@ -24,6 +24,11 @@ fn main() {
 fn setup_scene(mut world: WorldDataMut) {
     let (mut res, mut ent, _evt) = world.as_tuple_mut();
 
+    let bloom_res = res.get_mut::<BloomResource>().unwrap();
+
+    bloom_res.is_enabled = true;
+    bloom_res.intensity = 2.0;
+
     let mut ground_data = MaterialData::new();
     ground_data.insert("roughness", MaterialDataValue::F32(1.0));
     let ground_material = create_material_from_template_key(res.as_ref(), BUILTIN_TEMPLATE_OPAQUE_LIT, ground_data).unwrap();

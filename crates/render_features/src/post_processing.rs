@@ -214,6 +214,7 @@ pub struct BloomRenderFeature {
     gpu: Option<BloomGpu>,
 }
 
+// todo: fix pixelated bloom
 impl RenderFeature for BloomRenderFeature {
     fn add_passes(&mut self, world: WorldDataMut, passes: &mut RenderPassWriter<Self>) {
         let Some(bloom) = world.resources().get::<BloomResource>().filter(|bloom| bloom.is_enabled) else {
