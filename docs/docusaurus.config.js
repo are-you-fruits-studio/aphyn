@@ -2,11 +2,15 @@ const {themes} = require('prism-react-renderer');
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'aphyn',
+  title: 'Aphyn',
   tagline: 'Rust game engine documentation',
-  url: 'https://are-you-fruits-studio.github.io',
-  baseUrl: '/aphyn/',
-  favicon: 'img/favicon.png',
+  url: 'https://docs.aphyn.org',
+  baseUrl: '/',
+  favicon: 'img/favicon.ico',
+  headTags: [
+    {tagName: 'link', attributes: {rel: 'icon', type: 'image/svg+xml', href: '/img/favicon.svg'}},
+    {tagName: 'link', attributes: {rel: 'apple-touch-icon', href: '/img/apple-touch-icon.png'}},
+  ],
   organizationName: 'are-you-fruits-studio',
   projectName: 'aphyn',
   trailingSlash: false,
@@ -42,7 +46,7 @@ const config = {
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
       navbar: {
-        title: 'aphyn',
+        title: 'Aphyn',
         items: [
           {
             type: 'docSidebar',
@@ -57,7 +61,7 @@ const config = {
             // internal route, fails to match it, and renders the SPA 404.
             type: 'html',
             position: 'left',
-            value: '<a class="navbar__item navbar__link" href="/aphyn/api-reference/aphyn/index.html">API Reference</a>',
+            value: '<a class="navbar__item navbar__link" href="/api-reference/aphyn/index.html">API Reference</a>',
           },
           {
             href: 'https://github.com/are-you-fruits-studio/aphyn',

@@ -22,7 +22,7 @@ export default function Home() {
               </Link>
               <a
                 className="button button--secondary"
-                href="/aphyn/api-reference/aphyn/index.html"
+                href="/api-reference/aphyn/index.html"
               >
                 View API Reference
               </a>

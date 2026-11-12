@@ -8,7 +8,7 @@
 <p align="center">
   <a href="#license"><img alt="License: MIT OR Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-3B3486?style=flat-square&labelColor=14131C"></a>
   <a href="#quick-start"><img alt="Rust: latest stable" src="https://img.shields.io/badge/rust-latest%20stable-3B3486?style=flat-square&logo=rust&logoColor=white&labelColor=14131C"></a>
-  <a href="https://are-you-fruits-studio.github.io/aphyn/"><img alt="Docs" src="https://img.shields.io/badge/docs-aphyn-3B3486?style=flat-square&labelColor=14131C"></a>
+  <a href="https://docs.aphyn.org/"><img alt="Docs" src="https://img.shields.io/badge/docs-aphyn-3B3486?style=flat-square&labelColor=14131C"></a>
 </p>
 
 <p align="center">
@@ -177,7 +177,7 @@ Replace `cubes` with any name below:
 
 ## Docs · community · contributing
 
-- **Docs:** [are-you-fruits-studio.github.io/aphyn](https://are-you-fruits-studio.github.io/aphyn/)
+- **Docs:** [docs.aphyn.org](https://docs.aphyn.org/)
 - **Questions and bugs:** [GitHub Issues](https://github.com/are-you-fruits-studio/aphyn/issues)
 - **Contributing:** external pull requests are not accepted for now. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 

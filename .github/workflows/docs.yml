@@ -3,7 +3,7 @@ name: Deploy Docs
 on:
   push:
     branches:
-      - feature/docs-generation
+      - dev
   workflow_dispatch:
 
 permissions:
