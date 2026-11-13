@@ -8,7 +8,14 @@ use std::{
 use aphyn::*;
 use libloading::Library;
 
-use crate::{PROJECT_ASSETS_SUBPATH, SYSTEM_GROUP, app_building, features::inspector_window::data::OpenProjectResource};
+use crate::{
+    PROJECT_ASSETS_SUBPATH, SYSTEM_GROUP,
+    app_building::{self, FileStamp},
+    features::{
+        inspector_window::data::{InspectedEntityResource, OpenProjectResource},
+        project_reload::ProjectReloadResource,
+    },
+};
 
 // todo: bundle registration params
 pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
@@ -37,6 +44,7 @@ pub struct SimulatedWorld {
     pub behavior: WorldBehavior,
     pub render: RenderFeatureRegistry,
     pub library: Option<Library>,
+    pub library_stamp: Option<FileStamp>,
     pub mode: SimulationMode,
     pub threading: ThreadingMode,
     pub is_started: bool,
@@ -47,7 +55,7 @@ impl SimulatedWorld {
         data: WorldData,
         behavior: WorldBehavior,
         render: RenderFeatureRegistry,
-        library: Option<Library>,
+        (library, library_stamp): (Option<Library>, Option<FileStamp>),
         mode: SimulationMode,
         threading: ThreadingMode,
     ) -> Self {
@@ -56,6 +64,7 @@ impl SimulatedWorld {
             behavior,
             render,
             library,
+            library_stamp,
             mode,
             threading,
             is_started: false,
@@ -100,16 +109,17 @@ struct PlaySceneResource {
 
 pub fn preload_assets_into_simulated_world_system(
     open_project: Res<OpenProjectResource>,
+    project_reload: Res<ProjectReloadResource>,
     mut simulated_world: ResMut<SimulatedWorldResource>,
     render_api: Res<RenderApiResource>,
 ) {
-    if simulated_world.0.is_some() {
+    if simulated_world.0.is_some() || !project_reload.is_initial_build_done() {
         return;
     }
 
     let lib = load_scripts_library(&open_project.dir_path);
     let (data, behavior, render, threading) =
-        build_simulated_world(&open_project.dir_path, &render_api, lib.as_ref(), SimulationMode::Edit, "");
+        build_simulated_world(&open_project.dir_path, &render_api, lib.0.as_ref(), SimulationMode::Edit, "");
 
     simulated_world.0 = Some(SimulatedWorld::new(
         data,
@@ -123,45 +133,61 @@ pub fn preload_assets_into_simulated_world_system(
 
 pub fn rebuild_simulated_world(
     simulated_world: &mut SimulatedWorldResource,
+    inspected_entity: &mut InspectedEntityResource,
     project_dir: &str,
     render_api: &RenderApiResource,
     mode: SimulationMode,
     play_scene_key: &str,
+    reload_library: bool,
 ) {
     // the old world holds the library's types and function pointers, so it must be dropped before the library is reused
-    let library = simulated_world.0.take().and_then(
+    let library = simulated_world.0.take().map(
         |SimulatedWorld {
              data,
              behavior,
              render,
              library,
+             library_stamp,
              ..
          }| {
             drop(behavior);
             drop(data);
             drop(render);
-            library
+            (library, library_stamp)
         },
     );
 
-    let (data, behavior, render, threading) = build_simulated_world(project_dir, render_api, library.as_ref(), mode, play_scene_key);
+    // shown components may hold values allocated by the library
+    *inspected_entity = InspectedEntityResource::default();
+
+    let library = match library {
+        Some(library) if !reload_library => library,
+        library => {
+            drop(library);
+            load_scripts_library(project_dir)
+        }
+    };
+
+    let (data, behavior, render, threading) =
+        build_simulated_world(project_dir, render_api, library.0.as_ref(), mode, play_scene_key);
 
     simulated_world.0 = Some(SimulatedWorld::new(data, behavior, render, library, mode, threading));
 }
 
-fn load_scripts_library(project_dir: &str) -> Option<Library> {
+fn load_scripts_library(project_dir: &str) -> (Option<Library>, Option<FileStamp>) {
     let lib_path = app_building::path_scripts_lib_src(project_dir);
+    let lib_stamp = app_building::file_stamp(&lib_path);
 
     let Some(lib_path) = copy_lib_to_unique(project_dir, &lib_path) else {
         println!("failed to load scripts lib");
-        return None;
+        return (None, lib_stamp);
     };
 
     match unsafe { Library::new(lib_path) } {
-        Ok(lib) => Some(lib),
+        Ok(lib) => (Some(lib), lib_stamp),
         Err(err) => {
             println!("failed to load scripts lib: {err}");
-            None
+            (None, lib_stamp)
         }
     }
 }

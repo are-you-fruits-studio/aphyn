@@ -187,6 +187,21 @@
 //! }
 //! ```
 //!
+//! #### Reacting to window focus
+//!
+//! When the window gains or loses focus, a [`WindowFocusChangedEvent`] is emitted, holding
+//! whether the window is now focused. It is delivered in the next frame:
+//!
+//! ```ignore
+//! use aphyn::*;
+//!
+//! fn on_focus_changed(focus_changed: Evt<WindowFocusChangedEvent>) {
+//!     if focus_changed.iter().any(|WindowFocusChangedEvent(is_focused)| *is_focused) {
+//!         // the window has just regained focus
+//!     }
+//! }
+//! ```
+//!
 //! #### Switching fullscreen mode
 //!
 //! [`WindowResource`](aphyn_window::WindowResource) (from `aphyn_window`) holds the window's

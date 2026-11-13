@@ -1,6 +1,7 @@
 use std::{
     error::Error,
     path::{Path, PathBuf},
+    time::SystemTime,
 };
 
 pub const FILE_NAME_SCRIPTS_LIB_SRC: &str = if cfg!(windows) { "lib_app.dll" } else { "liblib_app.so" };
@@ -39,7 +40,7 @@ pub fn build_app(project_path: &str) -> Result<(), Box<dyn Error>> {
         .into());
     }
 
-    build_cargo_project(&scripts_path)?;
+    build_cargo_project(&scripts_path, &[])?;
 
     let bin_src = path_scripts_bin_src(project_path);
 
@@ -89,13 +90,39 @@ fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result
     Ok(())
 }
 
-fn build_cargo_project(project_path: impl AsRef<Path>) -> Result<(), Box<dyn Error>> {
+pub fn build_scripts_lib(project_path: &str) -> Result<(), Box<dyn Error>> {
+    let scripts_path = [project_path, "scripts"].iter().collect::<PathBuf>();
+
+    if !std::fs::exists(scripts_path.join("Cargo.toml"))? {
+        return Ok(());
+    }
+
+    build_cargo_project(&scripts_path, &["--lib"])
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub struct FileStamp {
+    modified: SystemTime,
+    len: u64,
+}
+
+pub fn file_stamp(path: impl AsRef<Path>) -> Option<FileStamp> {
+    let metadata = std::fs::metadata(path).ok()?;
+
+    Some(FileStamp {
+        modified: metadata.modified().ok()?,
+        len: metadata.len(),
+    })
+}
+
+fn build_cargo_project(project_path: impl AsRef<Path>, extra_args: &[&str]) -> Result<(), Box<dyn Error>> {
     let mut path = PathBuf::from(project_path.as_ref());
 
     path.push("Cargo.toml");
 
     let exit_status = std::process::Command::new("cargo")
         .args(["build", "--release", "--manifest-path", path.to_str().unwrap()])
+        .args(extra_args)
         .stderr(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
         .status()?;

@@ -17,7 +17,7 @@ use winit::{
 };
 
 use crate::{
-    GamepadInputStorage, InputResource, TextInputEvent, TimeResource,
+    GamepadInputStorage, InputResource, TextInputEvent, TimeResource, WindowFocusChangedEvent,
     render_target::RenderTarget,
     run_frame_schedules,
     window_resources::{
@@ -222,6 +222,9 @@ impl ApplicationHandler for EventLoopHandler {
                     ElementState::Pressed => input.keyboard.press(key_code),
                     ElementState::Released => input.keyboard.release(key_code),
                 }
+            }
+            WindowEvent::Focused(is_focused) => {
+                evt.get_mut().push(WindowFocusChangedEvent(is_focused));
             }
             WindowEvent::Resized(new_size) => {
                 render_state.resize([new_size.width, new_size.height]);

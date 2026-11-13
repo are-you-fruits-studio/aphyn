@@ -8,6 +8,7 @@ use crate::{
             data::{InspectedEntityResource, OpenProjectResource, OpenedEntitiesAssetResource},
             systems::{open_entities_asset, update_hierarchy_window_system},
         },
+        project_reload::ProjectReloadResource,
         test_window::{WINDOW_KIND_GAME, open_window_by_kind},
         ui_interaction::{ButtonComponent, check_ui_interaction_system},
         windows_layout::save_windows_layout_system,
@@ -65,7 +66,7 @@ pub struct PlayModeResource {
     should_open_game_window: bool,
 }
 
-fn toggle_play_mode_system(
+pub fn toggle_play_mode_system(
     button_q: WorldQuery<&ButtonComponent, WithFilter<PlayButtonComponent>>,
     open_project: Res<OpenProjectResource>,
     render_api: Res<RenderApiResource>,
@@ -74,6 +75,7 @@ fn toggle_play_mode_system(
     mut inspected_entity: ResMut<InspectedEntityResource>,
     mut focus_res: ResMut<GameViewFocusResource>,
     mut play_mode: ResMut<PlayModeResource>,
+    mut project_reload: ResMut<ProjectReloadResource>,
 ) {
     return_if!(!button_q.iter().any(|b| b.was_clicked_this_frame));
     return_if!(simulated_world.0.is_none());
@@ -81,10 +83,12 @@ fn toggle_play_mode_system(
     if simulated_world.is_playing() {
         rebuild_simulated_world(
             &mut simulated_world,
+            &mut inspected_entity,
             &open_project.dir_path,
             &render_api,
             SimulationMode::Edit,
             "",
+            project_reload.take_pending(),
         );
 
         let opened = std::mem::take(&mut *opened_asset);
@@ -104,16 +108,16 @@ fn toggle_play_mode_system(
 
         rebuild_simulated_world(
             &mut simulated_world,
+            &mut inspected_entity,
             &open_project.dir_path,
             &render_api,
             SimulationMode::Play,
             &opened_asset.asset_key,
+            false,
         );
 
         let (world, thread_pool) = simulated_world.world_and_thread_pool().unwrap();
         world.start_if_needed(thread_pool);
-
-        *inspected_entity = InspectedEntityResource::default();
 
         play_mode.should_open_game_window = true;
     }

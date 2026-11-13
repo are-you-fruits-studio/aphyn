@@ -1,29 +1,26 @@
 # Prioritized
 
-- make sure inspector values are updated if the simulated world is updated (now it's not)
-- live reload assets
-- live recompile scripts
-
-# Default
-
 - implement animation
 - implement Skybox
 - implement shadows
-- implement SSR (Screen-Space Reflections)
 - implement windows docking (like in Microsoft VS)
 - copy-paste (with right mouse button and drop-down) (maybe even ctrl c ctrl v)
 
 - make sure prefab root entity is the first one serialized
 - make sure scenes can be spawned
 
+# Default
+
+- implement SSR (Screen-Space Reflections)
+
 # Queue
 
 - transform-adjust interactable gizmo on selected object
+- implement more basic features for input fields (cursor, selection, shortcuts, etc.)
 - console window
 - drag-drop files to move/assign them
 - show opened asset with different kind of selection
 - describe project structure and architecture better for claude
-- implement more basic features for input fields (cursor, selection, shortcuts, etc.)
 
 # Low-prio
 
@@ -31,7 +28,6 @@
     - optimize update_hierarchy_window_system
 
 - allow spawning entities directly into the right archetype (optimization)
-- implement global cpu-stored batched mesh (same batching as now, but using lightweight pattern) (Let's make StandardMesh store the FfiVec<StandardVertex> vertices and FfiVec<u16> indices after creation. Let's also put it vertices and indices into StandardMeshData and use it in StandardMesh and BatchedMeshComponent instead of directly storing vertices and indices.)
 - use pure serializer if no transserializer available
 - maybe add scroll with automatic visibility to dynamic dropdown
 - other "todo"s throughout the project

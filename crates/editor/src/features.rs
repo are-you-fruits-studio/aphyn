@@ -7,6 +7,7 @@ pub mod input_field;
 pub mod inspector_window;
 pub mod number_drag;
 pub mod play_mode;
+pub mod project_reload;
 pub mod project_window_create;
 pub mod project_window_entries;
 pub mod project_window_rename;
