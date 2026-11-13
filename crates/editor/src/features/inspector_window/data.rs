@@ -26,6 +26,7 @@ pub struct OpenedEntitiesAssetResource {
 #[derive(Resource, Default)]
 pub struct InspectedEntityResource {
     pub selected_entity: EntityId,
+    pub shown_components: Option<FfiIndexMap<FfiString, SerializedValue>>,
 }
 
 #[derive(Component, Default, Copy, Clone)]

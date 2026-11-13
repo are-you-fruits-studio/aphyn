@@ -24,6 +24,7 @@ use crate::{
         project_window_selection::{
             apply_project_entry_context_menu_system, select_file_system, update_project_entry_selection_system,
         },
+        world_preload::tick_simulated_world_system,
     },
     *,
 };
@@ -125,6 +126,10 @@ pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuild
 
     update
         .order_system(select_input_field_system)
+        .before_system(update_inspector_window_system);
+
+    update
+        .order_system(tick_simulated_world_system)
         .before_system(update_inspector_window_system);
 
     update

@@ -1070,7 +1070,7 @@ pub fn change_inspected_asset_system(selected_file: Res<SelectedFileResource>, m
 pub fn update_inspector_window_system(
     mut ent: EntitiesHolderMut,
     selected_input_field: Res<SelectedInputFieldResource>,
-    inspected_entity: Res<InspectedEntityResource>,
+    mut inspected_entity: ResMut<InspectedEntityResource>,
     selected_file: Res<SelectedFileResource>,
     simulated_world: Res<SimulatedWorldResource>,
     assets: Res<StandardAssetsResource>,
@@ -1081,6 +1081,20 @@ pub fn update_inspector_window_system(
     foldout_toggled_evt: Evt<FoldoutToggledEvent>,
     foldout_res: Res<FoldoutResource>,
 ) {
+    return_if_not!(Some(simulated_world) = &simulated_world.0);
+
+    let shown_components = is_inspected_entity_shown(simulated_world, &inspected_entity).then(|| {
+        record_entity_components(
+            simulated_world.data.as_ref().resources(),
+            simulated_world.data.as_ref().entities(),
+            inspected_entity.selected_entity,
+            EntityIdEncoder::World(simulated_world.data.as_ref().entities()),
+        )
+    });
+
+    let is_entity_changed = !same_shown_components(&shown_components, &inspected_entity.shown_components);
+    inspected_entity.shown_components = shown_components;
+
     // todo
     return_if!(
         file_selected_evt.is_empty()
@@ -1088,6 +1102,7 @@ pub fn update_inspector_window_system(
             && input_field_selection_changed_evt.is_empty()
             && entity_selected_evt.is_empty()
             && foldout_toggled_evt.is_empty()
+            && !is_entity_changed
     );
 
     let ent_selected_input = selected_input_field.selected;
@@ -1098,25 +1113,16 @@ pub fn update_inspector_window_system(
         .copied()
         .collect::<Vec<_>>();
 
-    return_if_not!(Some(simulated_world) = &simulated_world.0);
-
     for window_c in container_q {
         let asset_type_text = ent.get_component_mut::<TextComponent>(window_c.asset_type_text).unwrap();
         asset_type_text.text.clear();
 
-        if is_inspected_entity_shown(simulated_world, &inspected_entity) {
-            let inspected_components = record_entity_components(
-                simulated_world.data.as_ref().resources(),
-                simulated_world.data.as_ref().entities(),
-                inspected_entity.selected_entity,
-                EntityIdEncoder::World(simulated_world.data.as_ref().entities()),
-            );
-
+        if let Some(inspected_components) = &inspected_entity.shown_components {
             update_prefab_components_ent(
                 ent.as_mut(),
                 window_c.content_container,
                 ent_selected_input,
-                &inspected_components,
+                inspected_components,
                 &foldout_res,
                 assets.material_panel.clone(),
                 assets.material_text.clone(),
@@ -1195,6 +1201,23 @@ pub fn update_inspector_window_system(
             assets.material_text.clone(),
             assets.font.clone(),
         );
+    }
+}
+
+fn same_shown_components(
+    lhs: &Option<FfiIndexMap<FfiString, SerializedValue>>,
+    rhs: &Option<FfiIndexMap<FfiString, SerializedValue>>,
+) -> bool {
+    match (lhs, rhs) {
+        (None, None) => true,
+        (Some(lhs), Some(rhs)) => {
+            lhs.len() == rhs.len()
+                && lhs
+                    .iter()
+                    .zip(rhs.iter())
+                    .all(|((lhs_id, lhs_val), (rhs_id, rhs_val))| lhs_id == rhs_id && lhs_val.similar(rhs_val))
+        }
+        _ => false,
     }
 }
 
