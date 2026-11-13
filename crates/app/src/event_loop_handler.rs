@@ -1,6 +1,8 @@
 use std::{sync::Arc, time::Instant};
 
-use aphyn_ecs::{ResourcesHolderMut, Schedule, WorldBehavior, WorldBehaviorBuilder, WorldData, WorldDataMut};
+use aphyn_ecs::{
+    ResourcesHolderMut, Schedule, ThreadPool, ThreadPoolAccess, WorldBehavior, WorldBehaviorBuilder, WorldData, WorldDataMut,
+};
 use aphyn_render::{CurrentRenderingResource, RenderApiResource};
 use aphyn_render_features::CameraComponent;
 use aphyn_render_features::RenderFeatureRegistry;
@@ -25,7 +27,13 @@ use crate::{
 use aphyn_window::{WindowResource, WindowState};
 
 enum EventLoopHandlerState {
-    Created(WorldData, WorldBehaviorBuilder, WindowState, RenderFeatureRegistry),
+    Created(
+        WorldData,
+        WorldBehaviorBuilder,
+        WindowState,
+        RenderFeatureRegistry,
+        Option<ThreadPool>,
+    ),
     Starting,
     Polling {
         data: WorldData,
@@ -35,36 +43,57 @@ enum EventLoopHandlerState {
         render_target: RenderTarget,
         render: RenderFeatureRegistry,
         last_frame: Instant,
+        thread_pool: Option<ThreadPool>,
     },
 }
 
 impl EventLoopHandlerState {
-    fn try_start_creating(&mut self) -> Option<(WorldData, WorldBehaviorBuilder, WindowState, RenderFeatureRegistry)> {
+    fn try_start_creating(
+        &mut self,
+    ) -> Option<(
+        WorldData,
+        WorldBehaviorBuilder,
+        WindowState,
+        RenderFeatureRegistry,
+        Option<ThreadPool>,
+    )> {
         let EventLoopHandlerState::Created { .. } = self else {
             return None;
         };
 
-        let EventLoopHandlerState::Created(data, behavior, window_state, render) =
+        let EventLoopHandlerState::Created(data, behavior, window_state, render, thread_pool) =
             std::mem::replace(self, EventLoopHandlerState::Starting)
         else {
             return None;
         };
 
-        Some((data, behavior, window_state, render))
+        Some((data, behavior, window_state, render, thread_pool))
     }
 }
 
 pub struct EventLoopHandler(EventLoopHandlerState);
 
 impl EventLoopHandler {
-    pub fn new(data: WorldData, behavior: WorldBehaviorBuilder, window_state: WindowState, render: RenderFeatureRegistry) -> Self {
-        Self(EventLoopHandlerState::Created(data, behavior, window_state, render))
+    pub fn new(
+        data: WorldData,
+        behavior: WorldBehaviorBuilder,
+        window_state: WindowState,
+        render: RenderFeatureRegistry,
+        thread_pool: Option<ThreadPool>,
+    ) -> Self {
+        Self(EventLoopHandlerState::Created(
+            data,
+            behavior,
+            window_state,
+            render,
+            thread_pool,
+        ))
     }
 }
 
 impl ApplicationHandler for EventLoopHandler {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let Some((mut data, behavior, mut window_state, render)) = self.0.try_start_creating() else {
+        let Some((mut data, behavior, mut window_state, render, thread_pool)) = self.0.try_start_creating() else {
             return;
         };
 
@@ -84,7 +113,7 @@ impl ApplicationHandler for EventLoopHandler {
         data.resources_mut().insert(TimeResource::default());
         data.resources_mut().insert(WindowResource::new(window_state));
         let mut behavior = behavior.build();
-        behavior.execute_iteration(Schedule::Start, data.as_mut());
+        behavior.execute_iteration(Schedule::Start, data.as_mut(), ThreadPoolAccess::from(thread_pool.as_ref()));
         core_system_update_window(data.as_mut(), &window);
 
         let gamepad_host = Gilrs::new();
@@ -101,6 +130,7 @@ impl ApplicationHandler for EventLoopHandler {
             render_target,
             render,
             last_frame: Instant::now(),
+            thread_pool,
         };
     }
 
@@ -130,6 +160,7 @@ impl ApplicationHandler for EventLoopHandler {
             render_target,
             render,
             last_frame,
+            thread_pool,
         } = &mut self.0
         else {
             return;
@@ -203,7 +234,12 @@ impl ApplicationHandler for EventLoopHandler {
                 let real_delta_time = now.duration_since(*last_frame).as_secs_f32();
                 *last_frame = now;
 
-                run_frame_schedules(behavior, data.as_mut(), real_delta_time);
+                run_frame_schedules(
+                    behavior,
+                    data.as_mut(),
+                    real_delta_time,
+                    ThreadPoolAccess::from(thread_pool.as_ref()),
+                );
 
                 core_system_render(data, render_target, render);
 

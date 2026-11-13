@@ -110,8 +110,8 @@ fn toggle_play_mode_system(
             &opened_asset.asset_key,
         );
 
-        let world = simulated_world.0.as_mut().unwrap();
-        world.start_if_needed();
+        let (world, thread_pool) = simulated_world.world_and_thread_pool().unwrap();
+        world.start_if_needed(thread_pool);
 
         *inspected_entity = InspectedEntityResource::default();
 

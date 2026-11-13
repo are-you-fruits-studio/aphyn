@@ -13,13 +13,19 @@ pub struct ArchetypeUnsafeFfiIteratorItem {
 pub struct ArchetypeUnsafeFfiIterator<'a> {
     archetype: &'a ArchetypeUnsafeFfi,
     entity_archetype_idx: u64,
+    end_entity_archetype_idx: u64,
 }
 
 impl<'a> ArchetypeUnsafeFfiIterator<'a> {
     pub fn new(archetype: &'a ArchetypeUnsafeFfi) -> Self {
+        Self::new_range(archetype, 0, u64::MAX)
+    }
+
+    pub fn new_range(archetype: &'a ArchetypeUnsafeFfi, start: u64, end: u64) -> Self {
         Self {
             archetype,
-            entity_archetype_idx: 0,
+            entity_archetype_idx: start,
+            end_entity_archetype_idx: end,
         }
     }
 }
@@ -28,7 +34,7 @@ impl<'a> Iterator for ArchetypeUnsafeFfiIterator<'a> {
     type Item = ArchetypeUnsafeFfiIteratorItem;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.entity_archetype_idx >= self.archetype.alive_entities_count {
+        if self.entity_archetype_idx >= self.archetype.alive_entities_count.min(self.end_entity_archetype_idx) {
             return None;
         }
 
@@ -72,6 +78,10 @@ impl ArchetypeUnsafeFfi {
 
     pub fn iter<'a>(&'a self) -> ArchetypeUnsafeFfiIterator<'a> {
         ArchetypeUnsafeFfiIterator::new(&self)
+    }
+
+    pub fn iter_range<'a>(&'a self, start: u64, end: u64) -> ArchetypeUnsafeFfiIterator<'a> {
+        ArchetypeUnsafeFfiIterator::new_range(&self, start, end)
     }
 
     pub fn entities_count(&self) -> u64 {

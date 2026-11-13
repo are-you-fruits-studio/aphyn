@@ -17,7 +17,9 @@
 //! A world is two sibling parts: [`WorldData`] holds the entities, resources, and events, and
 //! [`WorldBehaviorBuilder`] collects the systems per schedule. Seed the data, register systems,
 //! [`build`](WorldBehaviorBuilder::build) the [`WorldBehavior`], and drive it one schedule pass at a
-//! time with [`execute_iteration`](WorldBehavior::execute_iteration), passing the data it runs on.
+//! time with [`execute_iteration`](WorldBehavior::execute_iteration), passing the data it runs on
+//! and a [`ThreadPoolAccess`]: one taken from a [`ThreadPool`] runs independent systems in parallel,
+//! [`ThreadPoolAccess::single_threaded`] runs the whole pass on the calling thread.
 //! Both parts must come from one type registry, so create the builder from the data's
 //! [`types`](WorldData::types).
 //!
@@ -53,8 +55,37 @@
 //!     entities.add_component(e, Velocity { x: 1.0, y: 0.0 }).ok().unwrap();
 //! }
 //!
+//! let pool = ThreadPool::default();
 //! let mut behavior = behavior.build();
-//! behavior.execute_iteration(Schedule::Update, data.as_mut());
+//! behavior.execute_iteration(Schedule::Update, data.as_mut(), pool.access());
+//! behavior.execute_iteration(Schedule::Update, data.as_mut(), ThreadPoolAccess::single_threaded());
+//! ```
+//!
+//! #### Parallel work inside a system
+//!
+//! A [`ThreadPoolAccess`] parameter gives a system the pool its schedule runs on (or a
+//! single-threaded stand-in when the schedule runs without one); it declares no data usage. Use it
+//! to iterate a query in parallel with [`par_for_each`](WorldQuery::par_for_each) /
+//! [`par_for_each_mut`](WorldQuery::par_for_each_mut), to process a slice with
+//! [`execute_work_stealing_parallel`](ThreadPoolAccess::execute_work_stealing_parallel), or to offload
+//! work that spans frames with [`push_job_handled`](ThreadPoolAccess::push_job_handled), keeping the
+//! returned [`JobHandle`] in a resource. These calls block until done and may be nested.
+//!
+//! ```rust,no_run
+//! use aphyn_ecs::*;
+//!
+//! #[derive(Component)]
+//! struct Position { x: f32, y: f32 }
+//!
+//! #[derive(Component)]
+//! struct Velocity { x: f32, y: f32 }
+//!
+//! fn integrate_parallel(mut q: WorldQuery<(&mut Position, &Velocity)>, thread_pool: ThreadPoolAccess) {
+//!     q.par_for_each_mut(thread_pool, |(pos, vel)| {
+//!         pos.x += vel.x;
+//!         pos.y += vel.y;
+//!     });
+//! }
 //! ```
 //!
 //! #### Querying entities and their components
@@ -273,8 +304,13 @@
 //! one by one and adds an edge between two systems whenever their accesses conflict
 //! (write-after-read, read-after-write, write-after-write, or any access against a
 //! global-mutable claim on the same part), and any explicit ordering is layered on top. At run time `SystemsHolderNative` walks the
-//! resulting [`OrderGraph`] on a [`aphyn_utils::thread_pool::ThreadPool`], starting each system once
-//! its predecessors finish, so non-conflicting systems execute concurrently. A conflicting or
+//! resulting [`OrderGraph`] through [`ThreadPoolAccess::execute_graph`] (an `OrderGraphIterator`
+//! wrapped as a [`GraphIter`]: `next(Some(done))` ends `done`, `next` starts the next ready system),
+//! starting each system once its predecessors finish, so non-conflicting systems execute
+//! concurrently; with a single-threaded access they run one by one in a valid order. The holder
+//! owns no pool: the access is passed per pass and handed to every system through
+//! [`SystemCtxFfi`]`::thread_pool`, a `#[repr(C)]` field that is part of the engine/game-library
+//! ABI. The access is only valid for the duration of the system call. A conflicting or
 //! invalid usage within one system (for example two mutable claims on the same type, or a
 //! global-mutable claim mixed with any other access to that part) makes
 //! [`DataUsageBuilder::build`] return `None`, and the system panics while being registered.
@@ -310,5 +346,6 @@ pub use data_usage::*;
 pub use types_registry::*;
 
 pub use aphyn_ecs_macros::*;
+pub use aphyn_utils::thread_pool::{GraphIter, JobHandle, TaskId, ThreadPool, ThreadPoolAccess};
 
 // todo: fix mods use in the whole crate

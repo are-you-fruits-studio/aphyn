@@ -1,15 +1,14 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use aphyn_ffi::FfiVec;
-use aphyn_utils::{AssumeSend, thread_pool::ThreadPool};
 
 use crate::*;
 
 pub struct SystemsHolderNative {
     systems: FfiVec<SystemFfi>,
-    system_datas: Arc<[Mutex<SystemResourcesHolderUnsafeFfi>]>,
-    execution_graph: Arc<OrderGraph>,
-    thread_pool: ThreadPool,
+    // todo: move into FfiSystem and make system calling a mutable fn. Also upgrade graph to be generic and provide mutable references in mutable graph iteration.
+    system_datas: Box<[Mutex<SystemResourcesHolderUnsafeFfi>]>,
+    execution_graph: OrderGraph,
 }
 
 impl SystemsHolderNative {
@@ -18,72 +17,53 @@ impl SystemsHolderNative {
             system_datas: systems
                 .iter()
                 .map(|_| Mutex::new(SystemResourcesHolderUnsafeFfi::new(types.clone())))
-                .collect::<Arc<_>>(),
+                .collect(),
             systems,
-            execution_graph: Arc::new(execution_graph),
-            thread_pool: ThreadPool::new(Self::non_main_threads_count()),
+            execution_graph,
         }
     }
 
-    fn non_main_threads_count() -> usize {
-        match std::thread::available_parallelism() {
-            Ok(count) => (count.get() - 1).max(1),
-            Err(_) => 3,
-        }
-    }
+    pub fn execute_iteration(&self, data: *mut WorldDataUnsafeFfi, thread_pool: ThreadPoolAccess) {
+        let data = WorldDataPtr(data);
 
-    // todo: support an external runner that decides whether systems run single-threaded or multithreaded.
-    pub fn execute_iteration(&self, data: *mut WorldDataUnsafeFfi) {
-        let iter = Arc::new(Mutex::new(self.execution_graph.iter()));
+        thread_pool.execute_graph(OrderGraphTasks(self.execution_graph.iter()), |system_index: u64| {
+            let system = &self.systems[system_index];
+            let system_data = &mut *self.system_datas[system_index as usize].try_lock().ok().unwrap();
 
-        self.thread_pool.scope(|scope| {
-            loop {
-                let system_index = {
-                    let mut iter = iter.lock().unwrap();
+            let system_ctx = SystemCtxFfi {
+                world_mut: data.get(),
+                system_data: &mut *system_data,
+                // Safety. The access outlives this call.
+                thread_pool: unsafe { thread_pool.extend_lifetime() },
+            };
 
-                    if iter.all_ended() {
-                        break;
-                    }
-
-                    iter.start_next()
-                };
-
-                if let Some(system_index) = system_index {
-                    let iter = Arc::clone(&iter);
-                    let systems = &self.systems;
-                    let system_datas = Arc::clone(&self.system_datas);
-                    // todo
-                    let data = unsafe { AssumeSend::new(data) };
-
-                    let job = move || {
-                        let data = data.into_inner();
-                        let system = &systems[system_index];
-                        let system_data = &mut *system_datas[system_index as usize].try_lock().ok().unwrap();
-
-                        {
-                            unsafe {
-                                let system_ctx = SystemCtxFfi {
-                                    world_mut: data,
-                                    system_data: &mut *system_data,
-                                };
-
-                                // Safety. Access is managed by OrderGraph and data usage.
-                                system.execute(system_ctx);
-                            }
-                        }
-
-                        {
-                            iter.lock().unwrap().end(system_index);
-                        }
-                    };
-
-                    let job: Box<dyn FnOnce() + Send> = Box::new(job);
-
-                    scope.push_job_unhandled(job);
-                } else {
-                    scope.panic_if_err();
-                }
-            }
+            // Safety. Access is managed by OrderGraph and data usage.
+            unsafe { system.execute(system_ctx) };
         });
     }
 }
+
+struct OrderGraphTasks(OrderGraphIterator);
+
+impl GraphIter for OrderGraphTasks {
+    type Item = u64;
+
+    fn next(&mut self, finished: Option<u64>) -> Option<u64> {
+        if let Some(finished) = finished {
+            self.0.end(finished);
+        }
+
+        self.0.start_next()
+    }
+}
+
+struct WorldDataPtr(*mut WorldDataUnsafeFfi);
+
+impl WorldDataPtr {
+    fn get(&self) -> *mut WorldDataUnsafeFfi {
+        self.0
+    }
+}
+
+// Safety. Concurrent access is managed by OrderGraph and data usage.
+unsafe impl Sync for WorldDataPtr {}

@@ -1,15 +1,16 @@
-use aphyn_ecs::{WorldBehaviorBuilder, WorldData};
+use aphyn_ecs::{ThreadPool, WorldBehaviorBuilder, WorldData};
 use aphyn_render_features::RenderFeatureRegistry;
 use aphyn_window::WindowState;
 use winit::event_loop::EventLoop;
 
-use crate::{AppInitCtx, event_loop_handler::EventLoopHandler};
+use crate::{AppInitCtx, ThreadingMode, event_loop_handler::EventLoopHandler};
 
 pub struct App {
     data: WorldData,
     behavior: WorldBehaviorBuilder,
     window_state: WindowState,
     render: RenderFeatureRegistry,
+    threading: ThreadingMode,
 }
 
 impl App {
@@ -22,6 +23,7 @@ impl App {
             behavior,
             window_state: WindowState::default(),
             render: RenderFeatureRegistry::default(),
+            threading: ThreadingMode::default(),
         }
     }
 
@@ -43,10 +45,16 @@ impl App {
             behavior: self.behavior.as_mut(),
             window: &mut self.window_state,
             render: &mut self.render,
+            threading: &mut self.threading,
         }
     }
 
     pub fn run(self) {
+        let thread_pool = match self.threading {
+            ThreadingMode::ThreadPool => Some(ThreadPool::default()),
+            ThreadingMode::SingleThreaded => None,
+        };
+
         let event_loop = EventLoop::new().unwrap();
         event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
         event_loop
@@ -55,6 +63,7 @@ impl App {
                 self.behavior,
                 self.window_state,
                 self.render,
+                thread_pool,
             ))
             .unwrap();
     }

@@ -86,7 +86,7 @@
 //!
 //! let mut behavior = behavior.build();
 //! data.resources_mut().get_mut::<TimeResource>().unwrap().begin_fixed_step();
-//! behavior.execute_iteration(Schedule::FixedUpdate, data.as_mut());
+//! behavior.execute_iteration(Schedule::FixedUpdate, data.as_mut(), ThreadPoolAccess::single_threaded());
 //!
 //! let entities = data.entities();
 //! let query = entities.query::<&RigidbodyComponent>();
@@ -169,7 +169,7 @@
 //! let mut behavior = behavior.build();
 //! for _ in 0..200 {
 //!     data.resources_mut().get_mut::<TimeResource>().unwrap().begin_fixed_step();
-//!     behavior.execute_iteration(Schedule::FixedUpdate, data.as_mut());
+//!     behavior.execute_iteration(Schedule::FixedUpdate, data.as_mut(), ThreadPoolAccess::single_threaded());
 //! }
 //!
 //! let entities = data.entities();

@@ -1,4 +1,4 @@
-use aphyn_ecs::{Resource, Schedule, WorldBehavior, WorldDataMut};
+use aphyn_ecs::{Resource, Schedule, ThreadPoolAccess, WorldBehavior, WorldDataMut};
 
 #[repr(C)]
 #[derive(Resource, Clone, Debug)]
@@ -56,15 +56,20 @@ impl TimeResource {
     }
 }
 
-pub fn run_frame_schedules(behavior: &mut WorldBehavior, mut data: WorldDataMut, real_delta_time: f32) {
+pub fn run_frame_schedules(
+    behavior: &mut WorldBehavior,
+    mut data: WorldDataMut,
+    real_delta_time: f32,
+    thread_pool: ThreadPoolAccess,
+) {
     let fixed_steps = time_mut(data.as_mut()).begin_frame(real_delta_time);
 
     for _ in 0..fixed_steps {
         time_mut(data.as_mut()).begin_fixed_step();
-        behavior.execute_iteration(Schedule::FixedUpdate, data.as_mut());
+        behavior.execute_iteration(Schedule::FixedUpdate, data.as_mut(), thread_pool);
     }
 
-    behavior.execute_iteration(Schedule::Update, data);
+    behavior.execute_iteration(Schedule::Update, data, thread_pool);
 }
 
 fn time_mut<'w>(data: WorldDataMut<'w>) -> &'w mut TimeResource {

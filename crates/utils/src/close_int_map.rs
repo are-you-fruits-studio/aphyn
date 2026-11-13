@@ -46,7 +46,8 @@ impl<T> CloseIntMap<T> {
         let old_inner = std::mem::replace(&mut self.inner, FfiVec::new());
         self.inner = std::iter::once(FfiOption::Some(FfiBox::new(v)))
             .chain(std::iter::repeat_with(|| FfiOption::None).take((temp_offset - 1) as usize))
-            .chain(old_inner.into_iter()).collect();
+            .chain(old_inner.into_iter())
+            .collect();
     }
 
     pub fn get(&self, k: u64) -> Option<&T> {
@@ -57,7 +58,7 @@ impl<T> CloseIntMap<T> {
         let idx = k - self.offset;
 
         let stored = self.inner.get(idx)?;
-       
+
         Some(&*stored.as_ref()?)
     }
 
@@ -71,7 +72,7 @@ impl<T> CloseIntMap<T> {
         let Some(stored) = self.inner.get_mut(idx) else {
             return None;
         };
-       
+
         stored.as_mut().map(|b| &mut **b)
     }
 }

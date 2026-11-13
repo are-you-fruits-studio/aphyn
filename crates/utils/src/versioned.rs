@@ -7,10 +7,7 @@ pub struct Versioned<T> {
 
 impl<T> Versioned<T> {
     pub fn new(v: T) -> Self {
-        Self {
-            value: v,
-            version: 0,
-        }
+        Self { value: v, version: 0 }
     }
 
     pub fn into_inner(self) -> T {

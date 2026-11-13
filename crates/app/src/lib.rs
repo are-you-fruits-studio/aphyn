@@ -58,6 +58,24 @@
 //! app.run();
 //! ```
 //!
+//! #### Choosing whether systems run on a thread pool
+//!
+//! [`AppInitCtx::threading`] picks how the app's schedules run. With the default
+//! [`ThreadingMode::ThreadPool`], [`run`](App::run) creates a [`ThreadPool`](aphyn_ecs::ThreadPool)
+//! (default thread counts), runs independent systems in parallel and hands systems a
+//! [`ThreadPoolAccess`](aphyn_ecs::ThreadPoolAccess) backed by it. With
+//! [`ThreadingMode::SingleThreaded`] no pool or worker thread is created: every pass runs on the
+//! event-loop thread, and the access systems receive executes parallel calls and background jobs
+//! inline, blocking the caller.
+//!
+//! ```ignore
+//! use aphyn::*;
+//!
+//! let mut app = App::new();
+//! *app.init_ctx_mut().threading = ThreadingMode::SingleThreaded;
+//! app.run();
+//! ```
+//!
 //! #### Registering render features
 //!
 //! [`App`] owns the `RenderFeatureRegistry` (from `aphyn_render_features`) that renders every frame.
@@ -146,6 +164,11 @@
 //!
 //! [`run_frame_schedules`] performs one frame (advance time, the due `FixedUpdate` passes, then
 //! `Update`); the app and the editor's simulated world both use it so their order stays identical.
+//! It takes the [`ThreadPoolAccess`](aphyn_ecs::ThreadPoolAccess) the passes run on: [`App`] passes
+//! the one its [`ThreadingMode`] selected. The editor itself runs single-threaded; its simulated
+//! world runs on a separate pool the editor creates on first need and keeps across world rebuilds,
+//! used only when the game library's setup leaves `ctx.threading` at
+//! [`ThreadingMode::ThreadPool`].
 //!
 //! #### Reacting to typed text
 //!
@@ -272,8 +295,10 @@
 //! [`AppInitCtx`] lives here rather than in `aphyn_ecs` because it carries a
 //! `aphyn_window::WindowState`, and `aphyn_window` depends on `aphyn_ecs`. [`AppInitCtxFfi`] is
 //! its `#[repr(C)]` form for the dynamic-library boundary: raw pointers to the type registry, the
-//! world data (`data_mut`), the systems builder (`behavior_mut`), the window state, and the render
-//! registry (`render_mut`). Engine modules cannot take an `AppInitCtx` (this crate depends on
+//! world data (`data_mut`), the systems builder (`behavior_mut`), the window state, the render
+//! registry (`render_mut`), and the `#[repr(C)]` [`ThreadingMode`] (`threading_mut`). [`App`] only
+//! stores that mode during init and creates the pool (or none) in `run`, so a single-threaded app
+//! never spawns worker threads. Engine modules cannot take an `AppInitCtx` (this crate depends on
 //! them), so their registration functions take the data, behavior and render feature registry as separate
 //! parameters.
 //! `AppInitCtx::into_ffi` packs them on the host side and `AppInitCtxFfi::init_app` unpacks them

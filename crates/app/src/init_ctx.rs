@@ -11,6 +11,7 @@ pub struct AppInitCtxFfi {
     pub behavior_mut: *mut WorldBehaviorBuilderFfi,
     pub window_mut: *mut WindowState,
     pub render_mut: *mut RenderFeatureRegistry,
+    pub threading_mut: *mut ThreadingMode,
 }
 
 pub struct AppInitCtx<'a> {
@@ -18,6 +19,7 @@ pub struct AppInitCtx<'a> {
     pub behavior: WorldBehaviorBuilderMut<'a>,
     pub window: &'a mut WindowState,
     pub render: &'a mut RenderFeatureRegistry,
+    pub threading: &'a mut ThreadingMode,
 }
 
 impl<'a> AppInitCtx<'a> {
@@ -27,6 +29,7 @@ impl<'a> AppInitCtx<'a> {
             behavior,
             window,
             render,
+            threading,
         } = self;
 
         unsafe {
@@ -38,6 +41,7 @@ impl<'a> AppInitCtx<'a> {
                 behavior_mut: &raw mut *behavior_ffi,
                 window_mut: &raw mut *window,
                 render_mut: &raw mut *render,
+                threading_mut: &raw mut *threading,
             }
         }
     }
@@ -49,6 +53,7 @@ impl AppInitCtxFfi {
         let types_ref = unsafe { &*self.types_ref };
         let window = unsafe { &mut *self.window_mut };
         let render = unsafe { &mut *self.render_mut };
+        let threading = unsafe { &mut *self.threading_mut };
 
         let types = TypesRegistryCache::new(types_ref.clone());
 
@@ -61,9 +66,18 @@ impl AppInitCtxFfi {
                 behavior,
                 window,
                 render,
+                threading,
             };
 
             let _init_result: () = { f(ctx) };
         }
     }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum ThreadingMode {
+    #[default]
+    ThreadPool,
+    SingleThreaded,
 }

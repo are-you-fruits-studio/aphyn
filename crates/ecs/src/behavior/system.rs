@@ -7,6 +7,7 @@ use crate::*;
 pub struct SystemInput<'a> {
     pub world_data: WorldDataRef<'a>,
     pub system_data: SystemResourcesHolderRef<'a>,
+    pub thread_pool: ThreadPoolAccess<'a>,
 }
 
 //
@@ -127,6 +128,7 @@ impl SystemFfi {
                 let system_input = SystemInput {
                     world_data: WorldDataRef::new(ctx.world_mut, types),
                     system_data: SystemResourcesHolderRef::new(system_data, types),
+                    thread_pool: ctx.thread_pool,
                 };
 
                 system_native_data.system.execute(system_input);
@@ -195,4 +197,7 @@ unsafe impl Sync for SystemFfi {}
 pub struct SystemCtxFfi {
     pub world_mut: *mut WorldDataUnsafeFfi,
     pub system_data: *mut SystemResourcesHolderUnsafeFfi,
+    // Valid only for the duration of the system call.
+    // todo: enforce with type system
+    pub thread_pool: ThreadPoolAccess<'static>,
 }

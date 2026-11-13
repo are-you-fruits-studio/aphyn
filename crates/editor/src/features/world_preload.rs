@@ -12,7 +12,7 @@ use crate::{PROJECT_ASSETS_SUBPATH, SYSTEM_GROUP, app_building, features::inspec
 
 // todo: bundle registration params
 pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
-    data.resources_mut().insert(SimulatedWorldResource(None));
+    data.resources_mut().insert(SimulatedWorldResource(None, None));
 
     let mut update = behavior.get_mut(Schedule::Update);
 
@@ -38,6 +38,7 @@ pub struct SimulatedWorld {
     pub render: RenderFeatureRegistry,
     pub library: Option<Library>,
     pub mode: SimulationMode,
+    pub threading: ThreadingMode,
     pub is_started: bool,
     pub last_tick: Option<Instant>,
 }
@@ -48,6 +49,7 @@ impl SimulatedWorld {
         render: RenderFeatureRegistry,
         library: Option<Library>,
         mode: SimulationMode,
+        threading: ThreadingMode,
     ) -> Self {
         Self {
             data,
@@ -55,25 +57,39 @@ impl SimulatedWorld {
             render,
             library,
             mode,
+            threading,
             is_started: false,
             last_tick: None,
         }
     }
 
-    pub fn start_if_needed(&mut self) {
+    pub fn start_if_needed(&mut self, thread_pool: ThreadPoolAccess) {
         if !self.is_started {
-            self.behavior.execute_iteration(Schedule::Start, self.data.as_mut());
+            self.behavior
+                .execute_iteration(Schedule::Start, self.data.as_mut(), thread_pool);
             self.is_started = true;
         }
     }
 }
 
+// The pool is created on first use and kept across world rebuilds.
 #[derive(Resource)]
-pub struct SimulatedWorldResource(pub Option<SimulatedWorld>);
+pub struct SimulatedWorldResource(pub Option<SimulatedWorld>, Option<ThreadPool>);
 
 impl SimulatedWorldResource {
     pub fn is_playing(&self) -> bool {
         self.0.as_ref().is_some_and(|w| w.mode == SimulationMode::Play)
+    }
+
+    pub fn world_and_thread_pool(&mut self) -> Option<(&mut SimulatedWorld, ThreadPoolAccess<'_>)> {
+        let world = self.0.as_mut()?;
+
+        let thread_pool = match world.threading {
+            ThreadingMode::ThreadPool => ThreadPoolAccess::from(&*self.1.get_or_insert_with(ThreadPool::default)),
+            ThreadingMode::SingleThreaded => ThreadPoolAccess::single_threaded(),
+        };
+
+        Some((world, thread_pool))
     }
 }
 
@@ -92,10 +108,17 @@ pub fn preload_assets_into_simulated_world_system(
     }
 
     let lib = load_scripts_library(&open_project.dir_path);
-    let (data, behavior, render) =
+    let (data, behavior, render, threading) =
         build_simulated_world(&open_project.dir_path, &render_api, lib.as_ref(), SimulationMode::Edit, "");
 
-    simulated_world.0 = Some(SimulatedWorld::new(data, behavior, render, lib, SimulationMode::Edit));
+    simulated_world.0 = Some(SimulatedWorld::new(
+        data,
+        behavior,
+        render,
+        lib,
+        SimulationMode::Edit,
+        threading,
+    ));
 }
 
 pub fn rebuild_simulated_world(
@@ -121,9 +144,9 @@ pub fn rebuild_simulated_world(
         },
     );
 
-    let (data, behavior, render) = build_simulated_world(project_dir, render_api, library.as_ref(), mode, play_scene_key);
+    let (data, behavior, render, threading) = build_simulated_world(project_dir, render_api, library.as_ref(), mode, play_scene_key);
 
-    simulated_world.0 = Some(SimulatedWorld::new(data, behavior, render, library, mode));
+    simulated_world.0 = Some(SimulatedWorld::new(data, behavior, render, library, mode, threading));
 }
 
 fn load_scripts_library(project_dir: &str) -> Option<Library> {
@@ -149,7 +172,7 @@ fn build_simulated_world(
     lib: Option<&Library>,
     mode: SimulationMode,
     play_scene_key: &str,
-) -> (WorldData, WorldBehavior, RenderFeatureRegistry) {
+) -> (WorldData, WorldBehavior, RenderFeatureRegistry, ThreadingMode) {
     let assets_dir = project_dir.to_string() + PROJECT_ASSETS_SUBPATH;
 
     let mut data = WorldData::default();
@@ -173,6 +196,8 @@ fn build_simulated_world(
         ..Default::default()
     };
 
+    let mut threading = ThreadingMode::default();
+
     if let Some(lib) = lib
         && let Err(err) = unsafe {
             init_app_from_library(
@@ -181,6 +206,7 @@ fn build_simulated_world(
                     behavior: behavior.as_mut(),
                     window: &mut window_state,
                     render: &mut render,
+                    threading: &mut threading,
                 },
                 lib,
             )
@@ -272,7 +298,7 @@ fn build_simulated_world(
         }
     }
 
-    (data, behavior, render)
+    (data, behavior, render, threading)
 }
 
 fn spawn_play_scene_system(mut world: WorldDataMut) {
@@ -291,11 +317,11 @@ fn spawn_play_scene_system(mut world: WorldDataMut) {
 
 // todo: make simulated world ticking panic-safe and freeze-safe.
 pub fn tick_simulated_world_system(mut simulated_world: ResMut<SimulatedWorldResource>) {
-    let Some(simulated_world) = &mut simulated_world.0 else {
+    let Some((simulated_world, thread_pool)) = simulated_world.world_and_thread_pool() else {
         return;
     };
 
-    simulated_world.start_if_needed();
+    simulated_world.start_if_needed(thread_pool);
 
     let now = Instant::now();
     let real_delta_time = simulated_world
@@ -303,7 +329,12 @@ pub fn tick_simulated_world_system(mut simulated_world: ResMut<SimulatedWorldRes
         .map_or(0.0, |last| now.duration_since(last).as_secs_f32());
     simulated_world.last_tick = Some(now);
 
-    run_frame_schedules(&mut simulated_world.behavior, simulated_world.data.as_mut(), real_delta_time);
+    run_frame_schedules(
+        &mut simulated_world.behavior,
+        simulated_world.data.as_mut(),
+        real_delta_time,
+        thread_pool,
+    );
 
     simulated_world.data.events_mut().clear();
 }

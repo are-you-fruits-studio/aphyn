@@ -90,7 +90,10 @@ fn run_editor_app(project_path: &str) {
         mut behavior,
         window,
         render,
+        threading,
     } = app.init_ctx_mut();
+
+    *threading = ThreadingMode::SingleThreaded;
 
     add_defult_modules_to(data.as_mut(), behavior.as_mut(), render);
 

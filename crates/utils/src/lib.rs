@@ -85,18 +85,140 @@
 //!
 //! #### Parallel work on a thread pool
 //!
-//! [`thread_pool::ThreadPool`] runs jobs on a fixed set of worker threads.
-//! [`scope`](thread_pool::ThreadPool::scope) borrows the surrounding stack and
-//! blocks until every job spawned inside it has finished.
+//! [`thread_pool::ThreadPool`] owns two sets of threads: frame workers that run
+//! blocking parallel work, and background threads for long-running jobs. Work is
+//! never submitted to the pool directly but through a
+//! [`ThreadPoolAccess`](thread_pool::ThreadPoolAccess), a `Copy` handle that is
+//! either backed by a pool or [single-threaded](thread_pool::ThreadPoolAccess::single_threaded).
+//! The same code then runs in parallel or inline on the calling thread.
+//!
+//! [`execute_work_stealing_parallel`](thread_pool::ThreadPoolAccess::execute_work_stealing_parallel)
+//! calls a closure for each element of a slice and returns once all are done. The
+//! slice is split into at least one chunk per thread (the caller included) and at
+//! most 200 chunks; idle threads take the next chunk from a shared queue.
+//!
+//! ```
+//! use aphyn_utils::thread_pool::{ThreadPool, ThreadPoolAccess};
+//! use std::sync::atomic::{AtomicU64, Ordering};
+//!
+//! fn double_and_sum(access: ThreadPoolAccess, items: &mut [u64]) -> u64 {
+//!     let sum = AtomicU64::new(0);
+//!
+//!     access.execute_work_stealing_parallel(items, |item| {
+//!         *item *= 2;
+//!         sum.fetch_add(*item, Ordering::Relaxed);
+//!     });
+//!
+//!     sum.into_inner()
+//! }
+//!
+//! let pool = ThreadPool::new(3, 1);
+//! let mut items: Vec<u64> = (0..1000).collect();
+//!
+//! assert_eq!(double_and_sum(pool.access(), &mut items), 999_000);
+//! assert_eq!(double_and_sum(ThreadPoolAccess::single_threaded(), &mut items), 1_998_000);
+//! ```
+//!
+//! [`execute_graph`](thread_pool::ThreadPoolAccess::execute_graph) runs tasks whose
+//! readiness depends on finished tasks, described by a [`GraphIter`](thread_pool::GraphIter).
+//! The pool first calls `next(None)` until it returns `None`; after a task
+//! finishes it calls `next(Some(task))` once and then `next(None)` until `None`.
+//! The call returns when no task is running and `next` has nothing more to give.
+//! A task may itself call back into the same access, for example to run a slice
+//! in parallel.
+//!
+//! ```
+//! use aphyn_utils::thread_pool::{GraphIter, ThreadPool};
+//! use std::sync::Mutex;
+//!
+//! // 0 -> {1, 2} -> 3
+//! struct Diamond {
+//!     started: [bool; 4],
+//!     finished: [bool; 4],
+//! }
+//!
+//! impl GraphIter for Diamond {
+//!     type Item = u32;
+//!
+//!     fn next(&mut self, finished: Option<u32>) -> Option<u32> {
+//!         if let Some(f) = finished {
+//!             self.finished[f as usize] = true;
+//!         }
+//!
+//!         let deps: [&[usize]; 4] = [&[], &[0], &[0], &[1, 2]];
+//!         let ready = (0..4).find(|&t| !self.started[t] && deps[t].iter().all(|&d| self.finished[d]))?;
+//!         self.started[ready] = true;
+//!
+//!         Some(ready as u32)
+//!     }
+//! }
+//!
+//! let pool = ThreadPool::new(3, 1);
+//! let order = Mutex::new(Vec::new());
+//!
+//! pool.access().execute_graph(Diamond { started: [false; 4], finished: [false; 4] }, |task| {
+//!     let mut inner = vec![1_u32; 64];
+//!     pool.access().execute_work_stealing_parallel(&mut inner, |x| *x += task);
+//!
+//!     order.lock().unwrap().push(task);
+//! });
+//!
+//! let order = order.into_inner().unwrap();
+//! assert_eq!(order.len(), 4);
+//! assert_eq!(order[0], 0);
+//! assert_eq!(order[3], 3);
+//! ```
+//!
+//! A panic in a task stops the batch from handing out new tasks; once the running
+//! ones finish, the panic is re-raised on the calling thread and the pool stays usable.
+//!
+//! ```
+//! use aphyn_utils::thread_pool::ThreadPool;
+//!
+//! let pool = ThreadPool::new(3, 1);
+//! let items = [1, 2, 3, 4];
+//!
+//! let result = std::panic::catch_unwind(|| {
+//!     pool.access().execute_work_stealing_parallel_ref(&items, |&x| assert_ne!(x, 3));
+//! });
+//! assert!(result.is_err());
+//!
+//! pool.access().execute_work_stealing_parallel_ref(&items, |&x| assert!(x > 0));
+//! ```
+//!
+//! [`push_job_handled`](thread_pool::ThreadPoolAccess::push_job_handled) runs a
+//! `'static` job on a background thread and returns a
+//! [`JobHandle`](thread_pool::JobHandle) to poll (`try_take`) or wait for
+//! (`block_and_take`), possibly frames later.
+//! [`push_job_unhandled`](thread_pool::ThreadPoolAccess::push_job_unhandled) is the
+//! fire-and-forget form. Without a pool both run the job immediately on the caller.
+//!
+//! ```
+//! use aphyn_utils::thread_pool::{ThreadPool, ThreadPoolAccess};
+//!
+//! let pool = ThreadPool::new(1, 1);
+//!
+//! let handle = pool.access().push_job_handled(|| (1..=10).sum::<u32>());
+//! assert_eq!(handle.block_and_take(), 55);
+//!
+//! let caller = std::thread::current().id();
+//! let handle = ThreadPoolAccess::single_threaded().push_job_handled(move || std::thread::current().id() == caller);
+//! assert!(handle.is_finished());
+//! assert!(handle.block_and_take());
+//! ```
+//!
+//! [`scope`](thread_pool::ThreadPoolAccess::scope) borrows the surrounding stack
+//! and blocks until every job pushed inside it has finished; while waiting, the
+//! caller runs pending jobs of that scope itself.
 //!
 //! ```
 //! use aphyn_utils::thread_pool::ThreadPool;
 //! use std::sync::atomic::{AtomicUsize, Ordering};
 //!
-//! let pool = ThreadPool::new(4);
+//! let pool = ThreadPool::new(4, 1);
 //! let counter = AtomicUsize::new(0);
 //!
-//! pool.scope(|scope| {
+//! pool.access().scope(|scope| {
 //!     for _ in 0..8 {
 //!         scope.push_job_unhandled(|| {
 //!             counter.fetch_add(1, Ordering::Relaxed);
@@ -242,18 +364,47 @@
 //!
 //! #### Thread pool
 //!
-//! [`ThreadPool`](thread_pool::ThreadPool) shares a single `mpsc` receiver across
-//! workers behind an `Arc<Mutex<…>>`; each worker locks, receives one `Message`,
-//! and runs it. A panicking worker sets a shared `did_panic` flag (via an
-//! [`ExecOnDrop`](exec_on_drop::ExecOnDrop) guard), which the pool re-checks on
-//! `Drop` and re-raises as a panic. Jobs come in two forms: *unhandled* (fire and
-//! forget) and *handled*, where a `JobState` drives a small atomic state machine
-//! (`0` pending → `1` executing → `2` done → `3` result taken) over `UnsafeCell`
-//! slots, advanced with `fetch_max` so each transition happens once. `scope`
-//! tracks outstanding jobs with an `AtomicUsize` and blocks until it returns to
-//! zero, which is what makes the lifetime `transmute` in
-//! `Scope::push_job_unhandled` sound: no borrowed job can outlive the scope.
-//! Several waits are busy-loops marked `// todo: CondVar`.
+//! [`ThreadPool`](thread_pool::ThreadPool) crosses the dynamic-library boundary, so
+//! it is a `#[repr(C)]` [`FfiArc`](aphyn_ffi::FfiArc) around a native pool
+//! (`ThreadPoolNative`, an [`FfiDroppable`](aphyn_ffi::FfiDroppable)) plus
+//! `extern "C-unwind"` function pointers. All scheduling code lives in the binary
+//! that created the pool; the other side only calls through the pointers.
+//! Nothing generic crosses: a parallel call reaches the pool as one
+//! [`FfiBatch`](thread_pool::FfiBatch) (data pointer plus `next` / `execute`
+//! trampolines, tasks erased to `u64` through [`TaskId`](thread_pool::TaskId)),
+//! and owned closures as [`FfiJob`](thread_pool::FfiJob)s. So the vtable is called
+//! once per batch, and only the trampolines are called per task.
+//! [`ThreadPoolAccess`](thread_pool::ThreadPoolAccess) is a `#[repr(C)]` nullable
+//! reference; its single-threaded paths are plain generic code.
+//!
+//! The native pool has one frame queue (`Mutex` + `Condvar`, no spinning) of batch
+//! tasks and frame jobs (used by `scope`), and a separate background queue served
+//! by its own threads, so multi-frame jobs never occupy frame workers. A batch's
+//! state (`BatchState`: iterator lock, `running` / `queued` counters guarded by the
+//! frame mutex, `poisoned` flag, panic payload, caller `Condvar`) lives on the
+//! caller's stack. That is sound because `execute_batch` returns only when both
+//! counters are zero, and a worker never touches a batch after the `publish` that
+//! released its last slot. `next` is only called under the batch's iterator lock
+//! (lock order: iterator lock, then frame mutex), so a `GraphIter` needs `Send`,
+//! not `Sync`.
+//!
+//! A thread that finishes a task pulls the newly ready tasks, keeps one for itself
+//! and queues the rest. While waiting, a batch's caller runs only queued tasks of
+//! its own batch and never those of other batches. Every caller can therefore
+//! finish its batch alone, which makes nested batches (a system running a query in
+//! parallel) deadlock-free. Task and `next` panics are caught, poison the batch
+//! (queued tasks of it are dropped, `next` is not called again, so dependent
+//! tasks never start) and are re-raised on the caller with `resume_unwind`.
+//! Background job panics set the pool's `did_panic` flag (re-raised by
+//! `panic_if_err` and on `Drop`), except handled jobs, which keep the panic in
+//! their `JobHandle` and re-raise it on take. `JobHandle` follows the same
+//! FFI pattern: an `FfiArc` of a native `Mutex` / `Condvar` slot plus trampolines.
+//!
+//! `scope` keeps its borrowed jobs in an `Arc`ed queue and pushes one `'static`
+//! ticket per job to the frame queue; a ticket runs one queued job if any is
+//! left. The scope runs pending jobs itself and waits until none is outstanding,
+//! even when its body panics, which is what makes erasing the jobs' lifetimes
+//! sound.
 //!
 //! #### Collections and memory helpers
 //!
@@ -304,8 +455,7 @@
 //! #### Small building blocks
 //!
 //! [`AssumeSend`] unsafely asserts `Send` for a wrapped value;
-//! [`ExecOnDrop`](exec_on_drop::ExecOnDrop) runs a closure when dropped (used for
-//! the thread-pool cleanup and scope counters);
+//! [`ExecOnDrop`](exec_on_drop::ExecOnDrop) runs a closure when dropped;
 //! [`Semaphore`](thread_pool::Semaphore) is a counting semaphore over a `Mutex` and
 //! `Condvar`; [`SameType`](same_type::SameType) is a blanket-implemented identity
 //! conversion used to bridge generic code that needs to treat `T` and an
@@ -317,18 +467,18 @@
 //! otherwise; it is not yet used anywhere in the workspace.
 
 mod bit_array;
+pub mod close_int_map;
 pub mod exec_on_drop;
 pub mod graph;
-pub mod tree;
 pub mod index_version_collection;
 pub mod mem;
 pub mod morph_vec;
 pub mod same_type;
 pub mod stack_vec;
 pub mod thread_pool;
-pub mod typed_map;
-pub mod close_int_map;
+pub mod tree;
 pub mod try_default;
+pub mod typed_map;
 pub mod versioned;
 
 // todo

@@ -1,4 +1,7 @@
-use std::{collections::{HashMap, HashSet}, hash::Hash};
+use std::{
+    collections::{HashMap, HashSet},
+    hash::Hash,
+};
 
 #[derive(Clone)]
 pub struct TreeBuilder<T> {
@@ -24,7 +27,7 @@ impl<T: Eq + Hash + Clone> TreeBuilder<T> {
 
         true
     }
-    
+
     pub fn insert_pair(&mut self, parent: T, child: T) -> bool {
         if parent == child {
             return self.insert_single(parent);

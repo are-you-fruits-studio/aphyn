@@ -234,12 +234,16 @@ pub struct ArchetypeIterator<'a, A: ArchetypeIteratorItem> {
 
 impl<'a, A: ArchetypeIteratorItem> ArchetypeIterator<'a, A> {
     pub unsafe fn new(archetype: ArchetypeUnsafeRef<'a>, type_cache: A::TypeCache) -> Self {
+        unsafe { Self::new_range(archetype, type_cache, 0, u64::MAX) }
+    }
+
+    pub unsafe fn new_range(archetype: ArchetypeUnsafeRef<'a>, type_cache: A::TypeCache, start: u64, end: u64) -> Self {
         unsafe {
             let archetype_ffi = &*archetype.archetype;
 
             Self {
                 iter_state: A::prepare_iter_state(archetype_ffi.layout(), type_cache),
-                iter: archetype_ffi.iter(),
+                iter: archetype_ffi.iter_range(start, end),
                 _phantom: Default::default(),
             }
         }
@@ -283,6 +287,15 @@ impl<'a> ArchetypeUnsafeRef<'a> {
 
     pub unsafe fn into_iter<A: ArchetypeIteratorItem>(self, type_cache: A::TypeCache) -> ArchetypeIterator<'a, A> {
         unsafe { ArchetypeIterator::new(self, type_cache) }
+    }
+
+    pub unsafe fn into_range_iter<A: ArchetypeIteratorItem>(
+        self,
+        type_cache: A::TypeCache,
+        start: u64,
+        end: u64,
+    ) -> ArchetypeIterator<'a, A> {
+        unsafe { ArchetypeIterator::new_range(self, type_cache, start, end) }
     }
 
     pub unsafe fn entities_count(&self) -> u64 {

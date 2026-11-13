@@ -143,6 +143,70 @@ impl<'d, A: ArchetypeIteratorItem, F: QueryFilter> EntitiesHolderQuery<'d, A, F>
         QueryIterMut::<A>::new(self.archetypes_iter(), self.type_cache)
     }
 
+    pub fn par_for_each<'r, Op>(&'r self, thread_pool: ThreadPoolAccess, f: Op)
+    where
+        'd: 'r,
+        Op: Sync + Fn(<A::ReadOnlyItem<'static> as ArchetypeIteratorItem>::Item<'r>),
+    {
+        unsafe { self.par_for_each_unchecked::<A::ReadOnlyItem<'static>, Op>(thread_pool, self.type_cache_readonly, f) }
+    }
+
+    pub fn par_for_each_mut<'r, Op>(&'r mut self, thread_pool: ThreadPoolAccess, f: Op)
+    where
+        'd: 'r,
+        Op: Sync + Fn(<A::Item<'static> as ArchetypeIteratorItem>::Item<'r>),
+    {
+        unsafe { self.par_for_each_unchecked::<A::Item<'static>, Op>(thread_pool, self.type_cache, f) }
+    }
+
+    // Chunks are disjoint ranges of the entities flattened across archetypes, and components are
+    // `Send + Sync`, so each item is handed out once.
+    unsafe fn par_for_each_unchecked<'r, I: 'r + ArchetypeIteratorItem, Op: Sync + Fn(I::Item<'r>)>(
+        &'r self,
+        thread_pool: ThreadPoolAccess,
+        type_cache: I::TypeCache,
+        f: Op,
+    ) {
+        // todo: optimize allocation
+        let mut archetypes = Vec::new();
+        let mut len = 0;
+
+        for archetype in self.archetypes_iter() {
+            let count = unsafe { archetype.entities_count() };
+
+            if count > 0 {
+                archetypes.push((archetype, len));
+                len += count;
+            }
+        }
+
+        let ctx = ParQueryCtx((archetypes, type_cache));
+
+        thread_pool.execute_work_stealing_ranges(len as usize, |range| {
+            let (archetypes, type_cache) = ctx.get();
+            let (start, end) = (range.start as u64, range.end as u64);
+            let first = archetypes.partition_point(|(_, archetype_start)| *archetype_start <= start) - 1;
+
+            for (archetype, archetype_start) in &archetypes[first..] {
+                if *archetype_start >= end {
+                    break;
+                }
+
+                let iter = unsafe {
+                    archetype.clone().into_range_iter::<I>(
+                        *type_cache,
+                        start.saturating_sub(*archetype_start),
+                        end - archetype_start,
+                    )
+                };
+
+                for item in iter {
+                    f(item);
+                }
+            }
+        });
+    }
+
     pub fn len(&self) -> u64 {
         unsafe { self.archetypes_iter().map(|a| a.entities_count()).sum() }
     }
@@ -225,6 +289,16 @@ impl<'d, A: ArchetypeIteratorItem, F: QueryFilter> EntitiesHolderQuery<'d, A, F>
         unsafe { ArchetypesIter::new(self.entities.archetypes(), self.types, self.archetype_indices.iter()) }
     }
 }
+
+struct ParQueryCtx<T>(T);
+
+impl<T> ParQueryCtx<T> {
+    fn get(&self) -> &T {
+        &self.0
+    }
+}
+
+unsafe impl<T> Sync for ParQueryCtx<T> {}
 
 struct ArchetypesIter<'a> {
     archetypes: &'a ArchetypesHolderFfi,

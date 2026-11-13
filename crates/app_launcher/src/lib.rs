@@ -79,7 +79,7 @@
 //! to [`init_app_from_library`], which resolves the `aphyn_entry_point` C symbol (an
 //! `unsafe extern "C-unwind" fn(AppInitCtxFfi)` that the game library exports through the
 //! `aphyn_entry_point!` macro) and calls it with `AppInitCtx::into_ffi`: the world data, systems
-//! builder, type registry, window state and render feature registry packed as raw pointers into an [`AppInitCtxFfi`]. The
+//! builder, type registry, window state, render feature registry and threading mode packed as raw pointers into an [`AppInitCtxFfi`]. The
 //! library reconstructs a safe [`AppInitCtx`] on the other side and runs the game's setup.
 //! [`init_app_from_library`] can be called again on an already-loaded library with another
 //! ctx to set up another world (the editor rebuilds its simulated world this way when

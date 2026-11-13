@@ -1,30 +1,22 @@
 # Prioritized
 
-- make rendering more custimizeable
-- expose new VertexBuffer and InstanceBuffer structs and api for rendering them
-
 - make sure inspector values are updated if the simulated world is updated (now it's not)
 - live reload assets
 - live recompile scripts
 
 # Default
 
-- implement windows docking (like in Microsoft VS)
-- copy-paste (with right mouse button and drop-down) (maybe even ctrl c ctrl v)
 - implement animation
 - implement Skybox
 - implement shadows
 - implement SSR (Screen-Space Reflections)
-- implement initializing app_id for the window
+- implement windows docking (like in Microsoft VS)
+- copy-paste (with right mouse button and drop-down) (maybe even ctrl c ctrl v)
+
 - make sure prefab root entity is the first one serialized
 - make sure scenes can be spawned
 
 # Queue
-
-- implement systems scheduler where threadpool asks iterator for systems
-    - don't create threadpool per systems executor. Make it external tool that is used as a parameter for every execute_iteration call
-    - measure how threadpool is used
-    - Make world execution configurable - single-threaded or multi-threaded
 
 - transform-adjust interactable gizmo on selected object
 - console window

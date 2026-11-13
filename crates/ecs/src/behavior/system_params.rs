@@ -5,6 +5,7 @@ mod local;
 mod query;
 mod res;
 mod res_mut;
+mod thread_pool;
 mod world_data;
 
 pub use entities_info::*;
