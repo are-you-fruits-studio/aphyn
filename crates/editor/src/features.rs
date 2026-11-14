@@ -12,6 +12,7 @@ pub mod project_window_create;
 pub mod project_window_entries;
 pub mod project_window_rename;
 pub mod project_window_selection;
+pub mod scene_light;
 pub mod scene_window;
 pub mod scroll;
 pub mod serialization;

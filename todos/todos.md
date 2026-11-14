@@ -1,7 +1,7 @@
 # Prioritized
 
-- copy-paste (with right mouse button and drop-down) (maybe even ctrl c ctrl v)
 - ambient lighting
+- copy-paste (with right mouse button and drop-down) (maybe even ctrl c ctrl v) (copy-paste files, folders, entities, inspector components, inspector component values)
 - view the game with the highlited mesh triangles' edges
 - make sure prefab root entity is the first one serialized
 - implement windows docking (like in Microsoft VS)
@@ -9,10 +9,14 @@
 
 - instantiate prefabs in editor
 - implement engine assets (like in Unity they have Assets folder and Packages folder in the Project window).
-- resources serialization (or resources as assets)
 - implement shadows
 - implement Skybox
 - implement animation
+
+- resources serialization (or resources as assets)
+    - What holds serialized resources? Scene? ResourcesScene? Maybe I should rename current Scene into MultiPrefab and create a separate scene that contains entities+components AND resources?
+    - What do I need scenes for? Scenes are useful to playtest different setups. Or are they? What more is there in terms of their use-cases? Are scenes usable to be spawned manually at runtime? Or are they for app-init only?
+    - If scenes are only for initing the app/world/"scene?", then they should contain both entities+components AND resources. Should they also contain systems & render-features in this case?
 
 # Default
 

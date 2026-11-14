@@ -10,6 +10,7 @@ use crate::{
             data::{HierarchyWindowEntryComponent, InspectedEntityResource},
             systems::update_hierarchy_window_system,
         },
+        scene_light::SceneLightResource,
         transform_gizmo::{TransformGizmoMeshResource, TransformGizmoResource, build_transform_gizmo_mesh},
         ui_interaction::{ButtonClickEvent, DOUBLE_CLICK_INTERVAL, HoverAreaComponent, check_ui_interaction_system},
         world_preload::{SimulatedWorldResource, preload_assets_into_simulated_world_system, tick_simulated_world_system},
@@ -20,9 +21,6 @@ const MOVE_SPEED: f32 = 5.0;
 const LOOK_SENSITIVITY: f32 = 0.004;
 const PITCH_LIMIT: f32 = 89.0_f32.to_radians();
 const CLEAR_COLOR: [f32; 4] = [0.05, 0.05, 0.05, 1.0];
-const SUN_YAW: f64 = 30.0_f64.to_radians();
-const SUN_PITCH: f64 = -50.0_f64.to_radians();
-const SUN_COLOR: Vec3<f32> = Vec3::splat(3.0);
 const FOCUS_DISTANCE_SCALE: f32 = 3.0;
 const FOCUS_MIN_DISTANCE: f32 = 2.0;
 
@@ -234,9 +232,10 @@ pub fn view_size(rect_c: &GlobalRectComponent) -> [u32; 2] {
     rect_c.scale.map(|v| v.round().max(1.0) as u32).into_array()
 }
 
-fn render_scene_window_system(
+pub fn render_scene_window_system(
     render_api: Res<RenderApiResource>,
     camera_res: Res<SceneCameraResource>,
+    light_res: Res<SceneLightResource>,
     mut view_res: ResMut<SceneViewResource>,
     mut simulated_world: ResMut<SimulatedWorldResource>,
     mut textures: ResMut<AssetStorageResource<StandardTexture>>,
@@ -266,7 +265,8 @@ fn render_scene_window_system(
         position: camera_res.position,
         scale_rotation: camera_res.scale_rotation(),
         camera: camera_res.camera,
-        light: Some(sun_light()),
+        light: Some(light_res.default_light()),
+        ambient_light: light_res.ambient_light(),
     };
 
     render_simulated_view(
@@ -292,6 +292,7 @@ pub struct ViewCamera {
     pub scale_rotation: Mat3<f32>,
     pub camera: Camera,
     pub light: Option<StandardLight>,
+    pub ambient_light: Option<Vec3<f32>>,
 }
 
 pub fn render_simulated_view(
@@ -364,15 +365,9 @@ pub fn render_simulated_view(
             camera_scale_rotation: camera.scale_rotation,
             camera: camera.camera,
             light: camera.light,
+            ambient_light: camera.ambient_light,
             target,
         },
         thread_pool,
     );
-}
-
-fn sun_light() -> StandardLight {
-    StandardLight::Directional {
-        color: SUN_COLOR,
-        direction_dst: Mat3::rotation_y(SUN_YAW) * Mat3::rotation_x(SUN_PITCH) * Vec3::new(0.0, 0.0, 1.0),
-    }
 }

@@ -82,6 +82,18 @@ impl Default for ExposureResource {
 
 #[repr(C)]
 #[derive(Resource)]
+pub struct AmbientLightResource {
+    pub color: Vec3<f32>,
+}
+
+impl Default for AmbientLightResource {
+    fn default() -> Self {
+        Self { color: Vec3::splat(0.0) }
+    }
+}
+
+#[repr(C)]
+#[derive(Resource)]
 pub struct BloomResource {
     pub is_enabled: bool,
     pub threshold: f32,

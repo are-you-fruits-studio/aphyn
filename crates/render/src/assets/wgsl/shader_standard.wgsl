@@ -104,6 +104,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         color = vec4<f32>(color.xyz + color_lit, color.w);
     }
+
+    color = vec4<f32>(color.xyz + global_data.ambient_color * diffuse_color * (1.0 - metallic), color.w);
 #endif
 
     return color;

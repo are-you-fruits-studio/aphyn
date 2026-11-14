@@ -48,6 +48,8 @@ pub struct StandardUniformGlobal {
     pub window_to_clip: Mat4<f32>,
     pub camera_position_world: Vec3<f32>,
     pub lights_count: u32,
+    pub ambient_color: Vec3<f32>,
+    pub _padding: u32,
 }
 
 unsafe impl AllBitVariationsValid for StandardUniformGlobal {}
@@ -60,6 +62,8 @@ impl Default for StandardUniformGlobal {
             window_to_clip: Mat4::IDENTITY,
             camera_position_world: Vec3::splat(0.0),
             lights_count: 0,
+            ambient_color: Vec3::splat(0.0),
+            _padding: 0,
         }
     }
 }

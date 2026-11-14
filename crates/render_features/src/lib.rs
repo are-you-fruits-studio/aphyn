@@ -24,7 +24,10 @@
 //! `GlobalDisableableComponent::is_disabled` hides it. Nothing is drawn without a camera: the app
 //! renders through the first [`CameraComponent`]. Lit materials are shaded by every
 //! [`StandardLightComponent`] (up to `LIGHTS_COUNT_MAX`); point and spot lights sit at their
-//! transform's position, spot and directional lights point along their local `-Y` axis.
+//! transform's position, spot and directional lights point along their local `-Y` axis. On top of
+//! that every lit fragment receives `color * albedo * (1 - metallic)` from [`AmbientLightResource`]
+//! (linear, zero by default), so surfaces no light reaches are not pitch black. A view can override
+//! that color with `CurrentRenderingResource::ambient_light` (the editor's scene view does).
 //!
 //! #### Materials
 //!
@@ -131,7 +134,8 @@
 //! [`GlobalsRenderFeature`] works in `add_passes`: it inserts [`GlobalBindingsResource`] on first
 //! use, uploads the lights of every `StandardLightComponent` plus `CurrentRenderingResource::light`
 //! and the `StandardUniformGlobal` (world-to-clip of the view, window-to-clip for the target size
-//! with the [`ScreenSpaceResource`] depth range), and replaces [`DepthTextureResource`] and
+//! with the [`ScreenSpaceResource`] depth range, `CurrentRenderingResource::ambient_light` when set,
+//! else the [`AmbientLightResource`] color, else zero), and replaces [`DepthTextureResource`] and
 //! [`TransparentTargetResource`] when their size differs from the target. Its pass at
 //! [`RENDER_ORDER_PREPARE`] clears both. The uploads are queued writes that land at the next
 //! submit, which is before any draw.
@@ -272,6 +276,7 @@ pub fn add_render_features_module_to(
     resources.insert(GizmosResource::default());
     resources.insert(GizmosFrameResource::default());
     resources.insert(ScreenSpaceResource::default());
+    resources.insert(AmbientLightResource::default());
     resources.insert(ExposureResource::default());
     resources.insert(BloomResource::default());
     resources.insert(ColorGradingResource::default());

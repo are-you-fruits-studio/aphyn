@@ -107,6 +107,7 @@ fn render_game_window_system(
             scale_rotation: transform.scale_rotation,
             camera: camera_c.0,
             light: None,
+            ambient_light: None,
         });
 
     render_simulated_view(

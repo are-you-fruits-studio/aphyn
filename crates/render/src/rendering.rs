@@ -56,6 +56,7 @@ pub struct CurrentRenderingResource {
     pub camera_scale_rotation: Mat3<f32>,
     pub camera: Camera,
     pub light: Option<StandardLight>,
+    pub ambient_light: Option<Vec3<f32>>,
     pub target: StandardTexture,
 }
 

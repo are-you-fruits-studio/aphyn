@@ -333,6 +333,7 @@ fn core_system_render(
                 camera_scale_rotation: camera_transform.scale_rotation,
                 camera,
                 light: None,
+                ambient_light: None,
                 target: render_target.texture.clone(),
             },
             thread_pool,

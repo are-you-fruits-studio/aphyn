@@ -337,7 +337,9 @@
 //! view texture from storage). Its optional
 //! `light` is a world-space [`StandardLight`] that the globals feature adds on top of the world's own
 //! lights for this rendering only (the editor's Scene window uses it so unlit prefabs still show up
-//! shaded); `aphyn_app` passes `None`.
+//! shaded); `aphyn_app` passes `None`. Its optional `ambient_light` replaces the world's
+//! `AmbientLightResource` color for this rendering only (the Scene window's ambient override);
+//! `aphyn_app` passes `None`.
 //! [`world_to_clip`](CurrentRenderingResource::world_to_clip) is the perspective projection, using
 //! the target's aspect, times the inverse of the camera transform. The target is created by
 //! `aphyn_app` in [`RENDER_TARGET_FORMAT`], which the render features also use, so both sides must
@@ -398,7 +400,9 @@
 //! description; it converts into the GPU-side [`StandardGenericLight`], whose `light_type` is `0`
 //! point, `1` spot, `2` directional. [`StandardGlobalBindings`] holds the [`StandardUniformGlobal`]
 //! buffer and a storage buffer of [`LIGHTS_COUNT_MAX`] [`StandardGenericLight`]s; `write_lights_with`
-//! only uploads the first `count`, and the shader reads `lights_count` from the uniform.
+//! only uploads the first `count`, and the shader reads `lights_count` from the uniform. The uniform
+//! also carries the ambient color the lit standard shader adds; its trailing `_padding` field makes
+//! the Rust size match the WGSL struct, which is rounded up to the 16-byte `vec3` alignment.
 //! [`StandardUniformGlobal`], [`StandardGenericLight`], and [`StandardVertex`] are `#[repr(C)]` and
 //! marked [`AllBitsInit`](aphyn_utils::mem::AllBitsInit) /
 //! [`AllBitVariationsValid`](aphyn_utils::mem::AllBitVariationsValid) so they can be uploaded as raw

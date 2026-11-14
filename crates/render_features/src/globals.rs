@@ -1,4 +1,5 @@
 use aphyn_ecs::{ThreadPoolAccess, WorldDataMut};
+use aphyn_math::Vec3;
 use aphyn_render::{
     CurrentRenderingResource, FilterMode, LIGHTS_COUNT_MAX, RenderApiResource, StandardTextureAssetMetadata, StandardTextureFormat,
     StandardUniformGlobal,
@@ -6,8 +7,8 @@ use aphyn_render::{
 use aphyn_transform::GlobalTransform;
 
 use crate::{
-    DepthTextureResource, GlobalBindingsResource, RENDER_ORDER_PREPARE, RenderFeature, RenderPassWriter, ScreenSpaceResource,
-    StandardLightComponent, TransparentTargetResource, create_window_to_clip_matrix, light_from_components,
+    AmbientLightResource, DepthTextureResource, GlobalBindingsResource, RENDER_ORDER_PREPARE, RenderFeature, RenderPassWriter,
+    ScreenSpaceResource, StandardLightComponent, TransparentTargetResource, create_window_to_clip_matrix, light_from_components,
 };
 
 #[derive(Default)]
@@ -28,6 +29,10 @@ impl RenderFeature for GlobalsRenderFeature {
         let world_to_clip = current.world_to_clip();
         let camera_position = current.camera_position;
         let view_light = current.light;
+        let ambient_color = current
+            .ambient_light
+            .or_else(|| res.get::<AmbientLightResource>().map(|ambient| ambient.color))
+            .unwrap_or(Vec3::splat(0.0));
         let (near, far) = res
             .get::<ScreenSpaceResource>()
             .map_or((-10_000.0, 10_000.0), |screen_space| (screen_space.near, screen_space.far));
@@ -57,6 +62,8 @@ impl RenderFeature for GlobalsRenderFeature {
                 window_to_clip: create_window_to_clip_matrix(target_size[0] as f32, target_size[1] as f32, near, far),
                 camera_position_world: camera_position,
                 lights_count,
+                ambient_color,
+                _padding: 0,
             },
         );
 
