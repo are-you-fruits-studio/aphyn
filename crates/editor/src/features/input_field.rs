@@ -550,6 +550,16 @@ pub fn is_editor_hotkey_just_pressed(
     input_res.keyboard.is_just_pressed(key) && selected_input.selected == EntityId::EMPTY && !game_focus.is_focused
 }
 
+pub fn is_editor_ctrl_hotkey_just_pressed(
+    input_res: &InputResource,
+    selected_input: &SelectedInputFieldResource,
+    game_focus: &GameViewFocusResource,
+    key: KeyCode,
+) -> bool {
+    let is_ctrl = input_res.keyboard.is_pressed(KeyCode::ControlLeft) || input_res.keyboard.is_pressed(KeyCode::ControlRight);
+    is_ctrl && is_editor_hotkey_just_pressed(input_res, selected_input, game_focus, key)
+}
+
 fn is_shift_pressed(input_res: &InputResource) -> bool {
     input_res.keyboard.is_pressed(KeyCode::ShiftLeft) || input_res.keyboard.is_pressed(KeyCode::ShiftRight)
 }

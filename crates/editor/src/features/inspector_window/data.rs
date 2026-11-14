@@ -50,15 +50,60 @@ pub struct ComponentHeaderComponent {
     pub component: EntityId,
 }
 
+#[derive(Clone, Copy)]
+pub enum ComponentContextAction {
+    Copy,
+    PasteValues,
+    PasteAsNew,
+    Remove,
+}
+
+impl ComponentContextAction {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Copy => "Copy component",
+            Self::PasteValues => "Paste component values",
+            Self::PasteAsNew => "Paste component as new",
+            Self::Remove => "Remove component",
+        }
+    }
+}
+
 #[derive(Resource, Default)]
 pub struct ComponentContextMenuResource {
     pub request_id: u64,
     pub component_id: FfiString,
+    pub actions: Vec<ComponentContextAction>,
+}
+
+#[derive(Clone, Copy)]
+pub enum FieldValueContextAction {
+    Copy,
+    Paste,
+}
+
+impl FieldValueContextAction {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Copy => "Copy value",
+            Self::Paste => "Paste value",
+        }
+    }
+}
+
+#[derive(Resource, Default)]
+pub struct FieldValueContextMenuResource {
+    pub request_id: u64,
+    pub value_ent: EntityId,
+    pub actions: Vec<FieldValueContextAction>,
 }
 
 #[derive(Clone, Copy)]
 pub enum HierarchyContextAction {
     CreateEntity,
+    CopyEntity,
+    PasteEntity,
+    PasteComponent,
     DeleteEntity,
 }
 
@@ -66,6 +111,9 @@ impl HierarchyContextAction {
     pub fn label(self) -> &'static str {
         match self {
             Self::CreateEntity => "Create Entity",
+            Self::CopyEntity => "Copy Entity",
+            Self::PasteEntity => "Paste Entity",
+            Self::PasteComponent => "Paste Component",
             Self::DeleteEntity => "Delete Entity",
         }
     }

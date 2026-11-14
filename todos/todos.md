@@ -1,7 +1,5 @@
 # Prioritized
 
-- ambient lighting
-- copy-paste (with right mouse button and drop-down) (maybe even ctrl c ctrl v) (copy-paste files, folders, entities, inspector components, inspector component values)
 - view the game with the highlited mesh triangles' edges
 - make sure prefab root entity is the first one serialized
 - implement windows docking (like in Microsoft VS)

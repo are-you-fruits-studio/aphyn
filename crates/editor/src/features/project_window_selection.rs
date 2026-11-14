@@ -5,15 +5,22 @@ use std::{
 
 use crate::{
     features::{
+        clipboard::{EditorClipboard, EditorClipboardResource},
         game_window::GameViewFocusResource,
         generic_dropdown::{GenericDropdownResource, select_generic_dropdown_system},
-        input_field::{SelectedInputFieldResource, is_editor_hotkey_just_pressed, update_selected_input_field_text_system},
+        input_field::{
+            SelectedInputFieldResource, is_editor_ctrl_hotkey_just_pressed, is_editor_hotkey_just_pressed,
+            update_selected_input_field_text_system,
+        },
         inspector_window::{
             data::{InspectedAssetResource, InspectedEntityResource, OpenedEntitiesAssetResource},
             systems::save_simulated_entities_to_asset_system,
         },
+        project_reload::ProjectReloadResource,
         project_window_create::ProjectEntryCreateMenuResource,
-        project_window_rename::{ProjectEntryRenameResource, get_entry_dir, start_project_entry_rename_system},
+        project_window_rename::{
+            ProjectEntryRenameResource, get_entry_dir, get_non_clashing_path, split_entry_name, start_project_entry_rename_system,
+        },
         world_preload::SimulatedWorldResource,
     },
     *,
@@ -33,7 +40,9 @@ pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuild
         .insert_child_system(open_project_entry_context_menu_system)
         .insert_child_system(apply_project_entry_context_menu_system)
         .insert_child_system(delete_selected_file_hotkey_system)
-        .insert_child_system(rename_selected_file_hotkey_system);
+        .insert_child_system(rename_selected_file_hotkey_system)
+        .insert_child_system(copy_selected_file_hotkey_system)
+        .insert_child_system(paste_files_hotkey_system);
 
     update
         .order_system(check_ui_interaction_system)
@@ -47,6 +56,14 @@ pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuild
 
     update
         .order_system(rename_selected_file_hotkey_system)
+        .before_system(update_selected_input_field_text_system);
+
+    update
+        .order_system(copy_selected_file_hotkey_system)
+        .before_system(update_selected_input_field_text_system);
+
+    update
+        .order_system(paste_files_hotkey_system)
         .before_system(update_selected_input_field_text_system);
 
     update
@@ -110,6 +127,8 @@ enum ProjectEntryContextAction {
     Create,
     ShowInExplorer,
     CopyAssetKey,
+    Copy,
+    Paste,
     Rename,
     Delete,
 }
@@ -120,6 +139,8 @@ impl ProjectEntryContextAction {
             Self::Create => "Create",
             Self::ShowInExplorer => "Show in explorer",
             Self::CopyAssetKey => "Copy asset key",
+            Self::Copy => "Copy",
+            Self::Paste => "Paste",
             Self::Rename => "Rename",
             Self::Delete => "Delete",
         }
@@ -140,9 +161,12 @@ pub fn open_project_entry_context_menu_system(
     empty_area_q: WorldQuery<&ButtonComponent, WithFilter<ProjectWindowEmptyAreaComponent>>,
     open_project: Res<OpenProjectResource>,
     simulated_world: Res<SimulatedWorldResource>,
+    clipboard: Res<EditorClipboardResource>,
     mut generic_dropdown_res: ResMut<GenericDropdownResource>,
     mut context_menu_res: ResMut<ProjectEntryContextMenuResource>,
 ) {
+    let has_clipboard_files = clipboard.files().is_some();
+
     let (path, actions) = if let Some((entry_c, _)) = entry_q.iter().find(|(_, b)| b.was_right_clicked_this_frame) {
         let mut actions = Vec::new();
         let key = get_asset_key(&entry_c.path, &open_project);
@@ -157,6 +181,14 @@ pub fn open_project_entry_context_menu_system(
             actions.push(ProjectEntryContextAction::CopyAssetKey);
 
             if !key.is_empty() {
+                actions.push(ProjectEntryContextAction::Copy);
+            }
+
+            if has_clipboard_files {
+                actions.push(ProjectEntryContextAction::Paste);
+            }
+
+            if !key.is_empty() {
                 actions.push(ProjectEntryContextAction::Rename);
                 actions.push(ProjectEntryContextAction::Delete);
             }
@@ -164,8 +196,13 @@ pub fn open_project_entry_context_menu_system(
 
         (entry_c.path.clone(), actions)
     } else if empty_area_q.iter().any(|b| b.was_right_clicked_this_frame) {
-        let assets_dir_path = OsString::from(open_project.dir_path.to_string() + PROJECT_ASSETS_SUBPATH);
-        (assets_dir_path, vec![ProjectEntryContextAction::Create])
+        let mut actions = vec![ProjectEntryContextAction::Create];
+
+        if has_clipboard_files {
+            actions.push(ProjectEntryContextAction::Paste);
+        }
+
+        (get_assets_dir_path(&open_project), actions)
     } else {
         return;
     };
@@ -177,7 +214,9 @@ pub fn open_project_entry_context_menu_system(
             !simulated_world.is_playing()
                 || matches!(
                     a,
-                    ProjectEntryContextAction::ShowInExplorer | ProjectEntryContextAction::CopyAssetKey
+                    ProjectEntryContextAction::ShowInExplorer
+                        | ProjectEntryContextAction::CopyAssetKey
+                        | ProjectEntryContextAction::Copy
                 )
         })
         .collect::<Vec<_>>();
@@ -202,6 +241,9 @@ pub fn apply_project_entry_context_menu_system(
     mut inspected_entity: ResMut<InspectedEntityResource>,
     mut simulated_world: ResMut<SimulatedWorldResource>,
     mut rename_res: ResMut<ProjectEntryRenameResource>,
+    mut clipboard: ResMut<EditorClipboardResource>,
+    mut project_reload: ResMut<ProjectReloadResource>,
+    mut select_evt: EvtMut<FileSelectedEvent>,
 ) {
     let context_menu = &mut *context_menu_res;
 
@@ -228,6 +270,18 @@ pub fn apply_project_entry_context_menu_system(
             if let Some(key) = get_asset_key(&context_menu.path, &open_project) {
                 copy_to_clipboard(&key);
             }
+        }
+        ProjectEntryContextAction::Copy => clipboard.0 = Some(EditorClipboard::Files(vec![PathBuf::from(&context_menu.path)])),
+        ProjectEntryContextAction::Paste => {
+            return_if_not!(Some(dest_dir) = get_paste_dir(Path::new(&context_menu.path)));
+            paste_clipboard_files(
+                &clipboard,
+                &dest_dir,
+                &open_project,
+                &mut selected_file,
+                &mut select_evt,
+                &mut project_reload,
+            );
         }
         ProjectEntryContextAction::Rename => rename_res.request(context_menu.path.clone()),
         ProjectEntryContextAction::Delete => delete_project_entry(
@@ -292,6 +346,149 @@ pub fn rename_selected_file_hotkey_system(
     }
 
     rename_res.request(selected_file.path.clone());
+}
+
+pub fn copy_selected_file_hotkey_system(
+    input_res: Res<InputResource>,
+    selected_input: Res<SelectedInputFieldResource>,
+    game_focus: Res<GameViewFocusResource>,
+    open_project: Res<OpenProjectResource>,
+    selected_file: Res<SelectedFileResource>,
+    mut clipboard: ResMut<EditorClipboardResource>,
+) {
+    return_if!(!is_editor_ctrl_hotkey_just_pressed(
+        &input_res,
+        &selected_input,
+        &game_focus,
+        KeyCode::KeyC
+    ));
+    return_if!(!get_asset_key(&selected_file.path, &open_project).is_some_and(|key| !key.is_empty()));
+
+    clipboard.0 = Some(EditorClipboard::Files(vec![PathBuf::from(&selected_file.path)]));
+}
+
+pub fn paste_files_hotkey_system(
+    input_res: Res<InputResource>,
+    selected_input: Res<SelectedInputFieldResource>,
+    game_focus: Res<GameViewFocusResource>,
+    open_project: Res<OpenProjectResource>,
+    simulated_world: Res<SimulatedWorldResource>,
+    inspected_entity: Res<InspectedEntityResource>,
+    clipboard: Res<EditorClipboardResource>,
+    mut selected_file: ResMut<SelectedFileResource>,
+    mut select_evt: EvtMut<FileSelectedEvent>,
+    mut project_reload: ResMut<ProjectReloadResource>,
+) {
+    return_if!(!is_editor_ctrl_hotkey_just_pressed(
+        &input_res,
+        &selected_input,
+        &game_focus,
+        KeyCode::KeyV
+    ));
+    return_if!(clipboard.files().is_none() || simulated_world.is_playing());
+
+    let dest_dir = if get_asset_key(&selected_file.path, &open_project).is_some() {
+        get_paste_dir(Path::new(&selected_file.path))
+    } else if selected_file.path.is_empty() && inspected_entity.selected_entity == EntityId::EMPTY {
+        Some(PathBuf::from(get_assets_dir_path(&open_project)))
+    } else {
+        None
+    };
+    return_if_not!(Some(dest_dir) = dest_dir);
+
+    paste_clipboard_files(
+        &clipboard,
+        &dest_dir,
+        &open_project,
+        &mut selected_file,
+        &mut select_evt,
+        &mut project_reload,
+    );
+}
+
+fn get_assets_dir_path(open_project: &OpenProjectResource) -> OsString {
+    OsString::from(open_project.dir_path.to_string() + PROJECT_ASSETS_SUBPATH)
+}
+
+// a folder receives the pasted entries, a file gets them pasted next to it
+fn get_paste_dir(path: &Path) -> Option<PathBuf> {
+    match path.is_dir() {
+        true => Some(path.to_path_buf()),
+        false => get_entry_dir(path),
+    }
+}
+
+fn paste_clipboard_files(
+    clipboard: &EditorClipboardResource,
+    dest_dir: &Path,
+    open_project: &OpenProjectResource,
+    selected_file: &mut SelectedFileResource,
+    select_evt: &mut EvtMut<FileSelectedEvent>,
+    project_reload: &mut ProjectReloadResource,
+) {
+    return_if_not!(Some(sources) = clipboard.files());
+
+    let mut last_pasted = None;
+
+    for source in sources {
+        if let Some(pasted) = paste_project_entry(source, dest_dir) {
+            last_pasted = Some(pasted);
+        }
+    }
+
+    return_if_not!(Some(last_pasted) = last_pasted);
+
+    let path = last_pasted.into_os_string();
+    selected_file.potential_asset_key = get_potential_asset_key(&path, open_project);
+    selected_file.path = path;
+    select_evt.push(FileSelectedEvent);
+
+    project_reload.request_assets_reload();
+}
+
+fn paste_project_entry(source: &Path, dest_dir: &Path) -> Option<PathBuf> {
+    if !source.exists() {
+        eprintln!("failed to paste {:?}. it no longer exists", source);
+        return None;
+    }
+
+    if source.is_dir() && dest_dir.starts_with(source) {
+        eprintln!(
+            "failed to paste {:?} into {:?}. a folder cannot be pasted into itself",
+            source, dest_dir
+        );
+        return None;
+    }
+
+    let (stem, extension) = split_entry_name(source);
+    let dest = get_non_clashing_path(dest_dir, &stem, extension.as_deref());
+
+    let result = match source.is_dir() {
+        true => copy_dir_recursively(source, &dest),
+        false => std::fs::copy(source, &dest).map(|_| ()),
+    };
+
+    if let Err(err) = result {
+        eprintln!("failed to paste {:?} to {:?}. {}", source, dest, err);
+    }
+
+    dest.exists().then_some(dest)
+}
+
+fn copy_dir_recursively(source: &Path, dest: &Path) -> std::io::Result<()> {
+    std::fs::create_dir(dest)?;
+
+    for entry in std::fs::read_dir(source)? {
+        let entry = entry?;
+        let entry_dest = dest.join(entry.file_name());
+
+        match entry.file_type()?.is_dir() {
+            true => copy_dir_recursively(&entry.path(), &entry_dest)?,
+            false => _ = std::fs::copy(entry.path(), &entry_dest)?,
+        }
+    }
+
+    Ok(())
 }
 
 fn delete_project_entry(

@@ -5,12 +5,13 @@ use aphyn::tree::{TreeBuilder, TreeNode};
 use crate::{
     features::{
         asset_serialization::{InspectedAsset, get_asset_type},
+        clipboard::{EditorClipboard, EditorClipboardResource},
         foldout::{FOLDOUT_WIDTH, FoldoutButtonComponent, FoldoutKey, FoldoutResource, FoldoutToggledEvent, spawn_foldout_arrow},
         game_window::GameViewFocusResource,
         generic_dropdown::{GenericDropdownResource, GenericDropdownStateTy},
         input_field::{
             InputFieldComponent, InputFieldSelectionChangedEvent, InputFieldTextChangedEvent, SelectedInputFieldResource,
-            is_editor_hotkey_just_pressed,
+            is_editor_ctrl_hotkey_just_pressed, is_editor_hotkey_just_pressed,
         },
         inspector_window::{
             FIELD_HEIGHT,
@@ -97,6 +98,9 @@ fn remove_inspected_component(
 pub fn open_component_context_menu_system(
     ent: EntitiesHolderRef,
     input_res: Res<InputResource>,
+    clipboard: Res<EditorClipboardResource>,
+    simulated_world: Res<SimulatedWorldResource>,
+    inspected_entity: Res<InspectedEntityResource>,
     mut generic_dropdown_res: ResMut<GenericDropdownResource>,
     mut context_menu_res: ResMut<ComponentContextMenuResource>,
 ) {
@@ -110,10 +114,34 @@ pub fn open_component_context_menu_system(
     };
 
     return_if_not!(Some(component_id) = get_inspected_component_id(ent, ent_component));
+    return_if_not!(Some(simulated_world) = &simulated_world.0);
+
+    let mut actions = vec![ComponentContextAction::Copy];
+
+    if let Some((clipboard_component_id, _)) = clipboard.component() {
+        let mut has_clipboard_component = false;
+        simulated_world
+            .data
+            .as_ref()
+            .entities()
+            .get_all_components(inspected_entity.selected_entity, |c| {
+                has_clipboard_component |= c.type_info().short().name() == clipboard_component_id.as_str()
+            });
+
+        match has_clipboard_component {
+            true if *clipboard_component_id == component_id => actions.push(ComponentContextAction::PasteValues),
+            true => {}
+            false => actions.push(ComponentContextAction::PasteAsNew),
+        }
+    }
+
+    actions.push(ComponentContextAction::Remove);
 
     let position = Vec2::from_array(input_res.mouse.position.map(|v| v as f32));
-    context_menu_res.request_id = generic_dropdown_res.request(vec![FfiString::from("Remove component")].into(), position);
+    context_menu_res.request_id =
+        generic_dropdown_res.request(actions.iter().map(|a| FfiString::from(a.label())).collect(), position);
     context_menu_res.component_id = component_id;
+    context_menu_res.actions = actions;
 }
 
 pub fn apply_component_context_menu_system(
@@ -121,16 +149,137 @@ pub fn apply_component_context_menu_system(
     mut context_menu_res: ResMut<ComponentContextMenuResource>,
     mut simulated_world: ResMut<SimulatedWorldResource>,
     inspected_entity: Res<InspectedEntityResource>,
+    mut clipboard: ResMut<EditorClipboardResource>,
     mut asset_edited_evt: EvtMut<AssetEditedEvent>,
 ) {
     let context_menu = &mut *context_menu_res;
 
-    return_if_not!(Some(_) = generic_dropdown_res.take_selected(&mut context_menu.request_id));
+    return_if_not!(Some(idx) = generic_dropdown_res.take_selected(&mut context_menu.request_id));
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
     return_if!(!is_inspected_entity_shown(simulated_world, &inspected_entity));
 
-    if remove_inspected_component(simulated_world, &inspected_entity, context_menu.component_id.as_str()) {
+    let is_edited = match context_menu.actions[idx as usize] {
+        ComponentContextAction::Copy => {
+            let sim_data = simulated_world.data.as_ref();
+            let mut components = record_entity_components(
+                sim_data.resources(),
+                sim_data.entities(),
+                inspected_entity.selected_entity,
+                EntityIdEncoder::World(sim_data.entities()),
+            );
+
+            if let Some(value) = components.remove_swap(context_menu.component_id.as_str()) {
+                clipboard.0 = Some(EditorClipboard::Component {
+                    component_id: context_menu.component_id.clone(),
+                    value,
+                });
+            }
+
+            false
+        }
+        ComponentContextAction::PasteValues | ComponentContextAction::PasteAsNew => {
+            let (sim_res, sim_ent, _) = simulated_world.data.as_mut().into_tuple_mut();
+            paste_component(sim_res.as_ref(), sim_ent, inspected_entity.selected_entity, &clipboard)
+        }
+        ComponentContextAction::Remove => {
+            remove_inspected_component(simulated_world, &inspected_entity, context_menu.component_id.as_str())
+        }
+    };
+
+    if is_edited {
         asset_edited_evt.push(AssetEditedEvent::OpenedEntitiesAsset);
+    }
+}
+
+pub fn open_field_value_context_menu_system(
+    ent: EntitiesHolderRef,
+    input_res: Res<InputResource>,
+    clipboard: Res<EditorClipboardResource>,
+    mut generic_dropdown_res: ResMut<GenericDropdownResource>,
+    mut context_menu_res: ResMut<FieldValueContextMenuResource>,
+) {
+    let value_ent = ent
+        .query::<&SerializedFieldComponent>()
+        .iter()
+        .filter(|field_c| {
+            ent.get_component::<ChildComponent>(field_c.key_text)
+                .and_then(|child_c| ent.get_component::<ButtonComponent>(child_c.parent))
+                .is_some_and(|button_c| button_c.was_right_clicked_this_frame)
+        })
+        .filter_map(|field_c| {
+            ent.get_component::<ParentComponent>(field_c.value_container)?
+                .children
+                .first()
+                .copied()
+        })
+        .find(|&value_ent| ent.get_component::<SerializedValueComponent>(value_ent).is_some());
+    return_if_not!(Some(value_ent) = value_ent);
+
+    let mut actions = vec![FieldValueContextAction::Copy];
+
+    if clipboard.value().is_some() {
+        actions.push(FieldValueContextAction::Paste);
+    }
+
+    let position = Vec2::from_array(input_res.mouse.position.map(|v| v as f32));
+    context_menu_res.request_id =
+        generic_dropdown_res.request(actions.iter().map(|a| FfiString::from(a.label())).collect(), position);
+    context_menu_res.value_ent = value_ent;
+    context_menu_res.actions = actions;
+}
+
+pub fn apply_field_value_context_menu_system(
+    ent: EntitiesHolderRef,
+    generic_dropdown_res: Res<GenericDropdownResource>,
+    mut context_menu_res: ResMut<FieldValueContextMenuResource>,
+    mut simulated_world: ResMut<SimulatedWorldResource>,
+    inspected_entity: Res<InspectedEntityResource>,
+    inspected_asset: Res<InspectedAssetResource>,
+    open_project: Res<OpenProjectResource>,
+    mut clipboard: ResMut<EditorClipboardResource>,
+    mut asset_edited_evt: EvtMut<AssetEditedEvent>,
+) {
+    let context_menu = &mut *context_menu_res;
+
+    return_if_not!(Some(idx) = generic_dropdown_res.take_selected(&mut context_menu.request_id));
+    return_if_not!(Some(simulated_world) = &mut simulated_world.0);
+    return_if_not!(Some(serialized_value_c) = ent.get_component::<SerializedValueComponent>(context_menu.value_ent));
+    return_if_not!(
+        Some(target) = get_inspected_target(
+            ent,
+            context_menu.value_ent,
+            simulated_world,
+            &inspected_entity,
+            &inspected_asset
+        )
+    );
+
+    let path = serialized_value_c.path.as_str();
+
+    match context_menu.actions[idx as usize] {
+        FieldValueContextAction::Copy => {
+            if let Some(value) = serialize_from_simulated_world(&target, path, simulated_world, &inspected_entity, &inspected_asset)
+            {
+                clipboard.0 = Some(EditorClipboard::Value(value));
+            }
+        }
+        FieldValueContextAction::Paste => {
+            return_if_not!(Some(value) = clipboard.value());
+
+            let did_asset_load = deserialize_to_simulated_world(
+                &target,
+                path,
+                value,
+                simulated_world,
+                &inspected_entity,
+                &inspected_asset,
+                &open_project,
+            );
+
+            if did_asset_load {
+                asset_edited_evt.push(target.edited_event());
+            }
+        }
     }
 }
 
@@ -303,6 +452,7 @@ pub fn open_hierarchy_context_menu_system(
     empty_area_q: WorldQuery<&ButtonComponent, WithFilter<HierarchyWindowEmptyAreaComponent>>,
     opened_asset: Res<OpenedEntitiesAssetResource>,
     simulated_world: Res<SimulatedWorldResource>,
+    clipboard: Res<EditorClipboardResource>,
     mut generic_dropdown_res: ResMut<GenericDropdownResource>,
     mut context_menu_res: ResMut<HierarchyContextMenuResource>,
 ) {
@@ -313,15 +463,29 @@ pub fn open_hierarchy_context_menu_system(
         let target = entry_c.simulated_entity;
         return_if!(!simulated_world.data.as_ref().entities().contains_entity(target));
 
-        match target == root_parent {
-            true => (target, vec![HierarchyContextAction::CreateEntity]),
-            false => (
-                target,
-                vec![HierarchyContextAction::CreateEntity, HierarchyContextAction::DeleteEntity],
-            ),
+        let mut actions = vec![HierarchyContextAction::CreateEntity, HierarchyContextAction::CopyEntity];
+
+        if clipboard.entities().is_some() {
+            actions.push(HierarchyContextAction::PasteEntity);
         }
+
+        if clipboard.component().is_some() {
+            actions.push(HierarchyContextAction::PasteComponent);
+        }
+
+        if target != root_parent {
+            actions.push(HierarchyContextAction::DeleteEntity);
+        }
+
+        (target, actions)
     } else if empty_area_q.iter().any(|b| b.was_right_clicked_this_frame) {
-        (root_parent, vec![HierarchyContextAction::CreateEntity])
+        let mut actions = vec![HierarchyContextAction::CreateEntity];
+
+        if clipboard.entities().is_some() {
+            actions.push(HierarchyContextAction::PasteEntity);
+        }
+
+        (root_parent, actions)
     } else {
         return;
     };
@@ -340,6 +504,7 @@ pub fn apply_hierarchy_context_menu_system(
     mut selected_file: ResMut<SelectedFileResource>,
     opened_asset: Res<OpenedEntitiesAssetResource>,
     mut simulated_world: ResMut<SimulatedWorldResource>,
+    mut clipboard: ResMut<EditorClipboardResource>,
     mut asset_edited_evt: EvtMut<AssetEditedEvent>,
 ) {
     let context_menu = &mut *context_menu_res;
@@ -349,33 +514,38 @@ pub fn apply_hierarchy_context_menu_system(
     return_if_not!(Some(root_parent) = get_hierarchy_root_parent(simulated_world, &opened_asset));
 
     let target = context_menu.target;
-    let (_, mut sim_ent, _) = simulated_world.data.as_mut().into_tuple_mut();
+    let (sim_res, mut sim_ent, _) = simulated_world.data.as_mut().into_tuple_mut();
 
     return_if!(target != EntityId::EMPTY && !sim_ent.contains_entity(target));
 
     match context_menu.actions[idx as usize] {
         HierarchyContextAction::CreateEntity => {
             let entity = sim_ent.create_entity();
-
-            if target != EntityId::EMPTY {
-                sim_ent.set_component(entity, ChildComponent { parent: target });
-
-                match sim_ent.get_component_mut::<ParentComponent>(target) {
-                    Some(parent_c) => parent_c.children.push(entity),
-                    None => {
-                        _ = sim_ent.set_component(
-                            target,
-                            ParentComponent {
-                                children: vec![entity].into(),
-                            },
-                        )
-                    }
-                }
-            }
+            attach_to_parent(sim_ent.as_mut(), entity, target);
 
             inspected_entity.selected_entity = entity;
             *selected_file = SelectedFileResource::default();
             asset_edited_evt.push(AssetEditedEvent::OpenedEntitiesAsset);
+        }
+        HierarchyContextAction::CopyEntity => {
+            if let Some(prefab) = record_into_prefab(sim_res.as_ref(), sim_ent.as_ref(), target) {
+                clipboard.0 = Some(EditorClipboard::Entities(prefab.entities));
+            }
+        }
+        HierarchyContextAction::PasteEntity => {
+            return_if_not!(Some(entities) = clipboard.entities());
+            return_if_not!(Some(entity) = paste_entities(sim_res.as_ref(), sim_ent.as_mut(), entities, target));
+
+            inspected_entity.selected_entity = entity;
+            *selected_file = SelectedFileResource::default();
+            asset_edited_evt.push(AssetEditedEvent::OpenedEntitiesAsset);
+        }
+        HierarchyContextAction::PasteComponent => {
+            return_if!(target == EntityId::EMPTY);
+
+            if paste_component(sim_res.as_ref(), sim_ent.as_mut(), target, &clipboard) {
+                asset_edited_evt.push(AssetEditedEvent::OpenedEntitiesAsset);
+            }
         }
         HierarchyContextAction::DeleteEntity => {
             return_if!(target == EntityId::EMPTY || target == root_parent);
@@ -423,6 +593,118 @@ fn delete_simulated_entity(mut sim_ent: EntitiesHolderMut, target: EntityId) {
     }
 
     destroy_entity_and_children(sim_ent, target);
+}
+
+// EntityId::EMPTY as the parent makes `entity` a scene root
+fn attach_to_parent(mut sim_ent: EntitiesHolderMut, entity: EntityId, parent: EntityId) {
+    if parent == EntityId::EMPTY {
+        _ = sim_ent.remove_component::<ChildComponent>(entity);
+        return;
+    }
+
+    sim_ent.set_component(entity, ChildComponent { parent });
+
+    match sim_ent.get_component_mut::<ParentComponent>(parent) {
+        Some(parent_c) => parent_c.children.push(entity),
+        None => {
+            _ = sim_ent.set_component(
+                parent,
+                ParentComponent {
+                    children: vec![entity].into(),
+                },
+            )
+        }
+    }
+}
+
+fn paste_entities(
+    sim_res: ResourcesHolderRef,
+    mut sim_ent: EntitiesHolderMut,
+    entities: &SerializedEntities,
+    parent: EntityId,
+) -> Option<EntityId> {
+    let root_id = *entities.0.keys().next()?;
+    let root = *instantiate_serialized_entities(sim_res, sim_ent.as_mut(), entities).get(&root_id)?;
+
+    attach_to_parent(sim_ent, root, parent);
+
+    Some(root)
+}
+
+fn paste_component(
+    sim_res: ResourcesHolderRef,
+    sim_ent: EntitiesHolderMut,
+    entity: EntityId,
+    clipboard: &EditorClipboardResource,
+) -> bool {
+    let Some((component_id, value)) = clipboard.component() else {
+        return false;
+    };
+
+    deserialize_entity_component_at_path(sim_res, sim_ent, entity, component_id, "", value)
+}
+
+pub fn copy_selected_entity_hotkey_system(
+    input_res: Res<InputResource>,
+    selected_input: Res<SelectedInputFieldResource>,
+    game_focus: Res<GameViewFocusResource>,
+    inspected_entity: Res<InspectedEntityResource>,
+    simulated_world: Res<SimulatedWorldResource>,
+    mut clipboard: ResMut<EditorClipboardResource>,
+) {
+    return_if!(!is_editor_ctrl_hotkey_just_pressed(
+        &input_res,
+        &selected_input,
+        &game_focus,
+        KeyCode::KeyC
+    ));
+    return_if_not!(Some(simulated_world) = &simulated_world.0);
+
+    let sim_data = simulated_world.data.as_ref();
+
+    if let Some(prefab) = record_into_prefab(sim_data.resources(), sim_data.entities(), inspected_entity.selected_entity) {
+        clipboard.0 = Some(EditorClipboard::Entities(prefab.entities));
+    }
+}
+
+pub fn paste_entities_hotkey_system(
+    input_res: Res<InputResource>,
+    selected_input: Res<SelectedInputFieldResource>,
+    game_focus: Res<GameViewFocusResource>,
+    clipboard: Res<EditorClipboardResource>,
+    opened_asset: Res<OpenedEntitiesAssetResource>,
+    mut inspected_entity: ResMut<InspectedEntityResource>,
+    mut selected_file: ResMut<SelectedFileResource>,
+    mut simulated_world: ResMut<SimulatedWorldResource>,
+    mut asset_edited_evt: EvtMut<AssetEditedEvent>,
+) {
+    return_if!(!is_editor_ctrl_hotkey_just_pressed(
+        &input_res,
+        &selected_input,
+        &game_focus,
+        KeyCode::KeyV
+    ));
+    return_if_not!(Some(entities) = clipboard.entities());
+    return_if_not!(Some(simulated_world) = &mut simulated_world.0);
+    return_if_not!(Some(root_parent) = get_hierarchy_root_parent(simulated_world, &opened_asset));
+
+    let (sim_res, mut sim_ent, _) = simulated_world.data.as_mut().into_tuple_mut();
+
+    let selected = inspected_entity.selected_entity;
+
+    let parent = if sim_ent.contains_entity(selected) {
+        selected
+    } else if selected == EntityId::EMPTY && selected_file.path.is_empty() {
+        root_parent
+    } else {
+        return;
+    };
+
+    return_if_not!(Some(entity) = paste_entities(sim_res.as_ref(), sim_ent.as_mut(), entities, parent));
+
+    inspected_entity.selected_entity = entity;
+    *selected_file = SelectedFileResource::default();
+    asset_edited_evt.push(AssetEditedEvent::OpenedEntitiesAsset);
 }
 
 // todo: maybe merge all apply_inspector_xxx_to_simulated_world_system with a common event or smth.

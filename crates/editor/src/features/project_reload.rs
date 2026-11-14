@@ -93,6 +93,10 @@ impl ProjectReloadResource {
         self.is_initial_build_done
     }
 
+    pub fn request_assets_reload(&mut self) {
+        self.is_assets_reload_pending = true;
+    }
+
     pub fn is_reload_pending(&self) -> bool {
         self.is_scripts_reload_pending || self.is_assets_reload_pending
     }

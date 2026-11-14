@@ -248,7 +248,7 @@ fn destroy_input_field(mut ent: EntitiesHolderMut, input_field: EntityId) {
     }
 }
 
-fn split_entry_name(path: &Path) -> (String, Option<String>) {
+pub fn split_entry_name(path: &Path) -> (String, Option<String>) {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
 
     if path.is_dir() {

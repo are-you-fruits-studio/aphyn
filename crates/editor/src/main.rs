@@ -43,14 +43,14 @@ const SYSTEM_GROUP: &'static str = "aphyn_editor";
 //
 // --- ABILITY TO MAKE ADEQUATE EDITOR UI ---
 //
-// - advanced hierarchy window interaction (move/copy/paste entity)
-// - advanced inspector window interaction (copy/paste component)
+// - advanced hierarchy window interaction (move entity)
+// + copy/paste entity
+// + copy/paste component
 //
 // --- ABILITY TO MAKE NICE EDITOR UI ---
 //
 // - create GUI for selecting INSPECTED_ASSETS_PATH (for opening a project)
 
-// todo: to dynamic (user-selected)
 const PROJECT_ASSETS_SUBPATH: &'static str = "/assets/";
 
 fn main() {
@@ -115,6 +115,7 @@ fn run_editor_app(project_path: &str) {
     }
 
     features::world_preload::register_feature(data.as_mut(), behavior.as_mut(), render);
+    features::clipboard::register_feature(data.as_mut(), behavior.as_mut(), render);
     features::project_reload::register_feature(data.as_mut(), behavior.as_mut(), render);
     features::scroll::register_feature(data.as_mut(), behavior.as_mut(), render);
     features::ui_interaction::register_feature(data.as_mut(), behavior.as_mut(), render);
