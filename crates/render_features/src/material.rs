@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
 use aphyn_asset_storage::{AssetHandle, AssetStorageResource};
-use aphyn_ecs::{EntitiesHolderMut, OrFilter, ResourcesHolderMut, WithFilter, WorldDataMut};
+use aphyn_ecs::{EntitiesHolderMut, OrFilter, ResourcesHolderMut, ThreadPoolAccess, WithFilter, WorldDataMut};
 use aphyn_ffi::{FfiIndexSet, FfiOption, FfiVec};
 use aphyn_math::{Mat4, Vec3};
 use aphyn_render::{
@@ -543,7 +543,7 @@ fn write_batched_mesh(
 }
 
 impl RenderFeature for MaterialRenderFeature {
-    fn add_passes(&mut self, world: WorldDataMut, passes: &mut RenderPassWriter<Self>) {
+    fn add_passes(&mut self, world: WorldDataMut, _thread_pool: ThreadPoolAccess, passes: &mut RenderPassWriter<Self>) {
         self.items.clear();
 
         let (mut res, entities, _) = world.into_tuple_mut();
@@ -689,7 +689,7 @@ mod tests {
         assert!(render.add_feature(RENDER_FEATURE_MATERIAL, MaterialRenderFeature::default()));
 
         for _ in 0..2 {
-            render.collect_passes(&mut world);
+            render.collect_passes(&mut world, ThreadPoolAccess::single_threaded());
             assert!(render.pass_entries().is_empty());
             assert!(feature(&render).items().is_empty());
         }

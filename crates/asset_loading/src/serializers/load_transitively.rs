@@ -13,7 +13,7 @@ use aphyn_serialization_ecs::SerializersResource;
 
 use crate::{
     AudioClipLoader, EntityIdDecoder, EntityIdEncoder, EntityTransSerializer, MaterialLoader, MeshLoader, PrefabLoader, SceneLoader,
-    ShaderLoader, TextureLoader,
+    ShaderLoader, TextureLoader, deserialize_material,
 };
 
 pub fn load_asset_transitively_from_world<R>(
@@ -94,9 +94,9 @@ pub fn load_asset_transitively<R>(
     serializer_local.register(TransitiveLoadTransSerializer {
         assets: materials,
         assets_dir_path,
-        loader: |mut ctx, value, _assets_dir_path| {
+        loader: |ctx, value, _assets_dir_path| {
             // todo: use real path?
-            let material = ctx.deserialize_default::<Material>("", value);
+            let material = deserialize_material(ctx, value, templates);
             Some(material_loader.bind(material, &templates.lock().unwrap(), &shaders.lock().unwrap()))
         },
     });

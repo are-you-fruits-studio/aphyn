@@ -17,7 +17,7 @@ use winit::{
 };
 
 use crate::{
-    GamepadInputStorage, InputResource, TextInputEvent, TimeResource, WindowFocusChangedEvent,
+    GamepadInputStorage, InputResource, KeyPressedEvent, TextInputEvent, TimeResource, WindowFocusChangedEvent,
     render_target::RenderTarget,
     run_frame_schedules,
     window_resources::{
@@ -135,18 +135,18 @@ impl ApplicationHandler for EventLoopHandler {
     }
 
     fn device_event(&mut self, _event_loop: &ActiveEventLoop, _device_id: DeviceId, event: DeviceEvent) {
-        let EventLoopHandlerState::Polling { .. } = &mut self.0 else {
+        let EventLoopHandlerState::Polling { data, .. } = &mut self.0 else {
             return;
         };
 
         match event {
-            // todo
-            // DeviceEvent::MouseMotion { delta } => {
-            //     let mut input = world.data().resources().get_mut::<InputResource>().unwrap();
+            DeviceEvent::MouseMotion { delta } => {
+                let mut res = data.as_mut().into_resources_mut();
+                let input = res.get_mut::<InputResource>().unwrap();
 
-            //     input.mouse.position[0] += delta.0;
-            //     input.mouse.position[1] += delta.1;
-            // },
+                input.mouse.motion_delta[0] += delta.0;
+                input.mouse.motion_delta[1] += delta.1;
+            }
             _ => (),
         }
     }
@@ -204,15 +204,28 @@ impl ApplicationHandler for EventLoopHandler {
                 }
             }
             WindowEvent::KeyboardInput { event, .. } => {
+                let key_code = match event.physical_key {
+                    PhysicalKey::Code(key_code) => Some(key_code),
+                    PhysicalKey::Unidentified(_) => None,
+                };
+
+                if let Some(text) = &event.text {
+                    evt.get_mut().push(TextInputEvent(text.as_str().into()));
+                }
+
+                if event.state == ElementState::Pressed {
+                    evt.get_mut().push(KeyPressedEvent {
+                        key: key_code.into(),
+                        text: event.text.as_ref().map(|t| t.as_str()).unwrap_or_default().into(),
+                        is_repeat: event.repeat,
+                    });
+                }
+
                 if event.repeat {
                     return;
                 }
 
-                if let Some(text) = event.text {
-                    evt.get_mut().push(TextInputEvent(text.as_str().into()));
-                }
-
-                let PhysicalKey::Code(key_code) = event.physical_key else {
+                let Some(key_code) = key_code else {
                     return;
                 };
 
@@ -244,7 +257,7 @@ impl ApplicationHandler for EventLoopHandler {
                     ThreadPoolAccess::from(thread_pool.as_ref()),
                 );
 
-                core_system_render(data, render_target, render);
+                core_system_render(data, render_target, render, ThreadPoolAccess::from(thread_pool.as_ref()));
 
                 core_system_clear_events_and_input(data.as_mut());
                 core_system_update_window(data.as_mut(), window);
@@ -291,7 +304,12 @@ fn core_system_gamepad(mut res: ResourcesHolderMut, gamepad_host: &mut Option<Gi
     }
 }
 
-fn core_system_render(data: &mut WorldData, render_target: &mut RenderTarget, render: &mut RenderFeatureRegistry) {
+fn core_system_render(
+    data: &mut WorldData,
+    render_target: &mut RenderTarget,
+    render: &mut RenderFeatureRegistry,
+    thread_pool: ThreadPoolAccess,
+) {
     let render_api = data.resources().get::<RenderApiResource>().unwrap().clone();
 
     if render_target.size() != render_api.size() {
@@ -317,6 +335,7 @@ fn core_system_render(data: &mut WorldData, render_target: &mut RenderTarget, re
                 light: None,
                 target: render_target.texture.clone(),
             },
+            thread_pool,
         );
     }
 

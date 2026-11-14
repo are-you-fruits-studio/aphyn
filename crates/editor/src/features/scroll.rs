@@ -3,6 +3,7 @@ use aphyn::*;
 use crate::{SYSTEM_GROUP, features::ui_interaction::UiRaycastResource};
 
 const MIN_HANDLE_HEIGHT: f32 = 20.0;
+const WHEEL_LINE_PIXELS: f32 = 40.0;
 
 // todo: bundle registration params
 pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
@@ -17,7 +18,8 @@ pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuild
         .group(SYSTEM_GROUP)
         .insert_child_system(update_scroll_handle_size_system)
         .insert_child_system(start_end_scrolling_system)
-        .insert_child_system(move_scroll_handle_system);
+        .insert_child_system(move_scroll_handle_system)
+        .insert_child_system(wheel_scroll_system);
 
     update
         .order_system(update_scroll_handle_size_system)
@@ -26,6 +28,10 @@ pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuild
     update
         .order_system(start_end_scrolling_system)
         .before_system(move_scroll_handle_system);
+
+    update
+        .order_system(move_scroll_handle_system)
+        .before_system(wheel_scroll_system);
 }
 
 #[derive(Component)]
@@ -163,6 +169,55 @@ fn move_scroll_handle_system(
     } else {
         0.0
     };
+
+    set_progress(scroll_c, progress, &mut local_rect_q);
+}
+
+fn wheel_scroll_system(
+    input: Res<InputResource>,
+    area_q: WorldQuery<&ScrollHandleAreaComponent>,
+    global_rect_q: WorldQuery<&GlobalRectComponent>,
+    disableable_q: WorldQuery<&GlobalDisableableComponent>,
+    child_q: WorldQuery<&ChildComponent>,
+    mut local_rect_q: WorldQuery<&mut LocalRectComponent>,
+) {
+    let delta_px = input.mouse.scroll_delta_lines[1] * WHEEL_LINE_PIXELS + input.mouse.scroll_delta_pixels[1] as f32;
+
+    if delta_px == 0.0 {
+        return;
+    }
+
+    let pos = Vec2::from_array(input.mouse.position.map(|v| v as f32));
+
+    let hovered = area_q
+        .iter()
+        .filter_map(|scroll_c| {
+            let ent_view = child_q.get(scroll_c.content)?.parent;
+
+            if disableable_q.get(ent_view).is_some_and(|d| d.is_disabled) {
+                return None;
+            }
+
+            let view_rect = global_rect_q.get(ent_view)?;
+            let offset = pos - view_rect.center;
+            let half = view_rect.scale * 0.5;
+
+            (offset.x.abs() <= half.x && offset.y.abs() <= half.y).then_some((scroll_c, view_rect))
+        })
+        .min_by(|(_, a), (_, b)| a.z.total_cmp(&b.z));
+
+    return_if_not!(Some((scroll_c, view_rect)) = hovered);
+    return_if_not!(Some(content_rect) = global_rect_q.get(scroll_c.content));
+
+    let overflow = content_rect.scale.y - view_rect.scale.y;
+
+    if overflow <= 0.0 {
+        return;
+    }
+
+    return_if_not!(Some(content_local) = local_rect_q.get(scroll_c.content));
+
+    let progress = (content_local.anchor.y - delta_px / overflow).clamp(0.0, 1.0);
 
     set_progress(scroll_c, progress, &mut local_rect_q);
 }

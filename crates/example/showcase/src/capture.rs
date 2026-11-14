@@ -82,7 +82,7 @@ struct CaptureFeature {
 }
 
 impl RenderFeature for CaptureFeature {
-    fn add_passes(&mut self, world: WorldDataMut, passes: &mut RenderPassWriter<Self>) {
+    fn add_passes(&mut self, world: WorldDataMut, _thread_pool: ThreadPoolAccess, passes: &mut RenderPassWriter<Self>) {
         let Some(clock) = world.resources().get::<LoopClock>() else {
             return;
         };

@@ -1,14 +1,19 @@
 use std::{
     ffi::{OsStr, OsString},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use crate::{
     features::{
+        game_window::GameViewFocusResource,
         generic_dropdown::{GenericDropdownResource, select_generic_dropdown_system},
-        inspector_window::data::{InspectedAssetResource, InspectedEntityResource, OpenedEntitiesAssetResource},
+        input_field::{SelectedInputFieldResource, is_editor_hotkey_just_pressed, update_selected_input_field_text_system},
+        inspector_window::{
+            data::{InspectedAssetResource, InspectedEntityResource, OpenedEntitiesAssetResource},
+            systems::save_simulated_entities_to_asset_system,
+        },
         project_window_create::ProjectEntryCreateMenuResource,
-        project_window_rename::{ProjectEntryRenameResource, get_entry_dir},
+        project_window_rename::{ProjectEntryRenameResource, get_entry_dir, start_project_entry_rename_system},
         world_preload::SimulatedWorldResource,
     },
     *,
@@ -26,12 +31,31 @@ pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuild
         .insert_child_system(select_file_system)
         .insert_child_system(update_project_entry_selection_system)
         .insert_child_system(open_project_entry_context_menu_system)
-        .insert_child_system(apply_project_entry_context_menu_system);
+        .insert_child_system(apply_project_entry_context_menu_system)
+        .insert_child_system(delete_selected_file_hotkey_system)
+        .insert_child_system(rename_selected_file_hotkey_system);
 
     update
         .order_system(check_ui_interaction_system)
         .before_system(select_file_system)
         .before_system(update_project_entry_selection_system);
+
+    // a field deselected by Enter/Escape this frame still swallows the key
+    update
+        .order_system(delete_selected_file_hotkey_system)
+        .before_system(update_selected_input_field_text_system);
+
+    update
+        .order_system(rename_selected_file_hotkey_system)
+        .before_system(update_selected_input_field_text_system);
+
+    update
+        .order_system(delete_selected_file_hotkey_system)
+        .before_system(save_simulated_entities_to_asset_system);
+
+    update
+        .order_system(rename_selected_file_hotkey_system)
+        .before_system(start_project_entry_rename_system);
 
     update
         .order_system(select_generic_dropdown_system)
@@ -58,10 +82,7 @@ pub fn select_file_system(
     mut select_evt: EvtMut<FileSelectedEvent>,
     mut open_evt: EvtMut<FileOpenedEvent>,
 ) {
-    let Some((entry_c, button_c)) = entry_q
-        .iter()
-        .find(|(_, b)| b.was_clicked_this_frame || b.was_right_clicked_this_frame)
-    else {
+    let Some((entry_c, button_c)) = entry_q.iter().find(|(_, b)| b.was_clicked_this_frame) else {
         return;
     };
 
@@ -209,31 +230,99 @@ pub fn apply_project_entry_context_menu_system(
             }
         }
         ProjectEntryContextAction::Rename => rename_res.request(context_menu.path.clone()),
-        ProjectEntryContextAction::Delete => {
-            let path = Path::new(&context_menu.path);
+        ProjectEntryContextAction::Delete => delete_project_entry(
+            Path::new(&context_menu.path),
+            &open_project,
+            &mut selected_file,
+            &mut inspected_asset,
+            &mut opened_asset,
+            &mut inspected_entity,
+            &mut simulated_world,
+        ),
+    }
+}
 
-            let result = if path.is_dir() {
-                std::fs::remove_dir_all(path)
-            } else {
-                std::fs::remove_file(path)
-            };
-            if let Err(err) = result {
-                eprintln!("failed to delete {:?}. {}", path, err);
-            }
+// the same entries the context menu offers Rename and Delete for
+fn is_modifiable_project_entry(path: &OsStr, open_project: &OpenProjectResource, simulated_world: &SimulatedWorldResource) -> bool {
+    get_asset_key(path, open_project).is_some_and(|key| !key.is_empty()) && !simulated_world.is_playing()
+}
 
-            if !path.exists() {
-                apply_project_path_change(
-                    path,
-                    None,
-                    &open_project,
-                    &mut selected_file,
-                    &mut inspected_asset,
-                    &mut opened_asset,
-                    &mut inspected_entity,
-                    &mut simulated_world,
-                );
-            }
-        }
+pub fn delete_selected_file_hotkey_system(
+    input_res: Res<InputResource>,
+    selected_input: Res<SelectedInputFieldResource>,
+    game_focus: Res<GameViewFocusResource>,
+    open_project: Res<OpenProjectResource>,
+    mut selected_file: ResMut<SelectedFileResource>,
+    mut inspected_asset: ResMut<InspectedAssetResource>,
+    mut opened_asset: ResMut<OpenedEntitiesAssetResource>,
+    mut inspected_entity: ResMut<InspectedEntityResource>,
+    mut simulated_world: ResMut<SimulatedWorldResource>,
+) {
+    if !is_editor_hotkey_just_pressed(&input_res, &selected_input, &game_focus, KeyCode::Delete)
+        || !is_modifiable_project_entry(&selected_file.path, &open_project, &simulated_world)
+    {
+        return;
+    }
+
+    let path = PathBuf::from(&selected_file.path);
+    delete_project_entry(
+        &path,
+        &open_project,
+        &mut selected_file,
+        &mut inspected_asset,
+        &mut opened_asset,
+        &mut inspected_entity,
+        &mut simulated_world,
+    );
+}
+
+pub fn rename_selected_file_hotkey_system(
+    input_res: Res<InputResource>,
+    selected_input: Res<SelectedInputFieldResource>,
+    game_focus: Res<GameViewFocusResource>,
+    open_project: Res<OpenProjectResource>,
+    selected_file: Res<SelectedFileResource>,
+    simulated_world: Res<SimulatedWorldResource>,
+    mut rename_res: ResMut<ProjectEntryRenameResource>,
+) {
+    if !is_editor_hotkey_just_pressed(&input_res, &selected_input, &game_focus, KeyCode::F2)
+        || !is_modifiable_project_entry(&selected_file.path, &open_project, &simulated_world)
+    {
+        return;
+    }
+
+    rename_res.request(selected_file.path.clone());
+}
+
+fn delete_project_entry(
+    path: &Path,
+    open_project: &OpenProjectResource,
+    selected_file: &mut SelectedFileResource,
+    inspected_asset: &mut InspectedAssetResource,
+    opened_asset: &mut OpenedEntitiesAssetResource,
+    inspected_entity: &mut InspectedEntityResource,
+    simulated_world: &mut SimulatedWorldResource,
+) {
+    let result = if path.is_dir() {
+        std::fs::remove_dir_all(path)
+    } else {
+        std::fs::remove_file(path)
+    };
+    if let Err(err) = result {
+        eprintln!("failed to delete {:?}. {}", path, err);
+    }
+
+    if !path.exists() {
+        apply_project_path_change(
+            path,
+            None,
+            open_project,
+            selected_file,
+            inspected_asset,
+            opened_asset,
+            inspected_entity,
+            simulated_world,
+        );
     }
 }
 

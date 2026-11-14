@@ -221,14 +221,29 @@ fn get_input_field_text(ent: EntitiesHolderRef, input_field: EntityId) -> Option
 }
 
 fn destroy_input_field(mut ent: EntitiesHolderMut, input_field: EntityId) {
-    let Some(&InputFieldComponent { text, selection_border }) = ent.get_component::<InputFieldComponent>(input_field) else {
+    let Some(&InputFieldComponent {
+        text,
+        selection_border,
+        caret,
+        selection_highlight,
+    }) = ent.get_component::<InputFieldComponent>(input_field)
+    else {
         return;
     };
 
     let background = ent.get_component::<ChildComponent>(text).map(|c| c.parent);
 
     destroy_entity_and_children(ent.as_mut(), input_field);
-    for e in [Some(text), Some(selection_border), background].into_iter().flatten() {
+    for e in [
+        Some(text),
+        Some(selection_border),
+        Some(caret),
+        Some(selection_highlight),
+        background,
+    ]
+    .into_iter()
+    .flatten()
+    {
         ent.destroy_entity(e);
     }
 }

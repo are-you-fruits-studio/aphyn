@@ -679,6 +679,9 @@ pub fn spawn_serialized_field(
         font.clone(),
     );
 
+    // pressing the label drags numeric values (see `number_drag`)
+    ent.add_component(ent_key, ButtonComponent::default()).ok().unwrap();
+
     let ent_value_container = spawn_default_layout_ent(ent.as_mut(), ent_field, false);
 
     if matches!(serialized_val, SerializedValue::Primitive { .. } | SerializedValue::Null) {
@@ -905,6 +908,8 @@ pub fn spawn_input_area_ent(
     let ent_background = ent.create_entity();
     let ent_selection_border = ent.create_entity();
     let ent_text = ent.create_entity();
+    let ent_caret = ent.create_entity();
+    let ent_selection_highlight = ent.create_entity();
 
     ent.add_component(ent_root, GlobalRectComponent::default()).ok().unwrap();
     ent.add_component(
@@ -924,6 +929,8 @@ pub fn spawn_input_area_ent(
         InputFieldComponent {
             text: ent_text,
             selection_border: ent_selection_border,
+            caret: ent_caret,
+            selection_highlight: ent_selection_highlight,
         },
     )
     .ok()
@@ -1013,7 +1020,7 @@ pub fn spawn_input_area_ent(
     ent.add_component(
         ent_background,
         MaterialComponent {
-            material: material_panel,
+            material: material_panel.clone(),
         },
     )
     .ok()
@@ -1030,6 +1037,37 @@ pub fn spawn_input_area_ent(
     )
     .ok()
     .unwrap();
+
+    // the input field systems move these along x and toggle their visibility
+    for (ent_mark, z, height, color) in [
+        (ent_selection_highlight, -0.5, 1.0, rgba_f32_array!("#264f78ff")),
+        (ent_caret, -1.5, 0.8, rgba_f32_array!("#ffffffff")),
+    ] {
+        ent.set_components(
+            ent_mark,
+            (
+                GlobalRectComponent::default(),
+                LocalRectComponent {
+                    anchor: Vec2::new(0.0, 0.5),
+                    pivot: Vec2::new(0.0, 0.5),
+                    scale: Vec2::new(Some(UiVal::px(1.5)), Some(UiVal::ph(height))).map(Into::into),
+                    z,
+                    ..Default::default()
+                },
+                GlobalDisableableComponent { is_disabled: true },
+                LocalDisableableComponent { is_disabled: true },
+                ChildComponent { parent: ent_background },
+                MaterialComponent {
+                    material: material_panel.clone(),
+                },
+                BatchedMeshComponent::default(),
+                ImageComponent {
+                    color: Vec4::from_array(color),
+                    ..Default::default()
+                },
+            ),
+        );
+    }
 
     ent.add_component(ent_text, GlobalRectComponent::default()).ok().unwrap();
     ent.add_component(ent_text, LocalRectComponent::default()).ok().unwrap();

@@ -11,7 +11,7 @@ use aphyn_serialization_ecs::SerializersResource;
 
 use crate::{
     AudioClipLoader, EntityIdDecoder, EntityIdEncoder, EntityTransSerializer, MaterialLoader, MeshLoader, PrefabLoader, SceneLoader,
-    ShaderLoader, TextureLoader,
+    ShaderLoader, TextureLoader, deserialize_material,
 };
 
 pub fn load_asset_single_from_world<R>(
@@ -181,9 +181,9 @@ pub(crate) fn material_direct_load_serializer<'m, 'brw: 'm>(
         assets: materials,
         assets_dir_path,
         asset_key,
-        loader: move |mut ctx, value, _assets_dir_path| {
+        loader: move |ctx, value, _assets_dir_path| {
             // todo: use real path?
-            let material = ctx.deserialize_default::<Material>("", value);
+            let material = deserialize_material(ctx, value, templates);
             let materials = materials.lock().unwrap();
             let old = materials.get_registered(asset_key).and_then(|handle| materials.get(handle));
             Some(material_loader.reload(material, old, &templates.lock().unwrap(), &shaders.lock().unwrap()))

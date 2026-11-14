@@ -48,7 +48,7 @@ pub struct SerializedValueComponent {
     pub path: FfiString,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Component, Debug, Copy, Clone)]
 pub struct SerializedFieldComponent {
     pub key_text: EntityId,
     pub value_container: EntityId,

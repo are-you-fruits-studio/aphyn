@@ -119,6 +119,11 @@
 //!     // Cursor position in physical pixels.
 //!     let [x, y] = input.mouse.position;
 //!
+//!     // Raw mouse motion accumulated since the last frame, without OS acceleration, in device units
+//!     // (roughly pixels). Unlike `position` it keeps changing while the cursor is locked, confined or
+//!     // at the screen edge, so use it for mouse-look and `position` for pointing.
+//!     let [look_x, look_y] = input.mouse.motion_delta;
+//!
 //!     // Wheel scroll accumulated since the last frame; positive `y` scrolls up / away from the user.
 //!     // Notched wheels report lines, touchpads report physical pixels, so read both.
 //!     let [_, wheel_lines] = input.mouse.scroll_delta_lines;
@@ -131,7 +136,7 @@
 //!         let _ = (throttle, jumping);
 //!     }
 //!
-//!     let _ = (strafing, x, y, wheel_lines, wheel_pixels);
+//!     let _ = (strafing, x, y, look_x, look_y, wheel_lines, wheel_pixels);
 //! }
 //! ```
 //!
@@ -174,7 +179,8 @@
 //!
 //! The text a key press produces (as resolved by the platform's keyboard layout) is emitted as
 //! a [`TextInputEvent`]. Read it with `Evt<TextInputEvent>` — useful for text fields, where raw
-//! key codes are not enough. Key repeats and IME composition are not delivered:
+//! key codes are not enough. Key repeats (the OS auto-repeat of a held key) are delivered too;
+//! IME composition is not:
 //!
 //! ```ignore
 //! use aphyn::*;
@@ -183,6 +189,25 @@
 //!     for TextInputEvent(text) in text_input.iter() {
 //!         // `text` is the typed string; "\u{8}" is backspace.
 //!         let _ = text;
+//!     }
+//! }
+//! ```
+//!
+//! Text editing usually also needs keys that produce no text (arrows, Home, End) and needs them
+//! to repeat while held. Every key press and every repeat emits a [`KeyPressedEvent`] carrying the
+//! physical key (`None` if the platform could not identify it), the text it produced (empty if
+//! none) and whether it is a repeat. These events keep their arrival order, so a field editor can
+//! handle typing and navigation from this single stream:
+//!
+//! ```ignore
+//! use aphyn::*;
+//!
+//! fn edit_field(key_pressed: Evt<KeyPressedEvent>) {
+//!     for evt in key_pressed.iter() {
+//!         match evt.key.as_ref() {
+//!             Some(KeyCode::ArrowLeft) => { /* move the caret, also on repeats */ }
+//!             _ => { /* insert `evt.text` */ }
+//!         }
 //!     }
 //! }
 //! ```
@@ -252,7 +277,9 @@
 //! frame runs many fixed steps. Then the render core system runs, after which the handler clears the frame's events, calls
 //! `clear_frame` on the input storages, reconciles the window state, and requests the next
 //! redraw. Mouse (buttons, cursor, wheel), keyboard, and resize events arrive as their own
-//! `winit` callbacks and write directly into the resources between frames.
+//! `winit` callbacks and write directly into the resources between frames. Raw mouse motion arrives
+//! as a `winit` device event rather than a window event; with `winit`'s default
+//! `DeviceEvents::WhenFocused` it is only delivered while the window is focused.
 //!
 //! #### Rendering
 //!
@@ -262,7 +289,8 @@
 //! onto the surface (`assets/copy_texture.wgsl`, nearest sampling, `REPLACE` blend). Each frame
 //! the render core system clears the target, takes the first entity with a `GlobalTransform` and
 //! a `CameraComponent`, and calls `RenderFeatureRegistry::render_view` on the app's registry with the
-//! world data and a `CurrentRenderingResource` describing that camera and the target.
+//! world data, a `CurrentRenderingResource` describing that camera and the target, and the same
+//! `ThreadPoolAccess` the frame's schedules ran on.
 //! `render_view` inserts the resource, collects and runs the passes of every registered render
 //! feature, and removes the resource again. Further cameras are ignored for now, and
 //! with no camera nothing is rendered. Finally the target is copied onto the surface with one
@@ -279,10 +307,11 @@
 //! sets. `press`/`release` update both; `clear_frame` (called once per frame after `Update`)
 //! empties only the two frame sets, which is what makes `is_just_pressed` / `is_just_released`
 //! true for exactly one frame while `is_pressed` stays sticky. The mouse storage's `clear_frame`
-//! also zeroes `scroll_delta_lines` / `scroll_delta_pixels`, which the wheel handler accumulates
-//! into (`+=`) so several wheel events between two frames add up. Repeated key events are dropped
-//! in the window-event handler before anything else, so a held key neither re-triggers
-//! `is_just_pressed` nor emits another [`TextInputEvent`].
+//! also zeroes `motion_delta` and `scroll_delta_lines` / `scroll_delta_pixels`, which the motion
+//! and wheel handlers accumulate into (`+=`) so several events between two frames add up. Every
+//! `FixedUpdate` pass of a frame sees the same whole-frame deltas. Repeated key events emit a
+//! [`TextInputEvent`] (when they carry text) and a [`KeyPressedEvent`] with `is_repeat` set, but
+//! never reach the keyboard storage, so a held key does not re-trigger `is_just_pressed`.
 //!
 //! #### Window state and change requests
 //!

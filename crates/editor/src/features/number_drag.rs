@@ -55,18 +55,31 @@ pub fn drag_number_input_field_system(
     mut selected_input_res: ResMut<SelectedInputFieldResource>,
     mut selected_input_changed_evt: EvtMut<InputFieldSelectionChangedEvent>,
     mut dragged_evt: EvtMut<NumberInputFieldDraggedEvent>,
-    input_field_q: WorldQuery<(EntityId, &ButtonComponent, &InputFieldComponent, &SerializedValueComponent)>,
+    input_field_q: WorldQuery<(EntityId, &InputFieldComponent, &SerializedValueComponent)>,
+    field_q: WorldQuery<&SerializedFieldComponent>,
+    button_q: WorldQuery<&ButtonComponent>,
+    child_q: WorldQuery<&ChildComponent>,
+    parent_q: WorldQuery<&ParentComponent>,
     mut text_q: WorldQuery<&mut TextComponent>,
 ) {
     let mouse_x = input_res.mouse.position[0];
 
     if input_res.mouse.is_just_pressed(MouseButton::Left) {
-        drag_res.drag = input_field_q
+        drag_res.drag = field_q
             .iter()
-            .filter(|(_, button_c, _, serialized_value_c)| {
-                button_c.was_clicked_this_frame && get_numeric_type(serialized_value_c).is_some()
+            .filter(|field_c| {
+                child_q
+                    .get(field_c.key_text)
+                    .and_then(|child_c| button_q.get(child_c.parent))
+                    .is_some_and(|button_c| button_c.was_clicked_this_frame)
             })
-            .map(|(input_field, ..)| NumberDrag {
+            .filter_map(|field_c| parent_q.get(field_c.value_container)?.children.first().copied())
+            .filter(|&value| {
+                input_field_q
+                    .get(value)
+                    .is_some_and(|(_, _, serialized_value_c)| get_numeric_type(serialized_value_c).is_some())
+            })
+            .map(|input_field| NumberDrag {
                 input_field,
                 press_x: mouse_x,
                 last_x: mouse_x,
@@ -87,7 +100,7 @@ pub fn drag_number_input_field_system(
 
     let Some((ent_text, ty)) = input_field_q
         .get(input_field)
-        .and_then(|(_, _, input_field_c, serialized_value_c)| Some((input_field_c.text, get_numeric_type(serialized_value_c)?)))
+        .and_then(|(_, input_field_c, serialized_value_c)| Some((input_field_c.text, get_numeric_type(serialized_value_c)?)))
     else {
         drag_res.drag = None;
         return;

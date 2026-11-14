@@ -16,6 +16,7 @@ pub mod scene_window;
 pub mod scroll;
 pub mod serialization;
 pub mod test_window;
+pub mod transform_gizmo;
 pub mod ui_interaction;
 pub mod ui_window;
 pub mod windows_layout;

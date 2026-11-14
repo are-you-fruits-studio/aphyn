@@ -51,7 +51,6 @@ fn setup_scene(mut world: WorldDataMut) {
             yaw: 0.0,
             pitch: 0.35,
             distance: 16.0,
-            last_mouse: None,
         });
         res.insert(DragState::default());
     }
@@ -374,7 +373,6 @@ struct CameraRig {
     yaw: f32,
     pitch: f32,
     distance: f32,
-    last_mouse: Option<[f64; 2]>,
 }
 
 struct Grab {
@@ -404,14 +402,11 @@ fn orbit_camera(
     input: Res<InputResource>,
     time: Res<TimeResource>,
 ) {
-    let mouse = input.mouse.position;
-    if let Some(last) = rig.last_mouse
-        && input.mouse.is_pressed(MouseButton::Right)
-    {
-        rig.yaw += (mouse[0] - last[0]) as f32 * 0.006;
-        rig.pitch = (rig.pitch + (mouse[1] - last[1]) as f32 * 0.006).clamp(-1.5, 1.5);
+    if input.mouse.is_pressed(MouseButton::Right) {
+        let [dx, dy] = input.mouse.motion_delta;
+        rig.yaw += dx as f32 * 0.006;
+        rig.pitch = (rig.pitch + dy as f32 * 0.006).clamp(-1.5, 1.5);
     }
-    rig.last_mouse = Some(mouse);
 
     rig.distance = (rig.distance * 0.9_f32.powf(input.mouse.scroll_delta_lines[1])).clamp(2.0, 60.0);
 

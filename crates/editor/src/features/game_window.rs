@@ -92,7 +92,7 @@ fn render_game_window_system(
     mut materials: ResMut<AssetStorageResource<Material>>,
     mut image_q: WorldQuery<(&GlobalRectComponent, &mut MaterialComponent), WithFilter<GameViewImageComponent>>,
 ) {
-    return_if_not!(Some(simulated_world) = &mut simulated_world.0);
+    return_if_not!(Some((simulated_world, thread_pool)) = simulated_world.world_and_thread_pool());
     return_if_not!(Some((rect_c, material_c)) = image_q.iter_mut().next());
 
     let camera = simulated_world
@@ -121,5 +121,6 @@ fn render_game_window_system(
         &mut simulated_world.data,
         &mut simulated_world.render,
         camera,
+        thread_pool,
     );
 }

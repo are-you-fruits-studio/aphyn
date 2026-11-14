@@ -9,7 +9,7 @@ pub struct InspectedAsset {
 
 impl InspectedAsset {
     pub(crate) fn to_serialized(&self, mut ctx: SerializerCtx<TransSerializerCtxState>) -> SerializedValue {
-        let mut serialized = match self.asset_type {
+        match self.asset_type {
             AssetType::Texture => ctx.serialize(&DirectSerializableAsset::<StandardTexture>::Key(self.asset_key.clone()), ""),
             AssetType::Material => ctx.serialize(&DirectSerializableAsset::<Material>::Key(self.asset_key.clone()), ""),
             AssetType::Mesh => ctx.serialize(&DirectSerializableAsset::<StandardMesh>::Key(self.asset_key.clone()), ""),
@@ -21,29 +21,7 @@ impl InspectedAsset {
             AssetType::MaterialTemplate => {
                 ctx.serialize(&DirectSerializableAsset::<MaterialTemplate>::Key(self.asset_key.clone()), "")
             }
-        };
-
-        if let SerializedValue::Composite(serialized_composite) = &mut serialized {
-            if let SerializedCompositeValues::Map(serialized_map) = &mut serialized_composite.values {
-                let mut map = FfiIndexMap::new();
-
-                map.insert(
-                    FfiString::from("asset_type"),
-                    SerializedValue::Primitive(SerializedPrimitive::String(self.asset_type.serialized_str().into())),
-                );
-                for (k, v) in &serialized_map.values {
-                    map.insert(k.clone(), v.clone());
-                }
-
-                serialized_map.values = map;
-            } else {
-                eprintln!("Strange InspectedAsset serialization, failed to enrich with asset_type");
-            }
-        } else {
-            eprintln!("Strange InspectedAsset serialization, failed to enrich with asset_type");
         }
-
-        serialized
     }
 
     // todo

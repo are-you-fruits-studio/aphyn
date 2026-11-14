@@ -1,6 +1,6 @@
 use std::{ffi::c_void, marker::PhantomData};
 
-use aphyn_ecs::{TypesRegistryAccessFfi, WorldDataMut, WorldDataUnsafeFfi};
+use aphyn_ecs::{ThreadPoolAccess, TypesRegistryAccessFfi, WorldDataMut, WorldDataUnsafeFfi};
 use aphyn_ffi::{FfiFnOnceVec, FfiVec};
 use aphyn_render::RenderApiResource;
 
@@ -20,6 +20,7 @@ pub(crate) struct RenderPassInput {
     pub(crate) world: *mut WorldDataUnsafeFfi,
     pub(crate) types: *const TypesRegistryAccessFfi,
     pub(crate) render_api: *const RenderApiResource,
+    pub(crate) thread_pool: ThreadPoolAccess<'static>,
 }
 
 pub(crate) type RenderPasses = FfiFnOnceVec<'static, RenderPassInput, ()>;
@@ -47,6 +48,7 @@ impl<'a, T: 'static> RenderPassWriter<'a, T> {
             let mut ctx = RenderPassCtx {
                 render_api: &*input.render_api,
                 world: slot_world(types, input.world, input.types),
+                thread_pool: input.thread_pool,
             };
 
             pass(value, &mut ctx)
@@ -70,4 +72,5 @@ impl<'a, T: ?Sized> RenderPassWriter<'a, T> {
 pub struct RenderPassCtx<'a> {
     pub render_api: &'a RenderApiResource,
     pub world: WorldDataMut<'a>,
+    pub thread_pool: ThreadPoolAccess<'a>,
 }

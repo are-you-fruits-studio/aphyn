@@ -1,13 +1,18 @@
 # Prioritized
 
-- implement animation
-- implement Skybox
-- implement shadows
-- implement windows docking (like in Microsoft VS)
 - copy-paste (with right mouse button and drop-down) (maybe even ctrl c ctrl v)
-
+- ambient lighting
+- view the game with the highlited mesh triangles' edges
 - make sure prefab root entity is the first one serialized
-- make sure scenes can be spawned
+- implement windows docking (like in Microsoft VS)
+- rename entities (or make it so that all the entities in the editor have a DebugName component)
+
+- instantiate prefabs in editor
+- implement engine assets (like in Unity they have Assets folder and Packages folder in the Project window).
+- resources serialization (or resources as assets)
+- implement shadows
+- implement Skybox
+- implement animation
 
 # Default
 
@@ -15,12 +20,13 @@
 
 # Queue
 
-- transform-adjust interactable gizmo on selected object
-- implement more basic features for input fields (cursor, selection, shortcuts, etc.)
 - console window
 - drag-drop files to move/assign them
 - show opened asset with different kind of selection
 - describe project structure and architecture better for claude
+
+- fbx import
+- fonts and their import
 
 # Low-prio
 

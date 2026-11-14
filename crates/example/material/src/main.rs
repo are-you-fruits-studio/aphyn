@@ -259,7 +259,7 @@ struct VignetteFeature {
 }
 
 impl RenderFeature for VignetteFeature {
-    fn add_passes(&mut self, _world: WorldDataMut, passes: &mut RenderPassWriter<Self>) {
+    fn add_passes(&mut self, _world: WorldDataMut, _thread_pool: ThreadPoolAccess, passes: &mut RenderPassWriter<Self>) {
         passes.add(RENDER_ORDER_POST_PROCESSING, |this, ctx| this.draw(ctx));
     }
 }

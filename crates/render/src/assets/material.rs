@@ -95,13 +95,23 @@ impl Default for MaterialDataEntry {
     }
 }
 
-impl<S: SerializerCtxState<MaterialDataValue>> Serializable<S> for MaterialDataEntry {
+impl<S: SerializerCtxState<f32> + SerializerCtxState<Vec4<f32>> + SerializerCtxState<AssetHandle<StandardTexture>>> Serializable<S>
+    for MaterialDataEntry
+{
     fn serialize(&self, mut ctx: SerializerCtx<S>, path: &str) -> SerializedValue {
-        ctx.serialize(&self.value, path)
+        match &self.value {
+            MaterialDataValue::F32(value) => ctx.serialize(value, path),
+            MaterialDataValue::Vec4(value) => ctx.serialize(value, path),
+            MaterialDataValue::Texture(value) => ctx.serialize(value, path),
+        }
     }
 
     fn deserialize(&mut self, mut ctx: SerializerCtx<S>, path: &str, serialized: &SerializedValue) {
-        ctx.deserialize(&mut self.value, path, serialized);
+        match &mut self.value {
+            MaterialDataValue::F32(value) => ctx.deserialize(value, path, serialized),
+            MaterialDataValue::Vec4(value) => ctx.deserialize(value, path, serialized),
+            MaterialDataValue::Texture(value) => ctx.deserialize(value, path, serialized),
+        }
         self.snapshot = next_snapshot(self.snapshot);
     }
 }
@@ -184,16 +194,43 @@ impl MaterialData {
     material_data_get_impl!(Texture, AssetHandle<StandardTexture>, get_texture, get_texture_mut);
 }
 
-impl<S: SerializerCtxState<FfiString> + SerializerCtxState<MaterialDataEntry>> Serializable<S> for MaterialData {
-    fn serialize(&self, ctx: SerializerCtx<S>, path: &str) -> SerializedValue {
-        self.0.serialize(ctx, path)
+impl<S: Copy + SerializerCtxState<MaterialDataEntry>> Serializable<S> for MaterialData {
+    fn serialize(&self, mut ctx: SerializerCtx<S>, path: &str) -> SerializedValue {
+        let mut map = ctx.serialize_map(path);
+        for (name, entry) in self.0.iter() {
+            map = map.with_field(name.as_str(), entry);
+        }
+        map.finish_as_map(true)
     }
 
-    fn deserialize(&mut self, ctx: SerializerCtx<S>, path: &str, serialized: &SerializedValue) {
-        let existing = self.0.len() as usize;
-        self.0.deserialize(ctx, path, serialized);
-        for entry in self.0.values_mut().skip(existing) {
-            entry.snapshot = 1;
+    fn deserialize(&mut self, mut ctx: SerializerCtx<S>, path: &str, serialized: &SerializedValue) {
+        let unknown: Vec<FfiString> = match decompose_serialization_path(path) {
+            Some((name, _)) => (self.0.get(name).is_none()).then(|| name.into()).into_iter().collect(),
+            None => match serialized {
+                SerializedValue::Composite(SerializedComposite {
+                    values: SerializedCompositeValues::Map(map),
+                    ..
+                }) => map
+                    .values
+                    .keys()
+                    .filter(|name| self.0.get(name.as_str()).is_none())
+                    .cloned()
+                    .collect(),
+                _ => Vec::new(),
+            },
+        };
+
+        {
+            let mut fields = ctx.deserialize_map_fields(path, serialized);
+            for (name, entry) in self.0.iter_mut() {
+                fields = fields.with_field(name.as_str(), entry);
+            }
+        }
+
+        for name in unknown {
+            ctx.report_err(SerializationError::InvalidInput {
+                message: format!("material has no input '{name}'").into(),
+            });
         }
     }
 }
@@ -542,8 +579,6 @@ mod tests {
         let mut registry = TransSerializerRegistry::new();
         registry.register(StandardSerializer::<f32>::default());
         registry.register(StandardSerializer::<Vec4<f32>>::default());
-        registry.register(StandardSerializer::<FfiString>::default());
-        registry.register(StandardSerializer::<MaterialDataValue>::default());
         registry.register(StandardSerializer::<MaterialDataEntry>::default());
         registry.register(StandardSerializer::<MaterialData>::default());
         registry
@@ -567,17 +602,51 @@ mod tests {
         let data = sample_data();
 
         let serialized = registry.serialize(&data, "", &mut on_err);
-        let mut restored = MaterialData::default();
+        let mut restored = MaterialData::new();
+        restored.insert("color", MaterialDataValue::Vec4(Vec4::splat(0.0)));
+        restored.insert("speed", MaterialDataValue::F32(0.0));
         registry.deserialize(&mut restored, "", &serialized, &mut on_err);
 
-        assert_eq!(entry_names(&restored), ["speed", "color"]);
+        assert_eq!(entry_names(&restored), ["color", "speed"]);
         assert_eq!(restored.get_f32("speed"), Some(&0.3));
         assert_eq!(restored.get_vec4("color"), Some(&Vec4::new(1.0, 0.0, 0.0, 1.0)));
 
+        assert!(matches!(&serialized, SerializedValue::Composite(composite) if composite.is_rigid));
         let json = serialized.to_json();
-        let value_json = registry.serialize(&MaterialDataValue::F32(0.3), "", &mut on_err).to_json();
-        assert_eq!(json["speed"], value_json);
-        assert!(json["speed"].get("snapshot").is_none());
+        assert_eq!(json["speed"], registry.serialize(&0.3_f32, "", &mut on_err).to_json());
+        assert_eq!(json["color"], serde_json::json!({ "x": 1.0, "y": 0.0, "z": 0.0, "w": 1.0 }));
+    }
+
+    #[test]
+    fn deserialize_keeps_kinds() {
+        let mut registry = registry();
+        let mut on_err = |_: SerializationError| ();
+        let mut data = sample_data();
+
+        let serialized = registry.serialize(&0.7_f32, "", &mut on_err);
+        registry.deserialize(&mut data, "color", &serialized, &mut on_err);
+
+        assert!(data.get_vec4("color").is_some());
+    }
+
+    #[test]
+    fn deserialize_skips_unknown_entries() {
+        let mut registry = registry();
+        let mut errors = Vec::new();
+        let mut on_err = |err: SerializationError| errors.push(err.to_string());
+
+        let mut source = sample_data();
+        source.insert("glow", MaterialDataValue::F32(1.0));
+        let serialized = registry.serialize(&source, "", &mut on_err);
+
+        let mut data = MaterialData::new();
+        data.insert("speed", MaterialDataValue::F32(0.0));
+        registry.deserialize(&mut data, "", &serialized, &mut on_err);
+
+        assert_eq!(entry_names(&data), ["speed"]);
+        assert_eq!(data.get_f32("speed"), Some(&0.3));
+        assert_eq!(errors.len(), 2);
+        assert!(errors.iter().any(|err| err.contains("'glow'")));
     }
 
     #[test]
@@ -599,25 +668,12 @@ mod tests {
         let mut on_err = |err: SerializationError| panic!("{err}");
         let mut data = sample_data();
 
-        let serialized = registry.serialize(&MaterialDataValue::F32(0.9), "", &mut on_err);
+        let serialized = registry.serialize(&0.9_f32, "", &mut on_err);
         registry.deserialize(&mut data, "speed", &serialized, &mut on_err);
 
         assert_eq!(data.get_f32("speed"), Some(&0.9));
         assert_eq!(data.entry("speed").unwrap().snapshot(), 2);
         assert_eq!(data.entry("color").unwrap().snapshot(), 1);
-    }
-
-    #[test]
-    fn deserialize_new_entries_start_at_one() {
-        let mut registry = registry();
-        let mut on_err = |err: SerializationError| panic!("{err}");
-
-        let serialized = registry.serialize(&sample_data(), "", &mut on_err);
-        let mut restored = MaterialData::default();
-        registry.deserialize(&mut restored, "", &serialized, &mut on_err);
-
-        assert_eq!(restored.entry("speed").unwrap().snapshot(), 1);
-        assert_eq!(restored.entry("color").unwrap().snapshot(), 1);
     }
 
     #[test]

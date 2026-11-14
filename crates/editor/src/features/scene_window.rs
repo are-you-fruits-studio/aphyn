@@ -6,7 +6,11 @@ use crate::{
     SYSTEM_GROUP,
     features::{
         game_window::GameViewImageComponent,
-        inspector_window::{data::HierarchyWindowEntryComponent, systems::update_hierarchy_window_system},
+        inspector_window::{
+            data::{HierarchyWindowEntryComponent, InspectedEntityResource},
+            systems::update_hierarchy_window_system,
+        },
+        transform_gizmo::{TransformGizmoMeshResource, TransformGizmoResource, build_transform_gizmo_mesh},
         ui_interaction::{ButtonClickEvent, DOUBLE_CLICK_INTERVAL, HoverAreaComponent, check_ui_interaction_system},
         world_preload::{SimulatedWorldResource, preload_assets_into_simulated_world_system, tick_simulated_world_system},
     },
@@ -117,7 +121,7 @@ pub struct SimulatedViewTarget {
 #[derive(Resource, Default)]
 pub struct SceneViewResource(pub SimulatedViewTarget);
 
-fn control_scene_camera_system(
+pub fn control_scene_camera_system(
     input: Res<InputResource>,
     mut camera_res: ResMut<SceneCameraResource>,
     image_q: WorldQuery<&HoverAreaComponent, WithFilter<SceneViewImageComponent>>,
@@ -226,7 +230,7 @@ fn sync_simulated_window_system(
     state.size = size;
 }
 
-fn view_size(rect_c: &GlobalRectComponent) -> [u32; 2] {
+pub fn view_size(rect_c: &GlobalRectComponent) -> [u32; 2] {
     rect_c.scale.map(|v| v.round().max(1.0) as u32).into_array()
 }
 
@@ -240,9 +244,23 @@ fn render_scene_window_system(
     shaders: Res<AssetStorageResource<Shader>>,
     mut materials: ResMut<AssetStorageResource<Material>>,
     mut image_q: WorldQuery<(&GlobalRectComponent, &mut MaterialComponent), WithFilter<SceneViewImageComponent>>,
+    gizmo_res: Res<TransformGizmoResource>,
+    inspected_entity: Res<InspectedEntityResource>,
 ) {
-    return_if_not!(Some(simulated_world) = &mut simulated_world.0);
+    return_if_not!(Some((simulated_world, thread_pool)) = simulated_world.world_and_thread_pool());
     return_if_not!(Some((rect_c, material_c)) = image_q.iter_mut().next());
+
+    let gizmo_mesh = build_transform_gizmo_mesh(
+        &gizmo_res,
+        inspected_entity.selected_entity,
+        &camera_res,
+        simulated_world.data.as_ref(),
+        view_size(rect_c),
+    );
+
+    if let Some(gizmo_mesh) = gizmo_mesh {
+        simulated_world.data.resources_mut().insert(gizmo_mesh);
+    }
 
     let camera = ViewCamera {
         position: camera_res.position,
@@ -263,7 +281,10 @@ fn render_scene_window_system(
         &mut simulated_world.data,
         &mut simulated_world.render,
         Some(camera),
+        thread_pool,
     );
+
+    simulated_world.data.resources_mut().remove::<TransformGizmoMeshResource>();
 }
 
 pub struct ViewCamera {
@@ -285,6 +306,7 @@ pub fn render_simulated_view(
     data: &mut WorldData,
     render: &mut RenderFeatureRegistry,
     camera: Option<ViewCamera>,
+    thread_pool: ThreadPoolAccess,
 ) {
     let size = view_size(rect_c);
 
@@ -344,6 +366,7 @@ pub fn render_simulated_view(
             light: camera.light,
             target,
         },
+        thread_pool,
     );
 }
 

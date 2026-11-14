@@ -1,12 +1,12 @@
 use std::ffi::c_void;
 
-use aphyn_ecs::{TypesRegistryAccessFfi, TypesRegistryCache, WorldDataMut, WorldDataUnsafeFfi};
+use aphyn_ecs::{ThreadPoolAccess, TypesRegistryAccessFfi, TypesRegistryCache, WorldDataMut, WorldDataUnsafeFfi};
 use aphyn_ffi::{FfiDroppable, FfiVec};
 
 use crate::{RenderPassEntry, RenderPassWriter, RenderPasses};
 
 pub trait RenderFeature: Send + Sync + 'static {
-    fn add_passes(&mut self, world: WorldDataMut, passes: &mut RenderPassWriter<Self>);
+    fn add_passes(&mut self, world: WorldDataMut, thread_pool: ThreadPoolAccess, passes: &mut RenderPassWriter<Self>);
 }
 
 #[repr(C)]
@@ -16,6 +16,7 @@ pub(crate) struct RenderFeatureFfiVtable {
         slot: u32,
         world: *mut WorldDataUnsafeFfi,
         types: *const TypesRegistryAccessFfi,
+        thread_pool: ThreadPoolAccess,
         passes: *mut RenderPasses,
         entries: *mut FfiVec<RenderPassEntry>,
     ),
@@ -60,6 +61,7 @@ impl RenderFeatureFfi {
             slot: u32,
             world: *mut WorldDataUnsafeFfi,
             types: *const TypesRegistryAccessFfi,
+            thread_pool: ThreadPoolAccess,
             passes: *mut RenderPasses,
             entries: *mut FfiVec<RenderPassEntry>,
         ) {
@@ -68,7 +70,7 @@ impl RenderFeatureFfi {
                 let world = slot_world(cache, world, types);
                 let mut writer = RenderPassWriter::new(slot, &mut *passes, &mut *entries);
 
-                value.add_passes(world, &mut writer);
+                value.add_passes(world, thread_pool, &mut writer);
             }
         }
 
@@ -85,10 +87,11 @@ impl RenderFeatureFfi {
         slot: u32,
         world: *mut WorldDataUnsafeFfi,
         types: *const TypesRegistryAccessFfi,
+        thread_pool: ThreadPoolAccess,
         passes: &mut RenderPasses,
         entries: &mut FfiVec<RenderPassEntry>,
     ) {
-        unsafe { (self.vtable.add_passes)(self.data.get(), slot, world, types, passes, entries) }
+        unsafe { (self.vtable.add_passes)(self.data.get(), slot, world, types, thread_pool, passes, entries) }
     }
 
     pub(crate) fn state(&self) -> *mut c_void {

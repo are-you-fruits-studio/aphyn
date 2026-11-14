@@ -61,11 +61,14 @@
 //! #### Writing and registering a feature
 //!
 //! A [`RenderFeature`] implements [`add_passes`](RenderFeature::add_passes), which runs once per
-//! rendered view with mutable world access and adds passes through a [`RenderPassWriter`]. A pass
-//! is a `Send + 'static` closure `FnOnce(&mut Self, &mut RenderPassCtx)`. Each added pass runs once,
-//! in sorted order, and gets the feature back as `&mut Self` plus a [`RenderPassCtx`] holding the
-//! render API and the world. GPU buffers and gathered lists live in the feature and are reused
-//! across frames; the closure only captures small per-pass values.
+//! rendered view with mutable world access and the view's `ThreadPoolAccess`, and adds passes
+//! through a [`RenderPassWriter`]. A pass is a `Send + 'static` closure
+//! `FnOnce(&mut Self, &mut RenderPassCtx)`. Each added pass runs once, in sorted order, and gets the
+//! feature back as `&mut Self` plus a [`RenderPassCtx`] holding the render API, the world and the
+//! same `ThreadPoolAccess`. Passes run one after another on the calling thread; the pool is there
+//! to split CPU work inside `add_passes` or a pass (e.g. `execute_work_stealing_parallel`). GPU
+//! buffers and gathered lists live in the feature and are reused across frames; the closure only
+//! captures small per-pass values.
 //!
 //! ```rust,no_run
 //! use aphyn_ecs::*;
@@ -81,7 +84,7 @@
 //! }
 //!
 //! impl RenderFeature for VignetteFeature {
-//!     fn add_passes(&mut self, _world: WorldDataMut, passes: &mut RenderPassWriter<Self>) {
+//!     fn add_passes(&mut self, _world: WorldDataMut, _thread_pool: ThreadPoolAccess, passes: &mut RenderPassWriter<Self>) {
 //!         passes.add(RENDER_ORDER_POST_PROCESSING, |this, ctx| this.draw(ctx));
 //!     }
 //! }
@@ -102,10 +105,11 @@
 //!
 //! #### Rendering a view
 //!
-//! The owner of the world calls [`render_view`](RenderFeatureRegistry::render_view) with the world
-//! and a [`CurrentRenderingResource`](aphyn_render::CurrentRenderingResource) describing the camera
-//! and the color target, any number of times per frame. Passes read both from that resource, which
-//! exists only during the call.
+//! The owner of the world calls [`render_view`](RenderFeatureRegistry::render_view) with the world,
+//! a [`CurrentRenderingResource`](aphyn_render::CurrentRenderingResource) describing the camera
+//! and the color target, and the `ThreadPoolAccess` handed to the features (the one the world's
+//! schedules run on, or `ThreadPoolAccess::single_threaded()`), any number of times per frame.
+//! Passes read the camera and target from that resource, which exists only during the call.
 //!
 //! #### Post-processing and gizmos
 //!
@@ -167,7 +171,11 @@
 //! `LIT` / `TRANSPARENT` / `UI` per variant, creates the shaders with [`standard_shader_desc`] and
 //! registers them as `aphyn/shaders/<variant>`, then registers [`standard_material_template`] for
 //! each as `aphyn/templates/<variant>`. It needs the `RenderApiResource`, so it runs in `Start`; asset
-//! loading must run after it so material files can reference the built-in keys.
+//! loading must run after it so material files can reference the built-in keys. A variant whose
+//! template key is already registered is skipped: registering it again would leave the handles that
+//! loaded materials hold unregistered, so they would save with an empty template.
+//! [`insert_builtin_render_assets_to`] does the same on a resources holder, for worlds that load
+//! assets before their `Start` pass (the editor's edit-mode world).
 //!
 //! #### Post-processing and gizmos
 //!
@@ -193,6 +201,8 @@
 //! `RenderPassInput`, monomorphized in the registering binary, that casts the state pointer back to
 //! `SlotState<T>` and rebuilds the `WorldDataMut` from the slot's types cache. A slot builds that
 //! cache from the first world it sees, so a registry is paired with one world for its whole life.
+//! `ThreadPoolAccess` is `#[repr(C)]` and crosses the vtable by value; `RenderPassInput` stores it
+//! lifetime-extended to `'static`, which holds because every pass runs before `render_view` returns.
 //!
 //! #### Allocation-free pass list
 //!

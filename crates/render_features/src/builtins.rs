@@ -1,5 +1,5 @@
 use aphyn_asset_storage::{AssetHandle, AssetStorageResource};
-use aphyn_ecs::{ResourcesHolderRef, WorldDataMut};
+use aphyn_ecs::{ResourcesHolderMut, ResourcesHolderRef, WorldDataMut};
 use aphyn_ffi::FfiOption;
 use aphyn_math::Vec4;
 use aphyn_render::{
@@ -162,13 +162,25 @@ pub fn create_material_from_template_key(res: ResourcesHolderRef, template_key: 
 }
 
 pub fn insert_builtin_render_assets(mut world: WorldDataMut) {
-    let mut res = world.resources_mut();
+    insert_builtin_render_assets_to(world.resources_mut());
+}
 
+pub fn insert_builtin_render_assets_to(mut res: ResourcesHolderMut) {
     let Some(render_api) = res.get::<RenderApiResource>().map(RenderApiResource::clone) else {
         return;
     };
 
     for variant in &STANDARD_VARIANTS {
+        let template_key = format!("aphyn/templates/{}", variant.name);
+
+        // re-registering would orphan the handles that loaded assets already hold
+        if res
+            .get::<AssetStorageResource<MaterialTemplate>>()
+            .is_some_and(|templates| templates.get_registered(&template_key).is_some())
+        {
+            continue;
+        }
+
         let defines = [
             variant.is_lit.then_some("LIT"),
             variant.is_transparent.then_some("TRANSPARENT"),
@@ -194,7 +206,7 @@ pub fn insert_builtin_render_assets(mut world: WorldDataMut) {
         };
         templates.insert_and_register(
             standard_material_template(shader, variant.is_transparent),
-            format!("aphyn/templates/{}", variant.name).into(),
+            template_key.into(),
         );
     }
 }

@@ -8,7 +8,7 @@ use crate::{
     resources::StandardAssetsResource,
 };
 
-fn create_header_button<C: 'static>(
+pub(crate) fn create_header_button<C: 'static>(
     mut ent: EntitiesHolderMut,
     assets_res: &StandardAssetsResource,
     parent: EntityId,

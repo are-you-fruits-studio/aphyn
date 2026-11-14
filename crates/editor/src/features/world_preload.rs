@@ -14,6 +14,7 @@ use crate::{
     features::{
         inspector_window::data::{InspectedEntityResource, OpenProjectResource},
         project_reload::ProjectReloadResource,
+        transform_gizmo::{TRANSFORM_GIZMO_RENDER_FEATURE, TransformGizmoRenderFeature},
     },
 };
 
@@ -273,6 +274,8 @@ fn build_simulated_world(
         }
     }
 
+    render.add_feature(TRANSFORM_GIZMO_RENDER_FEATURE, TransformGizmoRenderFeature::default());
+
     let behavior = behavior.build();
 
     {
@@ -318,6 +321,8 @@ fn build_simulated_world(
                 res.insert(AssetStorageResource::<Prefab>::new());
                 res.insert(AssetStorageResource::<Scene>::new());
 
+                // asset files may reference the built-in templates, which Start would register too late
+                insert_builtin_render_assets_to(res.as_mut());
                 load_all_assets(res.as_mut(), &assets_dir);
             }
             SimulationMode::Play => _ = res.insert(InputResource::default()),

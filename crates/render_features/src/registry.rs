@@ -1,4 +1,4 @@
-use aphyn_ecs::WorldData;
+use aphyn_ecs::{ThreadPoolAccess, WorldData};
 use aphyn_ffi::{FfiIndexMap, FfiString, FfiVec};
 use aphyn_render::{CurrentRenderingResource, RenderApiResource};
 
@@ -30,13 +30,13 @@ impl RenderFeatureRegistry {
         true
     }
 
-    pub fn render_view(&mut self, world: &mut WorldData, view: CurrentRenderingResource) {
+    pub fn render_view(&mut self, world: &mut WorldData, view: CurrentRenderingResource, thread_pool: ThreadPoolAccess) {
         world.resources_mut().insert(view);
 
         let render_api = world.resources().get::<RenderApiResource>().map(RenderApiResource::clone);
 
         if let Some(render_api) = render_api {
-            self.collect_passes(world);
+            self.collect_passes(world, thread_pool);
 
             let data = world.as_mut();
             let world_ffi = data.ffi();
@@ -48,6 +48,8 @@ impl RenderFeatureRegistry {
                     world: world_ffi,
                     types: unsafe { (*world_ffi).types() },
                     render_api: &render_api,
+                    // the pass runs before `render_view` returns, so the pool outlives it
+                    thread_pool: unsafe { thread_pool.extend_lifetime() },
                 };
 
                 self.passes.call(entry.index as usize, input);
@@ -59,7 +61,7 @@ impl RenderFeatureRegistry {
         world.resources_mut().remove::<CurrentRenderingResource>();
     }
 
-    pub(crate) fn collect_passes(&mut self, world: &mut WorldData) {
+    pub(crate) fn collect_passes(&mut self, world: &mut WorldData, thread_pool: ThreadPoolAccess) {
         self.entries.clear();
         self.passes.clear();
 
@@ -68,7 +70,7 @@ impl RenderFeatureRegistry {
         for i in 0..self.slots.len() {
             unsafe {
                 let types = (*world_ffi).types();
-                self.slots[i].add_passes(i as u32, world_ffi, types, &mut self.passes, &mut self.entries);
+                self.slots[i].add_passes(i as u32, world_ffi, types, thread_pool, &mut self.passes, &mut self.entries);
             }
         }
 
@@ -131,7 +133,7 @@ mod tests {
     }
 
     impl RenderFeature for FixedOrders {
-        fn add_passes(&mut self, mut world: WorldDataMut, passes: &mut RenderPassWriter<Self>) {
+        fn add_passes(&mut self, mut world: WorldDataMut, _thread_pool: ThreadPoolAccess, passes: &mut RenderPassWriter<Self>) {
             let mut resources = world.resources_mut();
             if let Some(log) = resources.get_mut::<CallLog>() {
                 log.0.push(self.name);
@@ -155,7 +157,7 @@ mod tests {
         assert!(registry.add_feature("a", FixedOrders::new("a", &[9_000_000, 1_000_000])));
         assert!(registry.add_feature("b", FixedOrders::new("b", &[5_000_000])));
 
-        registry.collect_passes(&mut world);
+        registry.collect_passes(&mut world, ThreadPoolAccess::single_threaded());
 
         assert_eq!(orders(&registry), [1_000_000, 5_000_000, 9_000_000]);
 
@@ -181,7 +183,7 @@ mod tests {
         registry.add_feature("a", FixedOrders::new("a", &[]));
         registry.add_feature("b", FixedOrders::new("b", &[]));
 
-        registry.collect_passes(&mut world);
+        registry.collect_passes(&mut world, ThreadPoolAccess::single_threaded());
 
         let log = world.as_mut().resources_mut().remove::<CallLog>().unwrap();
         assert_eq!(log.0, ["a", "b"]);
@@ -196,7 +198,7 @@ mod tests {
         assert!(!registry.add_feature("a", FixedOrders::new("a2", &[2])));
         assert_eq!(registry.slots_len(), 1);
 
-        registry.collect_passes(&mut world);
+        registry.collect_passes(&mut world, ThreadPoolAccess::single_threaded());
 
         assert_eq!(orders(&registry), [1]);
     }
@@ -207,12 +209,12 @@ mod tests {
         let mut registry = RenderFeatureRegistry::default();
         registry.add_feature("a", FixedOrders::new("a", &[3, 2, 1, 4, 5]));
 
-        registry.collect_passes(&mut world);
+        registry.collect_passes(&mut world, ThreadPoolAccess::single_threaded());
 
         let snapshot = |registry: &RenderFeatureRegistry| (registry.pass_entries().as_ptr(), registry.pass_entries_capacity());
         let before = snapshot(&registry);
 
-        registry.collect_passes(&mut world);
+        registry.collect_passes(&mut world, ThreadPoolAccess::single_threaded());
 
         assert_eq!(snapshot(&registry), before);
         assert_eq!(orders(&registry), [1, 2, 3, 4, 5]);
@@ -229,7 +231,7 @@ mod tests {
         let mut world = WorldData::default();
         let mut registry = RenderFeatureRegistry::default();
 
-        registry.collect_passes(&mut world);
+        registry.collect_passes(&mut world, ThreadPoolAccess::single_threaded());
 
         assert!(registry.pass_entries().is_empty());
     }

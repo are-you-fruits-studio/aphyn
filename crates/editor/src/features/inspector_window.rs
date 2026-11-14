@@ -13,8 +13,8 @@ use crate::{
                 add_component_system, adjust_non_rigid_composite_system, apply_component_context_menu_system,
                 apply_hierarchy_context_menu_system, apply_inspector_dropdown_change_to_simulated_world_system,
                 apply_inspector_field_text_change_to_simulated_world_system, apply_inspector_number_drag_to_simulated_world_system,
-                change_inspected_asset_system, open_component_context_menu_system, open_entities_asset_system,
-                open_hierarchy_context_menu_system, open_inspector_enum_dropdown_system,
+                change_inspected_asset_system, delete_selected_entity_hotkey_system, open_component_context_menu_system,
+                open_entities_asset_system, open_hierarchy_context_menu_system, open_inspector_enum_dropdown_system,
                 save_inspected_asset_from_simulated_world_to_file_system, save_simulated_entities_to_asset_system,
                 select_entity_system, update_add_component_input_visibility_system, update_add_component_variants_system,
                 update_hierarchy_entries_selection, update_hierarchy_window_system, update_inspector_window_system,
@@ -37,7 +37,7 @@ pub mod utils;
 // todo: support is_rigid=false (add element, remove element, edit key)
 
 // todo: asset references as asset picker
-// todo: improve scroll (mouse scroll, scroll handle auto-hide)
+// todo: improve scroll (scroll handle auto-hide)
 // todo: bool as a checkbox
 // todo: float short form
 // todo: better text editing
@@ -83,6 +83,7 @@ pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuild
         .insert_child_system(update_add_component_input_visibility_system)
         .insert_child_system(open_hierarchy_context_menu_system)
         .insert_child_system(apply_hierarchy_context_menu_system)
+        .insert_child_system(delete_selected_entity_hotkey_system)
         .insert_child_system(update_hierarchy_window_system)
         .insert_child_system(change_inspected_asset_system)
         .insert_child_system(save_inspected_asset_from_simulated_world_to_file_system)
@@ -188,6 +189,15 @@ pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuild
     update
         .order_system(select_generic_dropdown_system)
         .before_system(apply_hierarchy_context_menu_system);
+
+    update
+        .order_system(delete_selected_entity_hotkey_system)
+        .before_system(save_simulated_entities_to_asset_system);
+
+    // a field deselected by Enter/Escape this frame still swallows the key
+    update
+        .order_system(delete_selected_entity_hotkey_system)
+        .before_system(update_selected_input_field_text_system);
 
     update
         .order_system(apply_input_field_context_menu_system)

@@ -426,10 +426,8 @@
 //! `MaterialData` is `#[repr(transparent)]` over `FfiIndexMap<FfiString, MaterialDataEntry>`, the entry
 //! is `#[repr(C)]` and the value `#[repr(C, u8)]`, so all of them cross the dylib boundary. The entry
 //! snapshot starts at `1` and is advanced by `next_snapshot` (wrapping, never `0`) on every mutable
-//! access and on every deserialization into an existing entry. Entries that deserialization creates
-//! are reset to snapshot `1` by `MaterialData`, so only entries that already existed are bumped.
-//! Inspector edits and reloads do not deserialize in place: `aphyn_asset_loading` loads a fresh
-//! `Material` (all entries at `1`) and replaces the stored one under the same handle, first calling
+//! access and on every deserialization into the entry. Inspector edits and reloads do not deserialize
+//! in place: `aphyn_asset_loading` loads a fresh `Material` and replaces the stored one under the same handle, first calling
 //! [`carry_snapshots_from`](MaterialData::carry_snapshots_from) with the old data so every name that
 //! existed before continues from `next_snapshot(old)`. That is what makes the edit visible to the
 //! GPU data comparing snapshots. [`reconcile`](MaterialData::reconcile) rebuilds the map in the
@@ -449,13 +447,18 @@
 //! cloned), so a clone is not drawn until `rebuild_material_gpu` runs.
 //!
 //! `Material` implements `Serializable` by hand to serialize only `template` and `data` (the derive
-//! has no skip attribute), with the same shape the derive would produce. The snapshot is never
-//! serialized: `MaterialDataEntry` serializes as its value only, and `MaterialData` delegates to the
-//! inner `FfiIndexMap`. Serialization is generic over the context state, so the template and texture
-//! handles go through the asset handle serializers of `aphyn_asset_loading`.
-//! `MaterialDataValue::default()` is `F32(0.0)` only because the derive and the map need a `Default`;
-//! a deserialized value replaces it with the stored variant. `MaterialTemplate` and its parts derive
-//! `Serializable`.
+//! has no skip attribute), with the same shape the derive would produce. Inputs and their kinds are
+//! fixed by the template, so the material data carries neither: `MaterialDataEntry` serializes as its
+//! inner value only (a number, an `x`/`y`/`z`/`w` map, or a texture key; no variant, no snapshot), and
+//! `MaterialData` as a rigid map (so the editor inspector offers no variant dropdown and no add/remove
+//! buttons). Deserialization never creates, removes or retypes entries: each existing entry reads its
+//! value in its current kind, and names without an entry are reported and skipped. A bare
+//! deserialization of a `Material` therefore drops its data; `aphyn_asset_loading` resolves the
+//! template first and seeds the data with [`reconcile`](MaterialData::reconcile). Serialization is
+//! generic over the context state, so the template and texture handles go through the asset handle
+//! serializers of `aphyn_asset_loading`. `MaterialDataValue` derives `Serializable` (as an enum) for
+//! `MaterialInput::default`; its `default()` is `F32(0.0)` only because the derive needs a `Default`.
+//! `MaterialTemplate` and its parts derive `Serializable`.
 //!
 //! #### Helpers and unfinished parts
 //!

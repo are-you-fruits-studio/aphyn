@@ -209,9 +209,12 @@
 //!   and creates it through `RenderApiResource::create_texture` with `FilterMode::Nearest`,
 //!   passing the metadata along.
 //! - **Material template** — deserialized as is; its shader handles are loaded transitively.
-//! - **Material** — [`MaterialLoader`] deserializes a `Material` (template handle plus data); its
-//!   template and texture handles are loaded transitively, so the template and its shaders exist
-//!   before the material is bound. Binding locks the template and shader storages and, when the
+//! - **Material** — [`deserialize_material`] reads the template handle first (loading the template
+//!   transitively), seeds the data with one entry per template input in the input's kind
+//!   (`MaterialData::reconcile`), then reads the data into those entries: the serialized data carries
+//!   no kinds, so with an unresolved template every entry is reported and dropped. Texture handles are
+//!   loaded transitively, so the template and its shaders exist before [`MaterialLoader`] binds the
+//!   material. Binding locks the template and shader storages and, when the
 //!   loader has a `RenderApiResource` ([`MaterialLoader::from_world`]), calls
 //!   `RenderApiResource::rebuild_material_gpu` (reconcile the data with the template, build the GPU
 //!   data). Without a render API it only reconciles the data; such a material, or one whose template

@@ -132,6 +132,7 @@ fn run_editor_app(project_path: &str) {
     features::ui_window::register_feature(data.as_mut(), behavior.as_mut(), render);
     features::windows_layout::register_feature(data.as_mut(), behavior.as_mut(), render);
     features::scene_window::register_feature(data.as_mut(), behavior.as_mut(), render);
+    features::transform_gizmo::register_feature(data.as_mut(), behavior.as_mut(), render);
     features::game_window::register_feature(data.as_mut(), behavior.as_mut(), render);
     features::play_mode::register_feature(data.as_mut(), behavior.as_mut(), render);
     features::foldout::register_feature(data.as_mut(), behavior.as_mut(), render);

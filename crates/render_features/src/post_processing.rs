@@ -1,4 +1,4 @@
-use aphyn_ecs::WorldDataMut;
+use aphyn_ecs::{ThreadPoolAccess, WorldDataMut};
 use aphyn_math::{Vec2, Vec4};
 use aphyn_render::{CurrentRenderingResource, FilterMode, RENDER_TARGET_FORMAT, write_buffer_elements_with};
 use aphyn_render_core::{
@@ -38,7 +38,7 @@ pub struct ExposureRenderFeature {
 }
 
 impl RenderFeature for ExposureRenderFeature {
-    fn add_passes(&mut self, world: WorldDataMut, passes: &mut RenderPassWriter<Self>) {
+    fn add_passes(&mut self, world: WorldDataMut, _thread_pool: ThreadPoolAccess, passes: &mut RenderPassWriter<Self>) {
         let Some(exposure) = world
             .resources()
             .get::<ExposureResource>()
@@ -216,7 +216,7 @@ pub struct BloomRenderFeature {
 
 // todo: fix pixelated bloom
 impl RenderFeature for BloomRenderFeature {
-    fn add_passes(&mut self, world: WorldDataMut, passes: &mut RenderPassWriter<Self>) {
+    fn add_passes(&mut self, world: WorldDataMut, _thread_pool: ThreadPoolAccess, passes: &mut RenderPassWriter<Self>) {
         let Some(bloom) = world.resources().get::<BloomResource>().filter(|bloom| bloom.is_enabled) else {
             return;
         };
@@ -363,7 +363,7 @@ pub struct ColorGradingRenderFeature {
 }
 
 impl RenderFeature for ColorGradingRenderFeature {
-    fn add_passes(&mut self, world: WorldDataMut, passes: &mut RenderPassWriter<Self>) {
+    fn add_passes(&mut self, world: WorldDataMut, _thread_pool: ThreadPoolAccess, passes: &mut RenderPassWriter<Self>) {
         if world
             .resources()
             .get::<ColorGradingResource>()

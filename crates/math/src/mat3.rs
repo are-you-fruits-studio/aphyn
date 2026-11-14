@@ -176,14 +176,13 @@ impl<T: Number> Mat3<T> {
     }
 
     pub fn to_lossy_scale_rotation(&self) -> (Vec3<T>, Quat<T>) {
-        // todo: check
         let scale = self.to_lossy_scale();
 
         let mut rot_mat = *self;
 
         for i in 0..scale.as_array().len() {
             if scale[i] != T::ZERO {
-                rot_mat[i] = crate::vec::div_by(&rot_mat[i], scale.x);
+                rot_mat[i] = crate::vec::div_by(&rot_mat[i], scale[i]);
             }
         }
 

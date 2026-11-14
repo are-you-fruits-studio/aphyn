@@ -1,4 +1,4 @@
-use aphyn_ecs::WorldDataMut;
+use aphyn_ecs::{ThreadPoolAccess, WorldDataMut};
 use aphyn_render::{
     CurrentRenderingResource, FilterMode, LIGHTS_COUNT_MAX, RenderApiResource, StandardTextureAssetMetadata, StandardTextureFormat,
     StandardUniformGlobal,
@@ -14,7 +14,7 @@ use crate::{
 pub struct GlobalsRenderFeature;
 
 impl RenderFeature for GlobalsRenderFeature {
-    fn add_passes(&mut self, world: WorldDataMut, passes: &mut RenderPassWriter<Self>) {
+    fn add_passes(&mut self, world: WorldDataMut, _thread_pool: ThreadPoolAccess, passes: &mut RenderPassWriter<Self>) {
         let (mut res, entities, _) = world.into_tuple_mut();
 
         let Some(render_api) = res.get::<RenderApiResource>().map(RenderApiResource::clone) else {

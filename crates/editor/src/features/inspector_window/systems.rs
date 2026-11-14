@@ -6,9 +6,11 @@ use crate::{
     features::{
         asset_serialization::{InspectedAsset, get_asset_type},
         foldout::{FOLDOUT_WIDTH, FoldoutButtonComponent, FoldoutKey, FoldoutResource, FoldoutToggledEvent, spawn_foldout_arrow},
+        game_window::GameViewFocusResource,
         generic_dropdown::{GenericDropdownResource, GenericDropdownStateTy},
         input_field::{
             InputFieldComponent, InputFieldSelectionChangedEvent, InputFieldTextChangedEvent, SelectedInputFieldResource,
+            is_editor_hotkey_just_pressed,
         },
         inspector_window::{
             FIELD_HEIGHT,
@@ -35,17 +37,20 @@ pub fn select_entity_system(
     mut selected_file: ResMut<SelectedFileResource>,
     file_selected_evt: Evt<FileSelectedEvent>,
     entry_q: WorldQuery<(&HierarchyWindowEntryComponent, &ButtonComponent)>,
+    empty_area_q: WorldQuery<&ButtonComponent, WithFilter<HierarchyWindowEmptyAreaComponent>>,
     mut entity_selected_evt: EvtMut<EntitySelectedEvent>,
 ) {
     if !file_selected_evt.is_empty() {
         inspected_entity.selected_entity = EntityId::EMPTY;
     }
 
-    return_if_not!(
-        Some((entry_c, _)) = entry_q
-            .iter()
-            .find(|(_, b)| b.was_clicked_this_frame || b.was_right_clicked_this_frame)
-    );
+    if empty_area_q.iter().any(|b| b.was_clicked_this_frame) && inspected_entity.selected_entity != EntityId::EMPTY {
+        inspected_entity.selected_entity = EntityId::EMPTY;
+        entity_selected_evt.push(EntitySelectedEvent);
+        return;
+    }
+
+    return_if_not!(Some((entry_c, _)) = entry_q.iter().find(|(_, b)| b.was_clicked_this_frame));
 
     inspected_entity.selected_entity = entry_c.simulated_entity;
     *selected_file = SelectedFileResource::default();
@@ -375,29 +380,49 @@ pub fn apply_hierarchy_context_menu_system(
         HierarchyContextAction::DeleteEntity => {
             return_if!(target == EntityId::EMPTY || target == root_parent);
 
-            if let Some(&ChildComponent { parent }) = sim_ent.get_component::<ChildComponent>(target)
-                && let Some(parent_c) = sim_ent.get_component_mut::<ParentComponent>(parent)
-            {
-                parent_c.children = parent_c.children.iter().copied().filter(|&e| e != target).collect();
-            }
-
-            let mut subtree = vec![target];
-            let mut i = 0;
-            while let Some(&e) = subtree.get(i) {
-                if let Some(parent_c) = sim_ent.get_component::<ParentComponent>(e) {
-                    subtree.extend(parent_c.children.iter().copied());
-                }
-                i += 1;
-            }
-
-            for e in subtree {
-                sim_ent.destroy_entity(e);
-            }
+            delete_simulated_entity(sim_ent.as_mut(), target);
 
             inspected_entity.selected_entity = EntityId::EMPTY;
             asset_edited_evt.push(AssetEditedEvent::OpenedEntitiesAsset);
         }
     }
+}
+
+pub fn delete_selected_entity_hotkey_system(
+    input_res: Res<InputResource>,
+    selected_input: Res<SelectedInputFieldResource>,
+    game_focus: Res<GameViewFocusResource>,
+    mut inspected_entity: ResMut<InspectedEntityResource>,
+    opened_asset: Res<OpenedEntitiesAssetResource>,
+    mut simulated_world: ResMut<SimulatedWorldResource>,
+    mut asset_edited_evt: EvtMut<AssetEditedEvent>,
+) {
+    if !is_editor_hotkey_just_pressed(&input_res, &selected_input, &game_focus, KeyCode::Delete) {
+        return;
+    }
+    return_if_not!(Some(simulated_world) = &mut simulated_world.0);
+    return_if_not!(Some(root_parent) = get_hierarchy_root_parent(simulated_world, &opened_asset));
+
+    let target = inspected_entity.selected_entity;
+    return_if!(target == EntityId::EMPTY || target == root_parent);
+
+    let (_, mut sim_ent, _) = simulated_world.data.as_mut().into_tuple_mut();
+    return_if!(!sim_ent.contains_entity(target));
+
+    delete_simulated_entity(sim_ent.as_mut(), target);
+
+    inspected_entity.selected_entity = EntityId::EMPTY;
+    asset_edited_evt.push(AssetEditedEvent::OpenedEntitiesAsset);
+}
+
+fn delete_simulated_entity(mut sim_ent: EntitiesHolderMut, target: EntityId) {
+    if let Some(&ChildComponent { parent }) = sim_ent.get_component::<ChildComponent>(target)
+        && let Some(parent_c) = sim_ent.get_component_mut::<ParentComponent>(parent)
+    {
+        parent_c.children = parent_c.children.iter().copied().filter(|&e| e != target).collect();
+    }
+
+    destroy_entity_and_children(sim_ent, target);
 }
 
 // todo: maybe merge all apply_inspector_xxx_to_simulated_world_system with a common event or smth.

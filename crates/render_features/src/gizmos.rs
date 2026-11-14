@@ -1,4 +1,4 @@
-use aphyn_ecs::{ResMut, WorldDataMut};
+use aphyn_ecs::{ResMut, ThreadPoolAccess, WorldDataMut};
 use aphyn_ffi::FfiVec;
 use aphyn_math::{Mat4, Vec4};
 use aphyn_render::{CurrentRenderingResource, RenderSpace, write_buffer_elements_with};
@@ -34,7 +34,7 @@ pub struct GizmosRenderFeature {
 }
 
 impl RenderFeature for GizmosRenderFeature {
-    fn add_passes(&mut self, world: WorldDataMut, passes: &mut RenderPassWriter<Self>) {
+    fn add_passes(&mut self, world: WorldDataMut, _thread_pool: ThreadPoolAccess, passes: &mut RenderPassWriter<Self>) {
         let has_lines = world
             .resources()
             .get::<GizmosFrameResource>()
