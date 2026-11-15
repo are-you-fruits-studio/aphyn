@@ -1,7 +1,0 @@
-[package]
-name = "aphyn_example_material"
-version.workspace = true
-edition = "2024"
-
-[dependencies]
-aphyn = { path = "../../../" }

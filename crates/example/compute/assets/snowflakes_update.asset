@@ -1,4 +1,0 @@
-{
-  "asset_type": "compute_shader",
-  "wgsl": "snowflakes_update.wgsl"
-}

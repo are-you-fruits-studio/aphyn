@@ -1,8 +1,0 @@
-[package]
-name = "aphyn_example_bloom"
-version.workspace = true
-edition = "2024"
-license.workspace = true
-
-[dependencies]
-aphyn = { path = "../../../" }

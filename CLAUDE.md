@@ -36,7 +36,6 @@ Rust edition 2024, Cargo workspace rooted at `Cargo.toml` (the root package `aph
 ```bash
 cargo build                                   # whole workspace
 cargo build --release -p aphyn_editor        # what CI release builds (.github/workflows/build.yml)
-cargo run -p aphyn_example_cubes             # run an example (others: aphyn_example_ecs, _boids, _ui, _text, _gizmos, _collisions, _physics, _normals, _bloom, _material, _compute, _shadows, _audio_screen_saver)
 cargo test -p aphyn_serialization            # tests are mostly doctests in crate-level //! docs
 cargo test -p aphyn_ecs --doc <name_filter>  # run a single doctest
 cargo fmt                                     # rustfmt.toml: max_width = 133, Unix newlines
@@ -44,6 +43,8 @@ cargo +nightly doc --workspace --no-deps      # API reference (docs pipeline use
 ```
 
 Linux builds need `libasound2-dev libudev-dev pkg-config`.
+
+Examples and demo projects live in a separate repository, [aphyn.examples](https://github.com/are-you-fruits-studio/aphyn.examples); this repository has none.
 
 The editor binary takes subcommands: `aphyn_editor edit <project_path>` (open a project in the editor) and `aphyn_editor build <project_path>` (build a standalone game, see below).
 
@@ -61,7 +62,7 @@ Every engine crate has one, including the `*_macros` crates, except: `aphyn_ui` 
 ## Architecture
 
 ### Crate layering
-- `aphyn` (root `src/lib.rs`) is a pure facade that `pub use`s every engine crate, including the work-in-progress `aphyn_render_core`. Games, examples, the editor and `aphyn_draft_check` depend only on `aphyn` and `use aphyn::*`.
+- `aphyn` (root `src/lib.rs`) is a pure facade that `pub use`s every engine crate, including the work-in-progress `aphyn_render_core`. Games, the editor and `aphyn_draft_check` depend only on `aphyn` and `use aphyn::*`.
 - `aphyn_ffi` — FFI-safe replacements for std types (`vec`, `string`, `boxed`, `hash_map`, `option`, `closure`, `any`, `type_info`, ...). Engine data crosses a dynamic-library boundary, so types stored in the world must be ABI-stable; prefer these types in components/resources/APIs that may cross that boundary.
 - `aphyn_ecs` — the core: `WorldData` (entities/resources/events) and, as a separate sibling, `WorldBehaviorBuilder` → `WorldBehavior` (systems; `behavior.execute_iteration(schedule, data.as_mut())`), components/resources/events (derive macros from `aphyn_ecs_macros`), systems as plain functions whose parameters (`WorldQuery`, `WorldDataMut`, resources, ...) declare data usage so independent systems run in parallel. Systems are inserted per `Schedule` (`Start`, `FixedUpdate` or `Update`; the app runs zero or more `FixedUpdate` passes per frame before `Update`, driven by `aphyn_app::TimeResource`) and ordered with `order_system(..).before_system(..)` / `order_group(GROUP).before_group(..)`. Each subsystem crate exports a `SYSTEM_GROUP_*` constant for ordering.
 - Subsystem crates (`aphyn_transform`, `aphyn_collision`, `aphyn_physics` (rigidbodies, runs in `FixedUpdate`), `aphyn_render_core` (wgpu) + `aphyn_render` + `aphyn_render_features`, `aphyn_ui`, `aphyn_audio`, `aphyn_asset_storage`, `aphyn_asset_loading`, `aphyn_prefab`) each expose an `add_<x>_module_to(data, behavior, render)` function (`aphyn_transform` takes only `(data, behavior)`: `aphyn_render_features` depends on it).
@@ -70,7 +71,7 @@ Every engine crate has one, including the `*_macros` crates, except: `aphyn_ui` 
 - `aphyn_app` owns the winit event loop, window, input, and wgpu surface; `App::new()` / `app.data_mut()` / `app.behavior_mut()` / `app.render_mut()` / `app.init_ctx_mut()` / `app.run()`.
 
 ### Two ways to launch a game
-1. **Static**: build an `App`, call `add_defult_modules_to`, register systems, `app.run()` (all examples do this), or `launch_app_statically(|world| ...)`.
+1. **Static**: build an `App`, call `add_defult_modules_to`, register systems, `app.run()`, or `launch_app_statically(|ctx| ...)`, which adds the default modules and passes an `AppInitCtx` (the examples in aphyn.examples use it).
 2. **Dynamic** (`aphyn_app_launcher::launch_app_dynamically`): the launcher exe loads `{DLL_PREFIX}aphynapp{DLL_SUFFIX}` (`aphynapp.dll`, `libaphynapp.so`, `libaphynapp.dylib`) from next to itself via `libloading`, resolves the C symbol `aphyn_entry_point`, and passes an `AppInitCtxFfi` (raw world + type-registry + initial `WindowState` + `RenderFeatureRegistry` pointers; defined in `aphyn_app`). The game library generates that symbol with the `aphyn_entry_point!(setup)` proc macro (`aphyn_entry_point` crate). Symbol name, ABI, and `AppInitCtxFfi` layout must change in lockstep on both sides — mismatches fail only at runtime. The library is kept loaded until `App::run` returns because the world holds its types and function pointers.
 
 `aphyn_editor build <project>` uses this: it builds `<project>/scripts` with cargo (one package `lib_app`: the game as a cdylib with `[lib] name = "aphynapp"` plus a `[[bin]]` named `launcher` from `src/main.rs` that calls `launch_app_dynamically`), then copies the `launcher` exe (renamed after the project folder), `aphynapp` library, and `assets/` into `<project>/builds/`. A missing `src/main.rs` or `[[bin]]` fails the build with an error; nothing is scaffolded.
