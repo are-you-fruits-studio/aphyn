@@ -1,9 +1,24 @@
+const fs = require('fs');
+const path = require('path');
 const {themes} = require('prism-react-renderer');
+
+const repoUrl = 'https://github.com/are-you-fruits-studio/aphyn';
+
+function readEngineVersion() {
+  const manifest = fs.readFileSync(path.join(__dirname, '..', 'Cargo.toml'), 'utf8');
+  const match = manifest.match(/^\[workspace\.package\][^[]*?^version\s*=\s*"([^"]+)"/m);
+  if (!match) {
+    throw new Error('No version under [workspace.package] in the root Cargo.toml');
+  }
+  return match[1];
+}
+
+const engineVersion = readEngineVersion();
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
   title: 'Aphyn',
-  tagline: 'Rust game engine documentation',
+  tagline: 'Documentation for the Aphyn game engine',
   url: 'https://docs.aphyn.org',
   baseUrl: '/',
   favicon: 'img/favicon.ico',
@@ -24,6 +39,10 @@ const config = {
     defaultLocale: 'en',
     locales: ['en'],
   },
+  customFields: {
+    engineVersion,
+    repoUrl,
+  },
 
   presets: [
     [
@@ -32,6 +51,7 @@ const config = {
         docs: {
           routeBasePath: 'docs',
           sidebarPath: require.resolve('./sidebars.js'),
+          editUrl: `${repoUrl}/edit/dev/docs/`,
           showLastUpdateTime: true,
         },
         blog: false,
@@ -42,17 +62,35 @@ const config = {
     ],
   ],
 
+  themes: [
+    [
+      require.resolve('@easyops-cn/docusaurus-search-local'),
+      {
+        hashed: true,
+        indexBlog: false,
+        indexPages: false,
+        docsRouteBasePath: 'docs',
+        language: ['en'],
+        searchBarShortcutHint: true,
+      },
+    ],
+  ],
+
   themeConfig:
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
       navbar: {
         title: 'Aphyn',
+        logo: {
+          alt: 'Aphyn',
+          src: 'img/favicon.svg',
+        },
         items: [
           {
             type: 'docSidebar',
             sidebarId: 'docsSidebar',
             position: 'left',
-            label: 'Docs',
+            label: 'Guide',
           },
           {
             // Raw <a> so the browser does a full navigation to the static rustdoc
@@ -64,7 +102,21 @@ const config = {
             value: '<a class="navbar__item navbar__link" href="/api-reference/aphyn/index.html">API Reference</a>',
           },
           {
-            href: 'https://github.com/are-you-fruits-studio/aphyn',
+            type: 'search',
+            position: 'right',
+          },
+          {
+            type: 'html',
+            position: 'right',
+            value: `<a class="navbar__item aphyn-version" href="${repoUrl}/releases" title="Engine version on dev">v${engineVersion}</a>`,
+          },
+          {
+            href: 'https://aphyn.org',
+            label: 'aphyn.org',
+            position: 'right',
+          },
+          {
+            href: repoUrl,
             label: 'GitHub',
             position: 'right',
           },
@@ -74,30 +126,38 @@ const config = {
         style: 'dark',
         links: [
           {
-            title: 'Documentation',
+            title: 'Docs',
             items: [
+              {label: 'Quick start', to: '/docs/getting-started'},
+              {label: 'Build a game', to: '/docs/build-a-game'},
               {
-                label: 'Docs',
-                to: '/docs/getting-started',
+                html: '<a class="footer__link-item" href="/api-reference/aphyn/index.html">API Reference</a>',
               },
             ],
           },
           {
             title: 'Project',
             items: [
-              {
-                label: 'GitHub',
-                href: 'https://github.com/are-you-fruits-studio/aphyn',
-              },
+              {label: 'aphyn.org', href: 'https://aphyn.org'},
+              {label: 'Examples', href: 'https://github.com/are-you-fruits-studio/aphyn.examples'},
+              {label: 'Releases', href: `${repoUrl}/releases`},
+            ],
+          },
+          {
+            title: 'Community',
+            items: [
+              {label: 'GitHub', href: repoUrl},
+              {label: 'Issues', href: `${repoUrl}/issues`},
+              {label: 'Contributing', href: `${repoUrl}/blob/dev/CONTRIBUTING.md`},
             ],
           },
         ],
-        copyright: `Copyright (c) ${new Date().getFullYear()} Are You Fruits?.`,
+        copyright: `© ${new Date().getFullYear()} are-you-fruits-studio · MIT OR Apache-2.0`,
       },
       prism: {
         theme: themes.github,
         darkTheme: themes.dracula,
-        additionalLanguages: ['rust', 'toml'],
+        additionalLanguages: ['rust', 'toml', 'bash'],
       },
     }),
 };
