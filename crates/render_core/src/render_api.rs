@@ -26,8 +26,10 @@ use wgpu::{
 };
 
 use crate::{
-    BufferResource, RenderApiResources, RenderApiState, SamplerResource, ShaderResource, TextureResource,
+    BufferResource, ComputeShaderResource, RenderApiCache, RenderApiResources, RenderApiState, SamplerResource, ShaderResource,
+    TextureResource,
     buffers::{GpuIndexBuffer, GpuUniformStorageBuffer, GpuVertexBuffer, GpuVertexBufferLayout, GpuVertexBufferLayoutEntryTy},
+    compute_pipeline_name,
 };
 
 #[repr(C)]
@@ -41,13 +43,26 @@ pub enum GpuTextureSampleKind {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum GpuStorageTextureAccess {
+    WriteOnly,
+    ReadOnly,
+    ReadWrite,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum GpuBindingTy {
     Texture(GpuTextureSampleKind),
+    StorageTexture {
+        format: GpuTextureFormat,
+        access: GpuStorageTextureAccess,
+    },
     Sampler,
     ComparisonSampler,
     UniformBuffer,
-    StorageBuffer { read_only: bool },
-    // todo: storage textures
+    StorageBuffer {
+        read_only: bool,
+    },
 }
 
 impl GpuBindingTy {
@@ -62,6 +77,15 @@ impl GpuBindingTy {
                 },
                 view_dimension: wgpu::TextureViewDimension::D2,
                 multisampled: false,
+            },
+            Self::StorageTexture { format, access } => wgpu::BindingType::StorageTexture {
+                access: match access {
+                    GpuStorageTextureAccess::WriteOnly => wgpu::StorageTextureAccess::WriteOnly,
+                    GpuStorageTextureAccess::ReadOnly => wgpu::StorageTextureAccess::ReadOnly,
+                    GpuStorageTextureAccess::ReadWrite => wgpu::StorageTextureAccess::ReadWrite,
+                },
+                format: format.to_wgpu(),
+                view_dimension: wgpu::TextureViewDimension::D2,
             },
             Self::Sampler => wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
             Self::ComparisonSampler => wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
@@ -78,11 +102,16 @@ impl GpuBindingTy {
         }
     }
 
+    // every binding is visible to compute too, so render and compute shaders share layouts and bind groups
     pub(crate) fn visibility(self) -> wgpu::ShaderStages {
         match self {
             // writable storage in the vertex stage needs `Features::VERTEX_WRITABLE_STORAGE`
-            Self::StorageBuffer { read_only: false } => wgpu::ShaderStages::FRAGMENT,
-            _ => wgpu::ShaderStages::VERTEX_FRAGMENT,
+            Self::StorageBuffer { read_only: false }
+            | Self::StorageTexture {
+                access: GpuStorageTextureAccess::WriteOnly | GpuStorageTextureAccess::ReadWrite,
+                ..
+            } => wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
+            _ => wgpu::ShaderStages::VERTEX_FRAGMENT | wgpu::ShaderStages::COMPUTE,
         }
     }
 
@@ -99,12 +128,34 @@ impl GpuBindingTy {
                 }
                 None => false,
             },
+            (Self::StorageTexture { format, .. }, BindGroupBinding::Texture(texture, mip_level)) => {
+                match resources.textures.get(texture) {
+                    // storage bindings need a single-mip view
+                    Some(texture) => {
+                        texture.format() == format
+                            && (mip_level.is_some() || texture.mip_level_count() == 1)
+                            && texture.view(mip_level).is_some()
+                    }
+                    None => false,
+                }
+            }
             (Self::Sampler | Self::ComparisonSampler, BindGroupBinding::Sampler(sampler)) => match resources.samplers.get(sampler) {
                 Some(sampler) => sampler.comparison() == (self == Self::ComparisonSampler),
                 None => false,
             },
             (Self::UniformBuffer | Self::StorageBuffer { .. }, BindGroupBinding::Buffer(buffer)) => {
-                resources.buffers.contains_index(buffer)
+                match resources.buffers.get(buffer) {
+                    // wgpu reports empty bindings at bind group creation, outside any error scope
+                    Some(buffer) => {
+                        let usage = match self {
+                            Self::UniformBuffer => wgpu::BufferUsages::UNIFORM,
+                            _ => wgpu::BufferUsages::STORAGE,
+                        };
+
+                        buffer.buffer.size() > 0 && buffer.buffer.usage().contains(usage)
+                    }
+                    None => false,
+                }
             }
             _ => false,
         }
@@ -258,6 +309,7 @@ pub(crate) enum ResourceKey {
     Sampler(VersionIndex),
     Buffer(VersionIndex),
     Shader(VersionIndex),
+    ComputeShader(VersionIndex),
 }
 
 #[repr(C)]
@@ -541,7 +593,10 @@ fn reflect_bind_group_layouts(module: &naga::Module) -> Option<GpuBindGroupLayou
                         _ => return unsupported_binding(binding),
                     }),
                     naga::ImageClass::Depth { multi: false } => GpuBindingTy::Texture(GpuTextureSampleKind::Depth),
-                    // todo: storage textures
+                    naga::ImageClass::Storage { format, access } => match storage_texture_ty(*format, *access) {
+                        Some(ty) => ty,
+                        None => return unsupported_binding(binding),
+                    },
                     _ => return unsupported_binding(binding),
                 },
                 _ => return unsupported_binding(binding),
@@ -633,6 +688,44 @@ fn buffer_member_ty(ty: &naga::TypeInner) -> GpuBufferMemberTy {
     }
 }
 
+fn storage_texture_ty(format: naga::StorageFormat, access: naga::StorageAccess) -> Option<GpuBindingTy> {
+    let format = match format {
+        naga::StorageFormat::Rgba8Unorm => GpuTextureFormat::Rgba8Unorm,
+        naga::StorageFormat::Rgba16Float => GpuTextureFormat::Rgba16Float,
+        naga::StorageFormat::R32Float => GpuTextureFormat::R32Float,
+        _ => return None,
+    };
+
+    let access = match (
+        access.contains(naga::StorageAccess::LOAD),
+        access.contains(naga::StorageAccess::STORE),
+    ) {
+        (true, true) => GpuStorageTextureAccess::ReadWrite,
+        (true, false) => GpuStorageTextureAccess::ReadOnly,
+        _ => GpuStorageTextureAccess::WriteOnly,
+    };
+
+    // read_write is only portable for r32 formats, and a failing layout would panic outside an error scope
+    if access == GpuStorageTextureAccess::ReadWrite && format != GpuTextureFormat::R32Float {
+        return None;
+    }
+
+    Some(GpuBindingTy::StorageTexture { format, access })
+}
+
+fn reflect_workgroup_size(module: &naga::Module) -> Option<[usize; 3]> {
+    let Some(entry_point) = module
+        .entry_points
+        .iter()
+        .find(|entry_point| entry_point.stage == naga::ShaderStage::Compute && entry_point.name == "cs_main")
+    else {
+        println!("shader has no cs_main compute entry point");
+        return None;
+    };
+
+    Some(entry_point.workgroup_size.map(|size| size as usize))
+}
+
 fn unsupported_binding<T>(binding: &naga::ResourceBinding) -> Option<T> {
     println!(
         "unsupported shader binding @group({}) @binding({})",
@@ -666,7 +759,8 @@ fn request_adapter(instance: &wgpu::Instance, surface: Option<&wgpu::Surface>) -
 
 fn request_device(adapter: &wgpu::Adapter) -> Option<(wgpu::Device, wgpu::Queue)> {
     let device = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        required_features: wgpu::Features::empty(),
+        // without it, sampling an `R32Float` texture fails validation
+        required_features: adapter.features() & wgpu::Features::FLOAT32_FILTERABLE,
         required_limits: wgpu::Limits::default(),
         label: None,
         memory_hints: wgpu::MemoryHints::Performance,
@@ -785,7 +879,7 @@ impl RenderApiInner {
             label,
             "aphyn vertex buffer",
             len * layout.total_size(),
-            wgpu::BufferUsages::VERTEX,
+            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE,
         );
 
         GpuVertexBuffer {
@@ -815,7 +909,12 @@ impl RenderApiInner {
     }
 
     fn create_index_buffer(&self, label: Option<&str>, len: usize) -> GpuIndexBuffer {
-        let id = self.create_buffer_resource(label, "aphyn index buffer", len * size_of::<u32>(), wgpu::BufferUsages::INDEX);
+        let id = self.create_buffer_resource(
+            label,
+            "aphyn index buffer",
+            len * size_of::<u32>(),
+            wgpu::BufferUsages::INDEX | wgpu::BufferUsages::STORAGE,
+        );
 
         GpuIndexBuffer {
             id,
@@ -963,6 +1062,48 @@ impl RenderApiInner {
             id,
             bind_group_layouts,
             _guard: self.create_guard(ResourceKey::Shader(id)),
+        })
+    }
+
+    fn create_compute_shader(&self, label: Option<&str>, wgsl: &str) -> Option<GpuComputeShader> {
+        let parsed_module = parse_shader(wgsl)?;
+        let bind_group_layouts = FfiArc::new(reflect_bind_group_layouts(&parsed_module)?);
+        let workgroup_size = reflect_workgroup_size(&parsed_module)?;
+        let layout_keys = layout_keys(&bind_group_layouts);
+
+        let mut state = self.state.lock().unwrap();
+        let RenderApiState { cache, resources } = &mut *state;
+
+        self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+
+        let module = self.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(label.unwrap_or("aphyn compute shader")),
+            source: wgpu::ShaderSource::Wgsl(wgsl.into()),
+        });
+        let pipeline_layout = cache.get_or_create_pipeline_layout(&self.device, &layout_keys);
+        let pipeline = self.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some(&compute_pipeline_name(label)),
+            layout: Some(&pipeline_layout),
+            module: &module,
+            entry_point: Some("cs_main"),
+            compilation_options: Default::default(),
+            cache: None,
+        });
+
+        if let Some(err) = pollster::block_on(self.device.pop_error_scope()) {
+            println!("failed to create compute shader: {err}");
+            return None;
+        }
+
+        let id = resources
+            .compute_shaders
+            .insert(ComputeShaderResource::new(pipeline, layout_keys));
+
+        Some(GpuComputeShader {
+            id,
+            bind_group_layouts,
+            workgroup_size,
+            _guard: self.create_guard(ResourceKey::ComputeShader(id)),
         })
     }
 
@@ -1309,6 +1450,96 @@ impl RenderApiInner {
 
     // todo: indirect draws
 
+    fn dispatch(&self, pass: FfiComputePass) -> bool {
+        let Self { device, queue, .. } = self;
+
+        let FfiComputePass {
+            shader: shader_handle,
+            bind_group_entries,
+            bind_group_count,
+            workgroups,
+        } = pass;
+        let [x, y, z] = workgroups.0.map(|count| count as u32);
+
+        let mut state = self.state.lock().unwrap();
+        let RenderApiState { cache, resources } = &mut *state;
+
+        let Some(shader) = resources.compute_shaders.get(shader_handle.id) else {
+            return false;
+        };
+
+        let Some(bind_groups) = Self::resolve_bind_groups(
+            device,
+            cache,
+            resources,
+            shader.layout_keys(),
+            bind_group_entries.into_slice(),
+            bind_group_count,
+        ) else {
+            return false;
+        };
+
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("aphyn compute encoder"),
+        });
+
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("aphyn compute pass"),
+                timestamp_writes: None,
+            });
+
+            compute_pass.set_pipeline(shader.pipeline());
+            for (i, bind_group) in bind_groups.iter().enumerate() {
+                compute_pass.set_bind_group(i as u32, bind_group, &[]);
+            }
+            compute_pass.dispatch_workgroups(x, y, z);
+        }
+
+        queue.submit([encoder.finish()]);
+
+        if let Some(err) = pollster::block_on(device.pop_error_scope()) {
+            println!("failed to dispatch: {err}");
+            return false;
+        }
+
+        true
+    }
+
+    fn resolve_bind_groups(
+        device: &wgpu::Device,
+        cache: &mut RenderApiCache,
+        resources: &RenderApiResources,
+        layout_keys: &[Vec<BindGroupLayoutKeyEntry>],
+        bind_group_entries: &[FfiBindGroupEntry],
+        bind_group_count: usize,
+    ) -> Option<Vec<wgpu::BindGroup>> {
+        if bind_group_count < layout_keys.len() {
+            return None;
+        }
+
+        let has_duplicate_bindings = bind_group_entries.iter().enumerate().any(|(i, entry)| {
+            bind_group_entries[..i]
+                .iter()
+                .any(|other| other.group == entry.group && other.binding == entry.binding)
+        });
+
+        if has_duplicate_bindings {
+            return None;
+        }
+
+        layout_keys
+            .iter()
+            .enumerate()
+            .map(|(group, layout)| {
+                let entries = Self::resolve_bind_group_entries(resources, layout, group, bind_group_entries)?;
+                cache.get_or_create_bind_group(device, resources, &entries)
+            })
+            .collect()
+    }
+
     fn resolve_bind_group_entries(
         resources: &RenderApiResources,
         layout: &[BindGroupLayoutKeyEntry],
@@ -1360,38 +1591,22 @@ impl RenderApiInner {
             return false;
         };
 
-        if bind_group_count < shader.layout_keys().len() {
-            return false;
-        }
-
-        let has_duplicate_bindings = bind_group_entries.iter().enumerate().any(|(i, entry)| {
-            bind_group_entries[..i]
-                .iter()
-                .any(|other| other.group == entry.group && other.binding == entry.binding)
-        });
-
-        if has_duplicate_bindings {
-            return false;
-        }
-
         let vertex_layouts = pass_vertex_buffers.iter().map(|buffer| buffer.layout()).collect::<Vec<_>>();
 
         if !vertex_layouts_satisfy_attributes(&shader.vertex_attributes(), &vertex_layouts) {
             return false;
         }
 
-        let mut bind_groups = Vec::with_capacity(shader.layout_keys().len());
-
-        for (group, layout) in shader.layout_keys().iter().enumerate() {
-            let Some(entries) = Self::resolve_bind_group_entries(resources, layout, group, bind_group_entries) else {
-                return false;
-            };
-            let Some(bind_group) = cache.get_or_create_bind_group(device, resources, &entries) else {
-                return false;
-            };
-
-            bind_groups.push(bind_group);
-        }
+        let Some(bind_groups) = Self::resolve_bind_groups(
+            device,
+            cache,
+            resources,
+            shader.layout_keys(),
+            bind_group_entries,
+            bind_group_count,
+        ) else {
+            return false;
+        };
 
         let target = match (surface_target, pass_target) {
             (Some(_), Some(_)) => return false,
@@ -1571,10 +1786,32 @@ struct FfiRenderPass<'a> {
 }
 
 #[repr(C)]
+struct FfiComputePass<'a> {
+    shader: &'a GpuComputeShader,
+    bind_group_entries: FfiSliceRef<'a, FfiBindGroupEntry<'a>>,
+    bind_group_count: usize,
+    workgroups: FfiArray<usize, 3>,
+}
+
+#[repr(C)]
 struct FfiBindGroupEntry<'a> {
     group: usize,
     binding: usize,
     resource: FfiBinding<'a>,
+}
+
+fn flatten_bind_groups<'a>(bind_groups: &[&[(usize, GpuBinding<'a>)]]) -> Vec<FfiBindGroupEntry<'a>> {
+    bind_groups
+        .iter()
+        .enumerate()
+        .flat_map(|(group, bindings)| {
+            bindings.iter().map(move |&(binding, resource)| FfiBindGroupEntry {
+                group,
+                binding,
+                resource: resource.to_ffi(),
+            })
+        })
+        .collect()
 }
 
 #[repr(C)]
@@ -1586,6 +1823,8 @@ enum FfiBinding<'a> {
     },
     Sampler(&'a GpuSampler),
     Buffer(&'a GpuUniformStorageBuffer),
+    VertexBuffer(&'a GpuVertexBuffer),
+    IndexBuffer(&'a GpuIndexBuffer),
 }
 
 impl FfiBinding<'_> {
@@ -1594,6 +1833,8 @@ impl FfiBinding<'_> {
             Self::Texture { texture, mip_level } => BindGroupBinding::Texture(texture.id, mip_level.into_option()),
             Self::Sampler(sampler) => BindGroupBinding::Sampler(sampler.id),
             Self::Buffer(buffer) => BindGroupBinding::Buffer(buffer.id),
+            Self::VertexBuffer(buffer) => BindGroupBinding::Buffer(buffer.id),
+            Self::IndexBuffer(buffer) => BindGroupBinding::Buffer(buffer.id),
         }
     }
 }
@@ -1634,6 +1875,11 @@ struct RenderApiVTable {
         wgsl: FfiStrSliceRef<'_>,
         desc: GpuShaderDesc,
     ) -> FfiOption<GpuShader>,
+    create_compute_shader_fn: unsafe extern "C-unwind" fn(
+        this: *const c_void,
+        label: FfiOption<FfiStrSliceRef<'_>>,
+        wgsl: FfiStrSliceRef<'_>,
+    ) -> FfiOption<GpuComputeShader>,
     write_buffer_with_fn: unsafe extern "C-unwind" fn(
         this: *const c_void,
         id: VersionIndex,
@@ -1660,6 +1906,7 @@ struct RenderApiVTable {
         vertices: FfiRange,
         instances: FfiRange,
     ) -> bool,
+    dispatch_fn: unsafe extern "C-unwind" fn(this: *const c_void, pass: FfiComputePass<'_>) -> bool,
     clear_color_texture_fn:
         unsafe extern "C-unwind" fn(this: *const c_void, texture: &GpuTexture, mip_level: usize, color: FfiArray<f32, 4>) -> bool,
     clear_depth_texture_fn:
@@ -1764,6 +2011,15 @@ impl RenderApi {
                 .create_shader(label_from_ffi(label), wgsl.into_slice(), desc)
                 .into()
         }
+        unsafe extern "C-unwind" fn ffi_create_compute_shader(
+            this: *const c_void,
+            label: FfiOption<FfiStrSliceRef<'_>>,
+            wgsl: FfiStrSliceRef<'_>,
+        ) -> FfiOption<GpuComputeShader> {
+            unsafe { inner_ref(this) }
+                .create_compute_shader(label_from_ffi(label), wgsl.into_slice())
+                .into()
+        }
         unsafe extern "C-unwind" fn ffi_write_buffer_with(
             this: *const c_void,
             id: VersionIndex,
@@ -1812,6 +2068,9 @@ impl RenderApi {
         ) -> bool {
             unsafe { inner_ref(this) }.draw_to_surface(pass, ops, vertices.into_range(), instances.into_range())
         }
+        unsafe extern "C-unwind" fn ffi_dispatch(this: *const c_void, pass: FfiComputePass<'_>) -> bool {
+            unsafe { inner_ref(this) }.dispatch(pass)
+        }
         unsafe extern "C-unwind" fn ffi_clear_color_texture(
             this: *const c_void,
             texture: &GpuTexture,
@@ -1856,11 +2115,13 @@ impl RenderApi {
                 create_texture_fn: ffi_create_texture,
                 create_sampler_fn: ffi_create_sampler,
                 create_shader_fn: ffi_create_shader,
+                create_compute_shader_fn: ffi_create_compute_shader,
                 write_buffer_with_fn: ffi_write_buffer_with,
                 write_texture_fn: ffi_write_texture,
                 draw_fn: ffi_draw,
                 draw_indexed_fn: ffi_draw_indexed,
                 draw_to_surface_fn: ffi_draw_to_surface,
+                dispatch_fn: ffi_dispatch,
                 clear_color_texture_fn: ffi_clear_color_texture,
                 clear_depth_texture_fn: ffi_clear_depth_texture,
                 copy_texture_fn: ffi_copy_texture,
@@ -1917,6 +2178,11 @@ impl RenderApi {
 
     pub fn create_shader(&self, label: Option<&str>, wgsl: &str, desc: GpuShaderDesc) -> Option<GpuShader> {
         unsafe { (self.vtable.create_shader_fn)(self.data.get(), label_to_ffi(label), FfiStrSliceRef::from_slice(wgsl), desc) }
+            .into_option()
+    }
+
+    pub fn create_compute_shader(&self, label: Option<&str>, wgsl: &str) -> Option<GpuComputeShader> {
+        unsafe { (self.vtable.create_compute_shader_fn)(self.data.get(), label_to_ffi(label), FfiStrSliceRef::from_slice(wgsl)) }
             .into_option()
     }
 
@@ -2020,6 +2286,19 @@ impl RenderApi {
         })
     }
 
+    pub fn dispatch(&self, pass: &GpuComputePass) -> bool {
+        let bind_group_entries = flatten_bind_groups(pass.bind_groups);
+
+        let pass = FfiComputePass {
+            shader: pass.shader,
+            bind_group_entries: FfiSliceRef::from_slice(&bind_group_entries),
+            bind_group_count: pass.bind_groups.len(),
+            workgroups: FfiArray(pass.workgroups),
+        };
+
+        unsafe { (self.vtable.dispatch_fn)(self.data.get(), pass) }
+    }
+
     pub fn clear_color_texture(&self, texture: &GpuTexture, mip_level: usize, color: [f32; 4]) -> bool {
         unsafe { (self.vtable.clear_color_texture_fn)(self.data.get(), texture, mip_level, FfiArray(color)) }
     }
@@ -2061,6 +2340,43 @@ impl GpuShader {
             .iter()
             .find(|entry| entry.binding == binding)
     }
+}
+
+#[repr(C)]
+#[derive(Clone)]
+pub struct GpuComputeShader {
+    id: VersionIndex,
+    bind_group_layouts: FfiArc<GpuBindGroupLayouts>,
+    workgroup_size: [usize; 3],
+    _guard: SharedResourceGuard,
+}
+
+impl GpuComputeShader {
+    pub fn id(&self) -> GpuResourceId {
+        GpuResourceId(ResourceKey::ComputeShader(self.id))
+    }
+
+    pub fn bind_group_layouts(&self) -> &[FfiVec<GpuBindGroupLayoutEntry>] {
+        &self.bind_group_layouts
+    }
+
+    pub fn bind_group_layout_entry(&self, group: usize, binding: usize) -> Option<&GpuBindGroupLayoutEntry> {
+        self.bind_group_layouts()
+            .get(group)?
+            .iter()
+            .find(|entry| entry.binding == binding)
+    }
+
+    pub fn workgroup_size(&self) -> [usize; 3] {
+        self.workgroup_size
+    }
+}
+
+#[repr(C)]
+pub struct GpuComputePass<'a> {
+    pub shader: &'a GpuComputeShader,
+    pub bind_groups: &'a [&'a [(usize, GpuBinding<'a>)]],
+    pub workgroups: [usize; 3],
 }
 
 #[repr(C)]
@@ -2352,6 +2668,9 @@ pub enum GpuBinding<'a> {
     },
     Sampler(&'a GpuSampler),
     Buffer(&'a GpuUniformStorageBuffer),
+    // storage buffer bindings only
+    VertexBuffer(&'a GpuVertexBuffer),
+    IndexBuffer(&'a GpuIndexBuffer),
 }
 
 impl<'a> GpuBinding<'a> {
@@ -2363,24 +2682,15 @@ impl<'a> GpuBinding<'a> {
             },
             Self::Sampler(sampler) => FfiBinding::Sampler(sampler),
             Self::Buffer(buffer) => FfiBinding::Buffer(buffer),
+            Self::VertexBuffer(buffer) => FfiBinding::VertexBuffer(buffer),
+            Self::IndexBuffer(buffer) => FfiBinding::IndexBuffer(buffer),
         }
     }
 }
 
 impl GpuRenderPass<'_> {
     fn with_ffi<R>(&self, f: impl FnOnce(FfiRenderPass) -> R) -> R {
-        let bind_group_entries = self
-            .bind_groups
-            .iter()
-            .enumerate()
-            .flat_map(|(group, bindings)| {
-                bindings.iter().map(move |&(binding, resource)| FfiBindGroupEntry {
-                    group,
-                    binding,
-                    resource: resource.to_ffi(),
-                })
-            })
-            .collect::<Vec<_>>();
+        let bind_group_entries = flatten_bind_groups(self.bind_groups);
 
         f(FfiRenderPass {
             shader: self.shader,
@@ -2492,6 +2802,7 @@ pub enum GpuTextureFormat {
     #[default]
     Rgba8UnormSrgb,
     Rgba16Float,
+    R32Float,
     Depth32Float,
 }
 
@@ -2501,27 +2812,29 @@ impl GpuTextureFormat {
             Self::Rgba8Unorm => wgpu::TextureFormat::Rgba8Unorm,
             Self::Rgba8UnormSrgb => wgpu::TextureFormat::Rgba8UnormSrgb,
             Self::Rgba16Float => wgpu::TextureFormat::Rgba16Float,
+            Self::R32Float => wgpu::TextureFormat::R32Float,
             Self::Depth32Float => wgpu::TextureFormat::Depth32Float,
         }
     }
     fn bytes_per_pixel(self) -> u32 {
         match self {
-            Self::Rgba8Unorm | Self::Rgba8UnormSrgb | Self::Depth32Float => 4,
+            Self::Rgba8Unorm | Self::Rgba8UnormSrgb | Self::R32Float | Self::Depth32Float => 4,
             Self::Rgba16Float => 8,
         }
     }
     fn is_copy_compatible(self, other: Self) -> bool {
         self.to_wgpu().remove_srgb_suffix() == other.to_wgpu().remove_srgb_suffix()
     }
-    // storage textures are rejected by reflection, and depth formats can't be copy destinations
+    // depth formats can't be copy destinations, and sRGB formats can't be storage textures
     fn usages(self) -> wgpu::TextureUsages {
+        let color = wgpu::TextureUsages::COPY_SRC
+            | wgpu::TextureUsages::COPY_DST
+            | wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::RENDER_ATTACHMENT;
+
         match self {
-            Self::Rgba8Unorm | Self::Rgba8UnormSrgb | Self::Rgba16Float => {
-                wgpu::TextureUsages::COPY_SRC
-                    | wgpu::TextureUsages::COPY_DST
-                    | wgpu::TextureUsages::TEXTURE_BINDING
-                    | wgpu::TextureUsages::RENDER_ATTACHMENT
-            }
+            Self::Rgba8UnormSrgb => color,
+            Self::Rgba8Unorm | Self::Rgba16Float | Self::R32Float => color | wgpu::TextureUsages::STORAGE_BINDING,
             Self::Depth32Float => {
                 wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT
             }
@@ -4113,18 +4426,62 @@ mod tests {
     }
 
     #[test]
-    fn rejects_storage_textures() {
+    fn reflects_storage_textures() {
         let wgsl = r#"
-            @group(0) @binding(0) var img: texture_storage_2d<rgba8unorm, write>;
+            @group(0) @binding(0) var a: texture_storage_2d<rgba8unorm, write>;
+            @group(0) @binding(1) var b: texture_storage_2d<rgba16float, read>;
+            @group(0) @binding(2) var c: texture_storage_2d<r32float, read_write>;
 
-            @fragment
-            fn fs_main() -> @location(0) vec4f {
-                textureStore(img, vec2u(0), vec4f(1.0));
-                return vec4f(1.0);
+            @compute @workgroup_size(1)
+            fn cs_main() {
+                textureStore(a, vec2u(0), textureLoad(b, vec2u(0)) + textureLoad(c, vec2u(0)));
             }
         "#;
 
-        assert_eq!(reflect_bind_group_layouts(&parse_shader(wgsl).unwrap()), None);
+        let layouts = reflect_bind_group_layouts(&parse_shader(wgsl).unwrap()).unwrap();
+        let tys = layouts[0].iter().map(|entry| entry.ty).collect::<Vec<_>>();
+
+        assert_eq!(
+            tys,
+            [
+                GpuBindingTy::StorageTexture {
+                    format: GpuTextureFormat::Rgba8Unorm,
+                    access: GpuStorageTextureAccess::WriteOnly,
+                },
+                GpuBindingTy::StorageTexture {
+                    format: GpuTextureFormat::Rgba16Float,
+                    access: GpuStorageTextureAccess::ReadOnly,
+                },
+                GpuBindingTy::StorageTexture {
+                    format: GpuTextureFormat::R32Float,
+                    access: GpuStorageTextureAccess::ReadWrite,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_unsupported_storage_textures() {
+        let rejected = [
+            "texture_storage_2d<rgba32float, write>",
+            "texture_storage_2d<rgba8unorm, read_write>",
+            "texture_storage_2d<rgba16float, read_write>",
+        ];
+
+        for ty in rejected {
+            let wgsl = format!(
+                r#"
+                @group(0) @binding(0) var img: {ty};
+
+                @compute @workgroup_size(1)
+                fn cs_main() {{
+                    _ = textureDimensions(img);
+                }}
+            "#
+            );
+
+            assert_eq!(reflect_bind_group_layouts(&parse_shader(&wgsl).unwrap()), None, "{ty}");
+        }
     }
 
     #[test]
@@ -4387,12 +4744,14 @@ mod tests {
         let sampler = api.create_sampler(None, GpuFilterMode::Nearest);
         let shader = api.create_shader(None, FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
         let buffer = api.create_uniform_storage_buffer(None, 4);
+        let compute = api.create_compute_shader(None, FILL_WGSL).unwrap();
 
         assert_eq!(texture.id, sampler.id);
         assert_eq!(texture.id, shader.id);
         assert_eq!(texture.id, buffer.id);
+        assert_eq!(texture.id, compute.id);
 
-        let ids = [texture.id(), sampler.id(), shader.id(), buffer.id()];
+        let ids = [texture.id(), sampler.id(), shader.id(), buffer.id(), compute.id()];
 
         for (i, a) in ids.iter().enumerate() {
             for b in &ids[i + 1..] {
@@ -4413,5 +4772,403 @@ mod tests {
 
         assert_ne!(original.id(), through_clone.id());
         assert_eq!(through_clone.id.index, original.id.index + 1);
+    }
+
+    const FILL_WGSL: &str = r#"
+        @group(0) @binding(0) var img: texture_storage_2d<rgba8unorm, write>;
+
+        @compute @workgroup_size(4, 4)
+        fn cs_main(@builtin(global_invocation_id) id: vec3u) {
+            textureStore(img, id.xy, vec4f(1.0, 0.0, 1.0, 1.0));
+        }
+    "#;
+
+    fn fill_pass<'a>(shader: &'a GpuComputeShader, bindings: &'a [&'a [(usize, GpuBinding<'a>)]]) -> GpuComputePass<'a> {
+        GpuComputePass {
+            shader,
+            bind_groups: bindings,
+            workgroups: [1, 1, 1],
+        }
+    }
+
+    #[test]
+    fn creates_compute_shaders_and_reflects_them() {
+        let Some(api) = RenderApi::new_headless() else {
+            return;
+        };
+
+        let wgsl = r#"
+            struct Particle {
+                position: vec2f,
+                speed: f32,
+            }
+
+            @group(0) @binding(0) var<uniform> delta_time: f32;
+            @group(1) @binding(2) var<storage, read_write> particles: array<Particle>;
+
+            @compute @workgroup_size(64, 2, 1)
+            fn cs_main(@builtin(global_invocation_id) id: vec3u) {
+                particles[id.x].position.y -= particles[id.x].speed * delta_time;
+            }
+        "#;
+
+        let shader = api.create_compute_shader(Some("particles"), wgsl).unwrap();
+
+        assert_eq!(shader.workgroup_size(), [64, 2, 1]);
+        assert_eq!(shader.bind_group_layouts().len(), 2);
+        assert_eq!(shader.bind_group_layout_entry(0, 0).unwrap().ty, GpuBindingTy::UniformBuffer);
+        assert_eq!(
+            shader.bind_group_layout_entry(1, 2).unwrap().ty,
+            GpuBindingTy::StorageBuffer { read_only: false }
+        );
+        assert!(shader.bind_group_layout_entry(1, 0).is_none());
+    }
+
+    #[test]
+    fn compute_and_render_shaders_need_their_own_entry_points() {
+        let Some(api) = RenderApi::new_headless() else {
+            return;
+        };
+
+        let misnamed = r#"
+            @compute @workgroup_size(1)
+            fn main() {}
+        "#;
+
+        assert!(api.create_compute_shader(None, misnamed).is_none());
+        assert!(api.create_compute_shader(None, FULLSCREEN_WGSL).is_none());
+        assert!(api.create_shader(None, FILL_WGSL, GpuShaderDesc::default()).is_none());
+        assert!(api.create_compute_shader(None, "not wgsl").is_none());
+    }
+
+    #[test]
+    fn dispatch_writes_storage_textures() {
+        let Some(api) = RenderApi::new_headless() else {
+            return;
+        };
+
+        let shader = api.create_compute_shader(None, FILL_WGSL).unwrap();
+        let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let bindings: &[&[_]] = &[&[(
+            0,
+            GpuBinding::Texture {
+                texture: &texture,
+                mip_level: None,
+            },
+        )]];
+
+        assert!(api.dispatch(&fill_pass(&shader, bindings)));
+        assert_eq!(read_texture_rgba8(&api, &texture, 0), [255, 0, 255, 255].repeat(16));
+    }
+
+    #[test]
+    fn dispatch_reads_and_writes_r32_float_storage_textures() {
+        let Some(api) = RenderApi::new_headless() else {
+            return;
+        };
+
+        let wgsl = r#"
+            @group(0) @binding(0) var img: texture_storage_2d<r32float, read_write>;
+
+            @compute @workgroup_size(2, 2)
+            fn cs_main(@builtin(global_invocation_id) id: vec3u) {
+                textureStore(img, id.xy, textureLoad(img, id.xy) * 2.0);
+            }
+        "#;
+
+        let shader = api.create_compute_shader(None, wgsl).unwrap();
+        let texture = api.create_texture(None, [2, 2], GpuTextureFormat::R32Float, 1);
+        let values = [1.0_f32, 2.0, 3.0, 4.0];
+
+        assert!(api.write_texture(&texture, 0, &values.map(f32::to_le_bytes).concat()));
+
+        let bindings: &[&[_]] = &[&[(
+            0,
+            GpuBinding::Texture {
+                texture: &texture,
+                mip_level: Some(0),
+            },
+        )]];
+
+        assert!(api.dispatch(&fill_pass(&shader, bindings)));
+
+        let read = api.read_texture(&texture, 0).unwrap();
+        let read = read
+            .chunks(4)
+            .map(|bytes| f32::from_le_bytes(bytes.try_into().unwrap()))
+            .collect::<Vec<_>>();
+        assert_eq!(read, [2.0, 4.0, 6.0, 8.0]);
+    }
+
+    #[test]
+    fn dispatch_writes_a_single_mip_level() {
+        let Some(api) = RenderApi::new_headless() else {
+            return;
+        };
+
+        let shader = api.create_compute_shader(None, FILL_WGSL).unwrap();
+        let texture = api.create_texture(None, [8, 8], GpuTextureFormat::Rgba8Unorm, 2);
+        let bind = |mip_level| {
+            let bindings: &[&[_]] = &[&[(
+                0,
+                GpuBinding::Texture {
+                    texture: &texture,
+                    mip_level,
+                },
+            )]];
+
+            api.dispatch(&fill_pass(&shader, bindings))
+        };
+
+        // storage bindings need a single-mip view
+        assert!(!bind(None));
+        assert!(!bind(Some(2)));
+        assert!(bind(Some(1)));
+
+        assert_eq!(read_texture_rgba8(&api, &texture, 1), [255, 0, 255, 255].repeat(16));
+        assert_eq!(read_texture_rgba8(&api, &texture, 0), [0; 4].repeat(64));
+    }
+
+    #[test]
+    fn fragment_shaders_write_storage_textures() {
+        let Some(api) = RenderApi::new_headless() else {
+            return;
+        };
+
+        let wgsl = r#"
+            @group(0) @binding(0) var img: texture_storage_2d<rgba8unorm, write>;
+
+            @vertex
+            fn vs_main(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
+                let uv = vec2f(f32((index << 1) & 2), f32(index & 2));
+                return vec4f(uv * 2.0 - 1.0, 0.0, 1.0);
+            }
+
+            @fragment
+            fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
+                textureStore(img, vec2u(position.xy), vec4f(0.0, 1.0, 0.0, 1.0));
+                return vec4f(1.0);
+            }
+        "#;
+
+        let shader = api.create_shader(None, wgsl, GpuShaderDesc::default()).unwrap();
+        let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let storage = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+
+        let pass = GpuRenderPass {
+            target: Some(GpuRenderPassTarget {
+                view: &target,
+                mip_level: 0,
+                ops: GpuPassOps::Clear([0.0; 4]),
+            }),
+            bind_groups: &[&[(
+                0,
+                GpuBinding::Texture {
+                    texture: &storage,
+                    mip_level: None,
+                },
+            )]],
+            ..pass_without_target(&shader)
+        };
+
+        assert!(api.draw(&pass, 0..3, 0..1));
+        assert_eq!(read_texture_rgba8(&api, &storage, 0), [0, 255, 0, 255].repeat(16));
+    }
+
+    #[test]
+    fn compute_writes_vertex_and_index_buffers_that_draws_use() {
+        let Some(api) = RenderApi::new_headless() else {
+            return;
+        };
+
+        let compute_wgsl = r#"
+            @group(0) @binding(0) var<storage, read_write> colors: array<vec2f>;
+            @group(0) @binding(1) var<storage, read_write> indices: array<u32>;
+
+            @compute @workgroup_size(3)
+            fn cs_main(@builtin(global_invocation_id) id: vec3u) {
+                indices[id.x] = id.x;
+                if id.x == 0 {
+                    colors[0] = vec2f(1.0, 1.0);
+                }
+            }
+        "#;
+        let draw_wgsl = r#"
+            struct VertexOutput {
+                @builtin(position) position: vec4f,
+                @location(0) color: vec2f,
+            }
+
+            @vertex
+            fn vs_main(@builtin(vertex_index) index: u32, @location(0) color: vec2f) -> VertexOutput {
+                let uv = vec2f(f32((index << 1) & 2), f32(index & 2));
+                return VertexOutput(vec4f(uv * 2.0 - 1.0, 0.0, 1.0), color);
+            }
+
+            @fragment
+            fn fs_main(input: VertexOutput) -> @location(0) vec4f {
+                return vec4f(input.color, 0.0, 1.0);
+            }
+        "#;
+
+        let compute = api.create_compute_shader(None, compute_wgsl).unwrap();
+        let shader = api.create_shader(None, draw_wgsl, GpuShaderDesc::default()).unwrap();
+
+        let layout = GpuVertexBufferLayout::new(GpuVertexStepMode::Instance, [(0, GpuVertexBufferLayoutEntryTy::Float2)]).unwrap();
+        let colors = api.create_vertex_buffer(None, 1, layout);
+        let indices = api.create_index_buffer(None, 3);
+        let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+
+        let bindings: &[&[_]] = &[&[(0, GpuBinding::VertexBuffer(&colors)), (1, GpuBinding::IndexBuffer(&indices))]];
+        assert!(api.dispatch(&fill_pass(&compute, bindings)));
+
+        let pass = GpuRenderPass {
+            target: Some(GpuRenderPassTarget {
+                view: &target,
+                mip_level: 0,
+                ops: GpuPassOps::Clear([0.0; 4]),
+            }),
+            vertex_buffers: &[&colors],
+            ..pass_without_target(&shader)
+        };
+
+        assert!(api.draw_indexed(&pass, &indices, 0..3, 0..1));
+        assert_eq!(read_texture_rgba8(&api, &target, 0), [255, 255, 0, 255].repeat(16));
+    }
+
+    #[test]
+    fn dispatch_fails_on_mismatched_bindings() {
+        let Some(api) = RenderApi::new_headless() else {
+            return;
+        };
+
+        let wgsl = r#"
+            @group(0) @binding(0) var<uniform> scale: f32;
+            @group(0) @binding(1) var<storage, read_write> values: array<f32>;
+
+            @compute @workgroup_size(1)
+            fn cs_main() {
+                values[0] *= scale;
+            }
+        "#;
+
+        let shader = api.create_compute_shader(None, wgsl).unwrap();
+        let fill = api.create_compute_shader(None, FILL_WGSL).unwrap();
+
+        let layout = GpuVertexBufferLayout::new(GpuVertexStepMode::Vertex, [(0, GpuVertexBufferLayoutEntryTy::Float)]).unwrap();
+        let uniform = api.create_uniform_storage_buffer(None, 4);
+        let storage = api.create_uniform_storage_buffer(None, 4);
+        let vertices = api.create_vertex_buffer(None, 4, layout.clone());
+        let empty_vertices = api.create_vertex_buffer(None, 0, layout);
+        let half_float = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba16Float, 1);
+
+        fn dispatch(api: &RenderApi, shader: &GpuComputeShader, bindings: &[&[(usize, GpuBinding)]]) -> bool {
+            api.dispatch(&fill_pass(shader, bindings))
+        }
+
+        assert!(dispatch(
+            &api,
+            &shader,
+            &[&[(0, GpuBinding::Buffer(&uniform)), (1, GpuBinding::VertexBuffer(&vertices))]]
+        ));
+        assert!(dispatch(
+            &api,
+            &shader,
+            &[&[(0, GpuBinding::Buffer(&uniform)), (1, GpuBinding::Buffer(&storage))]]
+        ));
+
+        // vertex buffers can't be uniforms
+        assert!(!dispatch(
+            &api,
+            &shader,
+            &[&[(0, GpuBinding::VertexBuffer(&vertices)), (1, GpuBinding::Buffer(&storage))]]
+        ));
+        assert!(!dispatch(
+            &api,
+            &shader,
+            &[&[
+                (0, GpuBinding::Buffer(&uniform)),
+                (1, GpuBinding::VertexBuffer(&empty_vertices))
+            ]]
+        ));
+        assert!(!dispatch(&api, &shader, &[&[(0, GpuBinding::Buffer(&uniform))]]));
+        assert!(!dispatch(&api, &shader, &[]));
+
+        let wrong_format: &[&[_]] = &[&[(
+            0,
+            GpuBinding::Texture {
+                texture: &half_float,
+                mip_level: None,
+            },
+        )]];
+        assert!(!dispatch(&api, &fill, wrong_format));
+    }
+
+    #[test]
+    fn dropping_a_compute_shader_releases_it() {
+        let Some(api) = RenderApi::new_headless() else {
+            return;
+        };
+
+        let shader = api.create_compute_shader(None, FILL_WGSL).unwrap();
+        let clone = shader.clone();
+        let count = |api: &RenderApi| api.inner().state.lock().unwrap().resources.compute_shaders.len();
+
+        assert_eq!(count(&api), 1);
+        drop(shader);
+        assert_eq!(count(&api), 1);
+        drop(clone);
+        assert_eq!(count(&api), 0);
+    }
+
+    #[test]
+    fn render_and_compute_shaders_share_bind_groups() {
+        let Some(api) = RenderApi::new_headless() else {
+            return;
+        };
+
+        let render_wgsl = r#"
+            @group(0) @binding(0) var img: texture_storage_2d<rgba8unorm, write>;
+
+            @vertex
+            fn vs_main() -> @builtin(position) vec4f {
+                return vec4f(0.0, 0.0, 0.0, 1.0);
+            }
+
+            @fragment
+            fn fs_main() -> @location(0) vec4f {
+                textureStore(img, vec2u(0), vec4f(1.0));
+                return vec4f(1.0);
+            }
+        "#;
+
+        let compute = api.create_compute_shader(None, FILL_WGSL).unwrap();
+        let render = api.create_shader(None, render_wgsl, GpuShaderDesc::default()).unwrap();
+        let storage = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
+        let bindings: &[&[_]] = &[&[(
+            0,
+            GpuBinding::Texture {
+                texture: &storage,
+                mip_level: None,
+            },
+        )]];
+
+        assert!(api.dispatch(&fill_pass(&compute, bindings)));
+
+        let pass = GpuRenderPass {
+            target: Some(GpuRenderPassTarget {
+                view: &target,
+                mip_level: 0,
+                ops: GpuPassOps::Load,
+            }),
+            bind_groups: bindings,
+            ..pass_without_target(&render)
+        };
+        assert!(api.draw(&pass, 0..3, 0..1));
+
+        let state = api.inner().state.lock().unwrap();
+        assert_eq!(state.cache.bind_groups().len(), 1);
+        assert_eq!(state.cache.bind_group_layouts().len(), 1);
     }
 }

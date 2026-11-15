@@ -5,15 +5,15 @@ use aphyn_audio::{AudioClip, AudioStateResource};
 use aphyn_ecs::ResourcesHolderMut;
 use aphyn_prefab::{Prefab, Scene};
 use aphyn_render::{
-    Material, MaterialTemplate, RenderApiResource, Shader, ShaderAssetMetadata, StandardMesh, StandardTexture,
-    StandardTextureAssetMetadata,
+    ComputeShader, ComputeShaderAssetMetadata, Material, MaterialTemplate, RenderApiResource, Shader, ShaderAssetMetadata,
+    StandardMesh, StandardTexture, StandardTextureAssetMetadata,
 };
 use aphyn_serialization::*;
 use aphyn_serialization_ecs::SerializersResource;
 
 use crate::{
-    AudioClipLoader, EntityIdDecoder, EntityIdEncoder, EntityTransSerializer, MaterialLoader, MeshLoader, PrefabLoader, SceneLoader,
-    ShaderLoader, TextureLoader, deserialize_material,
+    AudioClipLoader, ComputeShaderLoader, EntityIdDecoder, EntityIdEncoder, EntityTransSerializer, MaterialLoader, MeshLoader,
+    PrefabLoader, SceneLoader, ShaderLoader, TextureLoader, deserialize_material,
 };
 
 pub fn load_asset_transitively_from_world<R>(
@@ -36,6 +36,7 @@ pub fn load_asset_transitively_from_world<R>(
             &mut *res.get_ptr::<AssetStorageResource<StandardMesh>>()?,
             &mut *res.get_ptr::<AssetStorageResource<AudioClip>>()?,
             &mut *res.get_ptr::<AssetStorageResource<Shader>>()?,
+            &mut *res.get_ptr::<AssetStorageResource<ComputeShader>>()?,
             &mut *res.get_ptr::<AssetStorageResource<MaterialTemplate>>()?,
             assets_dir_path,
             f,
@@ -55,11 +56,12 @@ pub fn load_asset_transitively<R>(
     meshes: &mut AssetStorageResource<StandardMesh>,
     audio_clips: &mut AssetStorageResource<AudioClip>,
     shaders: &mut AssetStorageResource<Shader>,
+    compute_shaders: &mut AssetStorageResource<ComputeShader>,
     templates: &mut AssetStorageResource<MaterialTemplate>,
     assets_dir_path: impl AsRef<Path>,
     f: impl FnOnce(TransSerializerRegistry, &SerializersResource) -> R,
 ) -> R {
-    let (audio_state, prefabs, scenes, textures, materials, meshes, audio_clips, shaders, templates) = (
+    let (audio_state, prefabs, scenes, textures, materials, meshes, audio_clips, shaders, compute_shaders, templates) = (
         &Mutex::new(audio_state),
         &Mutex::new(prefabs),
         &Mutex::new(scenes),
@@ -68,6 +70,7 @@ pub fn load_asset_transitively<R>(
         &Mutex::new(meshes),
         &Mutex::new(audio_clips),
         &Mutex::new(shaders),
+        &Mutex::new(compute_shaders),
         &Mutex::new(templates),
     );
 
@@ -128,6 +131,16 @@ pub fn load_asset_transitively<R>(
         loader: |mut ctx, value, assets_dir_path| {
             ShaderLoader { render_api }
                 .load_from_deserialized(ctx.deserialize_default::<ShaderAssetMetadata>("", value), assets_dir_path)
+        },
+    });
+    serializer_local.register(TransitiveLoadTransSerializer {
+        assets: compute_shaders,
+        assets_dir_path,
+        loader: |mut ctx, value, assets_dir_path| {
+            ComputeShaderLoader { render_api }.load_from_deserialized(
+                ctx.deserialize_default::<ComputeShaderAssetMetadata>("", value),
+                assets_dir_path,
+            )
         },
     });
     serializer_local.register(TransitiveLoadTransSerializer {

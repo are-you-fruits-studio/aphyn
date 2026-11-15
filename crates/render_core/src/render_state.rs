@@ -33,6 +33,10 @@ impl RenderApiState {
                 cache.pipelines.retain(|key, _| key.shader != id);
                 return;
             }
+            ResourceKey::ComputeShader(id) => {
+                resources.compute_shaders.remove(id);
+                return;
+            }
         }
 
         cache
@@ -47,6 +51,7 @@ pub(crate) struct RenderApiResources {
     pub buffers: VersionCollection<BufferResource>,
     pub samplers: VersionCollection<SamplerResource>,
     pub shaders: VersionCollection<ShaderResource>,
+    pub compute_shaders: VersionCollection<ComputeShaderResource>,
 }
 
 #[derive(Default)]
@@ -399,6 +404,24 @@ impl ShaderResource {
     }
 }
 
+pub(crate) struct ComputeShaderResource {
+    pipeline: wgpu::ComputePipeline,
+    layout_keys: Vec<Vec<BindGroupLayoutKeyEntry>>,
+}
+
+impl ComputeShaderResource {
+    pub fn new(pipeline: wgpu::ComputePipeline, layout_keys: Vec<Vec<BindGroupLayoutKeyEntry>>) -> Self {
+        Self { pipeline, layout_keys }
+    }
+
+    pub fn pipeline(&self) -> &wgpu::ComputePipeline {
+        &self.pipeline
+    }
+    pub fn layout_keys(&self) -> &Vec<Vec<BindGroupLayoutKeyEntry>> {
+        &self.layout_keys
+    }
+}
+
 pub(crate) struct BufferResource {
     pub(crate) buffer: wgpu::Buffer,
     pub(crate) label: Option<String>,
@@ -453,6 +476,10 @@ pub(crate) fn bind_group_name(resources: &RenderApiResources, entries: &[BindGro
         .collect::<Vec<_>>();
 
     format!("bind group [{}]", entries.join(", "))
+}
+
+pub(crate) fn compute_pipeline_name(shader_label: Option<&str>) -> String {
+    format!("compute pipeline {}", quoted_label(shader_label, "shader"))
 }
 
 pub(crate) fn pipeline_name(shader_label: Option<&str>, key: &PipelineKey) -> String {

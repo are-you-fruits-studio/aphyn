@@ -1,15 +1,13 @@
 # Prioritized
 
-- view the game with the highlited mesh triangles' edges
 - make sure prefab root entity is the first one serialized
 - implement windows docking (like in Microsoft VS)
-- rename entities (or make it so that all the entities in the editor have a DebugName component)
 
-- instantiate prefabs in editor
-- implement engine assets (like in Unity they have Assets folder and Packages folder in the Project window).
 - implement shadows
-- implement Skybox
+- implement Skybox (probably need separation of vertex/fragment shaders in assets)
 - implement animation
+- instantiate prefabs in editor (probably need to support prefabs as part of other prefabs and overrides)
+- implement engine assets (like in Unity they have Assets folder and Packages folder in the Project window).
 
 - resources serialization (or resources as assets)
     - What holds serialized resources? Scene? ResourcesScene? Maybe I should rename current Scene into MultiPrefab and create a separate scene that contains entities+components AND resources?
@@ -18,6 +16,7 @@
 
 # Default
 
+- implement FXAA (Fast Approximate Anti-Aliasing)
 - implement SSR (Screen-Space Reflections)
 
 # Queue
@@ -35,6 +34,7 @@
 - improve editor playmode performance:
     - optimize update_hierarchy_window_system
 
+- view the game with the highlited mesh triangles' edges
 - allow spawning entities directly into the right archetype (optimization)
 - use pure serializer if no transserializer available
 - maybe add scroll with automatic visibility to dynamic dropdown

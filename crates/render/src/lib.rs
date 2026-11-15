@@ -82,6 +82,24 @@
 //! let shader = render_api.create_shader("shaders/water.wgsl", &code, GpuShaderDesc::default(), None).unwrap();
 //! ```
 //!
+//! A [`ComputeShader`] is the same for a core `GpuComputeShader`, with [`ComputeShaderAssetMetadata`]
+//! holding only the `.wgsl` key. [`create_compute_shader`](RenderApiResource::create_compute_shader)
+//! needs a `cs_main` compute entry point. There is no dispatch wrapper: pass
+//! [`shader`](ComputeShader::shader) to core's `dispatch` through [`core`](RenderApiResource::core):
+//!
+//! ```ignore
+//! use aphyn_render::*;
+//!
+//! let code = WgslComposer::with_engine_libraries().compose("shaders/particles.wgsl", source, &[]).unwrap();
+//! let particles = render_api.create_compute_shader("shaders/particles.wgsl", &code, None).unwrap();
+//!
+//! render_api.core().dispatch(&GpuComputePass {
+//!     shader: particles.shader(),
+//!     bind_groups: &[&[(0, GpuBinding::VertexBuffer(instances.buffer()))]],
+//!     workgroups: [instances.len().div_ceil(particles.shader().workgroup_size()[0]), 1, 1],
+//! });
+//! ```
+//!
 //! #### Material templates
 //!
 //! A [`MaterialTemplate`] is an asset without code. Its `inputs` map an input name to a
@@ -371,8 +389,9 @@
 //! The asset types hold core handles directly in `#[repr(C)]` fields and expose them through
 //! accessors: [`StandardTexture`] its texture and sampler, [`StandardMesh`] its vertex and index
 //! buffers and index count, [`StandardInstanceBuffer`] its vertex buffer, [`StandardGlobalBindings`]
-//! its uniform and lights buffers, and [`Shader`] its `GpuShader`. Meshes, textures and shaders keep
-//! their optional asset metadata so the asset can be saved back.
+//! its uniform and lights buffers, [`Shader`] its `GpuShader`, and [`ComputeShader`] its
+//! `GpuComputeShader`. Meshes, textures and both shader kinds keep their optional asset metadata so the
+//! asset can be saved back.
 //!
 //! Core rejects buffer writes whose offset or size is not a multiple of 4 bytes, so every write here
 //! must be. All engine structs and `u32` indices are.
@@ -411,6 +430,8 @@
 //! `Shader::new` passes the composed WGSL and the desc to core's `create_shader`. Core checks the
 //! WGSL and the fragment inputs at creation, but builds pipelines lazily, so a shader whose bindings
 //! or vertex inputs don't match what a draw passes fails at its first draw (printed once).
+//! `ComputeShader::new` passes the composed WGSL to core's `create_compute_shader`, which builds the
+//! pipeline right away.
 //!
 //! [`StandardInstanceBuffer`] is array-like: its length is fixed at creation (zero-initialized) and
 //! every write is clamped to it. `buffers.rs` holds [`TypedUniformBuffer`], [`TypedStorageBuffer`],

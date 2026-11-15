@@ -115,10 +115,10 @@ use aphyn_ffi::{FfiIndexMap, FfiOption, FfiSmallString, FfiString, FfiVec};
 use aphyn_math::{Mat, Mat3, Quat, Vec2, Vec3, Vec4};
 use aphyn_physics::{PhysicsMaterial, PhysicsMaterialComponent, RigidbodyComponent, RigidbodyForces, RigidbodyType};
 use aphyn_render::{
-    Camera, CameraProjection, CoordinateSpaceType, Material, MaterialData, MaterialDataEntry, MaterialDataValue, MaterialInput,
-    MaterialPassTarget, MaterialTemplate, MaterialTemplatePass, MaterialTextureBinding, MaterialTextureFallback,
-    MaterialValueBinding, RenderSpace, ShaderAssetMetadata, StandardMeshAssetMetadata, StandardTextureAssetMetadata,
-    StandardTextureFormat, StandardVertex,
+    Camera, CameraProjection, ComputeShaderAssetMetadata, CoordinateSpaceType, Material, MaterialData, MaterialDataEntry,
+    MaterialDataValue, MaterialInput, MaterialPassTarget, MaterialTemplate, MaterialTemplatePass, MaterialTextureBinding,
+    MaterialTextureFallback, MaterialValueBinding, RenderSpace, ShaderAssetMetadata, StandardMeshAssetMetadata,
+    StandardTextureAssetMetadata, StandardTextureFormat, StandardVertex,
 };
 use aphyn_render_core::{
     GpuBlendComponent, GpuBlendFactor, GpuBlendOperation, GpuBlendState, GpuColorWrites, GpuCompareFunction, GpuCullMode,
@@ -196,6 +196,7 @@ pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry
     register_transserializer::<StandardMeshAssetMetadata>(serializer);
     register_transserializer::<StandardTextureAssetMetadata>(serializer);
     register_transserializer::<ShaderAssetMetadata>(serializer);
+    register_transserializer::<ComputeShaderAssetMetadata>(serializer);
     register_transserializer::<AudioClipAssetMetadata>(serializer);
     register_transserializer::<Material>(serializer);
     register_transserializer::<MaterialTemplate>(serializer);

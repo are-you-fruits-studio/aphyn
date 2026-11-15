@@ -12,7 +12,7 @@
 //! # How to use
 //!
 //! [`add_render_features_module_to`] (called by `add_defult_modules_to`) inserts the asset
-//! storages (`Material`, `MaterialTemplate`, `Shader`, `StandardMesh`, `StandardTexture`), the
+//! storages (`Material`, `MaterialTemplate`, `Shader`, `ComputeShader`, `StandardMesh`, `StandardTexture`), the
 //! settings resources, registers the engine features and a `Start` system in
 //! [`SYSTEM_GROUP_RENDER`] that inserts the built-in shaders and material templates.
 //!
@@ -250,7 +250,7 @@ pub use utils::*;
 
 use aphyn_asset_storage::AssetStorageResource;
 use aphyn_ecs::{Schedule, WorldBehaviorBuilderMut, WorldDataMut};
-use aphyn_render::{Material, MaterialTemplate, Shader, StandardMesh, StandardTexture};
+use aphyn_render::{ComputeShader, Material, MaterialTemplate, Shader, StandardMesh, StandardTexture};
 
 pub const SYSTEM_GROUP_RENDER: &str = "aphyn_render";
 
@@ -271,6 +271,7 @@ pub fn add_render_features_module_to(
     resources.insert(AssetStorageResource::<Material>::new());
     resources.insert(AssetStorageResource::<MaterialTemplate>::new());
     resources.insert(AssetStorageResource::<Shader>::new());
+    resources.insert(AssetStorageResource::<ComputeShader>::new());
     resources.insert(AssetStorageResource::<StandardMesh>::new());
     resources.insert(AssetStorageResource::<StandardTexture>::new());
     resources.insert(GizmosResource::default());

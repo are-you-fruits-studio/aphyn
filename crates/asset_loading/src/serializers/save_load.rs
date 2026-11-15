@@ -4,7 +4,7 @@ use aphyn_ecs::ResourcesHolderRef;
 use aphyn_ffi::FfiString;
 use aphyn_prefab::{Prefab, Scene};
 use aphyn_render::{
-    CoordinateSpaceType, Material, MaterialTemplate, Shader, StandardMesh, StandardMeshAssetMetadata, StandardTexture,
+    ComputeShader, CoordinateSpaceType, Material, MaterialTemplate, Shader, StandardMesh, StandardMeshAssetMetadata, StandardTexture,
 };
 use aphyn_serialization::*;
 
@@ -25,6 +25,7 @@ pub fn save_load_with_asset_serializers_from_world<R>(
         &*res.get::<AssetStorageResource<StandardMesh>>()?,
         &*res.get::<AssetStorageResource<AudioClip>>()?,
         &*res.get::<AssetStorageResource<Shader>>()?,
+        &*res.get::<AssetStorageResource<ComputeShader>>()?,
         f,
     ))
 }
@@ -38,6 +39,7 @@ pub fn save_load_with_asset_serializers<R>(
     meshes: &AssetStorageResource<StandardMesh>,
     audio_clips: &AssetStorageResource<AudioClip>,
     shaders: &AssetStorageResource<Shader>,
+    compute_shaders: &AssetStorageResource<ComputeShader>,
     f: impl FnOnce(TransSerializerRegistry) -> R,
 ) -> R {
     let mut serializer_local = TransSerializerRegistry::new();
@@ -50,6 +52,7 @@ pub fn save_load_with_asset_serializers<R>(
     serializer_local.register(AssetHandleLinkTransSerializer::new(meshes));
     serializer_local.register(AssetHandleLinkTransSerializer::new(audio_clips));
     serializer_local.register(AssetHandleLinkTransSerializer::new(shaders));
+    serializer_local.register(AssetHandleLinkTransSerializer::new(compute_shaders));
     // todo: font
     serializer_local.register(AssetHandleLinkTransSerializer::new(prefabs));
     serializer_local.register(AssetHandleLinkTransSerializer::new(scenes));
@@ -68,6 +71,10 @@ pub fn save_load_with_asset_serializers<R>(
     });
     serializer_local.register(DirectAssetSaveTransSerializer {
         assets: shaders,
+        extractor: |_, s| s.meta().cloned().unwrap_or_default(),
+    });
+    serializer_local.register(DirectAssetSaveTransSerializer {
+        assets: compute_shaders,
         extractor: |_, s| s.meta().cloned().unwrap_or_default(),
     });
     serializer_local.register(DirectAssetSaveTransSerializer {

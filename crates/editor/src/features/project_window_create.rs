@@ -66,6 +66,7 @@ enum ProjectEntryCreateKind {
     Material,
     MaterialTemplate,
     Shader,
+    ComputeShader,
     Prefab,
     Scene,
     Texture,
@@ -74,11 +75,12 @@ enum ProjectEntryCreateKind {
 }
 
 impl ProjectEntryCreateKind {
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 10] = [
         Self::Folder,
         Self::Material,
         Self::MaterialTemplate,
         Self::Shader,
+        Self::ComputeShader,
         Self::Prefab,
         Self::Scene,
         Self::Texture,
@@ -92,6 +94,7 @@ impl ProjectEntryCreateKind {
             Self::Material => "Material",
             Self::MaterialTemplate => "Material template",
             Self::Shader => "Shader",
+            Self::ComputeShader => "Compute shader",
             Self::Prefab => "Prefab",
             Self::Scene => "Scene",
             Self::Texture => "Texture",
@@ -106,6 +109,7 @@ impl ProjectEntryCreateKind {
             Self::Material => "New Material",
             Self::MaterialTemplate => "New Material Template",
             Self::Shader => "New Shader",
+            Self::ComputeShader => "New Compute Shader",
             Self::Prefab => "New Prefab",
             Self::Scene => "New Scene",
             Self::Texture => "New Texture",
@@ -120,6 +124,7 @@ impl ProjectEntryCreateKind {
             Self::Material => Some(AssetType::Material),
             Self::MaterialTemplate => Some(AssetType::MaterialTemplate),
             Self::Shader => Some(AssetType::Shader),
+            Self::ComputeShader => Some(AssetType::ComputeShader),
             Self::Prefab => Some(AssetType::Prefab),
             Self::Scene => Some(AssetType::Scene),
             Self::Texture => Some(AssetType::Texture),
@@ -222,6 +227,7 @@ fn create_asset(
             serialize_metadata(res.as_ref(), asset_type, &Material::new(template, MaterialData::new()))
         }
         AssetType::Shader => serialize_default_metadata::<ShaderAssetMetadata>(res.as_ref(), asset_type),
+        AssetType::ComputeShader => serialize_default_metadata::<ComputeShaderAssetMetadata>(res.as_ref(), asset_type),
         AssetType::MaterialTemplate => serialize_default_metadata::<MaterialTemplate>(res.as_ref(), asset_type),
         AssetType::Mesh => serialize_default_metadata::<StandardMeshAssetMetadata>(res.as_ref(), asset_type),
         AssetType::AudioClip => serialize_default_metadata::<AudioClipAssetMetadata>(res.as_ref(), asset_type),
@@ -258,6 +264,7 @@ fn create_asset(
             | AssetType::Mesh
             | AssetType::AudioClip
             | AssetType::Shader
+            | AssetType::ComputeShader
             | AssetType::MaterialTemplate
     ) {
         let assets_dir_path = open_project.dir_path.to_string() + PROJECT_ASSETS_SUBPATH;

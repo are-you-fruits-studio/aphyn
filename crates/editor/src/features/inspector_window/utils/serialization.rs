@@ -67,6 +67,9 @@ pub fn deserialize_asset_to_world_res(
             AssetType::Prefab => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<Prefab>>("", &serialized),
             AssetType::Scene => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<Scene>>("", &serialized),
             AssetType::Shader => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<Shader>>("", &serialized),
+            AssetType::ComputeShader => {
+                _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<ComputeShader>>("", &serialized)
+            }
             AssetType::MaterialTemplate => {
                 _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<MaterialTemplate>>("", &serialized)
             }
@@ -98,6 +101,7 @@ pub fn load_asset_to_world_res(
             AssetType::Prefab => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<Prefab>>("", value),
             AssetType::Scene => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<Scene>>("", value),
             AssetType::Shader => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<Shader>>("", value),
+            AssetType::ComputeShader => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<ComputeShader>>("", value),
             AssetType::MaterialTemplate => {
                 _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<MaterialTemplate>>("", value)
             }

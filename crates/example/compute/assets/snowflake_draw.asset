@@ -1,0 +1,9 @@
+{
+  "asset_type": "shader",
+  "wgsl": "snowflake_draw.wgsl",
+  "desc": {
+    "cull_mode": {
+      "$enum_variant": "None"
+    }
+  }
+}

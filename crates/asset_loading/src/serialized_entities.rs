@@ -5,7 +5,7 @@ use aphyn_audio::AudioClip;
 use aphyn_ecs::*;
 use aphyn_ffi::{FfiIndexMap, FfiString};
 use aphyn_prefab::{Prefab, Scene, SerializedEntities, deserialize_component, deserialize_entity_components, serialize_components};
-use aphyn_render::{Material, MaterialTemplate, Shader, StandardMesh, StandardTexture};
+use aphyn_render::{ComputeShader, Material, MaterialTemplate, Shader, StandardMesh, StandardTexture};
 use aphyn_serialization::*;
 use aphyn_serialization_ecs::SerializersResource;
 use aphyn_ui::Font;
@@ -46,6 +46,7 @@ pub fn instantiate_serialized_entities(
     let meshes = res.get::<AssetStorageResource<StandardMesh>>();
     let audio_clips = res.get::<AssetStorageResource<AudioClip>>();
     let shaders = res.get::<AssetStorageResource<Shader>>();
+    let compute_shaders = res.get::<AssetStorageResource<ComputeShader>>();
     let fonts = res.get::<AssetStorageResource<Font>>();
     let prefabs = res.get::<AssetStorageResource<Prefab>>();
     let scenes = res.get::<AssetStorageResource<Scene>>();
@@ -69,6 +70,7 @@ pub fn instantiate_serialized_entities(
         serializers_local.register(AssetInstantiateTransSerializer::new(meshes));
         serializers_local.register(AssetInstantiateTransSerializer::new(audio_clips));
         serializers_local.register(AssetInstantiateTransSerializer::new(shaders));
+        serializers_local.register(AssetInstantiateTransSerializer::new(compute_shaders));
         serializers_local.register(AssetInstantiateTransSerializer::new(fonts));
         serializers_local.register(AssetInstantiateTransSerializer::new(prefabs));
         serializers_local.register(AssetInstantiateTransSerializer::new(scenes));

@@ -7,10 +7,11 @@ use aphyn_render_core::{GpuCullMode, GpuSampler, GpuShader, GpuShaderDesc, Rende
 use winit::window::Window;
 
 use crate::{
-    FilterMode, GpuVertexBufferLayout, Material, MaterialData, MaterialGpuData, MaterialTemplate, MaterialTextureFallback, Shader,
-    ShaderAssetMetadata, StandardGenericLight, StandardGlobalBindings, StandardInstanceBuffer, StandardMesh,
-    StandardMeshAssetMetadata, StandardTexture, StandardTextureAssetMetadata, StandardTextureFormat, StandardUniformGlobal,
-    StandardVertex, TypedStorageBuffer, TypedUniformBuffer, TypedUniformBufferLayout, TypedVertexBuffer, TypedVertexWriter,
+    ComputeShader, ComputeShaderAssetMetadata, FilterMode, GpuVertexBufferLayout, Material, MaterialData, MaterialGpuData,
+    MaterialTemplate, MaterialTextureFallback, Shader, ShaderAssetMetadata, StandardGenericLight, StandardGlobalBindings,
+    StandardInstanceBuffer, StandardMesh, StandardMeshAssetMetadata, StandardTexture, StandardTextureAssetMetadata,
+    StandardTextureFormat, StandardUniformGlobal, StandardVertex, TypedStorageBuffer, TypedUniformBuffer, TypedUniformBufferLayout,
+    TypedVertexBuffer, TypedVertexWriter,
 };
 
 #[derive(Resource)]
@@ -142,6 +143,15 @@ impl RenderApiResource {
         meta: Option<ShaderAssetMetadata>,
     ) -> Option<Shader> {
         Shader::new(&self.core, label, composed_wgsl, desc, meta)
+    }
+
+    pub fn create_compute_shader(
+        &self,
+        label: &str,
+        composed_wgsl: &str,
+        meta: Option<ComputeShaderAssetMetadata>,
+    ) -> Option<ComputeShader> {
+        ComputeShader::new(&self.core, label, composed_wgsl, meta)
     }
 
     pub fn create_material(

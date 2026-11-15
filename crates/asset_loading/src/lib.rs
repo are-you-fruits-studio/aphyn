@@ -8,8 +8,8 @@
 //!
 //! Every asset is identified by a **key**: the `/`-separated path, relative to the `assets/`
 //! directory, of a small JSON *asset file* with the `.asset` extension. The file declares an
-//! `asset_type` (`"texture"`, `"material"`, `"material_template"`, `"shader"`, `"mesh"`,
-//! `"audio_clip"`, `"prefab"`, `"scene"`, or `"font"`) and the asset's settings, and usually points
+//! `asset_type` (`"texture"`, `"material"`, `"material_template"`, `"shader"`, `"compute_shader"`,
+//! `"mesh"`, `"audio_clip"`, `"prefab"`, `"scene"`, or `"font"`) and the asset's settings, and usually points
 //! at a raw payload (image, `.wgsl`, `.obj`, `.wav`) by a further `assets/`-relative path; an empty
 //! payload path loads a placeholder asset (except for shaders). The module is part of the engine's
 //! default modules (`add_defult_modules_to`), which also registers the texture, material, template,
@@ -56,10 +56,11 @@
 //! #### Writing an asset file
 //!
 //! The fields besides `asset_type` are the serialized form of the matching asset type
-//! (`StandardTextureAssetMetadata`, `ShaderAssetMetadata`, `MaterialTemplate`, `Material`,
-//! `StandardMeshAssetMetadata`, `AudioClipAssetMetadata`); fields left out keep their defaults.
+//! (`StandardTextureAssetMetadata`, `ShaderAssetMetadata`, `ComputeShaderAssetMetadata`, `MaterialTemplate`,
+//! `Material`, `StandardMeshAssetMetadata`, `AudioClipAssetMetadata`); fields left out keep their defaults.
 //! An asset handle inside an asset file is written as the referenced asset's key and is loaded
-//! along with it. A shader file names its `.wgsl` payload and the `GpuShaderDesc` pipeline state. A
+//! along with it. A shader file names its `.wgsl` payload and the `GpuShaderDesc` pipeline state, a
+//! compute shader file only its `.wgsl` payload (`{ "asset_type": "compute_shader", "wgsl": ".." }`). A
 //! material template lists its inputs (default value and texture fallback) and passes (shader key,
 //! order, target, and the input-to-binding mappings). A material file is a `Material` as is: a
 //! `template` key and a `data` map from input name to a tagged value (`F32`, `Vec4` in linear space,
@@ -235,6 +236,9 @@
 //!   creates the shader through `RenderApiResource::create_shader` with the metadata's `desc`, which
 //!   fails (returns `None`) on invalid WGSL. A shader whose bindings don't match a template's
 //!   mapping still loads; the material build disables that pass and prints why.
+//! - **Compute shader** — [`ComputeShaderLoader`] reads and composes its `wgsl` the same way (one
+//!   shared function) and creates it through `RenderApiResource::create_compute_shader`, which fails
+//!   without a `cs_main` entry point.
 //!
 //! An empty payload path (`raw_texture`, `raw_mesh`, or `raw_audio` set to `""`) loads a
 //! placeholder instead of failing: a 1x1 white texture, a mesh without vertices and indices, or
@@ -257,8 +261,8 @@
 //! world's `SerializersResource`: [`EntityTransSerializer`] maps stored ids to the new entities
 //! (`0` is the empty entity), and an [`AssetInstantiateTransSerializer`] per asset type
 //! resolves an asset key to the handle already registered under it in the world's
-//! `AssetStorageResource` (textures, materials, meshes, audio clips, fonts, prefabs, scenes). It
-//! loads nothing: a key that isn't registered, or a missing storage, reports an error and leaves
+//! `AssetStorageResource` (textures, materials, meshes, audio clips, shaders, compute shaders, fonts,
+//! prefabs, scenes). It loads nothing: a key that isn't registered, or a missing storage, reports an error and leaves
 //! the handle empty. Its `serialize` is `unimplemented!`. [`instantiate_prefab`] returns the
 //! entity of the first id (the root); [`instantiate_scene`] returns nothing.
 //! [`record_serialized_entities`] serializes the given entities with entity references mapped
@@ -291,7 +295,7 @@ use std::{
 use aphyn_asset_storage::{AssetHandle, AssetStorageResource};
 use aphyn_audio::AudioClip;
 use aphyn_prefab::{Prefab, Scene};
-use aphyn_render::{Material, MaterialTemplate, Shader, StandardMesh, StandardTexture};
+use aphyn_render::{ComputeShader, Material, MaterialTemplate, Shader, StandardMesh, StandardTexture};
 use aphyn_serialization::{SerializedPrimitive, SerializedValue, SerializerCtx};
 pub use audio_clip::*;
 pub use material::*;
@@ -368,6 +372,7 @@ pub enum AssetType {
     Prefab,
     Scene,
     Shader,
+    ComputeShader,
     MaterialTemplate,
 }
 
@@ -382,6 +387,7 @@ impl AssetType {
             AssetType::Prefab => "prefab",
             AssetType::Scene => "scene",
             AssetType::Shader => "shader",
+            AssetType::ComputeShader => "compute_shader",
             AssetType::MaterialTemplate => "material_template",
         }
     }
@@ -396,6 +402,7 @@ impl AssetType {
             "prefab" => Some(AssetType::Prefab),
             "scene" => Some(AssetType::Scene),
             "shader" => Some(AssetType::Shader),
+            "compute_shader" => Some(AssetType::ComputeShader),
             "material_template" => Some(AssetType::MaterialTemplate),
             _ => None,
         }
@@ -527,6 +534,9 @@ pub fn load_all_assets(mut res: ResourcesHolderMut, assets_dir_path: impl AsRef<
                     AssetType::Prefab => _ = serializer_ctx.deserialize_default::<AssetHandle<Prefab>>("", &serialized_value),
                     AssetType::Scene => _ = serializer_ctx.deserialize_default::<AssetHandle<Scene>>("", &serialized_value),
                     AssetType::Shader => _ = serializer_ctx.deserialize_default::<AssetHandle<Shader>>("", &serialized_value),
+                    AssetType::ComputeShader => {
+                        _ = serializer_ctx.deserialize_default::<AssetHandle<ComputeShader>>("", &serialized_value)
+                    }
                     AssetType::MaterialTemplate => {
                         _ = serializer_ctx.deserialize_default::<AssetHandle<MaterialTemplate>>("", &serialized_value)
                     }

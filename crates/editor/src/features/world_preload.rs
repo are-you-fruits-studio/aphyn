@@ -297,6 +297,7 @@ fn build_simulated_world(
         serializer.register(StandardSerializer::<Option<f32>>::default());
         serializer.register(StandardSerializer::<StandardTextureAssetMetadata>::default());
         serializer.register(StandardSerializer::<ShaderAssetMetadata>::default());
+        serializer.register(StandardSerializer::<ComputeShaderAssetMetadata>::default());
         serializer.register(StandardSerializer::<StandardMeshAssetMetadata>::default());
         serializer.register(StandardSerializer::<AudioClipAssetMetadata>::default());
         // todo

@@ -97,8 +97,8 @@ mod tests {
     use aphyn_math::Vec4;
     use aphyn_prefab::{Prefab, Scene};
     use aphyn_render::{
-        Material, MaterialData, MaterialDataEntry, MaterialDataValue, MaterialInput, MaterialTemplate, MaterialTextureFallback,
-        Shader, StandardMesh, StandardTexture,
+        ComputeShader, Material, MaterialData, MaterialDataEntry, MaterialDataValue, MaterialInput, MaterialTemplate,
+        MaterialTextureFallback, Shader, StandardMesh, StandardTexture,
     };
     use aphyn_serialization::*;
 
@@ -161,6 +161,7 @@ mod tests {
             &AssetStorageResource::<StandardMesh>::new(),
             &AssetStorageResource::<AudioClip>::new(),
             &AssetStorageResource::<Shader>::new(),
+            &AssetStorageResource::<ComputeShader>::new(),
             f,
         )
     }

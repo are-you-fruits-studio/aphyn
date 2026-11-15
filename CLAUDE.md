@@ -36,7 +36,7 @@ Rust edition 2024, Cargo workspace rooted at `Cargo.toml` (the root package `aph
 ```bash
 cargo build                                   # whole workspace
 cargo build --release -p aphyn_editor        # what CI release builds (.github/workflows/build.yml)
-cargo run -p aphyn_example_cubes             # run an example (others: aphyn_example_ecs, _boids, _ui, _text, _gizmos, _collisions, _physics, _normals, _bloom, _material, _audio_screen_saver)
+cargo run -p aphyn_example_cubes             # run an example (others: aphyn_example_ecs, _boids, _ui, _text, _gizmos, _collisions, _physics, _normals, _bloom, _material, _compute, _audio_screen_saver)
 cargo test -p aphyn_serialization            # tests are mostly doctests in crate-level //! docs
 cargo test -p aphyn_ecs --doc <name_filter>  # run a single doctest
 cargo fmt                                     # rustfmt.toml: max_width = 133, Unix newlines

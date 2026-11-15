@@ -3,7 +3,7 @@
 //! A work-in-progress, ECS-independent GPU API on top of wgpu. [`RenderApiNew`] owns the device,
 //! the queue, the window surface, and every GPU resource, and hands out [`GpuVertexBuffer`], [`GpuUniformStorageBuffer`],
 //! [`GpuIndexBuffer`], [`GpuTexture`], [`GpuSampler`],
-//! and [`GpuShader`] handles. It is the only crate that names wgpu: `aphyn_render`, `aphyn_render_features`
+//! [`GpuShader`] and [`GpuComputeShader`] handles. It is the only crate that names wgpu: `aphyn_render`, `aphyn_render_features`
 //! and `aphyn_app` do all their GPU work through it. The `aphyn` facade re-exports it.
 //!
 //! # How to use
@@ -65,7 +65,8 @@
 //! copied onto itself.
 //!
 //! [`RenderApi::read_texture`] reads one mip level of a color texture back to the CPU, as tightly
-//! packed rows in the texture's format (4 bytes per pixel for the 8-bit formats, 8 for `Rgba16Float`).
+//! packed rows in the texture's format (4 bytes per pixel for the 8-bit formats and `R32Float`, 8 for
+//! `Rgba16Float`).
 //! It submits a copy and blocks until the GPU has finished all submitted work, so use it for tools and
 //! captures, not every frame. It returns `None` for depth textures and missing mip levels.
 //!
@@ -123,6 +124,44 @@
 //! api.write_uniform_storage_buffer_with(&buffer, color.offset, 16, |bytes| bytes.copy_from_slice(&rgba));
 //! ```
 //!
+//! #### Compute shaders
+//!
+//! [`RenderApi::create_compute_shader`] returns a [`GpuComputeShader`], a separate type from
+//! [`GpuShader`]. Its WGSL needs a `@compute fn cs_main`; creation returns `None` without it, on
+//! invalid WGSL, and when the pipeline fails validation (compute pipelines are created right away, not
+//! at first use). It reflects bind group layouts like a render shader, plus
+//! [`workgroup_size`](GpuComputeShader::workgroup_size) from `@workgroup_size`. A [`GpuComputePass`]
+//! names the shader, its bind groups (matched like a draw's), and the number of workgroups per axis:
+//!
+//! ```ignore
+//! let shader = api.create_compute_shader(Some("particles"), wgsl).unwrap();
+//! let [size_x, ..] = shader.workgroup_size();
+//!
+//! api.dispatch(&GpuComputePass {
+//!     shader: &shader,
+//!     bind_groups: &[&[(0, GpuBinding::Buffer(&params)), (1, GpuBinding::VertexBuffer(&particles))]],
+//!     workgroups: [particle_count.div_ceil(size_x), 1, 1],
+//! });
+//! ```
+//!
+//! Every dispatch submits its own work, like a draw, so later draws and dispatches see its writes.
+//!
+//! #### Storage bindings
+//!
+//! `texture_storage_2d` bindings reflect as [`GpuBindingTy::StorageTexture`] with the format and a
+//! [`GpuStorageTextureAccess`]. Supported formats are `rgba8unorm`, `rgba16float` and `r32float`;
+//! `read_write` only with `r32float`, the one format that supports it portably. Any other storage
+//! texture fails shader creation. They are bound with [`GpuBinding::Texture`]; the texture's format
+//! must equal the declared one, and the binding must select a single mip level (`Some(level)`, or
+//! `None` for a texture with one level). Writable storage textures and buffers are visible to fragment
+//! and compute shaders, read-only ones to every stage. `Rgba8UnormSrgb` and `Depth32Float` textures
+//! can't be storage textures.
+//!
+//! [`GpuBinding::VertexBuffer`] and [`GpuBinding::IndexBuffer`] bind a vertex or index buffer to a
+//! storage buffer binding, so a compute shader can fill geometry or instances that a draw then reads.
+//! They are rejected for uniform bindings and when empty. A storage `array<T>` must match the
+//! buffer's layout: WGSL aligns `vec3` to 16 bytes, while vertex attributes are tightly packed.
+//!
 //! # How to maintain
 //!
 //! #### Dependencies
@@ -141,7 +180,7 @@
 //! `extern "C-unwind"` functions, so all wgpu work runs in the binary that created the API. `RenderApiInner` holds the device, queue,
 //! surface and state, and implements every operation. The public methods keep Rust signatures and
 //! convert their arguments to private `#[repr(C)]` mirrors before calling the vtable: `FfiRenderPass`
-//! for [`GpuRenderPass`], `FfiRange` for ranges, `FfiArray` for arrays passed by value, `FfiOption`,
+//! for [`GpuRenderPass`], `FfiComputePass` for [`GpuComputePass`], `FfiRange` for ranges, `FfiArray` for arrays passed by value, `FfiOption`,
 //! `FfiSliceRef` and `FfiStrSliceRef`. Bind groups cross as one flat slice of entries tagged with their
 //! group, plus the group count, because nested `FfiSliceRef`s can't be read through a reference; this
 //! costs one `Vec` per draw. `Option<&T>` fields are ABI-stable as they are. Buffer writers cross as an
@@ -160,7 +199,21 @@
 //! on first use and cached by value in `RenderApiCache`. Pipelines are keyed by the shader, the target formats, and the vertex
 //! buffer layouts of the pass, so one shader can be drawn with differently laid out buffers.
 //! A failed pipeline is cached as `None`, so its error prints once and later draws with the same key
-//! fail without retrying. It is evicted with its shader, like a successful one.
+//! fail without retrying. It is evicted with its shader, like a successful one. A compute pipeline
+//! depends on nothing but its shader, so `create_compute_shader` builds it eagerly and the
+//! `ComputeShaderResource` owns it; releasing a compute shader evicts nothing from the caches.
+//!
+//! Bind group and pipeline creation run outside the error scope of a draw or dispatch, and wgpu's
+//! default handler panics on errors there. Everything that could fail at that point is rejected
+//! before: `GpuBindingTy::accepts` checks the resource kind, texture format, sample kind, buffer usage
+//! and non-zero size, and reflection rejects storage textures whose layout could fail validation
+//! (`read_write` on formats other than `R32Float`).
+//!
+//! `GpuBindingTy::visibility` adds `COMPUTE` to every layout entry, so render and compute shaders
+//! with the same bindings share bind group layouts and bind groups. Vertex and index buffers are
+//! created with `STORAGE` usage, and `Rgba8Unorm`, `Rgba16Float` and `R32Float` textures with
+//! `STORAGE_BINDING`. The device requests `FLOAT32_FILTERABLE` when the adapter has it, because
+//! texture bindings are declared filterable; without it, sampling an `R32Float` texture fails at draw.
 //!
 //! Labels cross the FFI boundary as `FfiOption<FfiStrSliceRef>` and are copied into the resources,
 //! so the cache can name what it creates. Those names are built from the cache keys on a cache miss
@@ -190,7 +243,7 @@
 //! One `Mutex` guards `RenderApiResources` and `RenderApiCache`. wgpu keeps a single error scope stack
 //! per device, not per thread, so this lock must be held from `push_error_scope` to `pop_error_scope`,
 //! or errors get reported to the wrong operation. That covers `create_shader`, pipeline creation, and
-//! all of `encode_pass`. A second `Mutex` guards the surface and is held from acquire to present, so
+//! all of `encode_pass`, `create_compute_shader` and `dispatch`. A second `Mutex` guards the surface and is held from acquire to present, so
 //! waiting for a frame does not block other threads from creating resources, and a resize cannot
 //! reconfigure the surface while a frame is acquired. Always lock the surface first, then the state.
 //! `ResourceGuard` locks the state on drop, so no handle may be dropped while the state lock is held,
@@ -218,14 +271,16 @@
 //! for nested or non-32-bit members). They live in one `FfiArc` shared by the `ShaderResource` and
 //! every clone of the [`GpuShader`], so [`GpuShader::bind_group_layouts`] reads them without locking;
 //! the caches key bind group and pipeline layouts by the `(binding, ty)` projection only. Entry points must be
-//! named `vs_main` and `fs_main`, and both must exist. Storage textures and non-2D textures are rejected.
+//! named `vs_main` and `fs_main`, and both must exist. Non-2D and arrayed textures are rejected.
 //! The `@location` inputs of `fs_main` are checked against the outputs of `vs_main` by location and
-//! naga `TypeInner`; builtins and interpolation are not compared.
+//! naga `TypeInner`; builtins and interpolation are not compared. `create_compute_shader` shares
+//! `reflect_bind_group_layouts` and reads the workgroup size of `cs_main` instead of the stage
+//! interface. Reflection covers every global of the module, not only those an entry point uses.
 //!
 //! #### Draws
 //!
-//! Every draw encodes and submits its own command encoder, and resolves its bind groups and
-//! pipeline through the caches. `encode_pass` rejects empty vertex and index buffers before any wgpu
+//! Every draw and dispatch encodes and submits its own command encoder, and resolves its bind groups
+//! through the caches (`resolve_bind_groups`, shared by both) and a draw its pipeline too. `encode_pass` rejects empty vertex and index buffers before any wgpu
 //! call, because wgpu panics on slices of empty buffers. Callers rewrite one buffer between draws,
 //! such as the gizmo and post-processing buffers of `aphyn_render_features`. That is correct only because each draw
 //! submits, so a `Queue::write_buffer` lands before the next draw; batching draws into one encoder
