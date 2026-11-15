@@ -4,7 +4,7 @@ use crate::{
         inspector_window::{FONT_SIZE, utils::entries::spawn_input_area_ent},
         scene_light::{
             SceneAmbientOverrideButtonComponent, SceneLightButtonComponent, SceneLightField, SceneLightFieldComponent,
-            SceneLightPanelComponent, SceneLightSettings,
+            SceneLightPanelComponent, SceneLightSettings, SceneShadowsButtonComponent,
         },
         scene_window::SceneViewImageComponent,
         transform_gizmo::{GizmoSpaceButtonComponent, GizmoTool, GizmoToolButtonComponent},
@@ -25,7 +25,7 @@ const PANEL_ROW_GAP: f32 = 2.0;
 const PANEL_LABEL_WIDTH: f32 = 72.0;
 const PANEL_FIELD_WIDTH: f32 = 56.0;
 const PANEL_ROW_WIDTH: f32 = PANEL_LABEL_WIDTH + (PANEL_FIELD_WIDTH + PANEL_ROW_GAP) * 3.0;
-const PANEL_ROWS: f32 = 3.0;
+const PANEL_ROWS: f32 = 4.0;
 
 pub fn init_window_as_scene(mut world: WorldDataMut, ent_window: EntityId) {
     let ent_image = init_window_as_view(world.as_mut(), ent_window, SceneViewImageComponent);
@@ -184,6 +184,16 @@ pub fn spawn_scene_light_panel(
         ent_override_row,
         SceneAmbientOverrideButtonComponent,
         "Override ambient".into(),
+        UiVal::px(PANEL_ROW_WIDTH),
+    );
+
+    let ent_shadows_row = spawn_panel_row(ent.as_mut(), ent_content);
+    create_header_button(
+        ent.as_mut(),
+        assets_res,
+        ent_shadows_row,
+        SceneShadowsButtonComponent,
+        "Shadows".into(),
         UiVal::px(PANEL_ROW_WIDTH),
     );
 

@@ -16,8 +16,8 @@ use aphyn_transform::{GlobalDisableableComponent, GlobalTransform};
 
 use crate::{
     BatchedMeshComponent, DepthTextureResource, GlobalBindingsResource, MaterialComponent, MeshComponent,
-    RENDER_ORDER_TRANSPARENT_COMPOSITE, RenderFeature, RenderPassCtx, RenderPassWriter, TransparentTargetResource,
-    create_engine_shader, draw_fullscreen, fullscreen_shader_desc, texture_binding,
+    RENDER_ORDER_TRANSPARENT_COMPOSITE, RenderFeature, RenderPassCtx, RenderPassWriter, ShadowAtlasResource,
+    TransparentTargetResource, create_engine_shader, draw_fullscreen, fullscreen_shader_desc, texture_binding,
 };
 
 #[repr(C, u8)]
@@ -321,6 +321,7 @@ impl MaterialRenderFeature {
             Some(templates),
             Some(meshes),
             Some(textures),
+            Some(atlas),
         ) = (
             resources.get::<CurrentRenderingResource>(),
             resources.get::<DepthTextureResource>(),
@@ -330,6 +331,7 @@ impl MaterialRenderFeature {
             resources.get::<AssetStorageResource<MaterialTemplate>>(),
             resources.get::<AssetStorageResource<StandardMesh>>(),
             resources.get::<AssetStorageResource<StandardTexture>>(),
+            resources.get::<ShadowAtlasResource>(),
         )
         else {
             return;
@@ -349,106 +351,127 @@ impl MaterialRenderFeature {
             };
 
             let shader = gpu_pass.shader();
+            let is_shadow = template_pass.target == MaterialPassTarget::Shadow;
             let target = match template_pass.target {
-                MaterialPassTarget::Main => current.target.texture(),
-                MaterialPassTarget::Transparent => transparent.texture.texture(),
+                MaterialPassTarget::Main => Some(current.target.texture()),
+                MaterialPassTarget::Transparent => Some(transparent.texture.texture()),
+                MaterialPassTarget::Shadow => None,
+            };
+            let depth_view = match is_shadow {
+                true => atlas.texture(),
+                false => depth.texture.texture(),
+            };
+            let view_count = match is_shadow {
+                true => atlas.views().len(),
+                false => 1,
             };
 
-            // todo: avoid allocating the bind groups per draw
-            let mut groups = vec![Vec::new(); shader.bind_group_layouts().len().max(1)];
-            groups[0].push((0, GpuBinding::Buffer(globals.bindings.uniform_buffer())));
-            groups[0].push((1, GpuBinding::Buffer(globals.bindings.lights_buffer())));
+            for view_index in 0..view_count {
+                // todo: avoid allocating the bind groups per draw
+                let mut groups = vec![Vec::new(); shader.bind_group_layouts().len().max(1)];
 
-            for uniform in gpu_pass.uniforms() {
-                if let Some(group) = groups.get_mut(uniform.group()) {
-                    group.push((uniform.binding(), GpuBinding::Buffer(uniform.buffer())));
+                if is_shadow {
+                    groups[0].push((0, GpuBinding::Buffer(atlas.caster_uniform(view_index))));
+                } else {
+                    groups[0].push((0, GpuBinding::Buffer(globals.bindings.uniform_buffer())));
+                    groups[0].push((1, GpuBinding::Buffer(globals.bindings.lights_buffer())));
+                    groups[0].push((2, GpuBinding::Buffer(globals.bindings.shadow_views_buffer())));
+                    groups[0].push((3, texture_binding(atlas.texture())));
+                    groups[0].push((4, GpuBinding::Sampler(atlas.sampler())));
                 }
-            }
 
-            for texture in template_pass.textures.iter() {
-                let Some(group) = groups.get_mut(texture.group) else {
-                    continue;
+                for uniform in gpu_pass.uniforms() {
+                    if let Some(group) = groups.get_mut(uniform.group()) {
+                        group.push((uniform.binding(), GpuBinding::Buffer(uniform.buffer())));
+                    }
+                }
+
+                for texture in template_pass.textures.iter() {
+                    let Some(group) = groups.get_mut(texture.group) else {
+                        continue;
+                    };
+
+                    let resolved = material
+                        .data
+                        .get_texture(texture.input.as_str())
+                        .and_then(|handle| textures.get(handle))
+                        .unwrap_or_else(|| {
+                            let fallback = template
+                                .input(texture.input.as_str())
+                                .map(|input| input.texture_fallback)
+                                .unwrap_or_default();
+                            render_api.fallback_texture(fallback)
+                        });
+
+                    group.push((texture.texture_binding, texture_binding(resolved.texture())));
+                    if let FfiOption::Some(sampler_binding) = texture.sampler_binding {
+                        group.push((sampler_binding, GpuBinding::Sampler(resolved.sampler())));
+                    }
+                }
+
+                let group_refs = groups.iter().map(Vec::as_slice).collect::<Vec<_>>();
+
+                let pass = |vertex_buffers| GpuRenderPass {
+                    shader,
+                    target: target.map(|view| GpuRenderPassTarget {
+                        view,
+                        mip_level: 0,
+                        ops: GpuPassOps::Load,
+                    }),
+                    depth: Some(GpuRenderPassDepth {
+                        view: depth_view,
+                        mip_level: 0,
+                        ops: GpuPassOps::Load,
+                    }),
+                    bind_groups: &group_refs,
+                    vertex_buffers,
+                    viewport: is_shadow.then(|| atlas.viewport(view_index)),
+                    scissor: None,
                 };
 
-                let resolved = material
-                    .data
-                    .get_texture(texture.input.as_str())
-                    .and_then(|handle| textures.get(handle))
-                    .unwrap_or_else(|| {
-                        let fallback = template
-                            .input(texture.input.as_str())
-                            .map(|input| input.texture_fallback)
-                            .unwrap_or_default();
-                        render_api.fallback_texture(fallback)
-                    });
+                match &draw.geometry {
+                    DrawGeometry::Instanced {
+                        mesh,
+                        instance_start,
+                        instance_count,
+                    } => {
+                        let (Some(mesh), FfiOption::Some(instances)) = (meshes.get(mesh), &self.instances) else {
+                            continue;
+                        };
 
-                group.push((texture.texture_binding, texture_binding(resolved.texture())));
-                if let FfiOption::Some(sampler_binding) = texture.sampler_binding {
-                    group.push((sampler_binding, GpuBinding::Sampler(resolved.sampler())));
-                }
-            }
+                        if mesh.indices_count() == 0 {
+                            continue;
+                        }
 
-            let group_refs = groups.iter().map(Vec::as_slice).collect::<Vec<_>>();
+                        let [instance_start, instance_count] = instances.clamp_range(*instance_start, *instance_count);
 
-            let pass = |vertex_buffers| GpuRenderPass {
-                shader,
-                target: Some(GpuRenderPassTarget {
-                    view: target,
-                    mip_level: 0,
-                    ops: GpuPassOps::Load,
-                }),
-                depth: Some(GpuRenderPassDepth {
-                    view: depth.texture.texture(),
-                    mip_level: 0,
-                    ops: GpuPassOps::Load,
-                }),
-                bind_groups: &group_refs,
-                vertex_buffers,
-                viewport: None,
-                scissor: None,
-            };
-
-            match &draw.geometry {
-                DrawGeometry::Instanced {
-                    mesh,
-                    instance_start,
-                    instance_count,
-                } => {
-                    let (Some(mesh), FfiOption::Some(instances)) = (meshes.get(mesh), &self.instances) else {
-                        continue;
-                    };
-
-                    if mesh.indices_count() == 0 {
-                        continue;
+                        core.draw_indexed(
+                            &pass(&[mesh.vertex_buffer(), instances.buffer()]),
+                            mesh.index_buffer(),
+                            0..mesh.indices_count(),
+                            instance_start as usize..(instance_start + instance_count) as usize,
+                        );
                     }
+                    DrawGeometry::Batched {
+                        vertex_start,
+                        vertex_count,
+                    } => {
+                        let (FfiOption::Some(vertices), FfiOption::Some(identity)) =
+                            (&self.batched_vertices, &self.identity_instance)
+                        else {
+                            continue;
+                        };
 
-                    let [instance_start, instance_count] = instances.clamp_range(*instance_start, *instance_count);
+                        if *vertex_count == 0 {
+                            continue;
+                        }
 
-                    core.draw_indexed(
-                        &pass(&[mesh.vertex_buffer(), instances.buffer()]),
-                        mesh.index_buffer(),
-                        0..mesh.indices_count(),
-                        instance_start as usize..(instance_start + instance_count) as usize,
-                    );
-                }
-                DrawGeometry::Batched {
-                    vertex_start,
-                    vertex_count,
-                } => {
-                    let (FfiOption::Some(vertices), FfiOption::Some(identity)) = (&self.batched_vertices, &self.identity_instance)
-                    else {
-                        continue;
-                    };
-
-                    if *vertex_count == 0 {
-                        continue;
+                        core.draw(
+                            &pass(&[vertices, identity.buffer()]),
+                            *vertex_start as usize..(*vertex_start + *vertex_count) as usize,
+                            0..1,
+                        );
                     }
-
-                    core.draw(
-                        &pass(&[vertices, identity.buffer()]),
-                        *vertex_start as usize..(*vertex_start + *vertex_count) as usize,
-                        0..1,
-                    );
                 }
             }
         }

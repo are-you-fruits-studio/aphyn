@@ -4,6 +4,9 @@ struct GlobalData {
     camera_position_world: vec3<f32>,
     lights_count: u32,
     ambient_color: vec3<f32>,
+    shadow_bias: f32,
+    camera_forward_world: vec3<f32>,
+    shadow_normal_offset: f32,
 }
 
 struct MaterialData {
@@ -21,6 +24,15 @@ struct GenericLight {
     range: f32,
     direction_dst: vec3<f32>,
     fov: f32,
+    shadow_start: u32,
+    shadow_count: u32,
+}
+
+struct ShadowView {
+    matrix_world_to_clip: mat4x4<f32>,
+    // uv offset in xy, uv scale in zw
+    atlas_rect: vec4<f32>,
+    split_far: f32,
 }
 
 struct VertexAttributes {

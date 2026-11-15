@@ -1,5 +1,6 @@
 #include "aphyn/standard_bindings.wgsl"
 #include "aphyn/pbr.wgsl"
+#include "aphyn/shadows.wgsl"
 
 // todo: light structure. Needs to support lights:
 // - Point (hdr-color, center, range)
@@ -101,6 +102,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             light.direction_src,
             light.color
         );
+
+        color_lit *= light_shadow(lights[i], in.position_world, in.normal_world);
 
         color = vec4<f32>(color.xyz + color_lit, color.w);
     }

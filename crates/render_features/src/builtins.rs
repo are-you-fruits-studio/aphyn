@@ -4,15 +4,15 @@ use aphyn_ffi::FfiOption;
 use aphyn_math::Vec4;
 use aphyn_render::{
     Material, MaterialData, MaterialDataValue, MaterialInput, MaterialPassTarget, MaterialTemplate, MaterialTemplatePass,
-    MaterialTextureBinding, MaterialTextureFallback, MaterialValueBinding, RenderApiResource, STANDARD_SHADER_WGSL, Shader,
-    WgslComposer,
+    MaterialTextureBinding, MaterialTextureFallback, MaterialValueBinding, RenderApiResource, SHADOW_CASTER_SHADER_WGSL,
+    STANDARD_SHADER_WGSL, Shader, WgslComposer,
 };
 use aphyn_render_core::{
     GpuBlendComponent, GpuBlendFactor, GpuBlendOperation, GpuBlendState, GpuColorWrites, GpuCompareFunction, GpuCullMode,
     GpuFrontFace, GpuPrimitiveTopology, GpuShaderDesc,
 };
 
-use crate::{RENDER_ORDER_OPAQUE, RENDER_ORDER_TRANSPARENT};
+use crate::{RENDER_ORDER_OPAQUE, RENDER_ORDER_SHADOW, RENDER_ORDER_TRANSPARENT};
 
 pub const BUILTIN_TEMPLATE_OPAQUE_UNLIT: &str = "aphyn/templates/opaque_unlit";
 pub const BUILTIN_TEMPLATE_OPAQUE_LIT: &str = "aphyn/templates/opaque_lit";
@@ -20,6 +20,7 @@ pub const BUILTIN_TEMPLATE_TRANSPARENT_UNLIT: &str = "aphyn/templates/transparen
 pub const BUILTIN_TEMPLATE_TRANSPARENT_LIT: &str = "aphyn/templates/transparent_lit";
 pub const BUILTIN_TEMPLATE_UI_OPAQUE_UNLIT: &str = "aphyn/templates/ui_opaque_unlit";
 pub const BUILTIN_TEMPLATE_UI_TRANSPARENT_UNLIT: &str = "aphyn/templates/ui_transparent_unlit";
+pub const BUILTIN_SHADER_SHADOW_CASTER: &str = "aphyn/shaders/shadow_caster";
 
 struct StandardVariant {
     name: &'static str,
@@ -95,8 +96,28 @@ pub fn standard_shader_desc(is_transparent: bool) -> GpuShaderDesc {
     }
 }
 
+pub fn shadow_caster_shader_desc() -> GpuShaderDesc {
+    GpuShaderDesc {
+        depth_write: true,
+        ..standard_shader_desc(false)
+    }
+}
+
+pub fn shadow_caster_template_pass(shadow_caster: AssetHandle<Shader>) -> MaterialTemplatePass {
+    MaterialTemplatePass {
+        shader: shadow_caster,
+        order: RENDER_ORDER_SHADOW,
+        target: MaterialPassTarget::Shadow,
+        ..Default::default()
+    }
+}
+
 // binding indices follow `standard_bindings.wgsl`
-pub fn standard_material_template(shader: AssetHandle<Shader>, is_transparent: bool) -> MaterialTemplate {
+pub fn standard_material_template(
+    shader: AssetHandle<Shader>,
+    is_transparent: bool,
+    shadow_caster: Option<AssetHandle<Shader>>,
+) -> MaterialTemplate {
     let mut template = MaterialTemplate::default();
 
     let values = [
@@ -149,6 +170,10 @@ pub fn standard_material_template(shader: AssetHandle<Shader>, is_transparent: b
 
     template.passes.push(pass);
 
+    if let Some(shadow_caster) = shadow_caster {
+        template.passes.push(shadow_caster_template_pass(shadow_caster));
+    }
+
     template
 }
 
@@ -167,6 +192,10 @@ pub fn insert_builtin_render_assets(mut world: WorldDataMut) {
 
 pub fn insert_builtin_render_assets_to(mut res: ResourcesHolderMut) {
     let Some(render_api) = res.get::<RenderApiResource>().map(RenderApiResource::clone) else {
+        return;
+    };
+
+    let Some(shadow_caster) = register_shadow_caster_shader(&mut res, &render_api) else {
         return;
     };
 
@@ -204,11 +233,29 @@ pub fn insert_builtin_render_assets_to(mut res: ResourcesHolderMut) {
         let Some(templates) = res.get_mut::<AssetStorageResource<MaterialTemplate>>() else {
             return;
         };
+        let casts_shadows = !variant.is_transparent && !variant.is_ui;
         templates.insert_and_register(
-            standard_material_template(shader, variant.is_transparent),
+            standard_material_template(shader, variant.is_transparent, casts_shadows.then(|| shadow_caster.clone())),
             template_key.into(),
         );
     }
+}
+
+fn register_shadow_caster_shader(res: &mut ResourcesHolderMut, render_api: &RenderApiResource) -> Option<AssetHandle<Shader>> {
+    let shaders = res.get_mut::<AssetStorageResource<Shader>>()?;
+
+    if let Some(handle) = shaders.get_registered(BUILTIN_SHADER_SHADOW_CASTER).cloned() {
+        return Some(handle);
+    }
+
+    let code = WgslComposer::with_engine_libraries()
+        .compose("shader_shadow_caster.wgsl", SHADOW_CASTER_SHADER_WGSL, &[])
+        .unwrap();
+    let shader = render_api
+        .create_shader(BUILTIN_SHADER_SHADOW_CASTER, &code, shadow_caster_shader_desc(), None)
+        .unwrap();
+
+    Some(shaders.insert_and_register(shader, BUILTIN_SHADER_SHADOW_CASTER.into()))
 }
 
 #[cfg(test)]
@@ -234,7 +281,7 @@ mod tests {
 
     #[test]
     fn standard_template_maps_every_standard_binding() {
-        let template = standard_material_template(AssetHandle::EMPTY, false);
+        let template = standard_material_template(AssetHandle::EMPTY, false, None);
         let pass = &template.passes[0];
 
         let mut texture_bindings = pass
@@ -247,5 +294,17 @@ mod tests {
         assert_eq!(texture_bindings, (1..=10).collect::<Vec<_>>());
         assert!(pass.values.iter().all(|value| value.group == 1 && value.binding == 0));
         assert_eq!(template.inputs.len(), 10);
+    }
+
+    #[test]
+    fn shadow_caster_pass_is_appended() {
+        let caster = AssetHandle::<Shader>::EMPTY;
+        let template = standard_material_template(AssetHandle::EMPTY, false, Some(caster.clone()));
+
+        assert_eq!(template.passes.len(), 2);
+        let pass = &template.passes[1];
+        assert_eq!(pass.target, MaterialPassTarget::Shadow);
+        assert_eq!(pass.order, RENDER_ORDER_SHADOW);
+        assert!(pass.values.is_empty() && pass.textures.is_empty());
     }
 }

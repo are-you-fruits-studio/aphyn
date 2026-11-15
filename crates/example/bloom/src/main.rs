@@ -81,6 +81,7 @@ fn setup_scene(mut world: WorldDataMut) {
     ent.add_component(ent_light, StandardLightComponent::Point {
         color: Vec3::new(1.0, 1.0, 1.0) * 3000.0_f32,
         range: 1000.0,
+        shadows: false,
     }).ok().unwrap();
     ent.add_component(ent_light, MaterialComponent { material: light_material.clone() }).ok().unwrap();
     ent.add_component(ent_light, MeshComponent {

@@ -8,7 +8,7 @@ use winit::window::Window;
 
 use crate::{
     ComputeShader, ComputeShaderAssetMetadata, FilterMode, GpuVertexBufferLayout, Material, MaterialData, MaterialGpuData,
-    MaterialTemplate, MaterialTextureFallback, Shader, ShaderAssetMetadata, StandardGenericLight, StandardGlobalBindings,
+    MaterialTemplate, MaterialTextureFallback, Shader, ShaderAssetMetadata, StandardGenericLight, StandardGlobalBindings, StandardShadowView,
     StandardInstanceBuffer, StandardMesh, StandardMeshAssetMetadata, StandardTexture, StandardTextureAssetMetadata,
     StandardTextureFormat, StandardUniformGlobal, StandardVertex, TypedStorageBuffer, TypedUniformBuffer, TypedUniformBufferLayout,
     TypedVertexBuffer, TypedVertexWriter,
@@ -210,6 +210,10 @@ impl RenderApiResource {
 
     pub fn write_lights_with(&self, bindings: &StandardGlobalBindings, count: u32, mut f: impl FnMut(u32) -> StandardGenericLight) {
         bindings.write_lights_with(&self.core, count, |i| f(i as u32));
+    }
+
+    pub fn write_shadow_views(&self, bindings: &StandardGlobalBindings, views: &[StandardShadowView]) {
+        bindings.write_shadow_views(&self.core, views);
     }
 
     pub fn create_uniform_buffer(&self, layout: TypedUniformBufferLayout) -> TypedUniformBuffer {

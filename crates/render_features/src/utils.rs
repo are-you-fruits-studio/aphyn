@@ -27,21 +27,29 @@ pub fn create_window_to_clip_matrix(width: f32, height: f32, near: f32, far: f32
 
 pub fn light_from_components(light: &StandardLightComponent, transform: &GlobalTransform) -> StandardLight {
     match light {
-        StandardLightComponent::Point { color, range } => StandardLight::Point {
+        StandardLightComponent::Point { color, range, shadows } => StandardLight::Point {
             color: *color,
             range: *range,
             center: transform.position,
+            shadows: *shadows,
         },
-        StandardLightComponent::Spot { color, range, fov } => StandardLight::Spot {
+        StandardLightComponent::Spot {
+            color,
+            range,
+            fov,
+            shadows,
+        } => StandardLight::Spot {
             color: *color,
             range: *range,
             fov: *fov,
             center: transform.position,
             direction_dst: (transform.scale_rotation * Vec3::new(0.0, -1.0, 0.0)).normalized(),
+            shadows: *shadows,
         },
-        StandardLightComponent::Directional { color } => StandardLight::Directional {
+        StandardLightComponent::Directional { color, shadows } => StandardLight::Directional {
             color: *color,
             direction_dst: (transform.scale_rotation * Vec3::new(0.0, -1.0, 0.0)).normalized(),
+            shadows: *shadows,
         },
     }
 }

@@ -139,3 +139,35 @@ impl Default for ScreenSpaceResource {
         }
     }
 }
+
+#[repr(C)]
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct ShadowSettingsResource {
+    pub atlas_size: u32,
+    pub tile_size: u32,
+    pub cascade_count: u32,
+    pub distance: f32,
+    // 0 = uniform cascade splits, 1 = logarithmic
+    pub split_lambda: f32,
+    // how far behind a cascade's bounds directional casters are still captured
+    pub caster_distance: f32,
+    pub bias: f32,
+    pub normal_offset: f32,
+    pub spot_near: f32,
+}
+
+impl Default for ShadowSettingsResource {
+    fn default() -> Self {
+        Self {
+            atlas_size: 4096,
+            tile_size: 1024,
+            cascade_count: 4,
+            distance: 50.0,
+            split_lambda: 0.75,
+            caster_distance: 100.0,
+            bias: 0.001,
+            normal_offset: 0.1,
+            spot_near: 0.05,
+        }
+    }
+}

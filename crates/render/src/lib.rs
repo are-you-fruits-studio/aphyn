@@ -106,11 +106,11 @@
 //! [`MaterialInput`]: the default [`MaterialDataValue`] and, for textures, the
 //! [`MaterialTextureFallback`] bound when the material's handle is empty or unresolved. Its `passes`
 //! are [`MaterialTemplatePass`]es: a [`Shader`] handle, an absolute `u64` order (the render pass
-//! orders of `aphyn_render_features`), a [`MaterialPassTarget`] (`Main` or `Transparent`), and the
+//! orders of `aphyn_render_features`), a [`MaterialPassTarget`] (`Main`, `Transparent`, or `Shadow`: depth only, repeated per shadow map tile), and the
 //! pass's mapping from inputs to the shader: a [`MaterialValueBinding`] puts an `F32` / `Vec4` input
 //! into the named member of the uniform (or read-only storage) buffer at `(group, binding)`, a
 //! [`MaterialTextureBinding`] binds a texture input's texture and optionally its sampler. Group 0
-//! belongs to the engine (camera and lights, see [`StandardGlobalBindings`]); material inputs use
+//! belongs to the engine (camera, lights and shadows, see [`StandardGlobalBindings`]); material inputs use
 //! groups 1 and up:
 //!
 //! ```
@@ -270,14 +270,16 @@
 //! [`WgslComposer`] holds named WGSL *libraries*;
 //! [`with_engine_libraries`](WgslComposer::with_engine_libraries) registers the engine ones:
 //!
-//! - `aphyn/standard_types.wgsl`: `GlobalData`, `MaterialData`, `GenericLight`, `VertexAttributes`,
+//! - `aphyn/standard_types.wgsl`: `GlobalData`, `MaterialData`, `GenericLight`, `ShadowView`, `VertexAttributes`,
 //!   `InstanceRawAttributes`, `InstanceAttributes`, and `map_instance_data`. `GlobalData` carries
 //!   both `matrix_world_to_clip` (the camera) and `matrix_window_to_clip` (window pixels); a custom
 //!   shader multiplies by whichever fits the space its geometry is in.
-//! - `aphyn/standard_bindings.wgsl`: the standard bind groups (`global_data`, `lights`,
-//!   `material_data`, and the five material texture/sampler pairs). Includes `standard_types`.
+//! - `aphyn/standard_bindings.wgsl`: the standard bind groups (`global_data`, `lights`, `shadow_views`,
+//!   `shadow_atlas`, `shadow_sampler`, `material_data`, and the five material texture/sampler pairs). Includes `standard_types`.
 //! - `aphyn/pbr.wgsl`: `PI`, `FragmentLight`, `light_generic_to_fragment`, `cook_torrance_brdf`
 //!   and its terms, and `create_matrix_tbn`. Includes `standard_types`.
+//! - `aphyn/shadows.wgsl`: `light_shadow(light, position_world, normal_world)`, the 0..1 shadow
+//!   factor of a light (1 without shadows). Includes `standard_bindings`.
 //! - `aphyn/fullscreen.wgsl`: `fullscreen_triangle_position(vertex_index)` and `fullscreen_uv(position)`
 //!   for drawing a fullscreen triangle with 3 vertices and no vertex buffer.
 //!
@@ -420,9 +422,13 @@
 //! point, `1` spot, `2` directional. [`StandardGlobalBindings`] holds the [`StandardUniformGlobal`]
 //! buffer and a storage buffer of [`LIGHTS_COUNT_MAX`] [`StandardGenericLight`]s; `write_lights_with`
 //! only uploads the first `count`, and the shader reads `lights_count` from the uniform. The uniform
-//! also carries the ambient color the lit standard shader adds; its trailing `_padding` field makes
-//! the Rust size match the WGSL struct, which is rounded up to the 16-byte `vec3` alignment.
-//! [`StandardUniformGlobal`], [`StandardGenericLight`], and [`StandardVertex`] are `#[repr(C)]` and
+//! also carries the ambient color the lit standard shader adds, the camera forward (for picking a
+//! cascade by view depth) and the global shadow bias and normal offset; every `vec3` is followed by
+//! a scalar so the Rust layout matches WGSL's 16-byte `vec3` alignment, and the explicit `_padding`
+//! fields round the structs up the same way. A third buffer holds up to [`SHADOW_VIEWS_MAX`]
+//! [`StandardShadowView`]s; a light uses the `shadow_count` views from `shadow_start` (cascades in
+//! increasing `split_far`). The shadow atlas itself is owned by `aphyn_render_features`.
+//! [`StandardUniformGlobal`], [`StandardGenericLight`], [`StandardShadowView`], and [`StandardVertex`] are `#[repr(C)]` and
 //! marked [`AllBitsInit`](aphyn_utils::mem::AllBitsInit) /
 //! [`AllBitVariationsValid`](aphyn_utils::mem::AllBitVariationsValid) so they can be uploaded as raw
 //! bytes.
@@ -512,13 +518,15 @@
 //!
 //! The engine libraries live in `src/assets/wgsl/` and are embedded with `include_str!`. The
 //! structs in `standard_types.wgsl` and the bindings in `standard_bindings.wgsl` must stay in
-//! sync with [`StandardUniformGlobal`], [`StandardGenericLight`], [`StandardVertex::desc`],
+//! sync with [`StandardUniformGlobal`], [`StandardGenericLight`], [`StandardShadowView`], [`StandardVertex::desc`],
 //! [`StandardInstance::desc`], the group 0 bindings the material feature of `aphyn_render_features`
 //! passes, and that crate's built-in standard templates. `shader_standard.wgsl` sits next to them
-//! but is not a library ([`STANDARD_SHADER_WGSL`]); it includes `aphyn/standard_bindings.wgsl` and
-//! `aphyn/pbr.wgsl`.
+//! but is not a library ([`STANDARD_SHADER_WGSL`]); it includes `aphyn/standard_bindings.wgsl`,
+//! `aphyn/pbr.wgsl` and `aphyn/shadows.wgsl`. `shader_shadow_caster.wgsl` ([`SHADOW_CASTER_SHADER_WGSL`]) is
+//! the depth-only caster: its own `ShadowCasterData` uniform at group 0 binding 0, `standard_types`
+//! for the vertex layout, an empty `fs_main`.
 //! `mip_fill_shader.wgsl` uses `aphyn/fullscreen.wgsl`. The `engine_shaders_are_valid` unit test
-//! composes every library, `mip_fill_shader.wgsl`, and the six `shader_standard.wgsl` define sets,
+//! composes every library, `mip_fill_shader.wgsl`, `shader_shadow_caster.wgsl`, and the six `shader_standard.wgsl` define sets,
 //! and `custom_shader_with_user_library_is_valid` composes a custom standard shader with a user
 //! library; both validate with `naga`, so no GPU is needed. The composer uses std types because it
 //! runs at shader creation and is not stored in the world.

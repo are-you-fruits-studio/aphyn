@@ -71,6 +71,7 @@ pub struct SceneLightSettings {
     pub override_ambient_light: bool,
     pub ambient_light: Vec3<f32>,
     pub default_light_euler: Vec3<f32>,
+    pub shadows: bool,
 }
 
 impl Default for SceneLightSettings {
@@ -79,6 +80,7 @@ impl Default for SceneLightSettings {
             override_ambient_light: false,
             ambient_light: Vec3::splat(0.1),
             default_light_euler: Vec3::new(-140.0, 30.0, 0.0),
+            shadows: true,
         }
     }
 }
@@ -102,6 +104,7 @@ impl SceneLightResource {
         StandardLight::Directional {
             color: DEFAULT_LIGHT_COLOR,
             direction_dst: (rotation * Vec3::new(0.0, -1.0, 0.0)).normalized(),
+            shadows: self.settings.shadows,
         }
     }
 
@@ -142,6 +145,9 @@ pub struct SceneLightPanelComponent;
 
 #[derive(Component, Default, Debug)]
 pub struct SceneAmbientOverrideButtonComponent;
+
+#[derive(Component, Default, Debug)]
+pub struct SceneShadowsButtonComponent;
 
 #[derive(Component, Debug)]
 pub struct SceneLightFieldComponent {
@@ -186,6 +192,7 @@ fn load_scene_light_settings_system(open_project: Res<OpenProjectResource>, mut 
 fn click_scene_light_buttons_system(
     light_button_q: WorldQuery<&ButtonComponent, WithFilter<SceneLightButtonComponent>>,
     override_button_q: WorldQuery<&ButtonComponent, WithFilter<SceneAmbientOverrideButtonComponent>>,
+    shadows_button_q: WorldQuery<&ButtonComponent, WithFilter<SceneShadowsButtonComponent>>,
     mut light_res: ResMut<SceneLightResource>,
 ) {
     if light_button_q.iter().any(|button_c| button_c.was_clicked_this_frame) {
@@ -194,6 +201,11 @@ fn click_scene_light_buttons_system(
 
     if override_button_q.iter().any(|button_c| button_c.was_clicked_this_frame) {
         light_res.settings.override_ambient_light = !light_res.settings.override_ambient_light;
+        light_res.store();
+    }
+
+    if shadows_button_q.iter().any(|button_c| button_c.was_clicked_this_frame) {
+        light_res.settings.shadows = !light_res.settings.shadows;
         light_res.store();
     }
 }
@@ -271,6 +283,12 @@ fn update_scene_light_panel_system(
                 .iter()
                 .collect::<Vec<_>>(),
             light_res.settings.override_ambient_light,
+        ),
+        (
+            ent.query_filtered::<EntityId, WithFilter<SceneShadowsButtonComponent>>()
+                .iter()
+                .collect::<Vec<_>>(),
+            light_res.settings.shadows,
         ),
     ];
 

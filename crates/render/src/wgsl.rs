@@ -5,6 +5,7 @@ use std::{
 };
 
 pub const STANDARD_SHADER_WGSL: &str = include_str!("./assets/wgsl/shader_standard.wgsl");
+pub const SHADOW_CASTER_SHADER_WGSL: &str = include_str!("./assets/wgsl/shader_shadow_caster.wgsl");
 
 const ENGINE_LIBRARIES: &[(&str, &str)] = &[
     ("aphyn/fullscreen.wgsl", include_str!("./assets/wgsl/fullscreen.wgsl")),
@@ -14,6 +15,7 @@ const ENGINE_LIBRARIES: &[(&str, &str)] = &[
         include_str!("./assets/wgsl/standard_bindings.wgsl"),
     ),
     ("aphyn/pbr.wgsl", include_str!("./assets/wgsl/pbr.wgsl")),
+    ("aphyn/shadows.wgsl", include_str!("./assets/wgsl/shadows.wgsl")),
 ];
 
 #[derive(Default, Clone)]
@@ -234,6 +236,8 @@ mod tests {
             "mip_fill_shader.wgsl",
             include_str!("./assets/mip_fill_shader.wgsl"),
         );
+
+        validate(&composer, "shader_shadow_caster.wgsl", super::SHADOW_CASTER_SHADER_WGSL);
 
         let standard_defs: &[&[&str]] = &[
             &[],

@@ -29,6 +29,26 @@
 //! (linear, zero by default), so surfaces no light reaches are not pitch black. A view can override
 //! that color with `CurrentRenderingResource::ambient_light` (the editor's scene view does).
 //!
+//! #### Shadows
+//!
+//! A light casts shadows when its `shadows` field is `true`. Directional lights get cascaded shadow
+//! maps fitted to the view's frustum up to [`ShadowSettingsResource::distance`], spot lights one
+//! perspective map over their `fov` and `range`; point lights ignore the flag for now. Every map is
+//! a tile of one depth atlas ([`ShadowAtlasResource`]): `atlas_size / tile_size` squared tiles, a
+//! directional light takes `cascade_count` of them, a spot light one, and a light that does not fit
+//! gets no shadow (printed once). Bias, normal offset, cascade split distribution and the other
+//! knobs are global, in [`ShadowSettingsResource`]. Only templates with a
+//! [`MaterialPassTarget::Shadow`](aphyn_render::MaterialPassTarget) pass cast shadows: the built-in
+//! opaque, non-UI ones do (without alpha cutout); transparent and UI ones don't. A custom template
+//! opts in by adding [`shadow_caster_template_pass`]:
+//!
+//! ```ignore
+//! use aphyn::*;
+//!
+//! let caster = shaders.get_registered(BUILTIN_SHADER_SHADOW_CASTER).unwrap().clone();
+//! template.passes.push(shadow_caster_template_pass(caster));
+//! ```
+//!
 //! #### Materials
 //!
 //! A `Material` (`aphyn_render`) references a `MaterialTemplate` asset and stores a value for every
@@ -140,6 +160,19 @@
 //! [`RENDER_ORDER_PREPARE`] clears both. The uploads are queued writes that land at the next
 //! submit, which is before any draw.
 //!
+//! It also lays out the view's shadows (`shadows.rs`): it inserts [`ShadowAtlasResource`] on first
+//! use (a 1x1 atlas until a shadow is needed, then `atlas_size`), assigns each shadowed light its
+//! tiles while gathering lights (`shadow_start`/`shadow_count` of `StandardGenericLight`), uploads
+//! the `StandardShadowView`s (world-to-clip, atlas uv rect, cascade far depth) and writes each
+//! view's world-to-clip into its own small caster uniform buffer. Directional cascades split
+//! `[camera.near, min(camera.far, distance)]` by blending uniform and logarithmic splits with
+//! `split_lambda`, bound each slice's corners (unprojected through the view's clip-to-world) by a
+//! sphere of rounded radius and snap its center to the tile's texel grid, so the map neither
+//! resizes nor shimmers while the camera moves; the ortho box reaches `caster_distance` behind the
+//! slice. Light bases come from `look_rotation` (a proper rotation, so back-face culling holds).
+//! Shadows depend on the camera, so they are rebuilt per view. The `PREPARE` pass also clears the
+//! atlas when any view uses it.
+//!
 //! #### Material feature
 //!
 //! [`MaterialRenderFeature::add_passes`]:
@@ -160,12 +193,16 @@
 //!    transparent composite at [`RENDER_ORDER_TRANSPARENT_COMPOSITE`] when any pass targets
 //!    `Transparent`.
 //!
-//! A draw binds group 0 to the globals (uniform at 0, lights at 1), the material's uniform buffers
+//! A draw binds group 0 to the globals (uniform at 0, lights at 1, shadow views at 2, shadow atlas at
+//! 3, its comparison sampler at 4), the material's uniform buffers
 //! at their mapped `(group, binding)`, and every texture input resolved from
 //! `AssetStorageResource<StandardTexture>` on each draw, falling back to the input's
 //! `MaterialTextureFallback` texture of `RenderApiResource`. It draws into the view's target
 //! (`Main`) or [`TransparentTargetResource`] (`Transparent`, composited with alpha blending by
-//! `shader_transparent_final.wgsl`), always with [`DepthTextureResource`]. Batched draws pass a
+//! `shader_transparent_final.wgsl`), always with [`DepthTextureResource`]. A `Shadow` pass instead
+//! repeats the draw once per shadow view with no color target, the atlas as depth, the tile as
+//! viewport and only that view's caster uniform at group 0 binding 0. The caster shader declares no
+//! other group 0 binding, so the atlas is never sampled by the pass that renders into it. Batched draws pass a
 //! one-element identity instance buffer. The batched pointers are only dereferenced inside
 //! `add_passes`, while no entity can change; the item vec is cleared before returning.
 //!
@@ -174,7 +211,9 @@
 //! [`insert_builtin_render_assets`] composes `aphyn_render::STANDARD_SHADER_WGSL` with the defines
 //! `LIT` / `TRANSPARENT` / `UI` per variant, creates the shaders with [`standard_shader_desc`] and
 //! registers them as `aphyn/shaders/<variant>`, then registers [`standard_material_template`] for
-//! each as `aphyn/templates/<variant>`. It needs the `RenderApiResource`, so it runs in `Start`; asset
+//! each as `aphyn/templates/<variant>`. Before that it registers the depth-only
+//! `aphyn_render::SHADOW_CASTER_SHADER_WGSL` as [`BUILTIN_SHADER_SHADOW_CASTER`] (once), and the opaque,
+//! non-UI templates get a second pass with it at [`RENDER_ORDER_SHADOW`]. It needs the `RenderApiResource`, so it runs in `Start`; asset
 //! loading must run after it so material files can reference the built-in keys. A variant whose
 //! template key is already registered is skipped: registering it again would leave the handles that
 //! loaded materials hold unregistered, so they would save with an empty template.
@@ -210,8 +249,8 @@
 //!
 //! #### Allocation-free pass list
 //!
-//! The entry list, the closure vec, and the material feature's items, geometry and draws are
-//! cleared, not dropped, so they keep their capacity. Known exceptions: the ECS queries of the
+//! The entry list, the closure vec, the material feature's items, geometry and draws, the globals
+//! feature's light lists and the atlas's shadow views are cleared, not dropped, so they keep their capacity. Known exceptions: the ECS queries of the
 //! material and globals features allocate every frame (`// todo` at the queries), the material
 //! feature allocates its bind group lists per draw (`// todo`), and `render_view`, the globals and
 //! the material features clone `RenderApiResource` once per view.
@@ -233,6 +272,7 @@ mod pass_list;
 mod post_processing;
 mod registry;
 mod resources;
+mod shadows;
 mod utils;
 
 pub use builtins::*;
@@ -246,6 +286,7 @@ pub use pass_list::*;
 pub use post_processing::*;
 pub use registry::*;
 pub use resources::*;
+pub use shadows::ShadowAtlasResource;
 pub use utils::*;
 
 use aphyn_asset_storage::AssetStorageResource;
@@ -278,6 +319,7 @@ pub fn add_render_features_module_to(
     resources.insert(GizmosFrameResource::default());
     resources.insert(ScreenSpaceResource::default());
     resources.insert(AmbientLightResource::default());
+    resources.insert(ShadowSettingsResource::default());
     resources.insert(ExposureResource::default());
     resources.insert(BloomResource::default());
     resources.insert(ColorGradingResource::default());
@@ -291,7 +333,7 @@ pub fn add_render_features_module_to(
         .group(SYSTEM_GROUP_RENDER)
         .insert_child_system(prepare_gizmos);
 
-    render.add_feature(RENDER_FEATURE_GLOBALS, GlobalsRenderFeature);
+    render.add_feature(RENDER_FEATURE_GLOBALS, GlobalsRenderFeature::default());
     render.add_feature(RENDER_FEATURE_MATERIAL, MaterialRenderFeature::default());
     render.add_feature(RENDER_FEATURE_EXPOSURE, ExposureRenderFeature::default());
     render.add_feature(RENDER_FEATURE_BLOOM, BloomRenderFeature::default());

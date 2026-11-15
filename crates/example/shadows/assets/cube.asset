@@ -1,0 +1,10 @@
+{
+  "asset_type": "mesh",
+  "raw_mesh": "cube.obj",
+  "coordinate_space": {
+    "$enum_variant": "RightHandZBack"
+  },
+  "has_clockwise_winding": false,
+  "has_inverted_u": false,
+  "has_inverted_v": true
+}

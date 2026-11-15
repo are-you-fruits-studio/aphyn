@@ -209,6 +209,7 @@ pub fn setup_scene(mut world: WorldDataMut) {
         StandardLightComponent::Point {
             color: srgb(NIGHT_100) * 6.0,
             range: 30.0,
+            shadows: false,
         },
         GlobalTransform {
             position: Vec3::new(0.0, 1.4, 0.0),
@@ -219,6 +220,7 @@ pub fn setup_scene(mut world: WorldDataMut) {
         &mut ec,
         StandardLightComponent::Directional {
             color: srgb(BLOOM_300) * 0.6,
+            shadows: false,
         },
         GlobalTransform {
             position: Vec3::splat(0.0),
@@ -231,6 +233,7 @@ pub fn setup_scene(mut world: WorldDataMut) {
             StandardLightComponent::Point {
                 color: srgb(BILBERRY_400) * 4.5,
                 range: 20.0,
+                shadows: false,
             },
             GlobalTransform::IDENTITY,
         );

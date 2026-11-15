@@ -47,6 +47,7 @@ members = [
     "crates/example/showcase",
     "crates/example/material",
     "crates/example/compute",
+    "crates/example/shadows",
     "crates/ui",
     "crates/file_storage",
     "crates/window",

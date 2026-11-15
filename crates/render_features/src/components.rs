@@ -27,9 +27,21 @@ pub struct BatchedMeshComponent {
 #[repr(C)]
 #[derive(Component, Clone, Copy, Serializable)]
 pub enum StandardLightComponent {
-    Point { color: Vec3<f32>, range: f32 },
-    Spot { color: Vec3<f32>, range: f32, fov: f32 },
-    Directional { color: Vec3<f32> },
+    Point {
+        color: Vec3<f32>,
+        range: f32,
+        shadows: bool,
+    },
+    Spot {
+        color: Vec3<f32>,
+        range: f32,
+        fov: f32,
+        shadows: bool,
+    },
+    Directional {
+        color: Vec3<f32>,
+        shadows: bool,
+    },
 }
 
 impl Default for StandardLightComponent {
@@ -37,6 +49,7 @@ impl Default for StandardLightComponent {
         Self::Point {
             color: Vec3::splat(1.0),
             range: 10.0,
+            shadows: false,
         }
     }
 }

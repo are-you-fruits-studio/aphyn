@@ -66,6 +66,7 @@ fn main() {
         StandardLightComponent::Point {
             color: Vec3::new(1.0, 1.0, 1.0) * 1.0_f32,
             range: 100.0,
+            shadows: false,
         },
     )
     .ok()
