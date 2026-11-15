@@ -1,9 +1,0 @@
-[package]
-name = "aphyn_example_audio_screen_saver"
-version.workspace = true
-edition = "2024"
-license.workspace = true
-
-[dependencies]
-aphyn = { path = "../../../" }
-rand = "*"

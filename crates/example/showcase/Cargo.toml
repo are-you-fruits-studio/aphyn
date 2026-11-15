@@ -1,9 +1,0 @@
-[package]
-name = "aphyn_example_showcase"
-version.workspace = true
-edition = "2024"
-license.workspace = true
-
-[dependencies]
-aphyn = { path = "../../../" }
-png = "0.18"

@@ -35,7 +35,7 @@
 
 **In development:** the editor, built on the engine itself. Release builds ship it as the `aphyn` binary.
 
-**Not yet:** physics · animation · point-light shadows · skybox · screen-space reflections · profiler · editor docking · live reload for assets and scripts.
+**Not yet:** joints · animation · point-light shadows · skybox · screen-space reflections · profiler · editor docking · live reload for assets and scripts.
 
 The working list lives in [`todos.md`](todos.md).
 
@@ -46,6 +46,7 @@ The working list lives in [`todos.md`](todos.md).
 - **UI:** text, images, alignment, masks
 - **Audio:** clip playback through cpal
 - **Collision detection:** point, line, AABB, oriented box, sphere, triangle
+- **Physics:** rigidbodies with friction and restitution, compound bodies, collision layers, raycasts
 - **Prefabs and scenes:** saved and loaded as JSON
 - **Game builds:** `aphyn build` packs a launcher, your game library and its assets
 
@@ -57,15 +58,15 @@ Requirements: the latest stable Rust (edition 2024). Aphyn relies on recent lang
 sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev pkg-config
 ```
 
-Run an example:
+The examples live in [aphyn.examples](https://github.com/are-you-fruits-studio/aphyn.examples). Run one with [just](https://github.com/casey/just) (its README also shows the plain `cargo` command):
 
 ```bash
-git clone https://github.com/are-you-fruits-studio/aphyn.git
-cd aphyn
-cargo run --release -p aphyn_example_cubes
+git clone https://github.com/are-you-fruits-studio/aphyn.examples.git
+cd aphyn.examples
+just dev cubes
 ```
 
-The first release build takes a few minutes.
+The first build takes a few minutes.
 
 A minimal app: one resource, two systems, the default engine modules.
 
@@ -86,18 +87,15 @@ fn tick(mut frames: ResMut<Frames>) {
 }
 
 fn main() {
-    let mut app = App::new();
-    let world = app.ecs_mut();
-
-    add_defult_modules_to(world.as_mut());
-    world.behavior_mut().get_mut(Schedule::Start).insert_system(setup);
-    world.behavior_mut().get_mut(Schedule::Update).insert_system(tick);
-
-    app.run();
+    // adds the default engine modules, then hands you the world to register your own systems
+    launch_app_statically(|mut ctx| {
+        ctx.behavior.get_mut(Schedule::Start).insert_system(setup);
+        ctx.behavior.get_mut(Schedule::Update).insert_system(tick);
+    });
 }
 ```
 
-It opens an empty window: add a camera and a mesh to see something — see the `cubes` example.
+It opens an empty window: add a camera and a mesh to see something — see the `cubes` example in [aphyn.examples](https://github.com/are-you-fruits-studio/aphyn.examples).
 
 To ship a game as a launcher plus a game library, see [Build a game](#build-a-game).
 
@@ -122,7 +120,7 @@ name = "launcher"
 path = "src/main.rs"
 
 [dependencies]
-aphyn = { git = "https://github.com/are-you-fruits-studio/aphyn", tag = "v0.18.0" }
+aphyn = { git = "https://github.com/are-you-fruits-studio/aphyn", tag = "v0.23.0" }
 ```
 
 Use the same tag as the `aphyn` binary you build with. Tags before `v0.18.0` still use the old package name. The library must be named `aphynapp` and the binary `launcher`: `aphyn build` looks for these names. Projects without `name = "aphynapp"` under `[lib]` build `lib_app.dll` / `liblib_app.so`, which the launcher no longer finds.
@@ -133,7 +131,7 @@ Use the same tag as the `aphyn` binary you build with. Tags before `v0.18.0` sti
 use aphyn::*;
 
 fn setup(ctx: AppInitCtx) {
-    // Register your components, systems and resources on `ctx.world`.
+    // Register your components, systems and resources on `ctx.data` and `ctx.behavior`.
     ctx.window.title = "My game".into();
 }
 
@@ -166,15 +164,7 @@ This compiles `scripts/` and copies the launcher, the `aphynapp` library and `as
 
 ## Examples
 
-Each example is its own crate under [`crates/example/`](crates/example). Run these from the repo root:
-
-```bash
-cargo run --release -p aphyn_example_cubes
-```
-
-Replace `cubes` with any name below:
-
-[cubes](crates/example/cubes) · [boids](crates/example/boids) · [ecs](crates/example/ecs) · [gizmos](crates/example/gizmos) · [collisions](crates/example/collisions) · [text](crates/example/text) · [ui](crates/example/ui) · [normals](crates/example/normals) · [bloom](crates/example/bloom) · [audio_screen_saver](crates/example/audio_screen_saver) · [showcase](crates/example/showcase)
+Examples and demo projects live in a separate repository, [aphyn.examples](https://github.com/are-you-fruits-studio/aphyn.examples). Each one is a standalone project that you can run with `cargo` or package with `aphyn build`.
 
 ## Docs · community · contributing
 
