@@ -3,7 +3,7 @@ use aphyn::*;
 use crate::{
     SYSTEM_GROUP,
     features::{
-        scene_window::{SimulatedViewTarget, ViewCamera, render_simulated_view},
+        scene_window::{SimulatedViewTarget, ViewCamera, is_enabled, render_simulated_view},
         ui_interaction::{HoverAreaComponent, check_ui_interaction_system},
         world_preload::{SimulatedWorldResource, tick_simulated_world_system},
     },
@@ -43,9 +43,15 @@ fn forward_game_input_system(
     input: Res<InputResource>,
     mut focus_res: ResMut<GameViewFocusResource>,
     mut simulated_world: ResMut<SimulatedWorldResource>,
-    image_q: WorldQuery<(&GlobalRectComponent, &HoverAreaComponent), WithFilter<GameViewImageComponent>>,
+    image_q: WorldQuery<
+        (&GlobalRectComponent, &HoverAreaComponent, Option<&GlobalDisableableComponent>),
+        WithFilter<GameViewImageComponent>,
+    >,
 ) {
-    let image = image_q.iter().next();
+    let image = image_q
+        .iter()
+        .find(|(_, _, d)| is_enabled(*d))
+        .map(|(rect_c, hover_c, _)| (rect_c, hover_c));
 
     let is_any_just_pressed = [MouseButton::Left, MouseButton::Right, MouseButton::Middle]
         .into_iter()
@@ -90,10 +96,17 @@ fn render_game_window_system(
     templates: Res<AssetStorageResource<MaterialTemplate>>,
     shaders: Res<AssetStorageResource<Shader>>,
     mut materials: ResMut<AssetStorageResource<Material>>,
-    mut image_q: WorldQuery<(&GlobalRectComponent, &mut MaterialComponent), WithFilter<GameViewImageComponent>>,
+    mut image_q: WorldQuery<
+        (
+            &GlobalRectComponent,
+            &mut MaterialComponent,
+            Option<&GlobalDisableableComponent>,
+        ),
+        WithFilter<GameViewImageComponent>,
+    >,
 ) {
     return_if_not!(Some((simulated_world, thread_pool)) = simulated_world.world_and_thread_pool());
-    return_if_not!(Some((rect_c, material_c)) = image_q.iter_mut().next());
+    return_if_not!(Some((rect_c, material_c, _)) = image_q.iter_mut().find(|(_, _, d)| is_enabled(*d)));
 
     let camera = simulated_world
         .data

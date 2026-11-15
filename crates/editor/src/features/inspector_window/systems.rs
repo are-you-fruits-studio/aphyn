@@ -1722,6 +1722,7 @@ fn spawn_component_separator(mut ent: EntitiesHolderMut, ent_parent: EntityId, m
         ent_separator,
         (
             GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
             LocalRectComponent {
                 scale: Vec2::new(UiVal::pw(1.0).into(), UiVal::px(1.0).into()),
                 ..Default::default()

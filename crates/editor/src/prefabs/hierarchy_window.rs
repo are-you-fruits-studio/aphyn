@@ -29,6 +29,7 @@ pub fn init_window_as_hierarchy(mut world: WorldDataMut, ent_window: EntityId) {
         ent_entries_container,
         (
             GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
             LocalRectComponent {
                 anchor: Vec2::new(0.0, 0.0),
                 pivot: Vec2::new(0.0, 0.0),

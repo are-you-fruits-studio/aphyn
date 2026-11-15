@@ -28,6 +28,7 @@ pub fn spawn_hierarchy_window_entry(
         ent_entry,
         (
             GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
             LocalRectComponent {
                 scale: Vec2::new(Some(UiVal::pd(1.0)).into(), None.into()),
                 ..Default::default()
@@ -52,6 +53,7 @@ pub fn spawn_hierarchy_window_entry(
         ent_name_container,
         (
             GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
             LocalRectComponent {
                 scale: Vec2::new(Some(UiVal::pd(1.0)).into(), Some(UiVal::px(20.0)).into()),
                 ..Default::default()
@@ -82,6 +84,7 @@ pub fn spawn_hierarchy_window_entry(
         (
             DebugNameComponent("ent_name".into()),
             GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
             LocalRectComponent { ..Default::default() },
             ChildComponent {
                 parent: ent_name_container,
@@ -456,6 +459,9 @@ fn spawn_serialized_composite(
             .unwrap();
 
             ent.add_component(ent_text, GlobalRectComponent::default()).ok().unwrap();
+            ent.add_component(ent_text, GlobalDisableableComponent::default())
+                .ok()
+                .unwrap();
             ent.add_component(ent_text, LocalRectComponent::default()).ok().unwrap();
             ent.add_component(ent_text, ChildComponent { parent: ent_button })
                 .ok()
@@ -729,6 +735,7 @@ pub fn spawn_default_layout_ent(mut ent: EntitiesHolderMut, ent_parent: EntityId
 
     // todo: change all the "add_component" to "set_components" when the entity is created and initialized
     ent.add_component(entity, GlobalRectComponent::default()).ok().unwrap();
+    ent.add_component(entity, GlobalDisableableComponent::default()).ok().unwrap();
     ent.add_component(entity, local_rect).ok().unwrap();
     ent.add_component(entity, ChildComponent { parent: ent_parent }).ok().unwrap();
     ent.add_component(entity, ParentComponent { children: vec![].into() })
@@ -766,6 +773,9 @@ pub fn spawn_text_ent(
     let ent_text = ent.create_entity();
 
     ent.add_component(ent_root, GlobalRectComponent::default()).ok().unwrap();
+    ent.add_component(ent_root, GlobalDisableableComponent::default())
+        .ok()
+        .unwrap();
     ent.add_component(
         ent_root,
         LocalRectComponent {
@@ -807,6 +817,9 @@ pub fn spawn_text_ent(
         .push(ent_root);
 
     ent.add_component(ent_text, GlobalRectComponent::default()).ok().unwrap();
+    ent.add_component(ent_text, GlobalDisableableComponent::default())
+        .ok()
+        .unwrap();
     ent.add_component(ent_text, LocalRectComponent::default()).ok().unwrap();
     ent.add_component(ent_text, ChildComponent { parent: ent_root }).ok().unwrap();
     ent.add_component(ent_text, MaterialComponent { material: material_text })
@@ -847,6 +860,7 @@ fn spawn_dropdown_button_ent(
         ent_root,
         (
             GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
             LocalRectComponent {
                 scale: Vec2::new(UiVal::pd(1.0).into(), FIELD_HEIGHT.into()),
                 ..Default::default()
@@ -875,6 +889,7 @@ fn spawn_dropdown_button_ent(
         ent_text,
         (
             GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
             LocalRectComponent::default(),
             ChildComponent { parent: ent_root },
             BatchedMeshComponent::default(),
@@ -912,6 +927,9 @@ pub fn spawn_input_area_ent(
     let ent_selection_highlight = ent.create_entity();
 
     ent.add_component(ent_root, GlobalRectComponent::default()).ok().unwrap();
+    ent.add_component(ent_root, GlobalDisableableComponent::default())
+        .ok()
+        .unwrap();
     ent.add_component(
         ent_root,
         LocalRectComponent {
@@ -1004,6 +1022,9 @@ pub fn spawn_input_area_ent(
     ent.add_component(ent_background, GlobalRectComponent::default())
         .ok()
         .unwrap();
+    ent.add_component(ent_background, GlobalDisableableComponent::default())
+        .ok()
+        .unwrap();
     ent.add_component(
         ent_background,
         LocalRectComponent {
@@ -1070,6 +1091,9 @@ pub fn spawn_input_area_ent(
     }
 
     ent.add_component(ent_text, GlobalRectComponent::default()).ok().unwrap();
+    ent.add_component(ent_text, GlobalDisableableComponent::default())
+        .ok()
+        .unwrap();
     ent.add_component(ent_text, LocalRectComponent::default()).ok().unwrap();
     ent.add_component(ent_text, ChildComponent { parent: ent_background })
         .ok()
@@ -1122,6 +1146,7 @@ pub fn spawn_hierarchy_entry(
         ent_entry_with_children,
         (
             GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
             LocalRectComponent {
                 scale: Vec2::new(Some(UiVal::pd(1.0)).into(), None.into()),
                 ..Default::default()
@@ -1146,6 +1171,7 @@ pub fn spawn_hierarchy_entry(
         ent_entry,
         (
             GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
             LocalRectComponent {
                 scale: Vec2::new(Some(UiVal::pd(1.0)).into(), Some(UiVal::px(20.0)).into()),
                 ..Default::default()
@@ -1174,6 +1200,7 @@ pub fn spawn_hierarchy_entry(
         (
             DebugNameComponent("ent_name".into()),
             GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
             LocalRectComponent { ..Default::default() },
             ChildComponent { parent: ent_entry },
             BatchedMeshComponent::default(),
@@ -1201,6 +1228,7 @@ pub fn spawn_hierarchy_entry(
         (
             DebugNameComponent("ent_children".into()),
             GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
             LocalRectComponent {
                 scale: Vec2::new(Some(UiVal::pd(1.0)).into(), None.into()),
                 ..Default::default()
@@ -1219,6 +1247,7 @@ pub fn spawn_hierarchy_entry(
         ent_children_container,
         (
             GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
             LocalRectComponent {
                 parent_padding_min: Vec2::new(UiVal::px(20.0), UiVal::px(0.0)),
                 scale: Vec2::new(Some(UiVal::pd(1.0)).into(), None.into()),

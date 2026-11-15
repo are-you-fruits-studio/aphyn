@@ -56,6 +56,7 @@ pub fn init_window_as_scene(mut world: WorldDataMut, ent_window: EntityId) {
         ent_toolbar,
         (
             GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
             LocalRectComponent {
                 anchor: Vec2::new(0.0, 0.0),
                 pivot: Vec2::new(0.0, 0.0),
@@ -124,6 +125,7 @@ pub fn spawn_scene_light_panel(
         ent_panel,
         (
             GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
             LocalRectComponent {
                 anchor: Vec2::new(0.0, 0.0),
                 pivot: Vec2::new(0.0, 0.0),
@@ -158,6 +160,7 @@ pub fn spawn_scene_light_panel(
         ent_content,
         (
             GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
             LocalRectComponent {
                 parent_padding_min: Vec2::splat(UiVal::px(PANEL_PADDING)),
                 parent_padding_max: Vec2::splat(UiVal::px(PANEL_PADDING)),
@@ -198,6 +201,7 @@ pub fn spawn_scene_light_panel(
                 ent_container,
                 (
                     GlobalRectComponent::default(),
+                    GlobalDisableableComponent::default(),
                     LocalRectComponent {
                         scale: Vec2::new(UiVal::px(PANEL_FIELD_WIDTH).into(), UiVal::px(PANEL_ROW_HEIGHT).into()),
                         ..Default::default()
@@ -232,6 +236,7 @@ fn spawn_panel_row(mut ent: EntitiesHolderMut, ent_parent: EntityId) -> EntityId
         ent_row,
         (
             GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
             LocalRectComponent {
                 scale: Vec2::new(UiVal::px(PANEL_ROW_WIDTH).into(), UiVal::px(PANEL_ROW_HEIGHT).into()),
                 ..Default::default()
@@ -260,6 +265,7 @@ fn spawn_panel_label(mut ent: EntitiesHolderMut, assets_res: &StandardAssetsReso
         ent_label,
         (
             GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
             LocalRectComponent {
                 scale: Vec2::new(UiVal::px(PANEL_LABEL_WIDTH).into(), UiVal::px(PANEL_ROW_HEIGHT).into()),
                 ..Default::default()
@@ -302,6 +308,7 @@ fn init_window_as_view<C: 'static + Component>(mut world: WorldDataMut, ent_wind
         ent_image,
         (
             GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
             LocalRectComponent::default(),
             ChildComponent { parent: ent_scroll_view },
             BatchedMeshComponent::default(),

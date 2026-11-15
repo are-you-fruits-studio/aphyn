@@ -27,6 +27,7 @@ pub(crate) fn create_header_button<C: 'static>(
         ent_root,
         (
             GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
             LocalRectComponent {
                 scale: Vec2::new(width.into(), UiVal::pd(1.0).into()),
                 ..Default::default()
@@ -52,6 +53,7 @@ pub(crate) fn create_header_button<C: 'static>(
         ent_text,
         (
             GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
             LocalRectComponent::default(),
             ChildComponent { parent: ent_root },
             BatchedMeshComponent::default(),

@@ -294,6 +294,7 @@ pub fn spawn_foldout_arrow(
         ent_arrow,
         (
             GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
             LocalRectComponent {
                 anchor: Vec2::new(0.0, 0.5),
                 pivot: Vec2::new(0.0, 0.5),
@@ -328,6 +329,7 @@ pub fn spawn_foldout_arrow(
         ent_arrow_text,
         (
             GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
             LocalRectComponent::default(),
             ChildComponent { parent: ent_arrow },
             BatchedMeshComponent::default(),

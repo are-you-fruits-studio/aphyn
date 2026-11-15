@@ -1,5 +1,6 @@
 pub mod asset_serialization;
 pub mod clipboard;
+pub mod docking;
 pub mod dropdown;
 pub mod foldout;
 pub mod game_window;

@@ -1,7 +1,6 @@
 # Prioritized
 
 - make sure prefab root entity is the first one serialized
-- implement windows docking (like in Microsoft VS)
 
 - implement shadows
 - implement Skybox (probably need separation of vertex/fragment shaders in assets)

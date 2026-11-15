@@ -7,6 +7,7 @@ use crate::{
         generic_dropdown::{GenericDropdownResource, select_generic_dropdown_system},
         inspector_window::data::InspectorWindowComponent,
         ui_interaction::ButtonComponent,
+        ui_window::{attach_panel, find_group_of_panel, set_active_panel},
     },
     prefabs::{self, WindowComponent},
 };
@@ -77,11 +78,43 @@ pub fn open_windows_system(mut world: WorldDataMut) {
     res.get_mut::<WindowsDropdownResource>().unwrap().request_id = request_id;
 
     if let Some(idx) = idx {
-        open_window_by_kind(world, WINDOW_KINDS[idx as usize]);
+        let kind = WINDOW_KINDS[idx as usize];
+
+        if !focus_window_by_kind(world.as_mut(), kind) {
+            open_window_by_kind(world, kind);
+        }
     }
 }
 
-pub fn open_window_by_kind(world: WorldDataMut, kind: &str) -> Option<EntityId> {
+pub fn focus_window_by_kind(mut world: WorldDataMut, kind: &str) -> bool {
+    let ent_panel = world
+        .entities()
+        .query::<(EntityId, &WindowComponent)>()
+        .iter()
+        .find(|(_, window_c)| window_c.kind.as_str() == kind)
+        .map(|(ent, _)| ent);
+
+    let Some(ent_panel) = ent_panel else {
+        return false;
+    };
+
+    if let Some(ent_group) = find_group_of_panel(world.entities(), ent_panel) {
+        set_active_panel(world.entities_mut(), ent_group, ent_panel);
+    }
+
+    true
+}
+
+pub fn open_window_by_kind(mut world: WorldDataMut, kind: &str) -> Option<EntityId> {
+    let ent_panel = open_panel_by_kind(world.as_mut(), kind)?;
+    let ent_group = prefabs::window_group(world.as_mut());
+
+    attach_panel(world.entities_mut(), ent_group, ent_panel);
+
+    Some(ent_group)
+}
+
+pub fn open_panel_by_kind(world: WorldDataMut, kind: &str) -> Option<EntityId> {
     match kind {
         WINDOW_KIND_PROJECT => open_specific_window(
             world,
@@ -109,7 +142,7 @@ pub fn open_window_by_kind(world: WorldDataMut, kind: &str) -> Option<EntityId> 
 
 fn open_specific_window<SpecWindowComponent: 'static + Component>(
     mut world: WorldDataMut,
-    title: &str,
+    kind: &str,
     component: SpecWindowComponent,
     init: impl FnOnce(WorldDataMut, EntityId),
 ) -> Option<EntityId> {
@@ -117,19 +150,11 @@ fn open_specific_window<SpecWindowComponent: 'static + Component>(
         return None;
     }
 
-    let ent_window = prefabs::window(world.as_mut());
+    let ent_panel = prefabs::panel(world.as_mut(), kind);
 
-    init(world.as_mut(), ent_window);
+    init(world.as_mut(), ent_panel);
 
-    let mut ent = world.entities_mut();
+    world.entities_mut().set_component(ent_panel, component);
 
-    ent.set_component(ent_window, component);
-
-    let window_c = *ent.get_component_mut::<WindowComponent>(ent_window).unwrap();
-
-    let text_c = ent.get_component_mut::<TextComponent>(window_c.title).unwrap();
-    text_c.text.clear();
-    text_c.text.push_str(title);
-
-    Some(ent_window)
+    Some(ent_panel)
 }

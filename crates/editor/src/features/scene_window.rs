@@ -202,16 +202,27 @@ fn focus_scene_camera_on_entity_system(
     camera_res.position = transform.position - forward * distance;
 }
 
+pub fn is_enabled(disableable_c: Option<&GlobalDisableableComponent>) -> bool {
+    !disableable_c.is_some_and(|c| c.is_disabled)
+}
+
 fn sync_simulated_window_system(
     mut simulated_world: ResMut<SimulatedWorldResource>,
-    scene_image_q: WorldQuery<&GlobalRectComponent, WithFilter<SceneViewImageComponent>>,
-    game_image_q: WorldQuery<&GlobalRectComponent, WithFilter<GameViewImageComponent>>,
+    scene_image_q: WorldQuery<(&GlobalRectComponent, Option<&GlobalDisableableComponent>), WithFilter<SceneViewImageComponent>>,
+    game_image_q: WorldQuery<(&GlobalRectComponent, Option<&GlobalDisableableComponent>), WithFilter<GameViewImageComponent>>,
 ) {
     let is_playing = simulated_world.is_playing();
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
 
-    let game_rect_c = game_image_q.iter().next().filter(|_| is_playing);
-    return_if_not!(Some(rect_c) = game_rect_c.or_else(|| scene_image_q.iter().next()));
+    let view = game_image_q
+        .iter()
+        .next()
+        .filter(|_| is_playing)
+        .or_else(|| scene_image_q.iter().next());
+
+    // a hidden view keeps the last size
+    return_if_not!(Some((rect_c, disableable_c)) = view);
+    return_if!(!is_enabled(disableable_c));
 
     let size = view_size(rect_c);
     let window_res = simulated_world
@@ -242,12 +253,19 @@ pub fn render_scene_window_system(
     templates: Res<AssetStorageResource<MaterialTemplate>>,
     shaders: Res<AssetStorageResource<Shader>>,
     mut materials: ResMut<AssetStorageResource<Material>>,
-    mut image_q: WorldQuery<(&GlobalRectComponent, &mut MaterialComponent), WithFilter<SceneViewImageComponent>>,
+    mut image_q: WorldQuery<
+        (
+            &GlobalRectComponent,
+            &mut MaterialComponent,
+            Option<&GlobalDisableableComponent>,
+        ),
+        WithFilter<SceneViewImageComponent>,
+    >,
     gizmo_res: Res<TransformGizmoResource>,
     inspected_entity: Res<InspectedEntityResource>,
 ) {
     return_if_not!(Some((simulated_world, thread_pool)) = simulated_world.world_and_thread_pool());
-    return_if_not!(Some((rect_c, material_c)) = image_q.iter_mut().next());
+    return_if_not!(Some((rect_c, material_c, _)) = image_q.iter_mut().find(|(_, _, d)| is_enabled(*d)));
 
     let gizmo_mesh = build_transform_gizmo_mesh(
         &gizmo_res,

@@ -5,13 +5,13 @@ use aphyn::*;
 use crate::{
     SYSTEM_GROUP,
     features::{
-        test_window::{open_window_by_kind, open_windows_system},
+        docking::{DockLayoutResource, DockNode, spawn_splitter},
+        test_window::{open_panel_by_kind, open_windows_system},
         ui_window::{
-            WindowsOrderResource, close_window_system, drag_window_system, keep_windows_inside_dock_system, order_windows_system,
-            rescale_window_system,
+            WindowsOrderResource, attach_panel, order_windows_system, px_offset, px_scale, set_px_rect, sync_window_groups_system,
         },
     },
-    prefabs::WindowComponent,
+    prefabs::{WindowComponent, WindowGroupComponent, window_group},
 };
 
 pub const APP_NAME: &str = "aphyn_editor";
@@ -34,31 +34,30 @@ pub fn register_feature(_data: WorldDataMut, mut behavior: WorldBehaviorBuilderM
 
         update.group(SYSTEM_GROUP).insert_child_system(save_windows_layout_system);
 
+        update.order_system(open_windows_system).before_system(order_windows_system);
         update
             .order_system(open_windows_system)
             .before_system(save_windows_layout_system);
         update
-            .order_system(close_window_system)
-            .before_system(save_windows_layout_system);
-        update
-            .order_system(drag_window_system)
-            .before_system(save_windows_layout_system);
-        update
-            .order_system(rescale_window_system)
-            .before_system(save_windows_layout_system);
-        update
-            .order_system(keep_windows_inside_dock_system)
-            .before_system(save_windows_layout_system);
-        update.order_system(open_windows_system).before_system(order_windows_system);
-        update
-            .order_system(order_windows_system)
+            .order_system(sync_window_groups_system)
             .before_system(save_windows_layout_system);
     }
 }
 
+// the dock tree is stored in pre-order: a split is followed by its two subtrees
 #[derive(Serializable, Default, PartialEq, Clone, Debug)]
-struct WindowLayoutEntry {
-    kind: String,
+struct DockNodeLayout {
+    is_split: bool,
+    tabs: Vec<String>,
+    active: u32,
+    axis: u32,
+    ratio: f32,
+}
+
+#[derive(Serializable, Default, PartialEq, Clone, Debug)]
+struct FloatingGroupLayout {
+    tabs: Vec<String>,
+    active: u32,
     offset_x: f32,
     offset_y: f32,
     width: f32,
@@ -68,7 +67,8 @@ struct WindowLayoutEntry {
 
 #[derive(Serializable, Default, PartialEq, Clone, Debug)]
 struct WindowsLayout {
-    windows: Vec<WindowLayoutEntry>,
+    dock: Vec<DockNodeLayout>,
+    floating: Vec<FloatingGroupLayout>,
 }
 
 #[derive(Resource, Default)]
@@ -127,78 +127,172 @@ fn store_layout(layout: &WindowsLayout) {
     }
 }
 
-fn px_or_zero(val: UiVal) -> f32 {
-    match val {
-        UiVal { unit: UiUnit::Px, val } => val,
-        _ => 0.0,
+fn open_group_with_tabs(mut world: WorldDataMut, tabs: &[String], active: u32) -> Option<EntityId> {
+    let panels = tabs
+        .iter()
+        .filter_map(|kind| open_panel_by_kind(world.as_mut(), kind))
+        .collect::<Vec<_>>();
+
+    if panels.is_empty() {
+        return None;
     }
+
+    let ent_group = window_group(world.as_mut());
+
+    for &ent_panel in &panels {
+        attach_panel(world.entities_mut(), ent_group, ent_panel);
+    }
+
+    let mut ec = world.entities_mut();
+    let group_c = ec.get_component_mut::<WindowGroupComponent>(ent_group).unwrap();
+    group_c.active = (active as u64).min(panels.len() as u64 - 1);
+
+    Some(ent_group)
+}
+
+fn restore_dock_node(mut world: WorldDataMut, nodes: &mut std::slice::Iter<DockNodeLayout>) -> Option<DockNode<EntityId>> {
+    let node = nodes.next()?;
+
+    if node.is_split {
+        let first = restore_dock_node(world.as_mut(), nodes);
+        let second = restore_dock_node(world.as_mut(), nodes);
+
+        return match (first, second) {
+            (Some(first), Some(second)) => Some(DockNode::Split {
+                axis: (node.axis as usize).min(1),
+                ratio: node.ratio,
+                splitter: spawn_splitter(world.as_mut()),
+                children: Box::new([first, second]),
+            }),
+            (Some(single), None) | (None, Some(single)) => Some(single),
+            (None, None) => None,
+        };
+    }
+
+    let ent_group = open_group_with_tabs(world.as_mut(), &node.tabs, node.active)?;
+    world
+        .entities_mut()
+        .get_component_mut::<WindowGroupComponent>(ent_group)
+        .unwrap()
+        .is_docked = true;
+
+    Some(DockNode::Leaf(ent_group))
 }
 
 fn restore_windows_layout_system(mut world: WorldDataMut) {
     let layout = load_layout().unwrap_or_default();
 
-    let mut ordered_windows = Vec::new();
+    let dock_root = restore_dock_node(world.as_mut(), &mut layout.dock.iter());
+    world.resources_mut().get_mut::<DockLayoutResource>().unwrap().tree.root = dock_root;
 
-    for entry in &layout.windows {
-        let Some(ent_window) = open_window_by_kind(world.as_mut(), &entry.kind) else {
-            continue;
-        };
+    let mut ordered_groups = Vec::new();
 
-        ordered_windows.push((entry.order, ent_window));
+    for entry in &layout.floating {
+        continue_if_not!(Some(ent_group) = open_group_with_tabs(world.as_mut(), &entry.tabs, entry.active));
 
-        let mut ent = world.entities_mut();
+        ordered_groups.push((entry.order, ent_group));
 
-        let Some(rect_c) = ent.get_component_mut::<LocalRectComponent>(ent_window) else {
-            continue;
-        };
-
-        rect_c.offset = Vec2::new(UiVal::px(entry.offset_x), UiVal::px(entry.offset_y));
-        rect_c.scale = Vec2::new(UiVal::px(entry.width).into(), UiVal::px(entry.height).into());
+        if let Some(rect_c) = world.entities_mut().get_component_mut::<LocalRectComponent>(ent_group) {
+            set_px_rect(
+                rect_c,
+                Vec2::new(entry.offset_x, entry.offset_y),
+                Vec2::new(entry.width, entry.height),
+            );
+        }
     }
 
-    ordered_windows.sort_by_key(|&(order, _)| order);
+    ordered_groups.sort_by_key(|&(order, _)| order);
 
     world.resources_mut().get_mut::<WindowsOrderResource>().unwrap().front_to_back =
-        ordered_windows.into_iter().map(|(_, ent)| ent).collect();
+        ordered_groups.into_iter().map(|(_, ent)| ent).collect();
 
     world.resources_mut().insert(WindowsLayoutResource { last_saved: layout });
+}
+
+fn group_tabs(group_c: &WindowGroupComponent, window_q: &WorldQuery<&WindowComponent>) -> Vec<String> {
+    group_c
+        .panels
+        .iter()
+        .filter_map(|&ent_panel| window_q.get(ent_panel).map(|window_c| window_c.kind.to_string()))
+        .collect()
+}
+
+fn save_dock_node(
+    node: &DockNode<EntityId>,
+    group_q: &WorldQuery<(EntityId, &LocalRectComponent, &WindowGroupComponent)>,
+    window_q: &WorldQuery<&WindowComponent>,
+    out: &mut Vec<DockNodeLayout>,
+) {
+    match node {
+        DockNode::Leaf(ent_group) => {
+            let group_c = group_q.get(*ent_group).map(|(_, _, group_c)| group_c);
+
+            out.push(DockNodeLayout {
+                tabs: group_c.map(|group_c| group_tabs(group_c, window_q)).unwrap_or_default(),
+                active: group_c.map(|group_c| group_c.active as u32).unwrap_or(0),
+                ..Default::default()
+            });
+        }
+        DockNode::Split {
+            axis, ratio, children, ..
+        } => {
+            out.push(DockNodeLayout {
+                is_split: true,
+                axis: *axis as u32,
+                ratio: *ratio,
+                ..Default::default()
+            });
+
+            for child in children.iter() {
+                save_dock_node(child, group_q, window_q, out);
+            }
+        }
+    }
 }
 
 pub fn save_windows_layout_system(
     input_res: Res<InputResource>,
     order_res: Res<WindowsOrderResource>,
+    dock_res: Res<DockLayoutResource>,
     mut layout_res: ResMut<WindowsLayoutResource>,
-    window_q: WorldQuery<(EntityId, &LocalRectComponent, &WindowComponent)>,
-    title_q: WorldQuery<&TextComponent>,
+    group_q: WorldQuery<(EntityId, &LocalRectComponent, &WindowGroupComponent)>,
+    window_q: WorldQuery<&WindowComponent>,
 ) {
     if input_res.mouse.is_pressed(MouseButton::Left) {
         return;
     }
 
-    let mut windows = window_q
+    let mut dock = Vec::new();
+
+    if let Some(root) = &dock_res.tree.root {
+        save_dock_node(root, &group_q, &window_q, &mut dock);
+    }
+
+    let mut floating = group_q
         .iter()
-        .filter_map(|(ent_window, rect_c, window_c)| {
-            let title_c = title_q.get(window_c.title)?;
+        .filter(|(_, _, group_c)| !group_c.is_docked)
+        .map(|(ent_group, rect_c, group_c)| {
             let order = order_res
                 .front_to_back
                 .iter()
-                .position(|&e| e == ent_window)
+                .position(|&e| e == ent_group)
                 .unwrap_or(order_res.front_to_back.len());
 
-            Some(WindowLayoutEntry {
-                kind: title_c.text.to_string(),
-                offset_x: px_or_zero(rect_c.offset.x),
-                offset_y: px_or_zero(rect_c.offset.y),
-                width: rect_c.scale.x.into_option().map(px_or_zero).unwrap_or(0.0),
-                height: rect_c.scale.y.into_option().map(px_or_zero).unwrap_or(0.0),
+            FloatingGroupLayout {
+                tabs: group_tabs(group_c, &window_q),
+                active: group_c.active as u32,
+                offset_x: px_offset(rect_c, 0),
+                offset_y: px_offset(rect_c, 1),
+                width: px_scale(rect_c, 0),
+                height: px_scale(rect_c, 1),
                 order: order as u32,
-            })
+            }
         })
         .collect::<Vec<_>>();
 
-    windows.sort_by(|a, b| a.kind.cmp(&b.kind));
+    floating.sort_by_key(|entry| entry.order);
 
-    let layout = WindowsLayout { windows };
+    let layout = WindowsLayout { dock, floating };
 
     if layout == layout_res.last_saved {
         return;

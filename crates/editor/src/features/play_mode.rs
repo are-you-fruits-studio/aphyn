@@ -9,7 +9,7 @@ use crate::{
             systems::{open_entities_asset, update_hierarchy_window_system},
         },
         project_reload::ProjectReloadResource,
-        test_window::{WINDOW_KIND_GAME, open_window_by_kind},
+        test_window::{WINDOW_KIND_GAME, focus_window_by_kind, open_window_by_kind},
         ui_interaction::{ButtonComponent, check_ui_interaction_system},
         windows_layout::save_windows_layout_system,
         world_preload::{
@@ -131,7 +131,9 @@ fn open_game_window_on_play_system(mut world: WorldDataMut) {
     let play_mode = world.resources_mut().into_get_mut::<PlayModeResource>().unwrap();
     return_if!(!std::mem::take(&mut play_mode.should_open_game_window));
 
-    open_window_by_kind(world, WINDOW_KIND_GAME);
+    if !focus_window_by_kind(world.as_mut(), WINDOW_KIND_GAME) {
+        open_window_by_kind(world, WINDOW_KIND_GAME);
+    }
 }
 
 fn update_play_button_system(

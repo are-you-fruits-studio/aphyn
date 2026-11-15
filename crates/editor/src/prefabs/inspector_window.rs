@@ -48,6 +48,7 @@ pub fn init_window_as_inspector(mut world: WorldDataMut, ent_window: EntityId) {
         ent_add_component_variants_container,
         (
             GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
             LocalRectComponent {
                 anchor: Vec2::new(0.0, 0.0),
                 pivot: Vec2::new(0.0, 0.0),
@@ -115,6 +116,7 @@ pub fn init_window_as_inspector(mut world: WorldDataMut, ent_window: EntityId) {
         ent_scroll_content_asset_type,
         (
             GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
             LocalRectComponent {
                 scale: Vec2::new(UiVal::pd(1.0).into(), UiVal::px(20.0).into()),
                 ..Default::default()
@@ -142,6 +144,7 @@ pub fn init_window_as_inspector(mut world: WorldDataMut, ent_window: EntityId) {
         ent_scroll_content_asset_container,
         (
             GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
             LocalRectComponent {
                 anchor: Vec2::new(0.0, 0.0),
                 pivot: Vec2::new(0.0, 0.0),
