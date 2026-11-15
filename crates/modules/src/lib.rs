@@ -110,7 +110,7 @@ use aphyn_collision::{
     ColliderComponent, ColliderShape, CollisionAabb, CollisionBox, CollisionLayer, CollisionLine, CollisionShape, CollisionSphere,
     LineBoundType, MeshCollider,
 };
-use aphyn_ecs::{Component, Schedule, WorldBehaviorBuilderMut, WorldDataMut};
+use aphyn_ecs::{Component, EntityId, Schedule, WorldBehaviorBuilderMut, WorldDataMut};
 use aphyn_ffi::{FfiIndexMap, FfiOption, FfiSmallString, FfiString, FfiVec};
 use aphyn_math::{Mat, Mat3, Quat, Vec2, Vec3, Vec4};
 use aphyn_physics::{PhysicsMaterial, PhysicsMaterialComponent, RigidbodyComponent, RigidbodyForces, RigidbodyType};
@@ -276,6 +276,8 @@ pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry
     register_transserializer::<RigidbodyType>(serializer);
     register_transserializer::<RigidbodyForces>(serializer);
     register_transserializer::<PhysicsMaterial>(serializer);
+
+    register_transserializer::<FfiVec<EntityId>>(serializer);
 }
 
 pub fn register_transserializer<T: 'static + Default + for<'a> Serializable<TransSerializerCtxState<'a>>>(

@@ -39,6 +39,10 @@
 //! [`rgba_f32_array!`](crate::rgba_f32_array) yields `[f32; 4]`; both follow the
 //! same literal format as the examples above.
 //!
+//! The macros parse like the `aphyn_math::parse_color_*` functions: characters
+//! past the 6 (RGB) or 8 (RGBA) hex digits are ignored, so
+//! `rgb_u8_array!("#ff8800ff")` yields `[255, 136, 0]`.
+//!
 //! ```
 //! assert_eq!(aphyn_math_macros::rgb_u8_array!("#ff8800"), [255, 136, 0]);
 //! assert_eq!(aphyn_math_macros::rgba_f32_array!("#ff0000ff"), [1.0, 0.0, 0.0, 1.0]);

@@ -209,11 +209,11 @@ impl ApplicationHandler for EventLoopHandler {
                     PhysicalKey::Unidentified(_) => None,
                 };
 
-                if let Some(text) = &event.text {
-                    evt.get_mut().push(TextInputEvent(text.as_str().into()));
-                }
-
                 if event.state == ElementState::Pressed {
+                    if let Some(text) = &event.text {
+                        evt.get_mut().push(TextInputEvent(text.as_str().into()));
+                    }
+
                     evt.get_mut().push(KeyPressedEvent {
                         key: key_code.into(),
                         text: event.text.as_ref().map(|t| t.as_str()).unwrap_or_default().into(),

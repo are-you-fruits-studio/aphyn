@@ -142,11 +142,20 @@
 //! `#`) into `u8` or normalized `f32` channels, and are usable in `const`
 //! contexts.
 //!
+//! The `rgb` variants read the first 6 hex digits after the optional `#`, the
+//! `rgba` variants the first 8. A shorter input returns `None`; anything past
+//! those digits is ignored without being checked, so an `rgb` parser accepts an
+//! RGBA string and drops its alpha.
+//!
 //! ```
-//! use aphyn_math::{parse_color_rgb_u8, parse_color_rgba_f32};
+//! use aphyn_math::{parse_color_rgb_f32, parse_color_rgb_u8, parse_color_rgba_f32};
 //!
 //! assert_eq!(parse_color_rgb_u8("#ff8800"), Some([0xff, 0x88, 0x00]));
 //! assert_eq!(parse_color_rgba_f32("00000000"), Some([0.0, 0.0, 0.0, 0.0]));
+//!
+//! assert_eq!(parse_color_rgb_f32("#ff000080"), Some([1.0, 0.0, 0.0]));
+//! assert_eq!(parse_color_rgb_u8("#ff8800 trailing text"), Some([0xff, 0x88, 0x00]));
+//! assert_eq!(parse_color_rgba_f32("#ff0000"), None);
 //! ```
 //!
 //! #### Solving small equations

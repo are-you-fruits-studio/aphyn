@@ -95,7 +95,7 @@ impl<'a> MeshLoader<'a> {
                     position: obj.positions.get(vertex.v).copied()?,
                     color: [1.0; 4],
                     normal: vertex.vn.map(|n| obj.normals.get(n).copied()).flatten()?,
-                    // tangent is calculated later inside this function
+                    // calculated after the coordinate space and uv adjustments below
                     tangent: [0.0; 4],
                     uv: vertex.vt.map(|n| obj.texcoords.get(n).copied()).flatten()?,
                 })
@@ -103,22 +103,7 @@ impl<'a> MeshLoader<'a> {
             if face.iter().any(|f| f.is_none()) {
                 return None;
             }
-            let mut face = face.map(|o| o.unwrap());
-
-            let (tangent, bitangent) = calculate_tangent_bitangent(
-                face.map(|f| Vec3::from_array(f.position)),
-                face.map(|f| Vec2::from_array(f.uv)),
-            );
-
-            for vertex in &mut face {
-                vertex.tangent =
-                    calculate_tangent_handedness_by_orthogonalizing(Vec3::from_array(vertex.normal), tangent, bitangent)
-                        .into_array();
-            }
-
-            for vertex in face {
-                vertices.push(vertex);
-            }
+            vertices.extend(face.map(|o| o.unwrap()));
         }
 
         if value.coordinate_space == CoordinateSpaceType::RightHandZBack {
@@ -154,6 +139,19 @@ impl<'a> MeshLoader<'a> {
         if value.has_inverted_v {
             for vertex in &mut vertices {
                 vertex.uv[1] = 1.0 - vertex.uv[1];
+            }
+        }
+
+        for face in vertices.chunks_exact_mut(3) {
+            let (tangent, bitangent) = calculate_tangent_bitangent(
+                [0, 1, 2].map(|i| Vec3::from_array(face[i].position)),
+                [0, 1, 2].map(|i| Vec2::from_array(face[i].uv)),
+            );
+
+            for vertex in face {
+                vertex.tangent =
+                    calculate_tangent_handedness_by_orthogonalizing(Vec3::from_array(vertex.normal), tangent, bitangent)
+                        .into_array();
             }
         }
 

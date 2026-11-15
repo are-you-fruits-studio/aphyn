@@ -184,7 +184,7 @@
 //! 2. calls `RenderApiResource::upload_material_changes` once per material (snapshot-driven),
 //! 3. uploads the frame's geometry: per `(material, mesh)` run the instance matrices into one
 //!    growing `StandardInstanceBuffer`, per material the CPU-transformed batched vertices (vertex
-//!    colors converted from sRGB to linear) into one growing vertex buffer. All ranges of the frame
+//!    colors are taken as linear and copied as is) into one growing vertex buffer. All ranges of the frame
 //!    coexist in the buffers, so passes may run in any order,
 //! 4. builds one draw per (template pass, geometry run) whose material has GPU data for that pass;
 //!    a material whose template does not resolve or whose GPU data was never built is skipped and

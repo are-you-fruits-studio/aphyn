@@ -125,12 +125,14 @@
 //!
 //! #### The two-way parent/child link
 //!
-//! [`ChildComponent`] (a child naming its parent) is the source of truth; [`ParentComponent`]
-//! (a parent's list of children) is a cache reconciled against it every frame.
-//! [`update_parents_remove_invalid_children`] drops entries whose child no longer points back at
-//! this parent (or points at itself), and [`update_parents_add_missing_children`] appends children
-//! that name this parent but are absent from its list. Editing `ParentComponent.children` directly
-//! is pointless — it is overwritten from the child links on the next run.
+//! [`ChildComponent`] (a child naming its parent) is the source of truth for which children a
+//! parent has; [`ParentComponent`] (a parent's list of children) is reconciled against it every
+//! frame. [`update_parents_remove_invalid_children`] drops entries whose child no longer points
+//! back at this parent (or points at itself), and [`update_parents_add_missing_children`] appends
+//! children that name this parent but are absent from its list. Both edit the list in place, so the
+//! order of `ParentComponent.children` is preserved: reorder it to change the order children are
+//! traversed and laid out in (e.g. by [`RectChildAlignComponent`]). To add or remove a child, set
+//! or remove its [`ChildComponent`] instead of editing the list.
 //!
 //! #### Companion-component injection
 //!

@@ -86,7 +86,10 @@
 //!         "order": 5000000,
 //!         "target": { "$enum_variant": "Main" },
 //!         "values": [{ "input": "color", "group": 1, "binding": 0, "member": "color" }],
-//!         "textures": [{ "input": "foam", "group": 1, "texture_binding": 1, "sampler_binding": 2 }]
+//!         "textures": [{
+//!             "input": "foam", "group": 1, "texture_binding": 1,
+//!             "sampler_binding": { "$enum_variant": "Some", "0": 2 }
+//!         }]
 //!     }]
 //! }
 //!

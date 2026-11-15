@@ -18,8 +18,17 @@
 
 # Queue
 
+- invert depth buffer (make far=0, near=1)
 - instantiate prefabs in editor (probably need to support prefabs as part of other prefabs and overrides)
 - console window
+
+# Not prioritized yet
+
+- Materials that have configurations that change render pipeline configuration (e.g. culling)
+- refactor/optimize/make-prettier lib compilation waiting
+- undo in editor
+- compact vector visualization in inspector
+- when interacting with scene window, stop editing input fields
 
 # Low-prio
 

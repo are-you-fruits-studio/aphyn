@@ -537,9 +537,6 @@ fn write_batched_mesh(
     local_to_world: &Mat4<f32>,
     start: usize,
 ) -> usize {
-    // todo: to Image/Text components, the gamma curve should not be here with batching
-    let srgb_to_linear = |x: f32| x.powf(2.2);
-
     let indices = batched_mesh.indices.as_slice();
     let count = indices.len().min(buffer.len().saturating_sub(start));
 
@@ -552,12 +549,9 @@ fn write_batched_mesh(
         vertex.normal = local_to_world
             .mul_with_projection_as_dir(Vec3::from_array(vertex.normal))
             .into_array();
-        vertex.color = [
-            srgb_to_linear(vertex.color[0]),
-            srgb_to_linear(vertex.color[1]),
-            srgb_to_linear(vertex.color[2]),
-            vertex.color[3],
-        ];
+        let [tx, ty, tz, handedness] = vertex.tangent;
+        let [tx, ty, tz] = local_to_world.mul_with_projection_as_dir(Vec3::new(tx, ty, tz)).into_array();
+        vertex.tangent = [tx, ty, tz, handedness];
 
         vertex
     });
