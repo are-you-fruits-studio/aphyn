@@ -7,7 +7,7 @@ import AphynDependency from '@site/src/components/AphynDependency';
 
 # Build a game
 
-A shipped game is a folder with three parts: a small **launcher** executable, your game compiled as a dynamic library named **`lib_app`**, and the **`assets/`** it loads. `aphyn build` produces that folder from a project.
+A shipped game is a folder with three parts: a small **launcher** executable, your game compiled as a dynamic library named **`aphynapp`**, and the **`assets/`** it loads. `aphyn build` produces that folder from a project.
 
 ## Project layout
 
@@ -24,7 +24,7 @@ my_game/
 
 ## The game crate
 
-`scripts/Cargo.toml` builds your game as a `cdylib` named `lib_app` and a binary named `launcher`. `aphyn build` looks for both names.
+`scripts/Cargo.toml` builds your game as a `cdylib` named `aphynapp` and a binary named `launcher`. `aphyn build` and the launcher look for these names: without `name = "aphynapp"` under `[lib]`, Cargo names the library after the package and the launcher does not find it.
 
 <AphynDependency
   title="scripts/Cargo.toml"
@@ -34,6 +34,7 @@ version = "0.1.0"
 edition = "2024"
 
 [lib]
+name = "aphynapp"
 crate-type = ["cdylib"]
 
 [[bin]]
@@ -106,7 +107,7 @@ cargo run --release -p aphyn_editor -- build path/to/my_game
 | File | From |
 |---|---|
 | `my_game` (`my_game.exe` on Windows) | the `launcher` binary, renamed after the project folder |
-| `lib_app.dll` / `lib_app.so` | the game library |
+| `aphynapp.dll` / `libaphynapp.so` | the game library |
 | `assets/` | the project's `assets/`, if present |
 
 Run the executable from `builds/`. At run time the game loads its assets from the `assets/` folder next to the executable.
@@ -120,6 +121,6 @@ Run the executable from `builds/`. At run time the game loads its assets from th
 
 ## How the launcher finds your game
 
-`launch_app_dynamically` creates the app, registers the default modules, then loads `lib_app` from the folder of the running executable and calls the `aphyn_entry_point` symbol with the app's `AppInitCtx`. Your `setup` registers its components, systems and resources on that world, and the launcher runs the frame loop. The library stays loaded until the window closes, because the world holds its types and function pointers.
+`launch_app_dynamically` creates the app, registers the default modules, then loads `aphynapp` (`aphynapp.dll`, `libaphynapp.so`, `libaphynapp.dylib`) from the folder of the running executable and calls the `aphyn_entry_point` symbol with the app's `AppInitCtx`. Your `setup` registers its components, systems and resources on that world, and the launcher runs the frame loop. The library stays loaded until the window closes, because the world holds its types and function pointers.
 
 Because data crosses the library boundary as raw engine structures, a launcher and a library built from different engine versions fail at run time, not at compile time. See [Architecture](./concepts/architecture.md#two-ways-to-launch) for the static alternative.

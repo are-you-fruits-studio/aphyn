@@ -30,13 +30,15 @@ The API changes between versions. Pin a [release tag](https://github.com/are-you
 
 ## Run an example
 
+The examples live in a separate repository, [aphyn.examples](https://github.com/are-you-fruits-studio/aphyn.examples). Run one with [just](https://github.com/casey/just) (its README also shows the plain `cargo` command):
+
 ```bash
-git clone https://github.com/are-you-fruits-studio/aphyn.git
-cd aphyn
-cargo run --release -p aphyn_example_cubes
+git clone https://github.com/are-you-fruits-studio/aphyn.examples.git
+cd aphyn.examples
+just dev cubes
 ```
 
-The first release build takes a few minutes. Replace `cubes` with any of `audio_screen_saver`, `bloom`, `boids`, `collisions`, `ecs`, `gizmos`, `material`, `normals`, `physics`, `showcase`, `text` or `ui` (sources in [`crates/example/`](https://github.com/are-you-fruits-studio/aphyn/tree/dev/crates/example)). More standalone projects live in [aphyn.examples](https://github.com/are-you-fruits-studio/aphyn.examples).
+The first build takes a few minutes.
 
 ## Your first app
 
@@ -66,7 +68,7 @@ fn report(frames: Res<Frames>, input: Res<InputResource>) {
 
 fn main() {
     let mut app = App::new();
-    let AppInitCtx { mut data, mut behavior, window, render } = app.init_ctx_mut();
+    let AppInitCtx { mut data, mut behavior, window, render, .. } = app.init_ctx_mut();
 
     add_defult_modules_to(data.as_mut(), behavior.as_mut(), render);
     window.title = "Hello, Aphyn".into();
@@ -90,7 +92,7 @@ What it does:
 - `count_frames` and `report` are **systems**: plain functions whose parameters declare the data they touch. The scheduler runs systems that do not conflict in parallel; `order_system(..).before_system(..)` pins an order where it matters.
 - `app.run()` opens the window and blocks until it closes. Press <kbd>Space</kbd> to print the counter.
 
-The window stays empty until the world has a camera and something to draw. The [`cubes` example](https://github.com/are-you-fruits-studio/aphyn/blob/dev/crates/example/cubes/src/main.rs) adds both.
+The window stays empty until the world has a camera and something to draw. The `cubes` example in [aphyn.examples](https://github.com/are-you-fruits-studio/aphyn.examples) adds both.
 
 ## Read the API reference offline
 
