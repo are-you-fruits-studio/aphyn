@@ -73,7 +73,7 @@
 //! in-process [`App`]'s world data, systems builder, render feature registry and initial window state.
 //!
 //! [`launch_app_dynamically`] crosses an FFI boundary. It looks for a shared library
-//! named `lib_app` plus the platform's library suffix (`lib_app.dll`, `lib_app.so`, …)
+//! named `aphynapp` with the platform's library prefix and suffix (`aphynapp.dll`, `libaphynapp.so`, `libaphynapp.dylib`)
 //! next to the current executable and hands it, with the app's [`AppInitCtx`], to
 //! [`init_app_dynamically`]. That function loads the library via `libloading` and passes it
 //! to [`init_app_from_library`], which resolves the `aphyn_entry_point` C symbol (an
@@ -89,7 +89,7 @@
 //! the world holds types and function pointers that live inside it for the whole run.
 //!
 //! Caveats for maintainers: [`launch_app_dynamically`] `unwrap`s every fallible step
-//! (locating the executable, loading `lib_app`, resolving the symbol, closing the
+//! (locating the executable, loading the `aphynapp` library, resolving the symbol, closing the
 //! library), so a missing or mismatched library aborts the process rather than reporting
 //! an error. The default-module
 //! helper name `add_defult_modules_to` carries an upstream spelling and must match
@@ -119,7 +119,7 @@ pub fn launch_app_dynamically() {
 
     let lib_path = std::env::current_exe()
         .unwrap()
-        .with_file_name(format!("lib_app{}", std::env::consts::DLL_SUFFIX));
+        .with_file_name(format!("{}aphynapp{}", std::env::consts::DLL_PREFIX, std::env::consts::DLL_SUFFIX));
     let lib = unsafe { init_app_dynamically(app.init_ctx_mut(), lib_path).unwrap() };
 
     app.run();

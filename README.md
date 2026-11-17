@@ -103,7 +103,7 @@ To ship a game as a launcher plus a game library, see [Build a game](#build-a-ga
 
 ## Build a game
 
-A shipped game is one crate, `scripts/`, in the project folder. It has two targets: your game as a `cdylib` named `lib_app`, and a small binary named `launcher` that loads it.
+A shipped game is one crate, `scripts/`, in the project folder. It has two targets: your game as a `cdylib` named `aphynapp`, and a small binary named `launcher` that loads it.
 
 `scripts/Cargo.toml`:
 
@@ -114,6 +114,7 @@ version = "0.1.0"
 edition = "2024"
 
 [lib]
+name = "aphynapp"
 crate-type = ["cdylib"]
 
 [[bin]]
@@ -124,7 +125,7 @@ path = "src/main.rs"
 aphyn = { git = "https://github.com/are-you-fruits-studio/aphyn", tag = "v0.18.0" }
 ```
 
-Use the same tag as the `aphyn` binary you build with. Tags before `v0.18.0` still use the old package name. The binary must be named `launcher`: `aphyn build` looks for that name.
+Use the same tag as the `aphyn` binary you build with. Tags before `v0.18.0` still use the old package name. The library must be named `aphynapp` and the binary `launcher`: `aphyn build` looks for these names. Projects without `name = "aphynapp"` under `[lib]` build `lib_app.dll` / `liblib_app.so`, which the launcher no longer finds.
 
 `scripts/src/lib.rs` exports the setup function:
 
@@ -161,7 +162,7 @@ or run it from source:
 cargo run --release -p aphyn_editor -- build path/to/my_game
 ```
 
-This compiles `scripts/` and copies the launcher, `lib_app` and `assets/` into `path/to/my_game/builds/`. The executable is named after the project folder (`my_game`). It needs `cargo` in your `PATH`. On Windows, keep the project path short (MSVC's 260-character path limit) and without spaces.
+This compiles `scripts/` and copies the launcher, the `aphynapp` library and `assets/` into `path/to/my_game/builds/`. The executable is named after the project folder (`my_game`). It needs `cargo` in your `PATH`. On Windows, keep the project path short (MSVC's 260-character path limit) and without spaces.
 
 ## Examples
 

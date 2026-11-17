@@ -4,12 +4,13 @@ use std::{
     time::SystemTime,
 };
 
-pub const FILE_NAME_SCRIPTS_LIB_SRC: &str = if cfg!(windows) { "lib_app.dll" } else { "liblib_app.so" };
-pub const FILE_NAME_SCRIPTS_LIB_DST: &str = if cfg!(windows) { "lib_app.dll" } else { "lib_app.so" };
+pub fn file_name_scripts_lib() -> String {
+    format!("{}aphynapp{}", std::env::consts::DLL_PREFIX, std::env::consts::DLL_SUFFIX)
+}
 pub const FILE_NAME_SCRIPTS_BIN: &str = "launcher";
 
 pub fn path_scripts_lib_src(project_path: &str) -> PathBuf {
-    [project_path, "scripts", "target", "release", FILE_NAME_SCRIPTS_LIB_SRC]
+    [project_path, "scripts", "target", "release", &file_name_scripts_lib()]
         .into_iter()
         .collect::<PathBuf>()
 }
@@ -56,7 +57,7 @@ pub fn build_app(project_path: &str) -> Result<(), Box<dyn Error>> {
 
     copy_file(
         path_scripts_lib_src(project_path),
-        [project_path, "builds", FILE_NAME_SCRIPTS_LIB_DST]
+        [project_path, "builds", &file_name_scripts_lib()]
             .iter()
             .collect::<PathBuf>(),
     )?;
