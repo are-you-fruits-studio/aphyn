@@ -743,7 +743,7 @@ fn create_instance() -> wgpu::Instance {
 
 fn request_adapter(instance: &wgpu::Instance, surface: Option<&wgpu::Surface>) -> Option<wgpu::Adapter> {
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::default(),
+        power_preference: wgpu::PowerPreference::HighPerformance,
         compatible_surface: surface,
         force_fallback_adapter: false,
     }));
@@ -800,6 +800,11 @@ impl RenderApiInner {
         };
 
         let adapter = request_adapter(&instance, Some(&surface))?;
+        {
+            let adapter_info = adapter.get_info();
+            println!("GPU: {} - {:?} - {}", adapter_info.backend, adapter_info.device_type, adapter_info.name);
+
+        }
         let (device, queue) = request_device(&adapter)?;
 
         let capabilities = surface.get_capabilities(&adapter);
