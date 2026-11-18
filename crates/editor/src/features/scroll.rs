@@ -53,7 +53,7 @@ fn handle_height(
     child_q: &WorldQuery<&ChildComponent>,
 ) -> Option<f32> {
     let content_h = global_rect_q.get(scroll_c.content)?.scale.y;
-    let view_h = global_rect_q.get(child_q.get(scroll_c.content)?.parent)?.scale.y;
+    let view_h = global_rect_q.get(child_q.get(scroll_c.content)?.parent())?.scale.y;
 
     if content_h <= view_h {
         return None;
@@ -192,7 +192,7 @@ fn wheel_scroll_system(
     let hovered = area_q
         .iter()
         .filter_map(|scroll_c| {
-            let ent_view = child_q.get(scroll_c.content)?.parent;
+            let ent_view = child_q.get(scroll_c.content)?.parent();
 
             if disableable_q.get(ent_view).is_some_and(|d| d.is_disabled) {
                 return None;

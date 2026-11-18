@@ -234,11 +234,6 @@ pub fn spawn_generic_dropdown_system(mut world: WorldDataMut) {
         let ent_dropdown_entry = ent.create_entity();
         let ent_dropdown_entry_text = ent.create_entity();
 
-        ent.get_component_mut::<ParentComponent>(ent_dropdown)
-            .unwrap()
-            .children
-            .push(ent_dropdown_entry);
-
         ent.set_components(
             ent_dropdown_entry,
             (
@@ -246,10 +241,6 @@ pub fn spawn_generic_dropdown_system(mut world: WorldDataMut) {
                 LocalRectComponent {
                     scale: Vec2::new(Some(UiVal::pd(1.0)).into(), Some(UiVal::px(DROPDOWN_ENTRY_HEIGHT)).into()),
                     ..Default::default()
-                },
-                ChildComponent { parent: ent_dropdown },
-                ParentComponent {
-                    children: vec![ent_dropdown_entry_text].into(),
                 },
                 ButtonComponent::default(),
                 GenericDropdownEntryComponent {
@@ -269,9 +260,6 @@ pub fn spawn_generic_dropdown_system(mut world: WorldDataMut) {
                     parent_padding_max: Vec2::new(UiVal::px(DROPDOWN_ENTRY_PADDING), UiVal::px(0.0)),
                     ..Default::default()
                 },
-                ChildComponent {
-                    parent: ent_dropdown_entry,
-                },
                 BatchedMeshComponent::default(),
                 MaterialComponent {
                     material: standard_assets_resource.material_text.clone(),
@@ -288,6 +276,9 @@ pub fn spawn_generic_dropdown_system(mut world: WorldDataMut) {
                 },
             ),
         );
+
+        set_parent(ent.as_mut(), ent_dropdown_entry, ent_dropdown);
+        set_parent(ent.as_mut(), ent_dropdown_entry_text, ent_dropdown_entry);
     }
 }
 

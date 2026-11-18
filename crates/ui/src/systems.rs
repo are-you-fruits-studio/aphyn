@@ -309,7 +309,7 @@ pub fn update_masked_batched_mesh(
         let mut current = mask_e;
 
         while let Some((_, Some(child_c), _)) = hierarchy_q.get(current) {
-            current = child_c.parent;
+            current = child_c.parent();
 
             if hierarchy_q.get(current).is_none() {
                 break;

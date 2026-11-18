@@ -302,10 +302,6 @@ pub fn spawn_foldout_arrow(
                 scale: Vec2::splat(Some(UiVal::px(FOLDOUT_ARROW_SIZE)).into()),
                 ..Default::default()
             },
-            ChildComponent { parent: ent_row },
-            ParentComponent {
-                children: vec![ent_arrow_text].into(),
-            },
             ButtonComponent::default(),
             FoldoutButtonComponent {
                 key,
@@ -321,9 +317,8 @@ pub fn spawn_foldout_arrow(
             },
         ),
     );
-    if let Some(parent_c) = ec.get_component_mut::<ParentComponent>(ent_row) {
-        parent_c.children.push(ent_arrow);
-    }
+    set_parent(ec.as_mut(), ent_arrow, ent_row);
+    set_parent(ec.as_mut(), ent_arrow_text, ent_arrow);
 
     ec.set_components(
         ent_arrow_text,
@@ -331,7 +326,6 @@ pub fn spawn_foldout_arrow(
             GlobalRectComponent::default(),
             GlobalDisableableComponent::default(),
             LocalRectComponent::default(),
-            ChildComponent { parent: ent_arrow },
             BatchedMeshComponent::default(),
             MaterialComponent {
                 material: material_text.clone(),

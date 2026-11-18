@@ -256,13 +256,6 @@ fn update_scene_light_panel_system(
 
     if !light_res.is_panel_open {
         for ent_panel in panels {
-            if let Some(ent_parent) = ent.get_component::<ChildComponent>(ent_panel).map(|child_c| child_c.parent)
-                && let Some(parent_c) = ent.get_component_mut::<ParentComponent>(ent_parent)
-                && let Some(idx) = parent_c.children.iter().position(|&child| child == ent_panel)
-            {
-                parent_c.children.remove(idx as u64);
-            }
-
             destroy_entity_and_children(ent.as_mut(), ent_panel);
         }
     } else if panels.is_empty()

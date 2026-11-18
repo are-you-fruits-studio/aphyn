@@ -123,7 +123,6 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
                 scale: Vec2::new(UiVal::px(20.0).into(), UiVal::pd(1.0).into()),
                 ..Default::default()
             },
-            ChildComponent { parent: ent_root },
             BatchedMeshComponent::default(),
             MaterialComponent {
                 material: material_panel.clone(),
@@ -149,9 +148,6 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
                 scale: Vec2::new(UiVal::pd(1.0).into(), UiVal::px(100.0).into()),
                 ..Default::default()
             },
-            ChildComponent {
-                parent: ent_scroll_handle_area,
-            },
             BatchedMeshComponent::default(),
             MaterialComponent {
                 material: material_panel.clone(),
@@ -172,7 +168,6 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
                 parent_padding_max: Vec2::new(UiVal::px(20.0), UiVal::px(0.0)),
                 ..Default::default()
             },
-            ChildComponent { parent: ent_root },
             ChildrenRectMaskComponent,
             BatchedMeshComponent::default(),
             MaterialComponent {
@@ -196,7 +191,6 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
                 scale: Vec2::new(Some(UiVal::pd(1.0)).into(), None.into()),
                 ..Default::default()
             },
-            ChildComponent { parent: ent_scroll_view },
             RectChildAlignComponent {
                 anchor: Vec2::new(0.0, 0.0),
                 direction: UiDirection::Vertical,
@@ -204,7 +198,7 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
                 spacing: UiSpacing::Chunk,
                 ..Default::default()
             },
-            ParentComponent { children: vec![].into() },
+            ParentComponent::default(),
         ),
     );
 
@@ -215,9 +209,6 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
             LocalRectComponent {
                 scale: Vec2::new(UiVal::px(tab_width).into(), UiVal::pd(1.0).into()),
                 ..Default::default()
-            },
-            ParentComponent {
-                children: vec![ent_tab_text, ent_tab_close_btn].into(),
             },
             BatchedMeshComponent::default(),
             MaterialComponent {
@@ -241,7 +232,6 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
                 parent_padding_max: Vec2::new(UiVal::px(TAB_PADDING * 2.0 + TAB_CLOSE_SIZE), UiVal::px(0.0)),
                 ..Default::default()
             },
-            ChildComponent { parent: ent_tab },
             BatchedMeshComponent::default(),
             MaterialComponent {
                 material: material_text.clone(),
@@ -270,10 +260,6 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
                 scale: Vec2::splat(UiVal::px(TAB_CLOSE_SIZE).into()),
                 ..Default::default()
             },
-            ChildComponent { parent: ent_tab },
-            ParentComponent {
-                children: vec![ent_tab_close_btn_text].into(),
-            },
             BatchedMeshComponent::default(),
             MaterialComponent {
                 material: material_panel.clone(),
@@ -291,9 +277,6 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
         (
             GlobalRectComponent::default(),
             LocalRectComponent::default(),
-            ChildComponent {
-                parent: ent_tab_close_btn,
-            },
             BatchedMeshComponent::default(),
             MaterialComponent {
                 material: material_text.clone(),
@@ -310,6 +293,14 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
             },
         ),
     );
+
+    set_parent(ec.as_mut(), ent_scroll_handle_area, ent_root);
+    set_parent(ec.as_mut(), ent_scroll_handle, ent_scroll_handle_area);
+    set_parent(ec.as_mut(), ent_scroll_view, ent_root);
+    set_parent(ec.as_mut(), ent_scroll_content, ent_scroll_view);
+    set_parent(ec.as_mut(), ent_tab_text, ent_tab);
+    set_parent(ec.as_mut(), ent_tab_close_btn, ent_tab);
+    set_parent(ec.as_mut(), ent_tab_close_btn_text, ent_tab_close_btn);
 
     ent_root
 }
@@ -385,7 +376,6 @@ pub fn window_group(mut world: WorldDataMut) -> EntityId {
                     z,
                     ..Default::default()
                 },
-                ChildComponent { parent: ent_root },
                 BatchedMeshComponent::default(),
                 MaterialComponent {
                     material: material_panel.clone(),
@@ -440,7 +430,6 @@ pub fn window_group(mut world: WorldDataMut) -> EntityId {
                 parent_padding_max: Vec2::splat(UiVal::px(1.0)),
                 ..Default::default()
             },
-            ChildComponent { parent: ent_root },
             BatchedMeshComponent::default(),
             MaterialComponent {
                 material: material_panel.clone(),
@@ -463,9 +452,6 @@ pub fn window_group(mut world: WorldDataMut) -> EntityId {
                 pivot: Vec2::new(0.5, 0.0),
                 scale: Vec2::new(UiVal::pd(1.0).into(), UiVal::px(WINDOW_HEADER_HEIGHT).into()),
                 ..Default::default()
-            },
-            ChildComponent {
-                parent: ent_bordered_root,
             },
             DragAreaComponent::default(),
             BatchedMeshComponent::default(),
@@ -490,10 +476,7 @@ pub fn window_group(mut world: WorldDataMut) -> EntityId {
                 scale: Vec2::new(UiVal::pd(1.0).into(), UiVal::px(WINDOW_TAB_STRIP_HEIGHT).into()),
                 ..Default::default()
             },
-            ChildComponent {
-                parent: ent_bordered_root,
-            },
-            ParentComponent { children: vec![].into() },
+            ParentComponent::default(),
             RectChildAlignComponent {
                 anchor: Vec2::new(0.0, 0.5),
                 direction: UiDirection::Horizontal,
@@ -520,12 +503,26 @@ pub fn window_group(mut world: WorldDataMut) -> EntityId {
                 parent_padding_min: Vec2::new(UiVal::px(0.0), UiVal::px(WINDOW_HEADER_HEIGHT + WINDOW_TAB_STRIP_HEIGHT)),
                 ..Default::default()
             },
-            ChildComponent {
-                parent: ent_bordered_root,
-            },
-            ParentComponent { children: vec![].into() },
+            ParentComponent::default(),
         ),
     );
+
+    for ent_border in [
+        ent_scale_border_left,
+        ent_scale_border_right,
+        ent_scale_border_top,
+        ent_scale_border_bottom,
+        ent_scale_corner_top_left,
+        ent_scale_corner_top_right,
+        ent_scale_corner_bottom_left,
+        ent_scale_corner_bottom_right,
+        ent_bordered_root,
+    ] {
+        set_parent(ec.as_mut(), ent_border, ent_root);
+    }
+    set_parent(ec.as_mut(), ent_header, ent_bordered_root);
+    set_parent(ec.as_mut(), ent_tab_strip, ent_bordered_root);
+    set_parent(ec.as_mut(), ent_content_area, ent_bordered_root);
 
     ent_root
 }

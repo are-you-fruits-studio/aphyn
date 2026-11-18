@@ -12,8 +12,8 @@ pub fn debug_layout_system(mut world: WorldDataMut) {
         let children = world
             .as_mut()
             .entities_mut()
-            .get_component_mut::<ParentComponent>(align)
-            .map(|p| p.children.as_slice())
+            .get_component::<ParentComponent>(align)
+            .map(|p| p.children())
             .unwrap_or(&[])
             .to_vec();
 

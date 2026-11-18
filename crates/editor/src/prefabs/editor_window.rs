@@ -19,10 +19,6 @@ pub(crate) fn create_header_button<C: 'static>(
     let ent_root = ent.create_entity();
     let ent_text = ent.create_entity();
 
-    if let Some(parent_c) = ent.get_component_mut::<ParentComponent>(parent) {
-        parent_c.children.push(ent_root);
-    }
-
     ent.set_components(
         ent_root,
         (
@@ -31,10 +27,6 @@ pub(crate) fn create_header_button<C: 'static>(
             LocalRectComponent {
                 scale: Vec2::new(width.into(), UiVal::pd(1.0).into()),
                 ..Default::default()
-            },
-            ChildComponent { parent },
-            ParentComponent {
-                children: vec![ent_text].into(),
             },
             ButtonComponent::default(),
             BatchedMeshComponent::default(),
@@ -55,7 +47,6 @@ pub(crate) fn create_header_button<C: 'static>(
             GlobalRectComponent::default(),
             GlobalDisableableComponent::default(),
             LocalRectComponent::default(),
-            ChildComponent { parent: ent_root },
             BatchedMeshComponent::default(),
             MaterialComponent {
                 material: assets_res.material_text.clone(),
@@ -72,6 +63,9 @@ pub(crate) fn create_header_button<C: 'static>(
             },
         ),
     );
+
+    set_parent(ent.as_mut(), ent_root, parent);
+    set_parent(ent.as_mut(), ent_text, ent_root);
 }
 
 pub fn editor_window(mut world: WorldDataMut) -> EntityId {
@@ -87,16 +81,7 @@ pub fn editor_window(mut world: WorldDataMut) -> EntityId {
     let ent_play_bar = ent.create_entity();
     let ent_dock = ent.create_entity();
 
-    ent.set_components(
-        ent_root,
-        (
-            GlobalRectComponent::default(),
-            LocalRectComponent::default(),
-            ParentComponent {
-                children: vec![ent_header, ent_play_bar, ent_dock].into(),
-            },
-        ),
-    );
+    ent.set_components(ent_root, (GlobalRectComponent::default(), LocalRectComponent::default()));
 
     ent.set_components(
         ent_header,
@@ -108,7 +93,6 @@ pub fn editor_window(mut world: WorldDataMut) -> EntityId {
                 scale: Vec2::new(UiVal::pd(1.0).into(), UiVal::px(HEADER_HEIGHT).into()),
                 ..Default::default()
             },
-            ChildComponent { parent: ent_root },
             ParentComponent::default(),
             RectChildAlignComponent {
                 anchor: Vec2::new(0.0, 0.5),
@@ -138,7 +122,6 @@ pub fn editor_window(mut world: WorldDataMut) -> EntityId {
                 scale: Vec2::new(UiVal::pd(1.0).into(), UiVal::px(PLAY_BAR_HEIGHT).into()),
                 ..Default::default()
             },
-            ChildComponent { parent: ent_root },
             ParentComponent::default(),
             RectChildAlignComponent {
                 anchor: Vec2::new(0.5, 0.5),
@@ -165,7 +148,6 @@ pub fn editor_window(mut world: WorldDataMut) -> EntityId {
                 parent_padding_min: Vec2::new(UiVal::px(0.0), UiVal::px(HEADER_HEIGHT + PLAY_BAR_HEIGHT)),
                 ..Default::default()
             },
-            ChildComponent { parent: ent_root },
             BatchedMeshComponent::default(),
             MaterialComponent {
                 material: assets_res.material_panel.clone(),
@@ -177,6 +159,10 @@ pub fn editor_window(mut world: WorldDataMut) -> EntityId {
             DockComponent,
         ),
     );
+
+    set_parent(ent.as_mut(), ent_header, ent_root);
+    set_parent(ent.as_mut(), ent_play_bar, ent_root);
+    set_parent(ent.as_mut(), ent_dock, ent_root);
 
     create_header_button(
         ent.as_mut(),

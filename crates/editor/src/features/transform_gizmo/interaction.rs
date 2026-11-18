@@ -108,7 +108,7 @@ pub fn transform_gizmo_interaction_system(
     let ent = data.entities();
     let parent = ent
         .get_component::<ChildComponent>(selected)
-        .and_then(|child_c| ent.get_component::<GlobalTransform>(child_c.parent))
+        .and_then(|child_c| ent.get_component::<GlobalTransform>(child_c.parent()))
         .copied()
         .unwrap_or(GlobalTransform::IDENTITY);
 

@@ -33,8 +33,7 @@ pub fn spawn_hierarchy_window_entry(
                 scale: Vec2::new(Some(UiVal::pd(1.0)).into(), None.into()),
                 ..Default::default()
             },
-            ChildComponent { parent },
-            ParentComponent { children: vec![].into() },
+            ParentComponent::default(),
             RectChildAlignComponent {
                 anchor: Vec2::new(0.0, 0.0),
                 direction: UiDirection::Vertical,
@@ -44,10 +43,7 @@ pub fn spawn_hierarchy_window_entry(
             },
         ),
     );
-    ec.get_component_mut::<ParentComponent>(parent)
-        .unwrap()
-        .children
-        .push(ent_entry);
+    set_parent(ec.as_mut(), ent_entry, parent);
 
     ec.as_mut().set_components(
         ent_name_container,
@@ -58,8 +54,7 @@ pub fn spawn_hierarchy_window_entry(
                 scale: Vec2::new(Some(UiVal::pd(1.0)).into(), Some(UiVal::px(20.0)).into()),
                 ..Default::default()
             },
-            ChildComponent { parent: ent_entry },
-            ParentComponent { children: vec![].into() },
+            ParentComponent::default(),
             BatchedMeshComponent::default(),
             HierarchyWindowEntryComponent {
                 simulated_entity: simulated_ent,
@@ -74,10 +69,7 @@ pub fn spawn_hierarchy_window_entry(
             },
         ),
     );
-    ec.get_component_mut::<ParentComponent>(ent_entry)
-        .unwrap()
-        .children
-        .push(ent_name_container);
+    set_parent(ec.as_mut(), ent_name_container, ent_entry);
 
     ec.as_mut().set_components(
         ent_name,
@@ -86,9 +78,6 @@ pub fn spawn_hierarchy_window_entry(
             GlobalRectComponent::default(),
             GlobalDisableableComponent::default(),
             LocalRectComponent { ..Default::default() },
-            ChildComponent {
-                parent: ent_name_container,
-            },
             BatchedMeshComponent::default(),
             MaterialComponent {
                 material: material_text.clone(),
@@ -105,6 +94,7 @@ pub fn spawn_hierarchy_window_entry(
             },
         ),
     );
+    set_parent(ec.as_mut(), ent_name, ent_name_container);
 
     (ent_name_container, ent_name)
 }
@@ -175,7 +165,7 @@ pub fn parse_serialized(ent: EntitiesHolderRef, ent_target: EntityId) -> Seriali
 
             let mut enum_metadata = None;
 
-            if let Some(ent_enum_meta) = enum_meta_parent_c.children.get(0) {
+            if let Some(ent_enum_meta) = enum_meta_parent_c.children().first() {
                 if let Some(enum_metadata_c) = ent.get_component::<SerializedEnumMetadataComponent>(*ent_enum_meta) {
                     if let Some(text_c) = ent.get_component::<TextComponent>(enum_metadata_c.value_text) {
                         enum_metadata = Some(SerializedEnumMetadata {
@@ -188,7 +178,7 @@ pub fn parse_serialized(ent: EntitiesHolderRef, ent_target: EntityId) -> Seriali
 
             let mut values = Vec::new();
 
-            for child in &container_parent_c.children {
+            for child in container_parent_c.children() {
                 let Some(field_c) = ent.get_component::<SerializedFieldComponent>(*child) else {
                     continue;
                 };
@@ -197,7 +187,7 @@ pub fn parse_serialized(ent: EntitiesHolderRef, ent_target: EntityId) -> Seriali
                     continue;
                 };
 
-                let Some(value_ent) = value_parent_c.children.first() else {
+                let Some(value_ent) = value_parent_c.children().first() else {
                     continue;
                 };
 
@@ -463,9 +453,6 @@ fn spawn_serialized_composite(
                 .ok()
                 .unwrap();
             ent.add_component(ent_text, LocalRectComponent::default()).ok().unwrap();
-            ent.add_component(ent_text, ChildComponent { parent: ent_button })
-                .ok()
-                .unwrap();
             ent.add_component(ent_text, BatchedMeshComponent::default()).ok().unwrap();
             ent.add_component(
                 ent_text,
@@ -491,9 +478,7 @@ fn spawn_serialized_composite(
             .ok()
             .unwrap();
 
-            if let Some(parent_c) = ent.get_component_mut::<ParentComponent>(ent_button) {
-                parent_c.children.push(ent_text);
-            }
+            set_parent(ent.as_mut(), ent_text, ent_button);
         }
 
         ent.add_component(ent_button_add, SerializedCompositeAddButton { composite: ent_root })
@@ -509,15 +494,13 @@ fn spawn_serialized_composite(
         SerializedCompositeValues::List(serialized_list) => serialized_list.len(),
     };
 
-    while ent
-        .get_component_mut::<ParentComponent>(ent_fields_container)
+    while let Some(&ent_to_destroy) = ent
+        .get_component::<ParentComponent>(ent_fields_container)
         .unwrap()
-        .children
-        .len()
-        > len
+        .children()
+        .get(len as usize..)
+        .and_then(|extra| extra.last())
     {
-        let parent_c = ent.get_component_mut::<ParentComponent>(ent_fields_container).unwrap();
-        let ent_to_destroy = parent_c.children.pop().unwrap();
         destroy_entity_and_children(ent.as_mut(), ent_to_destroy);
     }
 
@@ -619,35 +602,35 @@ pub fn spawn_serialized_field(
     font: AssetHandle<Font>,
 ) {
     if let Some(ent_field) = ent
-        .get_component_mut::<ParentComponent>(ent_fields_container)
+        .get_component::<ParentComponent>(ent_fields_container)
         .unwrap()
-        .children
-        .get(i)
+        .children()
+        .get(i as usize)
         .copied()
         && let Some(field_c) = ent.get_component::<SerializedFieldComponent>(ent_field).copied()
         && let Some(text_c) = ent.get_component::<TextComponent>(field_c.key_text)
         && text_c.text.as_str() == serialized_key.as_str()
         && let Some(parent_c) = ent.get_component::<ParentComponent>(field_c.value_container)
-        && parent_c.children.len() == 1
+        && parent_c.children().len() == 1
     {
         if matches!(serialized_val, SerializedValue::Primitive { .. } | SerializedValue::Null) {
             ent.get_component_mut::<RectChildAlignComponent>(ent_field).unwrap().direction = UiDirection::Horizontal;
-            if let Some(parent_c) = ent.get_component::<ParentComponent>(ent_field).cloned() {
-                for ent_child in parent_c.children {
+            if let Some(children) = ent.get_component::<ParentComponent>(ent_field).map(|p| p.children().to_vec()) {
+                for ent_child in children {
                     ent.get_component_mut::<LocalRectComponent>(ent_child).unwrap().scale.x = UiVal::pd(0.5).into();
                 }
             }
         } else {
             ent.get_component_mut::<RectChildAlignComponent>(ent_field).unwrap().direction = UiDirection::Vertical;
-            if let Some(parent_c) = ent.get_component::<ParentComponent>(ent_field).cloned() {
-                for ent_child in parent_c.children {
+            if let Some(children) = ent.get_component::<ParentComponent>(ent_field).map(|p| p.children().to_vec()) {
+                for ent_child in children {
                     ent.get_component_mut::<LocalRectComponent>(ent_child).unwrap().scale.x = UiVal::pd(1.0).into();
                 }
             }
         }
 
         let parent_c = ent.get_component::<ParentComponent>(field_c.value_container).unwrap();
-        let ent_child = parent_c.children[0];
+        let ent_child = parent_c.children()[0];
         spawn_serialized(
             ent.as_mut(),
             ent_child,
@@ -662,19 +645,12 @@ pub fn spawn_serialized_field(
         return;
     }
 
-    let parent_c = ent.get_component_mut::<ParentComponent>(ent_fields_container).unwrap();
-    let ent_to_destroy = parent_c.children.get(i).copied().unwrap_or(EntityId::EMPTY);
+    let parent_c = ent.get_component::<ParentComponent>(ent_fields_container).unwrap();
+    let ent_to_destroy = parent_c.children().get(i as usize).copied().unwrap_or(EntityId::EMPTY);
     destroy_entity_and_children(ent.as_mut(), ent_to_destroy);
 
     let ent_field = spawn_default_layout_ent(ent.as_mut(), EntityId::EMPTY, false);
-    let parent_c = ent.get_component_mut::<ParentComponent>(ent_fields_container).unwrap();
-
-    if let Some(child) = parent_c.children.get_mut(i) {
-        *child = ent_field;
-    } else {
-        parent_c.children.push(ent_field);
-    }
-    ent.get_component_mut::<ChildComponent>(ent_field).unwrap().parent = ent_fields_container;
+    set_parent_at(ent.as_mut(), ent_field, ent_fields_container, i as usize);
 
     let (ent_key, ent_key_text) = spawn_text_ent(
         ent.as_mut(),
@@ -737,10 +713,7 @@ pub fn spawn_default_layout_ent(mut ent: EntitiesHolderMut, ent_parent: EntityId
     ent.add_component(entity, GlobalRectComponent::default()).ok().unwrap();
     ent.add_component(entity, GlobalDisableableComponent::default()).ok().unwrap();
     ent.add_component(entity, local_rect).ok().unwrap();
-    ent.add_component(entity, ChildComponent { parent: ent_parent }).ok().unwrap();
-    ent.add_component(entity, ParentComponent { children: vec![].into() })
-        .ok()
-        .unwrap();
+    ent.add_component(entity, ParentComponent::default()).ok().unwrap();
     ent.add_component(
         entity,
         RectChildAlignComponent {
@@ -753,9 +726,7 @@ pub fn spawn_default_layout_ent(mut ent: EntitiesHolderMut, ent_parent: EntityId
     .ok()
     .unwrap();
 
-    if let Some(parent_c) = ent.get_component_mut::<ParentComponent>(ent_parent) {
-        parent_c.children.push(entity);
-    }
+    set_parent(ent.as_mut(), entity, ent_parent);
 
     entity
 }
@@ -785,9 +756,6 @@ pub fn spawn_text_ent(
     )
     .ok()
     .unwrap();
-    ent.add_component(ent_root, ChildComponent { parent: ent_parent })
-        .ok()
-        .unwrap();
     ent.add_component(
         ent_root,
         MaterialComponent {
@@ -811,17 +779,13 @@ pub fn spawn_text_ent(
     //     value_type: JsonValueComponentType::Null,
     //     data:
     // }).ok().unwrap();
-    ent.get_component_mut::<ParentComponent>(ent_parent)
-        .unwrap()
-        .children
-        .push(ent_root);
+    set_parent(ent.as_mut(), ent_root, ent_parent);
 
     ent.add_component(ent_text, GlobalRectComponent::default()).ok().unwrap();
     ent.add_component(ent_text, GlobalDisableableComponent::default())
         .ok()
         .unwrap();
     ent.add_component(ent_text, LocalRectComponent::default()).ok().unwrap();
-    ent.add_component(ent_text, ChildComponent { parent: ent_root }).ok().unwrap();
     ent.add_component(ent_text, MaterialComponent { material: material_text })
         .ok()
         .unwrap();
@@ -841,6 +805,7 @@ pub fn spawn_text_ent(
     )
     .ok()
     .unwrap();
+    set_parent(ent.as_mut(), ent_text, ent_root);
 
     (ent_root, ent_text)
 }
@@ -865,10 +830,6 @@ fn spawn_dropdown_button_ent(
                 scale: Vec2::new(UiVal::pd(1.0).into(), FIELD_HEIGHT.into()),
                 ..Default::default()
             },
-            ChildComponent { parent: ent_parent },
-            ParentComponent {
-                children: vec![ent_text].into(),
-            },
             ButtonComponent::default(),
             BatchedMeshComponent::default(),
             MaterialComponent {
@@ -881,9 +842,7 @@ fn spawn_dropdown_button_ent(
             },
         ),
     );
-    if let Some(parent_c) = ent.get_component_mut::<ParentComponent>(ent_parent) {
-        parent_c.children.push(ent_root);
-    }
+    set_parent(ent.as_mut(), ent_root, ent_parent);
 
     ent.set_components(
         ent_text,
@@ -891,7 +850,6 @@ fn spawn_dropdown_button_ent(
             GlobalRectComponent::default(),
             GlobalDisableableComponent::default(),
             LocalRectComponent::default(),
-            ChildComponent { parent: ent_root },
             BatchedMeshComponent::default(),
             MaterialComponent { material: material_text },
             TextComponent {
@@ -906,6 +864,7 @@ fn spawn_dropdown_button_ent(
             },
         ),
     );
+    set_parent(ent.as_mut(), ent_text, ent_root);
 
     (ent_root, ent_text)
 }
@@ -939,9 +898,6 @@ pub fn spawn_input_area_ent(
     )
     .ok()
     .unwrap();
-    ent.add_component(ent_root, ChildComponent { parent: ent_parent })
-        .ok()
-        .unwrap();
     ent.add_component(
         ent_root,
         InputFieldComponent {
@@ -972,10 +928,7 @@ pub fn spawn_input_area_ent(
     )
     .ok()
     .unwrap();
-    ent.get_component_mut::<ParentComponent>(ent_parent)
-        .unwrap()
-        .children
-        .push(ent_root);
+    set_parent(ent.as_mut(), ent_root, ent_parent);
 
     ent.add_component(ent_selection_border, GlobalRectComponent::default())
         .ok()
@@ -993,9 +946,6 @@ pub fn spawn_input_area_ent(
         .ok()
         .unwrap();
     ent.add_component(ent_selection_border, LocalDisableableComponent::default())
-        .ok()
-        .unwrap();
-    ent.add_component(ent_selection_border, ChildComponent { parent: ent_root })
         .ok()
         .unwrap();
     ent.add_component(
@@ -1035,9 +985,6 @@ pub fn spawn_input_area_ent(
     )
     .ok()
     .unwrap();
-    ent.add_component(ent_background, ChildComponent { parent: ent_root })
-        .ok()
-        .unwrap();
     ent.add_component(
         ent_background,
         MaterialComponent {
@@ -1077,7 +1024,6 @@ pub fn spawn_input_area_ent(
                 },
                 GlobalDisableableComponent { is_disabled: true },
                 LocalDisableableComponent { is_disabled: true },
-                ChildComponent { parent: ent_background },
                 MaterialComponent {
                     material: material_panel.clone(),
                 },
@@ -1095,9 +1041,6 @@ pub fn spawn_input_area_ent(
         .ok()
         .unwrap();
     ent.add_component(ent_text, LocalRectComponent::default()).ok().unwrap();
-    ent.add_component(ent_text, ChildComponent { parent: ent_background })
-        .ok()
-        .unwrap();
     ent.add_component(ent_text, MaterialComponent { material: material_text })
         .ok()
         .unwrap();
@@ -1117,6 +1060,12 @@ pub fn spawn_input_area_ent(
     )
     .ok()
     .unwrap();
+
+    set_parent(ent.as_mut(), ent_selection_border, ent_root);
+    set_parent(ent.as_mut(), ent_background, ent_root);
+    set_parent(ent.as_mut(), ent_selection_highlight, ent_background);
+    set_parent(ent.as_mut(), ent_caret, ent_background);
+    set_parent(ent.as_mut(), ent_text, ent_background);
 
     ent_root
 }
@@ -1151,8 +1100,7 @@ pub fn spawn_hierarchy_entry(
                 scale: Vec2::new(Some(UiVal::pd(1.0)).into(), None.into()),
                 ..Default::default()
             },
-            ChildComponent { parent },
-            ParentComponent { children: vec![].into() },
+            ParentComponent::default(),
             RectChildAlignComponent {
                 anchor: Vec2::new(0.0, 0.0),
                 direction: UiDirection::Vertical,
@@ -1162,10 +1110,7 @@ pub fn spawn_hierarchy_entry(
             },
         ),
     );
-    ec.get_component_mut::<ParentComponent>(parent)
-        .unwrap()
-        .children
-        .push(ent_entry_with_children);
+    set_parent(ec.as_mut(), ent_entry_with_children, parent);
 
     ec.as_mut().set_components(
         ent_entry,
@@ -1176,10 +1121,7 @@ pub fn spawn_hierarchy_entry(
                 scale: Vec2::new(Some(UiVal::pd(1.0)).into(), Some(UiVal::px(20.0)).into()),
                 ..Default::default()
             },
-            ChildComponent {
-                parent: ent_entry_with_children,
-            },
-            ParentComponent { children: vec![].into() },
+            ParentComponent::default(),
             BatchedMeshComponent::default(),
             MaterialComponent {
                 material: material_panel.clone(),
@@ -1190,10 +1132,7 @@ pub fn spawn_hierarchy_entry(
             },
         ),
     );
-    ec.get_component_mut::<ParentComponent>(ent_entry_with_children)
-        .unwrap()
-        .children
-        .push(ent_entry);
+    set_parent(ec.as_mut(), ent_entry, ent_entry_with_children);
 
     ec.as_mut().set_components(
         ent_entry_name,
@@ -1202,7 +1141,6 @@ pub fn spawn_hierarchy_entry(
             GlobalRectComponent::default(),
             GlobalDisableableComponent::default(),
             LocalRectComponent { ..Default::default() },
-            ChildComponent { parent: ent_entry },
             BatchedMeshComponent::default(),
             MaterialComponent {
                 material: material_text.clone(),
@@ -1220,6 +1158,8 @@ pub fn spawn_hierarchy_entry(
         ),
     );
 
+    set_parent(ec.as_mut(), ent_entry_name, ent_entry);
+
     let ent_children = ec.create_entity();
     let ent_children_container = ec.create_entity();
 
@@ -1233,15 +1173,9 @@ pub fn spawn_hierarchy_entry(
                 scale: Vec2::new(Some(UiVal::pd(1.0)).into(), None.into()),
                 ..Default::default()
             },
-            ChildComponent {
-                parent: ent_entry_with_children,
-            },
         ),
     );
-    ec.get_component_mut::<ParentComponent>(ent_entry_with_children)
-        .unwrap()
-        .children
-        .push(ent_children);
+    set_parent(ec.as_mut(), ent_children, ent_entry_with_children);
 
     ec.as_mut().set_components(
         ent_children_container,
@@ -1253,8 +1187,7 @@ pub fn spawn_hierarchy_entry(
                 scale: Vec2::new(Some(UiVal::pd(1.0)).into(), None.into()),
                 ..Default::default()
             },
-            ChildComponent { parent: ent_children },
-            ParentComponent { children: vec![].into() },
+            ParentComponent::default(),
             RectChildAlignComponent {
                 anchor: Vec2::new(0.0, 0.0),
                 direction: UiDirection::Vertical,
@@ -1264,6 +1197,7 @@ pub fn spawn_hierarchy_entry(
             },
         ),
     );
+    set_parent(ec.as_mut(), ent_children_container, ent_children);
 
     SpawnedHierarchyEntry {
         ent_entry_with_children,

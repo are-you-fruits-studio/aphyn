@@ -158,7 +158,7 @@ fn update_transform_gizmo_toolbar_system(mut ent: EntitiesHolderMut, gizmo_res: 
     for ent_button in space_buttons {
         let children = ent
             .get_component::<ParentComponent>(ent_button)
-            .map(|p| p.children.iter().copied().collect::<Vec<_>>())
+            .map(|p| p.children().to_vec())
             .unwrap_or_default();
 
         for ent_text in children {

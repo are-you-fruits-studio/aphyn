@@ -37,15 +37,37 @@
 //!
 //! #### Parenting one entity to another
 //!
-//! Point a [`ChildComponent`] at the parent entity. The child's transform/rect/disabled state
-//! then compose with the parent's; the parent's [`ParentComponent`] child list is maintained for
-//! you from this link:
+//! Call [`set_parent`]. The child's transform/rect/disabled state then compose with the parent's.
+//! It writes both sides of the link: the child's [`ChildComponent`] and the parent's
+//! [`ParentComponent`] child list (added if missing). [`set_parent_at`] inserts at a position in
+//! the list instead of appending (also to reorder children of the same parent), and
+//! [`remove_parent`] makes the entity a root again. Parenting that would create a cycle is refused
+//! (the functions return `false`):
 //!
-//! ```ignore
-//! ec.add_component(parent, LocalTransform::IDENTITY).ok().unwrap();
-//! ec.add_component(child, LocalTransform::IDENTITY).ok().unwrap();
-//! ec.add_component(child, ChildComponent { parent }).ok().unwrap();
 //! ```
+//! use aphyn_ecs::WorldData;
+//! use aphyn_transform::*;
+//!
+//! let mut data = WorldData::default();
+//! let mut ec = data.entities_mut();
+//! let [parent, a, b] = [(); 3].map(|_| ec.create_entity());
+//!
+//! assert!(set_parent(ec.as_mut(), a, parent));
+//! assert!(set_parent_at(ec.as_mut(), b, parent, 0)); // becomes the first child
+//! assert_eq!(ec.get_component::<ParentComponent>(parent).unwrap().children(), &[b, a]);
+//! assert_eq!(ec.get_component::<ChildComponent>(a).unwrap().parent(), parent);
+//!
+//! assert!(!set_parent(ec.as_mut(), parent, a)); // would create a cycle
+//!
+//! assert!(remove_parent(ec.as_mut(), a));
+//! assert_eq!(ec.get_component::<ParentComponent>(parent).unwrap().children(), &[b]);
+//!
+//! destroy_entity_and_children(ec.as_mut(), b); // also unlinks b from its parent
+//! assert!(ec.get_component::<ParentComponent>(parent).unwrap().children().is_empty());
+//! ```
+//!
+//! Both components only expose read access ([`ChildComponent::parent`],
+//! [`ParentComponent::children`]); their fields are private.
 //!
 //! #### Laying out a UI element
 //!
@@ -106,7 +128,8 @@
 //! #### Destroying a subtree
 //!
 //! [`destroy_entity_and_children`] removes an entity together with everything reachable through
-//! its [`ParentComponent`] links, so a parented hierarchy is torn down in one call:
+//! its [`ParentComponent`] links and unlinks it from its own parent, so a parented hierarchy is
+//! torn down in one call:
 //!
 //! ```ignore
 //! destroy_entity_and_children(world.entities_mut(), root);
@@ -125,14 +148,23 @@
 //!
 //! #### The two-way parent/child link
 //!
-//! [`ChildComponent`] (a child naming its parent) is the source of truth for which children a
-//! parent has; [`ParentComponent`] (a parent's list of children) is reconciled against it every
-//! frame. [`update_parents_remove_invalid_children`] drops entries whose child no longer points
-//! back at this parent (or points at itself), and [`update_parents_add_missing_children`] appends
-//! children that name this parent but are absent from its list. Both edit the list in place, so the
-//! order of `ParentComponent.children` is preserved: reorder it to change the order children are
-//! traversed and laid out in (e.g. by [`RectChildAlignComponent`]). To add or remove a child, set
-//! or remove its [`ChildComponent`] instead of editing the list.
+//! [`ChildComponent`] (a child naming its parent) and [`ParentComponent`] (a parent's ordered list
+//! of children) must always agree. The invariant is kept by the mutating functions in `utils.rs`
+//! ([`set_parent`], [`set_parent_at`], [`remove_parent`], [`destroy_entity_and_children`]), which
+//! write both sides at once; there is no per-frame reconciliation that adds missing children (it
+//! was O(n²) for a parent with many children). The order of the child list is the order children
+//! are traversed and laid out in (e.g. by [`RectChildAlignComponent`]).
+//!
+//! The only frame-time repair is [`update_parents_remove_invalid_children`], a linear pass that
+//! drops list entries whose child is gone, points at itself, or no longer names this parent
+//! (e.g. after a plain `destroy_entity`). It never adds entries, so a [`ChildComponent`] written
+//! without the matching list entry stays unlisted and is not traversed as that parent's child.
+//!
+//! The fields are private so links cannot drift by accident. The raw escape hatches
+//! ([`ChildComponent::new_unchecked`], [`ParentComponent::new_unchecked`],
+//! [`ChildComponent::parent_mut`], [`ParentComponent::children_mut`]) are associated functions,
+//! not methods, so each use is explicit; they are meant for code that writes both sides itself,
+//! such as deserialization (prefabs and scenes serialize both components and remap ids together).
 //!
 //! #### Companion-component injection
 //!
@@ -153,8 +185,7 @@
 //! state, parent-based rect sizing, final positioning), while
 //! [`hierarchy_iter_depth_first_child_to_parent`]
 //! visits children first (used where a parent's size depends on its children). The traversal does
-//! not guard against cycles in the parent links beyond the self-reference check during
-//! reconciliation.
+//! not guard against cycles itself; [`set_parent_at`] refuses to create one.
 //!
 //! #### Why rect layout takes four passes
 //!
@@ -183,7 +214,7 @@
 //! Every system is registered into the [`SYSTEM_GROUP_TRANSFORM`] group on both the
 //! [`Start`](aphyn_ecs::Schedule::Start) and [`Update`](aphyn_ecs::Schedule::Update) schedules by
 //! [`add_transform_module_to`], with explicit `before_system` constraints that fix the order:
-//! reconcile parent links, then disabled state and transforms, then the four rect passes. The
+//! prune invalid child-list entries, then disabled state and transforms, then the four rect passes. The
 //! group's run order relative to collision and rendering is set by the default-module assembly in
 //! `aphyn_modules`.
 
@@ -208,7 +239,6 @@ fn add_module_to_schedule(mut schedule: SystemsHolderBuilderMut) {
         .group(SYSTEM_GROUP_TRANSFORM)
         .insert_child_system(adjust_component_sets)
         .insert_child_system(update_parents_remove_invalid_children)
-        .insert_child_system(update_parents_add_missing_children)
         .insert_child_system(calculate_global_disableable)
         .insert_child_system(calculate_global_transform)
         .insert_child_system(calculate_global_rect_scale_hierarchy_independent)
@@ -221,24 +251,21 @@ fn add_module_to_schedule(mut schedule: SystemsHolderBuilderMut) {
         .before_system(update_parents_remove_invalid_children);
     schedule
         .order_system(update_parents_remove_invalid_children)
-        .before_system(update_parents_add_missing_children);
-    schedule
-        .order_system(update_parents_add_missing_children)
         .before_system(calculate_global_disableable);
     schedule
-        .order_system(update_parents_add_missing_children)
+        .order_system(update_parents_remove_invalid_children)
         .before_system(calculate_global_transform);
     schedule
-        .order_system(update_parents_add_missing_children)
+        .order_system(update_parents_remove_invalid_children)
         .before_system(calculate_global_rect_scale_hierarchy_independent);
     schedule
-        .order_system(update_parents_add_missing_children)
+        .order_system(update_parents_remove_invalid_children)
         .before_system(calculate_global_rect_scale_children_based);
     schedule
-        .order_system(update_parents_add_missing_children)
+        .order_system(update_parents_remove_invalid_children)
         .before_system(calculate_global_rect_scale_parent_based);
     schedule
-        .order_system(update_parents_add_missing_children)
+        .order_system(update_parents_remove_invalid_children)
         .before_system(calculate_global_rect_pos);
     schedule
         .order_system(calculate_global_rect_scale_hierarchy_independent)

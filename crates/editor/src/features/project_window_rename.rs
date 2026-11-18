@@ -115,7 +115,7 @@ pub fn start_project_entry_rename_system(
     let Some(name_text) = ent
         .query::<(EntityId, &ChildComponent, &TextComponent)>()
         .iter()
-        .find(|(_, child_c, _)| child_c.parent == ent_entry)
+        .find(|(_, child_c, _)| child_c.parent() == ent_entry)
         .map(|(e, _, _)| e)
     else {
         return;
@@ -231,7 +231,7 @@ fn destroy_input_field(mut ent: EntitiesHolderMut, input_field: EntityId) {
         return;
     };
 
-    let background = ent.get_component::<ChildComponent>(text).map(|c| c.parent);
+    let background = ent.get_component::<ChildComponent>(text).map(|c| c.parent());
 
     destroy_entity_and_children(ent.as_mut(), input_field);
     for e in [

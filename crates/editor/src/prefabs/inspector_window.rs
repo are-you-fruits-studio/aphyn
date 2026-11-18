@@ -34,14 +34,9 @@ pub fn init_window_as_inspector(mut world: WorldDataMut, ent_window: EntityId) {
 
     ent.set_components(
         ent_add_component_input,
-        (
-            ParentComponent {
-                children: vec![ent_add_component_variants_container].into(),
-            },
-            AddComponentInputComponent {
-                variants_container: ent_add_component_variants_container,
-            },
-        ),
+        (AddComponentInputComponent {
+            variants_container: ent_add_component_variants_container,
+        },),
     );
 
     ent.set_components(
@@ -57,9 +52,6 @@ pub fn init_window_as_inspector(mut world: WorldDataMut, ent_window: EntityId) {
                 z: -100.0,
                 ..Default::default()
             },
-            ChildComponent {
-                parent: ent_add_component_input,
-            },
             RectChildAlignComponent {
                 anchor: Vec2::new(0.0, 0.0),
                 direction: UiDirection::Vertical,
@@ -67,7 +59,7 @@ pub fn init_window_as_inspector(mut world: WorldDataMut, ent_window: EntityId) {
                 spacing: UiSpacing::Chunk,
                 ..Default::default()
             },
-            ParentComponent { children: vec![].into() },
+            ParentComponent::default(),
             BatchedMeshComponent::default(),
             MaterialComponent {
                 material: material_panel,
@@ -78,12 +70,13 @@ pub fn init_window_as_inspector(mut world: WorldDataMut, ent_window: EntityId) {
             },
         ),
     );
+    set_parent(ent.as_mut(), ent_add_component_variants_container, ent_add_component_input);
 
     let ent_add_component_text = ent
         .get_component::<InputFieldComponent>(ent_add_component_input)
         .unwrap()
         .text;
-    let ent_add_component_background = ent.get_component::<ChildComponent>(ent_add_component_text).unwrap().parent;
+    let ent_add_component_background = ent.get_component::<ChildComponent>(ent_add_component_text).unwrap().parent();
 
     for e in [
         ent_add_component_input,
@@ -99,10 +92,6 @@ pub fn init_window_as_inspector(mut world: WorldDataMut, ent_window: EntityId) {
 
     let ent_scroll_content_asset_type = ent.create_entity();
     let ent_scroll_content_asset_container = ent.create_entity();
-
-    let parent_c = ent.get_component_mut::<ParentComponent>(ent_scroll_content).unwrap();
-    parent_c.children.push(ent_scroll_content_asset_type);
-    parent_c.children.push(ent_scroll_content_asset_container);
 
     ent.set_component(
         ent_scroll_content,
@@ -121,9 +110,6 @@ pub fn init_window_as_inspector(mut world: WorldDataMut, ent_window: EntityId) {
                 scale: Vec2::new(UiVal::pd(1.0).into(), UiVal::px(20.0).into()),
                 ..Default::default()
             },
-            ChildComponent {
-                parent: ent_scroll_content,
-            },
             BatchedMeshComponent::default(),
             MaterialComponent { material: material_text },
             TextComponent {
@@ -136,7 +122,7 @@ pub fn init_window_as_inspector(mut world: WorldDataMut, ent_window: EntityId) {
                 vertical_align: VerticalAlign::Middle,
                 horizontal_align: HorizontalAlign::Left,
             },
-            ParentComponent { children: vec![].into() },
+            ParentComponent::default(),
         ),
     );
 
@@ -151,9 +137,6 @@ pub fn init_window_as_inspector(mut world: WorldDataMut, ent_window: EntityId) {
                 scale: Vec2::new(Some(UiVal::pd(1.0)).into(), None.into()),
                 ..Default::default()
             },
-            ChildComponent {
-                parent: ent_scroll_content,
-            },
             RectChildAlignComponent {
                 anchor: Vec2::new(0.0, 0.0),
                 direction: UiDirection::Vertical,
@@ -161,7 +144,10 @@ pub fn init_window_as_inspector(mut world: WorldDataMut, ent_window: EntityId) {
                 spacing: UiSpacing::Chunk,
                 ..Default::default()
             },
-            ParentComponent { children: vec![].into() },
+            ParentComponent::default(),
         ),
     );
+
+    set_parent(ent.as_mut(), ent_scroll_content_asset_type, ent_scroll_content);
+    set_parent(ent.as_mut(), ent_scroll_content_asset_container, ent_scroll_content);
 }

@@ -94,7 +94,7 @@ pub fn record_into_prefab(res: ResourcesHolderRef, ent: EntitiesHolderRef, entit
         entities_ordered.push(entity);
 
         if let Some(parent_c) = ent.get_component::<ParentComponent>(entity) {
-            ent_serialize_queue.extend(parent_c.children.iter().copied());
+            ent_serialize_queue.extend(parent_c.children().iter().copied());
         }
     }
 

@@ -8,7 +8,7 @@ pub fn init_window_as_hierarchy(mut world: WorldDataMut, ent_window: EntityId) {
     let mut ent = world.entities_mut();
 
     let ent_scroll_content = ent.get_component::<WindowComponent>(ent_window).unwrap().content_container;
-    let ent_scroll_view = ent.get_component::<ChildComponent>(ent_scroll_content).unwrap().parent;
+    let ent_scroll_view = ent.get_component::<ChildComponent>(ent_scroll_content).unwrap().parent();
 
     ent.set_components(
         ent_scroll_view,
@@ -19,11 +19,6 @@ pub fn init_window_as_hierarchy(mut world: WorldDataMut, ent_window: EntityId) {
     ent.get_component_mut::<LocalRectComponent>(ent_scroll_content).unwrap().z = -1.0;
 
     let ent_entries_container = ent.create_entity();
-
-    ent.get_component_mut::<ParentComponent>(ent_scroll_content)
-        .unwrap()
-        .children
-        .push(ent_entries_container);
 
     ent.set_components(
         ent_entries_container,
@@ -36,9 +31,6 @@ pub fn init_window_as_hierarchy(mut world: WorldDataMut, ent_window: EntityId) {
                 scale: Vec2::new(Some(UiVal::pd(1.0)).into(), None.into()),
                 ..Default::default()
             },
-            ChildComponent {
-                parent: ent_scroll_content,
-            },
             RectChildAlignComponent {
                 anchor: Vec2::new(0.0, 0.0),
                 direction: UiDirection::Vertical,
@@ -46,9 +38,10 @@ pub fn init_window_as_hierarchy(mut world: WorldDataMut, ent_window: EntityId) {
                 spacing: UiSpacing::Chunk,
                 ..Default::default()
             },
-            ParentComponent { children: vec![].into() },
+            ParentComponent::default(),
         ),
     );
+    set_parent(ent.as_mut(), ent_entries_container, ent_scroll_content);
 
     ent.set_component(
         ent_scroll_content,

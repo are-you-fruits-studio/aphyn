@@ -25,7 +25,7 @@ pub fn find_in_parents<R>(
     mut finder: impl FnMut(EntityId) -> Option<R>,
 ) -> Option<R> {
     loop {
-        let Some(ChildComponent { parent }) = parent_q.get(child).copied() else {
+        let Some(parent) = parent_q.get(child).map(|c| c.parent()) else {
             return None;
         };
 

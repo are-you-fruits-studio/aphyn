@@ -46,13 +46,6 @@ pub fn init_window_as_scene(mut world: WorldDataMut, ent_window: EntityId) {
     let ent_toolbar = ent.create_entity();
 
     ent.set_components(
-        ent_image,
-        (ParentComponent {
-            children: vec![ent_toolbar].into(),
-        },),
-    );
-
-    ent.set_components(
         ent_toolbar,
         (
             GlobalRectComponent::default(),
@@ -64,7 +57,6 @@ pub fn init_window_as_scene(mut world: WorldDataMut, ent_window: EntityId) {
                 scale: Vec2::new(UiVal::px(toolbar_width).into(), UiVal::px(TOOLBAR_HEIGHT).into()),
                 ..Default::default()
             },
-            ChildComponent { parent: ent_image },
             ParentComponent::default(),
             RectChildAlignComponent {
                 anchor: Vec2::new(0.0, 0.5),
@@ -74,6 +66,7 @@ pub fn init_window_as_scene(mut world: WorldDataMut, ent_window: EntityId) {
             },
         ),
     );
+    set_parent(ent.as_mut(), ent_toolbar, ent_image);
 
     for (text, width, tool) in buttons {
         match tool {
@@ -115,10 +108,6 @@ pub fn spawn_scene_light_panel(
     let ent_panel = ent.create_entity();
     let ent_content = ent.create_entity();
 
-    if let Some(parent_c) = ent.get_component_mut::<ParentComponent>(ent_image) {
-        parent_c.children.push(ent_panel);
-    }
-
     let panel_height = PANEL_ROW_HEIGHT * PANEL_ROWS + PANEL_ROW_GAP * (PANEL_ROWS - 1.0) + PANEL_PADDING * 2.0;
 
     ent.set_components(
@@ -139,10 +128,6 @@ pub fn spawn_scene_light_panel(
                 ),
                 ..Default::default()
             },
-            ChildComponent { parent: ent_image },
-            ParentComponent {
-                children: vec![ent_content].into(),
-            },
             BatchedMeshComponent::default(),
             MaterialComponent {
                 material: assets_res.material_panel.clone(),
@@ -155,6 +140,7 @@ pub fn spawn_scene_light_panel(
             SceneLightPanelComponent,
         ),
     );
+    set_parent(ent.as_mut(), ent_panel, ent_image);
 
     ent.set_components(
         ent_content,
@@ -166,7 +152,6 @@ pub fn spawn_scene_light_panel(
                 parent_padding_max: Vec2::splat(UiVal::px(PANEL_PADDING)),
                 ..Default::default()
             },
-            ChildComponent { parent: ent_panel },
             ParentComponent::default(),
             RectChildAlignComponent {
                 anchor: Vec2::new(0.0, 0.0),
@@ -176,6 +161,7 @@ pub fn spawn_scene_light_panel(
             },
         ),
     );
+    set_parent(ent.as_mut(), ent_content, ent_panel);
 
     let ent_override_row = spawn_panel_row(ent.as_mut(), ent_content);
     create_header_button(
@@ -216,13 +202,10 @@ pub fn spawn_scene_light_panel(
                         scale: Vec2::new(UiVal::px(PANEL_FIELD_WIDTH).into(), UiVal::px(PANEL_ROW_HEIGHT).into()),
                         ..Default::default()
                     },
-                    ChildComponent { parent: ent_row },
                     ParentComponent::default(),
                 ),
             );
-            if let Some(parent_c) = ent.get_component_mut::<ParentComponent>(ent_row) {
-                parent_c.children.push(ent_container);
-            }
+            set_parent(ent.as_mut(), ent_container, ent_row);
 
             let ent_field = spawn_input_area_ent(
                 ent.as_mut(),
@@ -251,7 +234,6 @@ fn spawn_panel_row(mut ent: EntitiesHolderMut, ent_parent: EntityId) -> EntityId
                 scale: Vec2::new(UiVal::px(PANEL_ROW_WIDTH).into(), UiVal::px(PANEL_ROW_HEIGHT).into()),
                 ..Default::default()
             },
-            ChildComponent { parent: ent_parent },
             ParentComponent::default(),
             RectChildAlignComponent {
                 anchor: Vec2::new(0.0, 0.5),
@@ -261,9 +243,7 @@ fn spawn_panel_row(mut ent: EntitiesHolderMut, ent_parent: EntityId) -> EntityId
             },
         ),
     );
-    if let Some(parent_c) = ent.get_component_mut::<ParentComponent>(ent_parent) {
-        parent_c.children.push(ent_row);
-    }
+    set_parent(ent.as_mut(), ent_row, ent_parent);
 
     ent_row
 }
@@ -280,7 +260,6 @@ fn spawn_panel_label(mut ent: EntitiesHolderMut, assets_res: &StandardAssetsReso
                 scale: Vec2::new(UiVal::px(PANEL_LABEL_WIDTH).into(), UiVal::px(PANEL_ROW_HEIGHT).into()),
                 ..Default::default()
             },
-            ChildComponent { parent: ent_parent },
             BatchedMeshComponent::default(),
             MaterialComponent {
                 material: assets_res.material_text.clone(),
@@ -297,9 +276,7 @@ fn spawn_panel_label(mut ent: EntitiesHolderMut, assets_res: &StandardAssetsReso
             },
         ),
     );
-    if let Some(parent_c) = ent.get_component_mut::<ParentComponent>(ent_parent) {
-        parent_c.children.push(ent_label);
-    }
+    set_parent(ent.as_mut(), ent_label, ent_parent);
 }
 
 pub fn init_window_as_game(world: WorldDataMut, ent_window: EntityId) {
@@ -310,7 +287,7 @@ fn init_window_as_view<C: 'static + Component>(mut world: WorldDataMut, ent_wind
     let mut ent = world.entities_mut();
 
     let ent_scroll_content = ent.get_component::<WindowComponent>(ent_window).unwrap().content_container;
-    let ent_scroll_view = ent.get_component::<ChildComponent>(ent_scroll_content).unwrap().parent;
+    let ent_scroll_view = ent.get_component::<ChildComponent>(ent_scroll_content).unwrap().parent();
 
     let ent_image = ent.create_entity();
 
@@ -320,7 +297,6 @@ fn init_window_as_view<C: 'static + Component>(mut world: WorldDataMut, ent_wind
             GlobalRectComponent::default(),
             GlobalDisableableComponent::default(),
             LocalRectComponent::default(),
-            ChildComponent { parent: ent_scroll_view },
             BatchedMeshComponent::default(),
             MaterialComponent::default(),
             ImageComponent::default(),
@@ -328,6 +304,7 @@ fn init_window_as_view<C: 'static + Component>(mut world: WorldDataMut, ent_wind
             view_image_c,
         ),
     );
+    set_parent(ent.as_mut(), ent_image, ent_scroll_view);
 
     ent_image
 }

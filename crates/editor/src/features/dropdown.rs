@@ -46,7 +46,7 @@ fn enable_dropdown_variants_system(
 
         disableable.is_disabled = false;
 
-        for variant_ent in &variants_contianer.children {
+        for variant_ent in variants_contianer.children() {
             if let Some(dropdown_entry_c) = dropdown_entry_q.get_mut(*variant_ent) {
                 dropdown_entry_c.dropdown = dropdown_ent;
             }

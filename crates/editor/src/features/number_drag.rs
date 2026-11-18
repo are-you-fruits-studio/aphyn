@@ -70,10 +70,10 @@ pub fn drag_number_input_field_system(
             .filter(|field_c| {
                 child_q
                     .get(field_c.key_text)
-                    .and_then(|child_c| button_q.get(child_c.parent))
+                    .and_then(|child_c| button_q.get(child_c.parent()))
                     .is_some_and(|button_c| button_c.was_clicked_this_frame)
             })
-            .filter_map(|field_c| parent_q.get(field_c.value_container)?.children.first().copied())
+            .filter_map(|field_c| parent_q.get(field_c.value_container)?.children().first().copied())
             .filter(|&value| {
                 input_field_q
                     .get(value)

@@ -132,7 +132,7 @@ fn gather(ent: EntitiesHolderRef, settings: &PhysicsResource) -> (Vec<Body>, Vec
         hierarchy
             .get(e)
             .and_then(|(child, ..)| child)
-            .and_then(|child| hierarchy.get(child.parent))
+            .and_then(|child| hierarchy.get(child.parent()))
             .and_then(|(_, _, global, ..)| global.copied())
             .unwrap_or(GlobalTransform::IDENTITY)
     };
@@ -206,7 +206,7 @@ fn gather(ent: EntitiesHolderRef, settings: &PhysicsResource) -> (Vec<Body>, Vec
                 chain = local_matrix(local) * chain;
             }
             match child {
-                Some(child) => current = child.parent,
+                Some(child) => current = child.parent(),
                 None => break,
             }
         }

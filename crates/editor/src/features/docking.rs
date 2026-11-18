@@ -357,9 +357,6 @@ fn spawn_highlight(mut world: WorldDataMut) -> EntityId {
                 z: HIGHLIGHT_Z,
                 ..Default::default()
             },
-            ParentComponent {
-                children: edges.to_vec().into(),
-            },
         ),
     );
 
@@ -382,7 +379,6 @@ fn spawn_highlight(mut world: WorldDataMut) -> EntityId {
                     scale: scale.map(|v| v.into()),
                     ..Default::default()
                 },
-                ChildComponent { parent: ent_root },
                 BatchedMeshComponent::default(),
                 MaterialComponent {
                     material: material_panel.clone(),
@@ -393,6 +389,7 @@ fn spawn_highlight(mut world: WorldDataMut) -> EntityId {
                 },
             ),
         );
+        set_parent(ec.as_mut(), ent_edge, ent_root);
     }
 
     ent_root

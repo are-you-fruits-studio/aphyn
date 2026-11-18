@@ -114,26 +114,6 @@ pub fn set_px_rect(rect: &mut LocalRectComponent, offset: Vec2<f32>, size: Vec2<
     rect.scale = size.map(|v| UiVal::px(v).into());
 }
 
-pub fn set_parent(mut ec: EntitiesHolderMut, child: EntityId, parent: EntityId) {
-    if let Some(old_parent) = ec.get_component::<ChildComponent>(child).map(|child_c| child_c.parent) {
-        remove_from_children_cache(ec.as_mut(), old_parent, child);
-    }
-
-    ec.set_component(child, ChildComponent { parent });
-
-    if let Some(parent_c) = ec.get_component_mut::<ParentComponent>(parent) {
-        parent_c.children.push(child);
-    }
-}
-
-fn remove_from_children_cache(mut ec: EntitiesHolderMut, parent: EntityId, child: EntityId) {
-    if let Some(parent_c) = ec.get_component_mut::<ParentComponent>(parent)
-        && let Some(idx) = parent_c.children.iter().position(|&e| e == child)
-    {
-        parent_c.children.remove(idx as u64);
-    }
-}
-
 pub fn attach_panel(mut ec: EntitiesHolderMut, ent_group: EntityId, ent_panel: EntityId) {
     let ent_tab = ec.get_component::<WindowComponent>(ent_panel).unwrap().tab;
     let group_c = ec.get_component_mut::<WindowGroupComponent>(ent_group).unwrap();
@@ -158,10 +138,8 @@ pub fn detach_panel(mut ec: EntitiesHolderMut, ent_group: EntityId, ent_panel: E
         }
     }
 
-    let (ent_content_area, ent_tab_strip) = (group_c.content_area, group_c.tab_strip);
-
-    remove_from_children_cache(ec.as_mut(), ent_content_area, ent_panel);
-    remove_from_children_cache(ec.as_mut(), ent_tab_strip, ent_tab);
+    remove_parent(ec.as_mut(), ent_panel);
+    remove_parent(ec.as_mut(), ent_tab);
 }
 
 pub fn set_active_panel(mut ec: EntitiesHolderMut, ent_group: EntityId, ent_panel: EntityId) {
@@ -253,8 +231,8 @@ pub fn sync_window_groups_system(mut ec: EntitiesHolderMut) {
             }
         }
 
-        if let Some(parent_c) = ec.get_component_mut::<ParentComponent>(group_c.tab_strip) {
-            parent_c.children = tabs.into();
+        for (idx, &ent_tab) in tabs.iter().enumerate() {
+            set_parent_at(ec.as_mut(), ent_tab, group_c.tab_strip, idx);
         }
 
         for ent in group_c.scale_handles().into_iter().chain([group_c.header]) {

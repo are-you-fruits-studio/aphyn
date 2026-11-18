@@ -15,7 +15,7 @@ pub fn hierarchy_iter_breadth_first_parent_to_child(
                 return Some((e, EntityId::EMPTY));
             };
 
-            if q.get(child_component.parent).is_none() {
+            if q.get(child_component.parent()).is_none() {
                 return Some((e, EntityId::EMPTY));
             }
 
@@ -27,7 +27,7 @@ pub fn hierarchy_iter_breadth_first_parent_to_child(
         let entity_parent_c = q.get(entity).unwrap().2;
 
         if let Some(entity_parent_c) = entity_parent_c {
-            for &child in entity_parent_c.children.iter() {
+            for &child in entity_parent_c.children() {
                 if child == entity {
                     continue;
                 }
@@ -36,7 +36,7 @@ pub fn hierarchy_iter_breadth_first_parent_to_child(
                     continue;
                 };
 
-                if child_child_c.parent != entity {
+                if child_child_c.parent() != entity {
                     continue;
                 }
 
@@ -109,7 +109,7 @@ pub fn hierarchy_iter_depth_first<R, F: QueryFilter>(
                     return Some(e);
                 };
 
-                if q.get(child_component.parent).is_none() {
+                if q.get(child_component.parent()).is_none() {
                     return Some(e);
                 }
 
@@ -122,7 +122,7 @@ pub fn hierarchy_iter_depth_first<R, F: QueryFilter>(
         let Some(p) = q.get(ent).map(|t| t.2).flatten() else {
             return &[];
         };
-        p.children.as_slice()
+        p.children()
     };
 
     let mut stack = VecDeque::<(EntityId, &[EntityId], Option<R>, usize)>::new();
@@ -161,7 +161,81 @@ pub fn hierarchy_iter_depth_first<R, F: QueryFilter>(
     }
 }
 
+pub fn set_parent(ec: EntitiesHolderMut, child: EntityId, parent: EntityId) -> bool {
+    set_parent_at(ec, child, parent, usize::MAX)
+}
+
+pub fn set_parent_at(mut ec: EntitiesHolderMut, child: EntityId, parent: EntityId, index: usize) -> bool {
+    if child == parent || !ec.contains_entity(child) || !ec.contains_entity(parent) || is_ancestor_of(ec.as_mut(), child, parent) {
+        return false;
+    }
+
+    if ec
+        .get_component::<ChildComponent>(child)
+        .is_some_and(|c| c.parent() == parent)
+        && let Some(parent_c) = ec.get_component::<ParentComponent>(parent)
+        && parent_c
+            .children()
+            .get(index.min(parent_c.children().len().saturating_sub(1)))
+            == Some(&child)
+    {
+        return true;
+    }
+
+    unlink_from_parent(ec.as_mut(), child);
+
+    match ec.get_component_mut::<ChildComponent>(child) {
+        Some(child_c) => *ChildComponent::parent_mut(child_c) = parent,
+        None => _ = ec.set_component(child, ChildComponent::new_unchecked(parent)),
+    }
+
+    if ec.get_component::<ParentComponent>(parent).is_none() {
+        ec.set_component(parent, ParentComponent::default());
+    }
+
+    let children = ParentComponent::children_mut(ec.get_component_mut::<ParentComponent>(parent).unwrap());
+    let index = index.min(children.len() as usize);
+    children.push(child);
+    children.as_mut_slice()[index..].rotate_right(1);
+
+    true
+}
+
+pub fn remove_parent(mut ec: EntitiesHolderMut, child: EntityId) -> bool {
+    unlink_from_parent(ec.as_mut(), child);
+    ec.remove_component::<ChildComponent>(child).is_some()
+}
+
+fn unlink_from_parent(mut ec: EntitiesHolderMut, child: EntityId) {
+    let Some(parent) = ec.get_component::<ChildComponent>(child).map(|c| c.parent()) else {
+        return;
+    };
+    let Some(parent_c) = ec.get_component_mut::<ParentComponent>(parent) else {
+        return;
+    };
+    let children = ParentComponent::children_mut(parent_c);
+    if let Some(idx) = children.as_slice().iter().position(|&e| e == child) {
+        children.remove(idx as u64);
+    }
+}
+
+fn is_ancestor_of(ec: EntitiesHolderMut, ancestor: EntityId, entity: EntityId) -> bool {
+    let mut current = entity;
+    // bounded so a corrupted (cyclic) hierarchy cannot hang
+    for _ in 0..=ec.entities_count() {
+        let Some(child_c) = ec.get_component::<ChildComponent>(current) else {
+            return false;
+        };
+        current = child_c.parent();
+        if current == ancestor {
+            return true;
+        }
+    }
+    false
+}
+
 pub fn destroy_entity_and_children(mut ec: EntitiesHolderMut, ent: EntityId) {
+    unlink_from_parent(ec.as_mut(), ent);
     destroy_entity_children(ec.as_mut(), ent);
 
     ec.destroy_entity(ent);
@@ -170,13 +244,15 @@ pub fn destroy_entity_and_children(mut ec: EntitiesHolderMut, ent: EntityId) {
 pub fn destroy_entity_children(mut ec: EntitiesHolderMut, ent: EntityId) {
     let mut check_buffer = Vec::new();
 
-    if let Some(parent) = ec.as_mut().get_component::<ParentComponent>(ent) {
-        check_buffer.extend(parent.children.iter());
+    if let Some(parent) = ec.as_mut().get_component_mut::<ParentComponent>(ent) {
+        let children = ParentComponent::children_mut(parent);
+        check_buffer.extend(children.as_slice().iter().copied());
+        children.clear();
     };
 
     while let Some(ent) = check_buffer.pop() {
         if let Some(parent) = ec.as_mut().get_component::<ParentComponent>(ent) {
-            check_buffer.extend(parent.children.iter());
+            check_buffer.extend(parent.children().iter().copied());
         };
 
         ec.destroy_entity(ent);

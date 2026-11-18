@@ -203,12 +203,12 @@ pub fn open_field_value_context_menu_system(
         .iter()
         .filter(|field_c| {
             ent.get_component::<ChildComponent>(field_c.key_text)
-                .and_then(|child_c| ent.get_component::<ButtonComponent>(child_c.parent))
+                .and_then(|child_c| ent.get_component::<ButtonComponent>(child_c.parent()))
                 .is_some_and(|button_c| button_c.was_right_clicked_this_frame)
         })
         .filter_map(|field_c| {
             ent.get_component::<ParentComponent>(field_c.value_container)?
-                .children
+                .children()
                 .first()
                 .copied()
         })
@@ -585,36 +585,18 @@ pub fn delete_selected_entity_hotkey_system(
     asset_edited_evt.push(AssetEditedEvent::OpenedEntitiesAsset);
 }
 
-fn delete_simulated_entity(mut sim_ent: EntitiesHolderMut, target: EntityId) {
-    if let Some(&ChildComponent { parent }) = sim_ent.get_component::<ChildComponent>(target)
-        && let Some(parent_c) = sim_ent.get_component_mut::<ParentComponent>(parent)
-    {
-        parent_c.children = parent_c.children.iter().copied().filter(|&e| e != target).collect();
-    }
-
+fn delete_simulated_entity(sim_ent: EntitiesHolderMut, target: EntityId) {
     destroy_entity_and_children(sim_ent, target);
 }
 
 // EntityId::EMPTY as the parent makes `entity` a scene root
-fn attach_to_parent(mut sim_ent: EntitiesHolderMut, entity: EntityId, parent: EntityId) {
+fn attach_to_parent(sim_ent: EntitiesHolderMut, entity: EntityId, parent: EntityId) {
     if parent == EntityId::EMPTY {
-        _ = sim_ent.remove_component::<ChildComponent>(entity);
+        remove_parent(sim_ent, entity);
         return;
     }
 
-    sim_ent.set_component(entity, ChildComponent { parent });
-
-    match sim_ent.get_component_mut::<ParentComponent>(parent) {
-        Some(parent_c) => parent_c.children.push(entity),
-        None => {
-            _ = sim_ent.set_component(
-                parent,
-                ParentComponent {
-                    children: vec![entity].into(),
-                },
-            )
-        }
-    }
+    set_parent(sim_ent, entity, parent);
 }
 
 fn paste_entities(
@@ -1261,7 +1243,7 @@ pub fn update_hierarchy_window_system(
             .iter()
         {
             let sim_parent = sim_child_c
-                .map(|c| c.parent)
+                .map(|c| c.parent())
                 .filter(|p| simulated_world.data.as_ref().entities().contains_entity(*p));
 
             match sim_parent {
@@ -1484,14 +1466,13 @@ pub fn update_inspector_window_system(
 
         let ent_last = ent
             .get_component::<ParentComponent>(window_c.content_container)
-            .map(|p| p.children.first())
+            .map(|p| p.children().first())
             .flatten()
             .copied()
             .unwrap_or(EntityId::EMPTY);
 
-        if let Some(parent_c) = ent.get_component_mut::<ParentComponent>(window_c.content_container) {
-            let extra = parent_c.children.iter().skip(1).copied().collect::<Vec<_>>();
-            parent_c.children = parent_c.children.iter().take(1).copied().collect();
+        if let Some(parent_c) = ent.get_component::<ParentComponent>(window_c.content_container) {
+            let extra = parent_c.children().iter().skip(1).copied().collect::<Vec<_>>();
             for e in extra {
                 destroy_entity_and_children(ent.as_mut(), e);
             }
@@ -1538,33 +1519,34 @@ fn update_prefab_components_ent(
     material_text: AssetHandle<Material>,
     font: AssetHandle<Font>,
 ) {
-    if let Some(parent_c) = ent.get_component_mut::<ParentComponent>(ent_parent) {
-        let children = std::mem::take(&mut parent_c.children);
-        let (kept, foreign): (Vec<_>, Vec<_>) = children
+    if let Some(parent_c) = ent.get_component::<ParentComponent>(ent_parent) {
+        let foreign = parent_c
+            .children()
             .iter()
             .copied()
-            .partition(|&e| ent.get_component::<SerializedComponentComponent>(e).is_some());
-        ent.get_component_mut::<ParentComponent>(ent_parent).unwrap().children = kept.into();
+            .filter(|&e| ent.get_component::<SerializedComponentComponent>(e).is_none())
+            .collect::<Vec<_>>();
         for e in foreign {
             destroy_entity_and_children(ent.as_mut(), e);
         }
 
-        while ent.get_component_mut::<ParentComponent>(ent_parent).unwrap().children.len() > components.len() as u64 {
-            let popped_ent = ent
-                .get_component_mut::<ParentComponent>(ent_parent)
-                .unwrap()
-                .children
-                .pop()
-                .unwrap();
-            destroy_entity_and_children(ent.as_mut(), popped_ent);
+        let extra = ent
+            .get_component::<ParentComponent>(ent_parent)
+            .unwrap()
+            .children()
+            .get(components.len() as usize..)
+            .map(|extra| extra.to_vec())
+            .unwrap_or_default();
+        for e in extra.into_iter().rev() {
+            destroy_entity_and_children(ent.as_mut(), e);
         }
 
         for (i, (component_id, component_value)) in components.iter().enumerate() {
             let ent_last = ent
-                .get_component_mut::<ParentComponent>(ent_parent)
+                .get_component::<ParentComponent>(ent_parent)
                 .unwrap()
-                .children
-                .get(i as u64)
+                .children()
+                .get(i)
                 .copied()
                 .unwrap_or(EntityId::EMPTY);
 
@@ -1603,7 +1585,7 @@ fn update_prefab_component_ent(
 
     if let Some(&serialized_component_c) = ent.get_component::<SerializedComponentComponent>(ent_last)
         && let Some(container_parent_c) = ent.get_component::<ParentComponent>(serialized_component_c.component_data_container)
-        && let data_ents = container_parent_c.children.iter().copied().collect::<Vec<_>>()
+        && let data_ents = container_parent_c.children().to_vec()
         && let Some(text_c) = ent.get_component_mut::<TextComponent>(serialized_component_c.component_id_text)
     {
         text_c.text = component_id.into();
@@ -1727,7 +1709,6 @@ fn spawn_component_separator(mut ent: EntitiesHolderMut, ent_parent: EntityId, m
                 scale: Vec2::new(UiVal::pw(1.0).into(), UiVal::px(1.0).into()),
                 ..Default::default()
             },
-            ChildComponent { parent: ent_parent },
             BatchedMeshComponent::default(),
             MaterialComponent {
                 material: material_panel.clone(),
@@ -1739,9 +1720,7 @@ fn spawn_component_separator(mut ent: EntitiesHolderMut, ent_parent: EntityId, m
         ),
     );
 
-    if let Some(parent_c) = ent.get_component_mut::<ParentComponent>(ent_parent) {
-        parent_c.children.push(ent_separator);
-    }
+    set_parent(ent.as_mut(), ent_separator, ent_parent);
 }
 
 // todo

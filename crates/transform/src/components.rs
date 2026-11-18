@@ -45,13 +45,43 @@ impl Default for LocalTransform {
 #[repr(C)]
 #[derive(Component, Clone, Debug, PartialEq, Default, Serializable)]
 pub struct ParentComponent {
-    pub children: FfiVec<EntityId>,
+    children: FfiVec<EntityId>,
+}
+impl ParentComponent {
+    pub fn children(&self) -> &[EntityId] {
+        self.children.as_slice()
+    }
+
+    // warning: bypasses the hierarchy invariant; prefer set_parent / set_parent_at / remove_parent
+    pub fn new_unchecked(children: FfiVec<EntityId>) -> Self {
+        Self { children }
+    }
+
+    // warning: bypasses the hierarchy invariant; every child must keep a ChildComponent pointing back at this parent
+    pub fn children_mut(this: &mut Self) -> &mut FfiVec<EntityId> {
+        &mut this.children
+    }
 }
 
 #[repr(C)]
 #[derive(Default, Component, Copy, Clone, Debug, PartialEq, Serializable)]
 pub struct ChildComponent {
-    pub parent: EntityId,
+    parent: EntityId,
+}
+impl ChildComponent {
+    pub fn parent(&self) -> EntityId {
+        self.parent
+    }
+
+    // warning: bypasses the hierarchy invariant; prefer set_parent / set_parent_at / remove_parent
+    pub fn new_unchecked(parent: EntityId) -> Self {
+        Self { parent }
+    }
+
+    // warning: bypasses the hierarchy invariant; the parent's ParentComponent must list this entity
+    pub fn parent_mut(this: &mut Self) -> &mut EntityId {
+        &mut this.parent
+    }
 }
 
 #[repr(C)]

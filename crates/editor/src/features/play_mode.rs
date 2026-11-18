@@ -156,7 +156,7 @@ fn update_play_button_system(
 
         let children = ent
             .get_component::<ParentComponent>(ent_button)
-            .map(|p| p.children.iter().copied().collect::<Vec<_>>())
+            .map(|p| p.children().to_vec())
             .unwrap_or_default();
 
         for ent_text in children {

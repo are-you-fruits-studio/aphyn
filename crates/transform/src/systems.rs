@@ -1,11 +1,10 @@
 use aphyn_ecs::{EntityId, OrFilter, Res, WithFilter, WithoutFilter, WorldDataMut, WorldQuery};
-use aphyn_ffi::FfiVec;
 use aphyn_math::{Mat3, Vec2};
 use aphyn_window::WindowResource;
 
 use crate::{
-    RectChildAlignComponent, UiDirection, UiSpacing, UiVal,
-    GlobalRectComponent, LocalRectComponent, GlobalDisableableComponent, LocalDisableableComponent, utils,
+    GlobalDisableableComponent, GlobalRectComponent, LocalDisableableComponent, LocalRectComponent, RectChildAlignComponent,
+    UiDirection, UiSpacing, UiVal, utils,
 };
 
 use super::{ChildComponent, GlobalTransform, LocalTransform, ParentComponent};
@@ -84,10 +83,7 @@ pub fn adjust_component_sets(world: WorldDataMut) {
             .iter(),
     );
     for e in buffer.drain(..) {
-        entities_components
-            .add_component(e, ParentComponent { children: FfiVec::new() })
-            .ok()
-            .unwrap();
+        entities_components.add_component(e, ParentComponent::default()).ok().unwrap();
     }
 
     //
@@ -110,8 +106,6 @@ pub fn adjust_component_sets(world: WorldDataMut) {
     // }
 }
 
-// - Update ParentComponents according to ChildComponents
-//     - Remove children from parent components
 pub fn update_parents_remove_invalid_children(
     mut parents: WorldQuery<(EntityId, &mut ParentComponent)>,
     children: WorldQuery<&ChildComponent>,
@@ -119,7 +113,9 @@ pub fn update_parents_remove_invalid_children(
     let mut indices_to_remove = Vec::new();
 
     for (parent_entity, parent) in parents.iter_mut() {
-        for (index, &child_entity) in parent.children.iter().enumerate().rev() {
+        let parent_children = ParentComponent::children_mut(parent);
+
+        for (index, &child_entity) in parent_children.as_slice().iter().enumerate().rev() {
             if child_entity == parent_entity {
                 indices_to_remove.push(index);
                 continue;
@@ -128,33 +124,16 @@ pub fn update_parents_remove_invalid_children(
                 indices_to_remove.push(index);
                 continue;
             };
-            if child_child_c.parent != parent_entity {
+            if child_child_c.parent() != parent_entity {
                 indices_to_remove.push(index);
             }
         }
 
         for &index in indices_to_remove.iter() {
-            parent.children.remove(index as u64);
+            parent_children.remove(index as u64);
         }
 
         indices_to_remove.clear();
-    }
-}
-
-// - Update ParentComponents according to ChildComponents
-//     - Add missing children to parent components
-pub fn update_parents_add_missing_children(
-    child_q: WorldQuery<(EntityId, &ChildComponent)>,
-    mut parent_q: WorldQuery<&mut ParentComponent>,
-) {
-    for (child_entity, child_c) in child_q.iter() {
-        let Some(parent) = parent_q.get_mut(child_c.parent) else {
-            continue;
-        };
-
-        if !parent.children.contains(&child_entity) {
-            parent.children.push(child_entity);
-        }
     }
 }
 
@@ -169,7 +148,7 @@ pub fn calculate_global_transform(
             None => GlobalTransform::IDENTITY,
             Some(&parent_global_transform) => parent_global_transform,
         };
-        
+
         for &ent in children {
             let Some(&local_transform) = local_transform_q.get(ent) else {
                 continue;
