@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use aphyn_ecs::{EntitiesHolderMut, EntityId, QueryFilter, WorldQuery};
 
-use crate::{ChildComponent, ParentComponent};
+use crate::{ChildComponent, GlobalTransform, LocalTransform, ParentComponent};
 
 pub fn hierarchy_iter_breadth_first_parent_to_child(
     q: &WorldQuery<(EntityId, Option<&ChildComponent>, Option<&ParentComponent>)>,
@@ -232,6 +232,37 @@ fn is_ancestor_of(ec: EntitiesHolderMut, ancestor: EntityId, entity: EntityId) -
         }
     }
     false
+}
+
+// ignores StaticComponent: meant for computing static entities' stored values by hand
+pub fn recalculate_global_transform(mut ec: EntitiesHolderMut, ent: EntityId) {
+    let parent_global = ec
+        .get_component::<ChildComponent>(ent)
+        .and_then(|child_c| ec.get_component::<GlobalTransform>(child_c.parent()))
+        .copied()
+        .unwrap_or(GlobalTransform::IDENTITY);
+
+    let mut stack = vec![(ent, parent_global)];
+    while let Some((ent, parent_global)) = stack.pop() {
+        let global = match ec.get_component::<LocalTransform>(ent) {
+            Some(local) => {
+                let global = parent_global.calculate_child(local);
+                match ec.get_component_mut::<GlobalTransform>(ent) {
+                    Some(stored) => *stored = global,
+                    None => _ = ec.set_component(ent, global),
+                }
+                global
+            }
+            None => ec
+                .get_component::<GlobalTransform>(ent)
+                .copied()
+                .unwrap_or(GlobalTransform::IDENTITY),
+        };
+
+        if let Some(parent_c) = ec.get_component::<ParentComponent>(ent) {
+            stack.extend(parent_c.children().iter().map(|&child| (child, global)));
+        }
+    }
 }
 
 pub fn destroy_entity_and_children(mut ec: EntitiesHolderMut, ent: EntityId) {

@@ -1,11 +1,19 @@
-use aphyn_ecs::{EntityId, OrFilter, Res, WithFilter, WithoutFilter, WorldDataMut, WorldQuery};
-use aphyn_math::{Mat3, Vec2};
+use aphyn_ecs::{EntityId, OrFilter, QueryFilter, Res, WithFilter, WithoutFilter, WorldDataMut, WorldQuery};
+use aphyn_math::Vec2;
 use aphyn_window::WindowResource;
 
 use crate::{
     GlobalDisableableComponent, GlobalRectComponent, LocalDisableableComponent, LocalRectComponent, RectChildAlignComponent,
-    UiDirection, UiSpacing, UiVal, utils,
+    StaticComponent, TransformSettingsResource, UiDirection, UiSpacing, UiVal, utils,
 };
+
+fn static_skipper<'a>(
+    settings: &Option<Res<TransformSettingsResource>>,
+    static_q: &'a WorldQuery<&StaticComponent>,
+) -> impl Fn(EntityId) -> bool + 'a {
+    let skips_static = TransformSettingsResource::skips_static(settings.as_deref());
+    move |ent| skips_static && static_q.get(ent).is_some()
+}
 
 use super::{ChildComponent, GlobalTransform, LocalTransform, ParentComponent};
 
@@ -139,11 +147,38 @@ pub fn update_parents_remove_invalid_children(
 
 // - Calculate GlobalTransform from LocalTransform and child-parent relation with tree-ordering from a root parent to all the child leaves.
 pub fn calculate_global_transform(
-    hierarchy_q: WorldQuery<(EntityId, Option<&ChildComponent>, Option<&ParentComponent>), WithFilter<GlobalTransform>>,
+    hierarchy_q: WorldQuery<
+        (EntityId, Option<&ChildComponent>, Option<&ParentComponent>),
+        (WithFilter<GlobalTransform>, WithoutFilter<StaticComponent>),
+    >,
+    all_hierarchy_q: WorldQuery<(EntityId, Option<&ChildComponent>, Option<&ParentComponent>), WithFilter<GlobalTransform>>,
     local_transform_q: WorldQuery<&LocalTransform>,
     mut global_transform_q: WorldQuery<&mut GlobalTransform>,
+    settings: Option<Res<TransformSettingsResource>>,
 ) {
-    utils::hierarchy_iter_depth_first_parent_to_child(&hierarchy_q, None, |parent, children, _: Option<&()>| {
+    if TransformSettingsResource::skips_static(settings.as_deref()) {
+        calculate_global_transform_in(&hierarchy_q, &local_transform_q, &mut global_transform_q);
+    } else {
+        calculate_global_transform_in(&all_hierarchy_q, &local_transform_q, &mut global_transform_q);
+    }
+}
+
+fn calculate_global_transform_in<F: QueryFilter>(
+    hierarchy_q: &WorldQuery<(EntityId, Option<&ChildComponent>, Option<&ParentComponent>), F>,
+    local_transform_q: &WorldQuery<&LocalTransform>,
+    global_transform_q: &mut WorldQuery<&mut GlobalTransform>,
+) {
+    utils::hierarchy_iter_depth_first_parent_to_child(hierarchy_q, None, |parent, children, _: Option<&()>| {
+        // a walk root may be the child of a static entity filtered out of the walk
+        let parent = if parent == EntityId::EMPTY {
+            children
+                .first()
+                .and_then(|&root| hierarchy_q.get(root))
+                .and_then(|(_, child_c, _)| child_c)
+                .map_or(EntityId::EMPTY, |child_c| child_c.parent())
+        } else {
+            parent
+        };
         let parent_global_transform = match global_transform_q.get(parent) {
             None => GlobalTransform::IDENTITY,
             Some(&parent_global_transform) => parent_global_transform,
@@ -157,10 +192,7 @@ pub fn calculate_global_transform(
                 continue;
             };
 
-            global_transform.position =
-                parent_global_transform.scale_rotation * local_transform.position + parent_global_transform.position;
-            global_transform.scale_rotation =
-                parent_global_transform.scale_rotation * (local_transform.rotation.to_matrix() * Mat3::scale(local_transform.scale));
+            *global_transform = parent_global_transform.calculate_child(&local_transform);
         }
 
         None
@@ -170,12 +202,20 @@ pub fn calculate_global_transform(
 // - Calculate GlobalRectComponent from LocalRectComponent and child-parent relation with tree-ordering from all the child leaves to a root parent.
 pub fn calculate_global_rect_scale_hierarchy_independent(
     window: Res<WindowResource>,
-    mut rect_q: WorldQuery<(&LocalRectComponent, &mut GlobalRectComponent)>,
+    mut rect_q: WorldQuery<(EntityId, &LocalRectComponent, &mut GlobalRectComponent)>,
+    settings: Option<Res<TransformSettingsResource>>,
+    static_q: WorldQuery<&StaticComponent>,
 ) {
+    let is_skipped = static_skipper(&settings, &static_q);
+
     let window_size: [u32; 2] = window.state().size;
     let window_size = Vec2::from_array(window_size.map(|v| v as f32));
 
-    for (local_rect, global_rect) in rect_q.iter_mut() {
+    for (ent, local_rect, global_rect) in rect_q.iter_mut() {
+        if is_skipped(ent) {
+            continue;
+        }
+
         let scale = Vec2::from_fn(|i| {
             local_rect.scale[i]
                 .into_option()
@@ -194,10 +234,17 @@ pub fn calculate_global_rect_scale_children_based(
     hierarchy_q: WorldQuery<(EntityId, Option<&ChildComponent>, Option<&ParentComponent>), WithFilter<GlobalRectComponent>>,
     local_rect_q: WorldQuery<(&LocalRectComponent, Option<&RectChildAlignComponent>)>,
     mut global_rect_q: WorldQuery<&mut GlobalRectComponent>,
+    settings: Option<Res<TransformSettingsResource>>,
+    static_q: WorldQuery<&StaticComponent>,
 ) {
+    let is_skipped = static_skipper(&settings, &static_q);
+
     let window_size = Vec2::from_array(window.state().size.map(|v| v as f32));
 
     utils::hierarchy_iter_depth_first_child_to_parent(&hierarchy_q, |parent, children| {
+        if is_skipped(parent) {
+            return;
+        }
         let Some((&local_rect, align_c)) = local_rect_q.get(parent) else {
             return;
         };
@@ -262,7 +309,11 @@ pub fn calculate_global_rect_scale_parent_based(
     hierarchy_q: WorldQuery<(EntityId, Option<&ChildComponent>, Option<&ParentComponent>), WithFilter<GlobalRectComponent>>,
     local_rect_q: WorldQuery<&LocalRectComponent>,
     mut global_rect_q: WorldQuery<&mut GlobalRectComponent>,
+    settings: Option<Res<TransformSettingsResource>>,
+    static_q: WorldQuery<&StaticComponent>,
 ) {
+    let is_skipped = static_skipper(&settings, &static_q);
+
     let window_size: [u32; 2] = window.state().size;
     let window_size = Vec2::from_array(window_size.map(|v| v as f32));
 
@@ -272,6 +323,9 @@ pub fn calculate_global_rect_scale_parent_based(
         }
 
         for &ent in children {
+            if is_skipped(ent) {
+                continue;
+            }
             let parent_global_rect = global_rect_q.get(parent).copied().unwrap_or(GlobalRectComponent {
                 center: window_size * 0.5,
                 scale: window_size,
@@ -323,7 +377,11 @@ pub fn calculate_global_rect_pos(
     local_rect_q: WorldQuery<&LocalRectComponent>,
     align_q: WorldQuery<&RectChildAlignComponent>,
     mut global_rect_q: WorldQuery<&mut GlobalRectComponent>,
+    settings: Option<Res<TransformSettingsResource>>,
+    static_q: WorldQuery<&StaticComponent>,
 ) {
+    let is_skipped = static_skipper(&settings, &static_q);
+
     let window_size = Vec2::from_array(window.state().size.map(|v| v as f32));
 
     utils::hierarchy_iter_depth_first_parent_to_child(&hierarchy_q, None, |parent, children, _: Option<&()>| {
@@ -346,6 +404,9 @@ pub fn calculate_global_rect_pos(
         match align_data {
             None => {
                 for &ent in children {
+                    if is_skipped(ent) {
+                        continue;
+                    }
                     let parent_global_rect = global_rect_q.get(parent).copied().unwrap_or(GlobalRectComponent {
                         center: window_size * 0.5,
                         scale: window_size,
@@ -449,9 +510,15 @@ pub fn calculate_global_rect_pos(
                 let mut child_start_dir = children_start_dir + pre_gap;
 
                 for &child in children {
+                    let is_child_skipped = is_skipped(child);
                     let Some(child_global_c) = global_rect_q.get_mut(child) else {
                         continue;
                     };
+
+                    if is_child_skipped {
+                        child_start_dir += child_global_c.scale[dir_axis] + gap;
+                        continue;
+                    }
 
                     let child_center_perp_dir = parent_global_c.center[dir_perp_axis]
                         + (child_global_c.scale[dir_perp_axis] - parent_global_c.scale[dir_perp_axis])
@@ -477,11 +544,18 @@ pub fn calculate_global_disableable(
     hierarchy_q: WorldQuery<(EntityId, Option<&ChildComponent>, Option<&ParentComponent>), WithFilter<GlobalDisableableComponent>>,
     local_disableable_q: WorldQuery<&LocalDisableableComponent>,
     mut global_disableable_q: WorldQuery<&mut GlobalDisableableComponent>,
+    settings: Option<Res<TransformSettingsResource>>,
+    static_q: WorldQuery<&StaticComponent>,
 ) {
+    let is_skipped = static_skipper(&settings, &static_q);
+
     utils::hierarchy_iter_depth_first_parent_to_child(&hierarchy_q, None, |parent, children, _: Option<&()>| {
         let is_parent_disabled = global_disableable_q.get(parent).map(|c| c.is_disabled).unwrap_or(false);
 
         for &ent in children {
+            if is_skipped(ent) {
+                continue;
+            }
             let Some(global_disableable) = global_disableable_q.get_mut(ent) else {
                 continue;
             };

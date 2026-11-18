@@ -131,7 +131,7 @@ use aphyn_serialization::*;
 use aphyn_serialization_ecs::SerializersResource;
 use aphyn_transform::{
     ChildComponent, GlobalDisableableComponent, GlobalRectComponent, GlobalTransform, LocalDisableableComponent, LocalRectComponent,
-    LocalTransform, ParentComponent, RectChildAlignComponent, UiDirection, UiSpacing, UiUnit, UiVal,
+    LocalTransform, ParentComponent, RectChildAlignComponent, StaticComponent, UiDirection, UiSpacing, UiUnit, UiVal,
 };
 use aphyn_ui::{ChildrenRectMaskComponent, HorizontalAlign, ImageComponent, ImageFillSettings, TextComponent, VerticalAlign};
 
@@ -174,6 +174,7 @@ pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry
     register_transserializer::<LocalTransform>(serializer);
     register_transserializer::<ParentComponent>(serializer);
     register_transserializer::<ChildComponent>(serializer);
+    register_transserializer::<StaticComponent>(serializer);
     register_transserializer::<GlobalRectComponent>(serializer);
     register_transserializer::<LocalRectComponent>(serializer);
     register_transserializer::<GlobalDisableableComponent>(serializer);

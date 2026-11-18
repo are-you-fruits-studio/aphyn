@@ -248,6 +248,9 @@ fn build_simulated_world(
 
             add_collision_module_to(data.as_mut(), behavior.as_mut(), &mut render);
             add_transform_module_to(data.as_mut(), behavior.as_mut());
+            data.resources_mut().insert(TransformSettingsResource {
+                recalculate_static: true,
+            });
             add_ui_module_to(data.as_mut(), behavior.as_mut(), &mut render);
             add_render_features_module_to(data.as_mut(), behavior.as_mut(), &mut render);
 
@@ -306,6 +309,7 @@ fn build_simulated_world(
         serializer.register(StandardSerializer::<DebugNameComponent>::default());
         serializer.register(StandardSerializer::<ChildComponent>::default());
         serializer.register(StandardSerializer::<ParentComponent>::default());
+        serializer.register(StandardSerializer::<StaticComponent>::default());
         serializer.register(StandardSerializer::<FfiVec<EntityId>>::default());
 
         res.insert(render_api.clone());

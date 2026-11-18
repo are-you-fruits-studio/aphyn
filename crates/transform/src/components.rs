@@ -1,4 +1,4 @@
-use aphyn_ecs::{Component, EntityId};
+use aphyn_ecs::{Component, EntityId, Resource};
 use aphyn_ffi::{FfiOption, FfiVec};
 use aphyn_math::{Mat, Mat3, Quat, Vec2, Vec3};
 use aphyn_serialization::*;
@@ -15,6 +15,13 @@ impl GlobalTransform {
         position: Vec3::splat(0.0),
         scale_rotation: Mat::IDENTITY,
     };
+
+    pub fn calculate_child(&self, child: &LocalTransform) -> GlobalTransform {
+        GlobalTransform {
+            position: self.scale_rotation * child.position + self.position,
+            scale_rotation: self.scale_rotation * (child.rotation.to_matrix() * Mat3::scale(child.scale)),
+        }
+    }
 }
 impl Default for GlobalTransform {
     fn default() -> Self {
@@ -81,6 +88,20 @@ impl ChildComponent {
     // warning: bypasses the hierarchy invariant; the parent's ParentComponent must list this entity
     pub fn parent_mut(this: &mut Self) -> &mut EntityId {
         &mut this.parent
+    }
+}
+
+#[repr(C)]
+#[derive(Component, Copy, Clone, Debug, Default, PartialEq, Eq, Serializable, Serialize, Deserialize)]
+pub struct StaticComponent;
+
+#[derive(Resource, Default, Debug)]
+pub struct TransformSettingsResource {
+    pub recalculate_static: bool,
+}
+impl TransformSettingsResource {
+    pub(crate) fn skips_static(settings: Option<&Self>) -> bool {
+        !settings.is_some_and(|s| s.recalculate_static)
     }
 }
 

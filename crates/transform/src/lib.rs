@@ -110,6 +110,78 @@
 //! ec.add_component(menu, LocalDisableableComponent { is_disabled: true }).ok().unwrap();
 //! ```
 //!
+//! #### Freezing static entities
+//!
+//! Add a [`StaticComponent`] to an entity whose global values should not be recalculated. Every
+//! automatic calculation ([`GlobalTransform`], the [`GlobalRectComponent`] passes,
+//! [`GlobalDisableableComponent`]) then keeps the stored value, in every schedule, so it must come
+//! from the saved scene (scenes serialize the `Global*` components) or be set by hand. Only the
+//! marked entity is frozen: its non-static children keep recalculating against its stored value.
+//! Insert [`TransformSettingsResource`] with `recalculate_static: true` to calculate static
+//! entities anyway; the editor does this for its edit-mode world, so they follow edits there.
+//!
+//! ```
+//! use aphyn_ecs::{Schedule, ThreadPoolAccess, WorldBehaviorBuilder, WorldData};
+//! use aphyn_math::Vec3;
+//! use aphyn_transform::*;
+//!
+//! let mut data = WorldData::default();
+//! let mut behavior = WorldBehaviorBuilder::new(data.types().clone());
+//! behavior.as_mut().get_mut(Schedule::Update).insert_system(calculate_global_transform);
+//! let mut behavior = behavior.build();
+//!
+//! let (parent, child) = {
+//!     let mut ec = data.entities_mut();
+//!     let [parent, child] = [(); 2].map(|_| ec.create_entity());
+//!     let at = |x, y| LocalTransform { position: Vec3::new(x, y, 0.0), ..LocalTransform::IDENTITY };
+//!     let stored = GlobalTransform { position: Vec3::new(5.0, 0.0, 0.0), ..GlobalTransform::IDENTITY };
+//!     ec.set_components(parent, (at(1.0, 0.0), stored, StaticComponent));
+//!     ec.set_components(child, (at(0.0, 1.0), GlobalTransform::IDENTITY));
+//!     set_parent(ec.as_mut(), child, parent);
+//!     (parent, child)
+//! };
+//! let position = |data: &mut WorldData, e| data.entities_mut().get_component::<GlobalTransform>(e).unwrap().position;
+//!
+//! behavior.execute_iteration(Schedule::Update, data.as_mut(), ThreadPoolAccess::single_threaded());
+//! assert_eq!(position(&mut data, parent), Vec3::new(5.0, 0.0, 0.0)); // kept
+//! assert_eq!(position(&mut data, child), Vec3::new(5.0, 1.0, 0.0)); // follows the stored value
+//!
+//! data.resources_mut().insert(TransformSettingsResource { recalculate_static: true });
+//! behavior.execute_iteration(Schedule::Update, data.as_mut(), ThreadPoolAccess::single_threaded());
+//! assert_eq!(position(&mut data, parent), Vec3::new(1.0, 0.0, 0.0));
+//! assert_eq!(position(&mut data, child), Vec3::new(1.0, 1.0, 0.0));
+//! ```
+//!
+//! #### Recalculating a subtree's transforms immediately
+//!
+//! [`recalculate_global_transform`] computes the [`GlobalTransform`] of an entity and all its
+//! descendants right away, from their [`LocalTransform`]s and the parent's stored
+//! [`GlobalTransform`] (identity for a root). It ignores [`StaticComponent`], so it is the way to
+//! set static entities' stored values after moving them, e.g. after instantiating a static prefab
+//! at runtime. Entities without a [`LocalTransform`] keep their value and pass it to their children.
+//!
+//! ```
+//! use aphyn_ecs::WorldData;
+//! use aphyn_math::Vec3;
+//! use aphyn_transform::*;
+//!
+//! let mut data = WorldData::default();
+//! let mut ec = data.entities_mut();
+//! let [world, parent, child] = [(); 3].map(|_| ec.create_entity());
+//! let at = |x, y| LocalTransform { position: Vec3::new(x, y, 0.0), ..LocalTransform::IDENTITY };
+//! let stored = GlobalTransform { position: Vec3::new(5.0, 0.0, 0.0), ..GlobalTransform::IDENTITY };
+//! ec.set_components(world, (at(0.0, 0.0), stored));
+//! ec.set_components(parent, (at(1.0, 0.0), StaticComponent));
+//! ec.set_components(child, (at(0.0, 1.0), GlobalTransform::IDENTITY, StaticComponent));
+//! set_parent(ec.as_mut(), parent, world);
+//! set_parent(ec.as_mut(), child, parent);
+//!
+//! recalculate_global_transform(ec.as_mut(), parent);
+//! assert_eq!(ec.get_component::<GlobalTransform>(parent).unwrap().position, Vec3::new(6.0, 0.0, 0.0)); // added if missing
+//! assert_eq!(ec.get_component::<GlobalTransform>(child).unwrap().position, Vec3::new(6.0, 1.0, 0.0));
+//! assert_eq!(ec.get_component::<GlobalTransform>(world).unwrap().position, Vec3::new(5.0, 0.0, 0.0)); // ancestors untouched
+//! ```
+//!
 //! #### Resolving a UI value to pixels
 //!
 //! [`UiVal::into_px`] converts a value to pixels against a parent size and viewport size, the same
@@ -145,6 +217,16 @@
 //! [`GlobalRectComponent`] (pixel center/scale/z of a UI rect), and
 //! [`GlobalDisableableComponent`] (effective disabled state). All three are rebuilt from scratch
 //! each frame rather than patched incrementally.
+//!
+//! The exception is an entity with a [`StaticComponent`], unless [`TransformSettingsResource`]
+//! says `recalculate_static`. [`calculate_global_transform`] filters static entities out of its
+//! hierarchy walk per archetype (`WithoutFilter<StaticComponent>`), so a non-static child of a
+//! static entity becomes a root of the walk and starts from the parent's stored value. The other
+//! systems check it at the point where it would write an entity's value: the parent-to-child
+//! disableable pass skips a static child but still descends into its children;
+//! [`calculate_global_rect_scale_children_based`] skips sizing a static parent;
+//! [`calculate_global_rect_pos`] with a [`RectChildAlignComponent`] leaves a static child in place
+//! but still advances the layout cursor by its stored size, so its siblings are laid out as before.
 //!
 //! #### The two-way parent/child link
 //!
