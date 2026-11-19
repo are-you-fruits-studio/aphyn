@@ -4,13 +4,13 @@ use aphyn_app::TimeResource;
 use aphyn_collision::{
     ColliderBvh, ColliderComponent, ColliderShape, CollisionLayer, CollisionShape, ContactManifold, LineBoundType, collide,
 };
-use aphyn_ecs::{EntitiesHolderMut, EntitiesHolderRef, EntityId, WorldDataMut};
+use aphyn_ecs::{EntitiesHolderMut, EntitiesHolderRef, EntityId, WorldDataMut, WorldQuery};
 use aphyn_math::{Mat, Mat3, Mat4, Quat, Vec3};
 use aphyn_transform::{ChildComponent, GlobalTransform, LocalTransform};
 
 use crate::{
     PhysicsColliderRef, PhysicsMaterial, PhysicsMaterialComponent, PhysicsResource, PhysicsWorldResource, RigidbodyComponent,
-    RigidbodyForces, RigidbodyType,
+    RigidbodyForces, RigidbodyInterpolationComponent, RigidbodyType,
 };
 
 static WARNED_UNSUPPORTED_SHAPE: AtomicBool = AtomicBool::new(false);
@@ -486,46 +486,93 @@ fn write_back(ent: &mut EntitiesHolderMut, bodies: &[Body]) {
         &mut RigidbodyComponent,
         Option<&mut LocalTransform>,
         Option<&mut GlobalTransform>,
+        Option<&mut RigidbodyInterpolationComponent>,
     )>();
 
     for body in bodies {
-        let valid = [body.position, body.velocity, body.angular_velocity]
-            .iter()
-            .all(|v| v.into_array().iter().all(|x| x.is_finite()));
-        if !valid {
-            continue;
-        }
-
-        let Some((rb, local, global)) = q.get_mut(body.entity) else {
+        let Some((rb, mut local, global, interpolation)) = q.get_mut(body.entity) else {
             continue;
         };
-
-        rb.forces = RigidbodyForces::default();
-        rb.linear_velocity = body.velocity;
-        rb.angular_velocity = body.angular_velocity;
-
-        if body.body_type == RigidbodyType::Kinematic
-            && body.velocity == Vec3::splat(0.0)
-            && body.angular_velocity == Vec3::splat(0.0)
-        {
-            continue;
+        let before = local.as_deref().copied();
+        write_back_body(body, rb, local.as_deref_mut(), global);
+        if let (Some(interpolation), Some(before), Some(after)) = (interpolation, before, local) {
+            interpolation.state.record_step(&before, after);
         }
+    }
+}
 
-        let Some(local) = local else {
-            continue;
-        };
-        let Some(parent_inverse) = body.parent.scale_rotation.inverse() else {
-            continue;
-        };
-        let (_, parent_rotation) = body.parent.scale_rotation.to_lossy_scale_rotation();
+fn write_back_body(
+    body: &Body,
+    rb: &mut RigidbodyComponent,
+    local: Option<&mut LocalTransform>,
+    global: Option<&mut GlobalTransform>,
+) {
+    let valid = [body.position, body.velocity, body.angular_velocity]
+        .iter()
+        .all(|v| v.into_array().iter().all(|x| x.is_finite()));
+    if !valid {
+        return;
+    }
 
-        local.position = parent_inverse * (body.position - body.parent.position);
-        local.rotation = (conjugate(parent_rotation.normalized()) * body.rotation).normalized();
+    rb.forces = RigidbodyForces::default();
+    rb.linear_velocity = body.velocity;
+    rb.angular_velocity = body.angular_velocity;
 
-        if let Some(global) = global {
-            global.position = body.position;
-            global.scale_rotation = body.rotation.to_matrix() * Mat3::scale(body.scale);
+    if body.body_type == RigidbodyType::Kinematic && body.velocity == Vec3::splat(0.0) && body.angular_velocity == Vec3::splat(0.0) {
+        return;
+    }
+
+    let Some(local) = local else {
+        return;
+    };
+    let Some(parent_inverse) = body.parent.scale_rotation.inverse() else {
+        return;
+    };
+    let (_, parent_rotation) = body.parent.scale_rotation.to_lossy_scale_rotation();
+
+    local.position = parent_inverse * (body.position - body.parent.position);
+    local.rotation = (conjugate(parent_rotation.normalized()) * body.rotation).normalized();
+
+    if let Some(global) = global {
+        global.position = body.position;
+        global.scale_rotation = body.rotation.to_matrix() * Mat3::scale(body.scale);
+    }
+}
+
+pub fn interpolate_rigidbodies(mut world: WorldDataMut) {
+    let (res, mut ent, _) = world.as_tuple_mut();
+    let Some(alpha) = res.get::<TimeResource>().map(|t| t.fixed_step_alpha()) else {
+        return;
+    };
+
+    let mut shown = Vec::new();
+    {
+        let mut q = ent.query_mut::<(
+            EntityId,
+            &mut RigidbodyInterpolationComponent,
+            &mut LocalTransform,
+            Option<&ChildComponent>,
+        )>();
+        for (entity, interpolation, local, child) in q.iter_mut() {
+            interpolation.state.show(local, alpha);
+            shown.push((entity, *local, child.map(|c| c.parent())));
         }
+    }
+
+    // keeps the body's own global in step with the shown pose for systems between this group and the transform pass
+    for (entity, local, parent) in shown {
+        let parent = parent
+            .and_then(|p| ent.get_component::<GlobalTransform>(p).copied())
+            .unwrap_or(GlobalTransform::IDENTITY);
+        if let Some(global) = ent.get_component_mut::<GlobalTransform>(entity) {
+            *global = parent.calculate_child(&local);
+        }
+    }
+}
+
+pub fn restore_interpolated_rigidbodies(mut q: WorldQuery<(&mut RigidbodyInterpolationComponent, &mut LocalTransform)>) {
+    for (interpolation, local) in q.iter_mut() {
+        interpolation.state.restore(local);
     }
 }
 

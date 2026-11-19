@@ -167,6 +167,20 @@
 //! assert_eq!(time.begin_frame(0.1), 2);
 //! ```
 //!
+//! [`fixed_step_alpha`](TimeResource::fixed_step_alpha) is the time left in the accumulator after the
+//! frame's fixed steps, as a fraction of `fixed_time_step` (0..=1). `Update` code uses it to blend
+//! between the last two fixed steps:
+//!
+//! ```
+//! use aphyn_app::TimeResource;
+//!
+//! let mut time = TimeResource::default();
+//! time.fixed_time_step = 0.02;
+//! assert_eq!(time.begin_frame(0.025), 1);
+//! time.begin_fixed_step();
+//! assert!((time.fixed_step_alpha() - 0.25).abs() < 1e-4);
+//! ```
+//!
 //! [`run_frame_schedules`] performs one frame (advance time, the due `FixedUpdate` passes, then
 //! `Update`); the app and the editor's simulated world both use it so their order stays identical.
 //! It takes the [`ThreadPoolAccess`](aphyn_ecs::ThreadPoolAccess) the passes run on: [`App`] passes

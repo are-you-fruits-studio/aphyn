@@ -71,7 +71,11 @@
 //! [`SYSTEM_GROUP_COLLISION`](aphyn_collision::SYSTEM_GROUP_COLLISION) group runs before
 //! [`SYSTEM_GROUP_TRANSFORM`](aphyn_transform::SYSTEM_GROUP_TRANSFORM), which runs before
 //! [`SYSTEM_GROUP_RENDER`](aphyn_render_features::SYSTEM_GROUP_RENDER): colliders settle, transforms
-//! propagate, the frame renders. In `Start` it orders `SYSTEM_GROUP_RENDER` (which inserts the built-in
+//! propagate, the frame renders. Physics interpolation
+//! ([`SYSTEM_GROUP_PHYSICS_INTERPOLATION`](aphyn_physics::SYSTEM_GROUP_PHYSICS_INTERPOLATION)) runs before
+//! the transform group and its restore
+//! ([`SYSTEM_GROUP_PHYSICS_RESTORE`](aphyn_physics::SYSTEM_GROUP_PHYSICS_RESTORE)) after it, so the
+//! shown body pose propagates to children. In `Start` it orders `SYSTEM_GROUP_RENDER` (which inserts the built-in
 //! shaders and material templates) before `SYSTEM_GROUP_ASSETS`, so asset files can reference them. The name carries an upstream misspelling (`defult`);
 //! callers must match it exactly.
 //!
@@ -113,7 +117,10 @@ use aphyn_collision::{
 use aphyn_ecs::{Component, EntityId, Schedule, WorldBehaviorBuilderMut, WorldDataMut};
 use aphyn_ffi::{FfiIndexMap, FfiOption, FfiSmallString, FfiString, FfiVec};
 use aphyn_math::{Mat, Mat3, Quat, Vec2, Vec3, Vec4};
-use aphyn_physics::{PhysicsMaterial, PhysicsMaterialComponent, RigidbodyComponent, RigidbodyForces, RigidbodyType};
+use aphyn_physics::{
+    PhysicsMaterial, PhysicsMaterialComponent, RigidbodyComponent, RigidbodyForces, RigidbodyInterpolationComponent,
+    RigidbodyInterpolationState, RigidbodyType,
+};
 use aphyn_render::{
     Camera, CameraProjection, ComputeShaderAssetMetadata, CoordinateSpaceType, Material, MaterialData, MaterialDataEntry,
     MaterialDataValue, MaterialInput, MaterialPassTarget, MaterialTemplate, MaterialTemplatePass, MaterialTextureBinding,
@@ -158,6 +165,14 @@ pub fn add_defult_modules_to(mut data: WorldDataMut, mut behavior: WorldBehavior
         .order_group(aphyn_collision::SYSTEM_GROUP_COLLISION)
         .before_group(aphyn_transform::SYSTEM_GROUP_TRANSFORM)
         .before_group(aphyn_render_features::SYSTEM_GROUP_RENDER);
+    behavior
+        .get_mut(Schedule::Update)
+        .order_group(aphyn_physics::SYSTEM_GROUP_PHYSICS_INTERPOLATION)
+        .before_group(aphyn_transform::SYSTEM_GROUP_TRANSFORM);
+    behavior
+        .get_mut(Schedule::Update)
+        .order_group(aphyn_transform::SYSTEM_GROUP_TRANSFORM)
+        .before_group(aphyn_physics::SYSTEM_GROUP_PHYSICS_RESTORE);
 
     // asset files may reference the built-in shaders and material templates
     behavior
@@ -192,6 +207,7 @@ pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry
     register_transserializer::<ColliderComponent>(serializer);
     register_transserializer::<RigidbodyComponent>(serializer);
     register_transserializer::<PhysicsMaterialComponent>(serializer);
+    register_transserializer::<RigidbodyInterpolationComponent>(serializer);
 
     // asset metadata
     register_transserializer::<StandardMeshAssetMetadata>(serializer);
@@ -276,6 +292,7 @@ pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry
     register_transserializer::<MeshCollider>(serializer);
     register_transserializer::<RigidbodyType>(serializer);
     register_transserializer::<RigidbodyForces>(serializer);
+    register_transserializer::<RigidbodyInterpolationState>(serializer);
     register_transserializer::<PhysicsMaterial>(serializer);
 
     register_transserializer::<FfiVec<EntityId>>(serializer);

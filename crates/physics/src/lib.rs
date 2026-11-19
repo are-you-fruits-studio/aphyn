@@ -96,6 +96,63 @@
 //! assert!(rb.forces.is_zero());
 //! ```
 //!
+//! #### Smooth rendering between fixed steps
+//!
+//! Bodies move only on fixed steps, so with a frame rate that isn't a multiple of the step rate they
+//! render in uneven jumps. Add a [`RigidbodyInterpolationComponent`] to a body to opt in to
+//! interpolation: every step records the body's previous and current `LocalTransform` pose, and in
+//! `Update` the [`SYSTEM_GROUP_PHYSICS_INTERPOLATION`] group writes the blend of the two by
+//! [`TimeResource::fixed_step_alpha`](aphyn_app::TimeResource::fixed_step_alpha) into the body's
+//! `LocalTransform` and its own `GlobalTransform`. The [`SYSTEM_GROUP_PHYSICS_RESTORE`] group puts the
+//! simulated pose back into `LocalTransform`, so `FixedUpdate` code and the next step never see the
+//! shown one. `aphyn_modules` orders interpolation before the transform pass and the restore after it,
+//! so children and rendering follow the shown pose. `Update` systems ordered after the interpolation
+//! group (e.g. a follow camera) read the shown pose too.
+//!
+//! The shown pose lags the simulation by up to one step. Writing the body's `LocalTransform` from game
+//! code counts as a teleport: the history restarts at the new pose instead of blending towards it.
+//!
+//! ```
+//! use aphyn_app::{TimeResource, run_frame_schedules};
+//! use aphyn_collision::{ColliderComponent, CollisionSphere};
+//! use aphyn_ecs::*;
+//! use aphyn_math::Vec3;
+//! use aphyn_physics::*;
+//! use aphyn_render_features::RenderFeatureRegistry;
+//! use aphyn_transform::{GlobalTransform, LocalTransform};
+//!
+//! let mut data = WorldData::default();
+//! let mut behavior = WorldBehaviorBuilder::new(data.types().clone());
+//! add_physics_module_to(data.as_mut(), behavior.as_mut(), &mut RenderFeatureRegistry::default());
+//! let mut time = TimeResource::default();
+//! time.fixed_time_step = 0.02;
+//! data.resources_mut().insert(time);
+//! data.resources_mut().get_mut::<PhysicsResource>().unwrap().gravity = Vec3::splat(0.0);
+//!
+//! let body = {
+//!     let mut ec = data.entities_mut();
+//!     let body = ec.create_entity();
+//!     ec.add_component(body, LocalTransform::IDENTITY).ok().unwrap();
+//!     ec.add_component(body, GlobalTransform::IDENTITY).ok().unwrap();
+//!     let rb = RigidbodyComponent { linear_velocity: Vec3::new(10.0, 0.0, 0.0), linear_damping: 0.0, ..Default::default() };
+//!     ec.add_component(body, rb).ok().unwrap();
+//!     let sphere = CollisionSphere { center: Vec3::splat(0.0), radius: 0.5 };
+//!     ec.add_component(body, ColliderComponent::new(sphere)).ok().unwrap();
+//!     ec.add_component(body, RigidbodyInterpolationComponent::default()).ok().unwrap();
+//!     body
+//! };
+//!
+//! let mut behavior = behavior.build();
+//! // one step (x: 0 -> 0.2) and half a step left over
+//! run_frame_schedules(&mut behavior, data.as_mut(), 0.03, ThreadPoolAccess::single_threaded());
+//!
+//! let entities = data.entities();
+//! let query = entities.query::<(&LocalTransform, &GlobalTransform)>();
+//! let (local, global) = query.get(body).unwrap();
+//! assert!((global.position.x - 0.1).abs() < 1e-3, "shown {:?}", global.position);
+//! assert!((local.position.x - 0.2).abs() < 1e-3, "simulated {:?}", local.position);
+//! ```
+//!
 //! #### Layers
 //!
 //! Each collider has a `CollisionLayer`. [`PhysicsResource::layer_matrix`] (a
@@ -212,12 +269,23 @@
 //!    `GlobalTransform`, `LocalTransform` position/rotation (scale is untouched); the body's own
 //!    `GlobalTransform` is refreshed too.
 //!    Kinematic bodies with zero velocity are not written, so code can move them by transform.
+//!    Bodies with a [`RigidbodyInterpolationComponent`] also record the step into its history; a
+//!    `LocalTransform` that differs from the recorded current pose before the step resets it.
 //! 8. Rebuild [`PhysicsWorldResource`] from the new poses.
+//!
+//! #### Interpolation
+//!
+//! `interpolate_rigidbodies` (exclusive) shows the blended pose and remembers it;
+//! `restore_interpolated_rigidbodies` writes the simulated pose back only if `LocalTransform` still
+//! holds the shown one, otherwise game code moved the body after interpolation and the history is
+//! reset to that pose. Between frames `LocalTransform` therefore always holds the simulated pose. The
+//! body's own `GlobalTransform` keeps the shown pose until the next transform pass or step.
 //!
 //! #### Known gaps (todos)
 //!
-//! - No warm starting, sleeping, continuous collision detection, joints, or render interpolation
-//!   between fixed steps.
+//! - No warm starting, sleeping, continuous collision detection or joints.
+//! - Interpolation is linear (position lerp, rotation nlerp) between the last two steps, so what is
+//!   shown lags the simulation by up to one fixed step; there is no extrapolation.
 //! - Deterministic mode (stable float operations, order-independent resolution) is not implemented.
 //! - A body nested under another body reads its parent's `GlobalTransform`, which is stale until the
 //!   next transform pass when the parent body moved during the same frame.
@@ -235,6 +303,8 @@ use aphyn_ecs::{Schedule, WorldBehaviorBuilderMut, WorldDataMut};
 use aphyn_render_features::RenderFeatureRegistry;
 
 pub const SYSTEM_GROUP_PHYSICS: &'static str = "aphyn_physics";
+pub const SYSTEM_GROUP_PHYSICS_INTERPOLATION: &'static str = "aphyn_physics_interpolation";
+pub const SYSTEM_GROUP_PHYSICS_RESTORE: &'static str = "aphyn_physics_restore";
 
 // todo: bundle registration params
 pub fn add_physics_module_to(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
@@ -245,4 +315,15 @@ pub fn add_physics_module_to(mut data: WorldDataMut, mut behavior: WorldBehavior
         .get_mut(Schedule::FixedUpdate)
         .group(SYSTEM_GROUP_PHYSICS)
         .insert_child_system(step_physics);
+
+    let mut update = behavior.get_mut(Schedule::Update);
+    update
+        .group(SYSTEM_GROUP_PHYSICS_INTERPOLATION)
+        .insert_child_system(interpolate_rigidbodies);
+    update
+        .group(SYSTEM_GROUP_PHYSICS_RESTORE)
+        .insert_child_system(restore_interpolated_rigidbodies);
+    update
+        .order_group(SYSTEM_GROUP_PHYSICS_INTERPOLATION)
+        .before_group(SYSTEM_GROUP_PHYSICS_RESTORE);
 }

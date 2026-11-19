@@ -54,6 +54,13 @@ impl TimeResource {
         self.fixed_frame_time += self.fixed_time_step as f64;
         self.accumulator -= self.fixed_time_step as f64;
     }
+
+    pub fn fixed_step_alpha(&self) -> f32 {
+        if self.fixed_time_step <= 0.0 {
+            return 1.0;
+        }
+        (self.accumulator / self.fixed_time_step as f64).clamp(0.0, 1.0) as f32
+    }
 }
 
 pub fn run_frame_schedules(

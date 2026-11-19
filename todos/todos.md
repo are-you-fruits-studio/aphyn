@@ -10,6 +10,7 @@
 - visualize pretty/conveniently the other types of serialized values (bool as checkbox, color as a color selector, etc.)
 - fbx import
 - fonts and their import
+- refactor serialization (optimize)
 
 - resources serialization (or resources as assets)
     - What holds serialized resources? Scene? ResourcesScene? Maybe I should rename current Scene into MultiPrefab and create a separate scene that contains entities+components AND resources?
@@ -18,9 +19,17 @@
 
 # Queue
 
+- clustered forward rendering
+- SSR
+- SSGI
+- SSAO
+- make sure skybox affects SSGI and SSR
+- optional Deferred rendering
 - invert depth buffer (make far=0, near=1)
 - instantiate prefabs in editor (probably need to support prefabs as part of other prefabs and overrides)
+- convenient LayerMask inspector
 - console window
+- frustum culling
 
 # Not prioritized yet
 
