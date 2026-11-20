@@ -1,12 +1,25 @@
 struct GlobalData {
     matrix_world_to_clip: mat4x4<f32>,
     matrix_window_to_clip: mat4x4<f32>,
+    matrix_world_to_view: mat4x4<f32>,
+    matrix_clip_to_view: mat4x4<f32>,
     camera_position_world: vec3<f32>,
     lights_count: u32,
     ambient_color: vec3<f32>,
     shadow_bias: f32,
     camera_forward_world: vec3<f32>,
     shadow_normal_offset: f32,
+    cluster_dims: vec3<u32>,
+    directional_lights_count: u32,
+    target_size: vec2<f32>,
+    cluster_near: f32,
+    cluster_far: f32,
+    cluster_index_capacity: u32,
+}
+
+struct ClusterCell {
+    index: u32,
+    count: u32,
 }
 
 struct MaterialData {

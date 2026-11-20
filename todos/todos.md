@@ -16,10 +16,10 @@
     - What holds serialized resources? Scene? ResourcesScene? Maybe I should rename current Scene into MultiPrefab and create a separate scene that contains entities+components AND resources?
     - What do I need scenes for? Scenes are useful to playtest different setups. Or are they? What more is there in terms of their use-cases? Are scenes usable to be spawned manually at runtime? Or are they for app-init only?
     - If scenes are only for initing the app/world/"scene?", then they should contain both entities+components AND resources. Should they also contain systems & render-features in this case?
+    - Make serialization use registry builder that gathers serializers and on build builds an immutable registry with a dependency-tree inside. Don't use local serializer_registry, use context. The context is a typed registry of virtual functions that some registered serializers can use. The local serializers are only used for EntityId, AssetHandle and direct asset types - all these can be handled with local context instead.
 
 # Queue
 
-- clustered forward rendering
 - SSR
 - SSGI
 - SSAO

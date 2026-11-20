@@ -1,12 +1,7 @@
 #include "aphyn/standard_bindings.wgsl"
 #include "aphyn/pbr.wgsl"
 #include "aphyn/shadows.wgsl"
-
-// todo: light structure. Needs to support lights:
-// - Point (hdr-color, center, range)
-// - Spot (hdr-color, center, range, direction_dst, fov)
-// - Directional (hdr-color, direction_dst)
-// - Area? (todo for the future)
+#include "aphyn/clusters.wgsl"
 
 @vertex
 fn vs_main(vertex: VertexAttributes, instance_raw: InstanceRawAttributes) -> VertexOutput {
@@ -63,6 +58,32 @@ fn customer_vertex(vertex: VertexAttributes, instance: InstanceAttributes) -> Ve
 }
 #endif
 
+#ifdef LIT
+fn shade_light(
+    light_index: u32,
+    in: VertexOutput,
+    normal_world: vec3<f32>,
+    view_dir: vec3<f32>,
+    diffuse_color: vec3<f32>,
+    metallic: f32,
+    roughness: f32
+) -> vec3<f32> {
+    let light = light_generic_to_fragment(lights[light_index], in.position_world);
+
+    let color_lit = cook_torrance_brdf(
+        normal_world,
+        view_dir,
+        diffuse_color,
+        metallic,
+        roughness,
+        light.direction_src,
+        light.color
+    );
+
+    return color_lit * light_shadow(lights[light_index], in.position_world, in.normal_world);
+}
+#endif
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var color = in.color * textureSample(color_texture, color_sampler, in.uv);
@@ -90,22 +111,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var metallic = material_data.metallic * textureSample(metallic_texture, metallic_sampler, in.uv).x;
     var roughness = material_data.roughness * textureSample(roughness_texture, roughness_sampler, in.uv).x;
 
-    for (var i: u32 = 0; i < global_data.lights_count; i++) {
-        var light = light_generic_to_fragment(lights[i], in.position_world);
+    for (var i: u32 = 0; i < global_data.directional_lights_count; i++) {
+        color = vec4<f32>(color.xyz + shade_light(i, in, normal_world, view_dir, diffuse_color, metallic, roughness), color.w);
+    }
 
-        var color_lit = cook_torrance_brdf(
-            normal_world,
-            view_dir,
-            diffuse_color,
-            metallic,
-            roughness,
-            light.direction_src,
-            light.color
-        );
+    let cell = cluster_grid[cluster_index_world(global_data, in.position_clip.xy, in.position_world)];
 
-        color_lit *= light_shadow(lights[i], in.position_world, in.normal_world);
-
-        color = vec4<f32>(color.xyz + color_lit, color.w);
+    for (var i: u32 = 0; i < cell.count; i++) {
+        let light_index = cluster_light_indices[cell.index + i];
+        color = vec4<f32>(color.xyz + shade_light(light_index, in, normal_world, view_dir, diffuse_color, metallic, roughness), color.w);
     }
 
     color = vec4<f32>(color.xyz + global_data.ambient_color * diffuse_color * (1.0 - metallic), color.w);

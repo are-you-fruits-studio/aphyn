@@ -347,6 +347,9 @@
 //! `CursorGrabState::None` at creation and removed from the requests in
 //! `window_state_apply_changes` later, so the state keeps the previous mode. Exclusive fullscreen
 //! uses the current monitor's first video mode and falls back to borderless when there is none.
+//! Vsync is no window property: it is applied to the render surface (`RenderApi::set_vsync`), from the
+//! initial state right after the surface is created and from a differing request in
+//! `core_system_update_window`, and like the title it is never read back.
 //!
 //! #### Init ctx
 //!

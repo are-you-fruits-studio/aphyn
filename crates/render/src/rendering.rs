@@ -66,17 +66,20 @@ impl CurrentRenderingResource {
     }
 
     pub fn world_to_clip(&self) -> Mat4<f32> {
+        self.view_to_clip() * self.world_to_view()
+    }
+
+    pub fn world_to_view(&self) -> Mat4<f32> {
+        self.camera_scale_rotation
+            .into_4x4_with_offset(self.camera_position)
+            .inverse()
+            .unwrap()
+    }
+
+    pub fn view_to_clip(&self) -> Mat4<f32> {
         let [width, height] = self.target_size();
         let aspect = width as f32 / height as f32;
 
-        let projection_matrix = self.camera.projection_matrix(aspect);
-
-        let view_matrix = self
-            .camera_scale_rotation
-            .into_4x4_with_offset(self.camera_position)
-            .inverse()
-            .unwrap();
-
-        projection_matrix * view_matrix
+        self.camera.projection_matrix(aspect)
     }
 }

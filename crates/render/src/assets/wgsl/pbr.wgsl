@@ -7,6 +7,14 @@ struct FragmentLight {
     color: vec3<f32>,
 }
 
+// 1 near the light, easing to exactly 0 at `range` (the UE4 / Frostbite window)
+fn light_range_window(distance_sqr: f32, range: f32) -> f32 {
+    let ratio_sqr = distance_sqr / (range * range);
+    let window = saturate(1.0 - ratio_sqr * ratio_sqr);
+
+    return window * window;
+}
+
 fn light_generic_to_fragment(light: GenericLight, fragment_pos_world: vec3<f32>) -> FragmentLight {
     var output: FragmentLight;
 
@@ -18,6 +26,7 @@ fn light_generic_to_fragment(light: GenericLight, fragment_pos_world: vec3<f32>)
         var distance_vec = light.center - fragment_pos_world;
         var distance_sqr = dot(distance_vec, distance_vec);
         output.color /= distance_sqr;
+        output.color *= light_range_window(distance_sqr, light.range);
     } else if (light.light_type == 1) {
         // spot
         output.direction_src = normalize(light.center - fragment_pos_world);
@@ -27,6 +36,7 @@ fn light_generic_to_fragment(light: GenericLight, fragment_pos_world: vec3<f32>)
         var projected_fragment_pos = light.center + light.direction_dst * dot(fragment_pos_world - light.center, light.direction_dst);
         var angle = acos(distance(light.center, projected_fragment_pos) / distance(light.center, fragment_pos_world)) * 2.0;
         output.color *= step(angle, light.fov);
+        output.color *= light_range_window(distance_sqr, light.range);
     } else if (light.light_type == 2) {
         // directional
         output.direction_src = -light.direction_dst;

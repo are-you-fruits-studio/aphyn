@@ -1,7 +1,7 @@
 use aphyn_ecs::Resource;
 use aphyn_ffi::*;
 use aphyn_math::{Vec3, Vec4};
-use aphyn_render::{RenderSpace, StandardGlobalBindings, StandardTexture};
+use aphyn_render::{CLUSTER_PAIRS_CAPACITY_DEFAULT, RenderSpace, StandardGlobalBindings, StandardTexture};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -168,6 +168,21 @@ impl Default for ShadowSettingsResource {
             bias: 0.001,
             normal_offset: 0.1,
             spot_near: 0.05,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct ClusteredLightingResource {
+    // the size of the light index list all clusters share
+    pub max_light_cluster_pairs: u32,
+}
+
+impl Default for ClusteredLightingResource {
+    fn default() -> Self {
+        Self {
+            max_light_cluster_pairs: CLUSTER_PAIRS_CAPACITY_DEFAULT as u32,
         }
     }
 }

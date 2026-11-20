@@ -5,8 +5,8 @@
 //! features of one world. Every [`render_view`](RenderFeatureRegistry::render_view) asks each
 //! feature for its passes, sorts them by an absolute `u64` order, and runs them one after another
 //! on the calling thread. Everything the engine draws is such a feature: [`GlobalsRenderFeature`]
-//! (camera, lights, depth and transparent targets), [`MaterialRenderFeature`] (every entity with a
-//! material), [`ExposureRenderFeature`], [`BloomRenderFeature`], [`ColorGradingRenderFeature`] and
+//! (camera, lights, depth and transparent targets), [`ClusteringRenderFeature`] (assigns lights to
+//! view clusters), [`MaterialRenderFeature`] (every entity with a material), [`ExposureRenderFeature`], [`BloomRenderFeature`], [`ColorGradingRenderFeature`] and
 //! [`GizmosRenderFeature`].
 //!
 //! # How to use
@@ -24,10 +24,30 @@
 //! `GlobalDisableableComponent::is_disabled` hides it. Nothing is drawn without a camera: the app
 //! renders through the first [`CameraComponent`]. Lit materials are shaded by every
 //! [`StandardLightComponent`] (up to `LIGHTS_COUNT_MAX`); point and spot lights sit at their
-//! transform's position, spot and directional lights point along their local `-Y` axis. On top of
+//! transform's position, spot and directional lights point along their local `-Y` axis. Point and spot
+//! lights fall off with `1/d²`, eased smoothly to zero at their `range` (most of the easing happens in
+//! the outer part of the range, so nothing is cut off at a cluster's edge). On top of
 //! that every lit fragment receives `color * albedo * (1 - metallic)` from [`AmbientLightResource`]
 //! (linear, zero by default), so surfaces no light reaches are not pitch black. A view can override
 //! that color with `CurrentRenderingResource::ambient_light` (the editor's scene view does).
+//!
+//! #### Clustered lighting
+//!
+//! Lit fragments don't loop over every light: the view frustum is split into `CLUSTER_DIMS`
+//! (16x9 screen tiles times 24 depth slices, spaced exponentially between the camera's near and far),
+//! every point and spot light is assigned to the clusters its range (and, for spots, its cone)
+//! touches, and a fragment shades only its cluster's lights plus every directional light.
+//! [`ClusteredLightingResource::max_light_cluster_pairs`] sizes the light index list all clusters
+//! share. A cluster has no cap of its own; pairs past the shared capacity are dropped (those lights go
+//! dark in those clusters), which is printed once:
+//!
+//! ```ignore
+//! use aphyn::*;
+//!
+//! fn make_room_for_many_lights(mut clustering: ResMut<ClusteredLightingResource>) {
+//!     clustering.max_light_cluster_pairs = 1 << 20;
+//! }
+//! ```
 //!
 //! #### Shadows
 //!
@@ -120,7 +140,7 @@
 //! #### Orders
 //!
 //! Orders are absolute. The stages are [`RENDER_ORDER_PREPARE`], [`RENDER_ORDER_DEPTH_PREPASS`],
-//! [`RENDER_ORDER_SHADOW`], [`RENDER_ORDER_OPAQUE`], [`RENDER_ORDER_SKYBOX`],
+//! [`RENDER_ORDER_SHADOW`], [`RENDER_ORDER_LIGHT_CULLING`], [`RENDER_ORDER_OPAQUE`], [`RENDER_ORDER_SKYBOX`],
 //! [`RENDER_ORDER_TRANSPARENT`], [`RENDER_ORDER_TRANSPARENT_COMPOSITE`] and
 //! [`RENDER_ORDER_POST_PROCESSING`], followed by the engine's [`RENDER_ORDER_EXPOSURE`],
 //! [`RENDER_ORDER_BLOOM`], [`RENDER_ORDER_COLOR_GRADING`] and [`RENDER_ORDER_GIZMOS`]. Passes with
@@ -158,7 +178,10 @@
 //! else the [`AmbientLightResource`] color, else zero), and replaces [`DepthTextureResource`] and
 //! [`TransparentTargetResource`] when their size differs from the target. Its pass at
 //! [`RENDER_ORDER_PREPARE`] clears both. The uploads are queued writes that land at the next
-//! submit, which is before any draw.
+//! submit, which is before any draw. Lights are uploaded directional first; the uniform's
+//! `directional_lights_count` marks where the clustered (point and spot) lights start. It also
+//! applies [`ClusteredLightingResource::max_light_cluster_pairs`] to the bindings before writing the
+//! uniform, which carries the resulting index capacity.
 //!
 //! It also lays out the view's shadows (`shadows.rs`): it inserts [`ShadowAtlasResource`] on first
 //! use (a 1x1 atlas until a shadow is needed, then `atlas_size`), assigns each shadowed light its
@@ -172,6 +195,29 @@
 //! slice. Light bases come from `look_rotation` (a proper rotation, so back-face culling holds).
 //! Shadows depend on the camera, so they are rebuilt per view. The `PREPARE` pass also clears the
 //! atlas when any view uses it.
+//!
+//! #### Clustering feature
+//!
+//! [`ClusteringRenderFeature`] runs after the globals feature and adds one pass at
+//! [`RENDER_ORDER_LIGHT_CULLING`]. It resets the dropped-pairs counter and dispatches three compute
+//! shaders sharing `aphyn/cluster_compute.wgsl` (the cluster math itself is `aphyn/clusters.wgsl` in
+//! the render crate):
+//!
+//! 1. `cluster_prefix_count.wgsl`, one thread per cluster: counts the lights touching it,
+//! 2. `cluster_prefix_scan.wgsl`, a single workgroup of 256 threads: each thread sums a contiguous
+//!    chunk of clusters, the chunk sums are scanned in shared memory, then each thread writes its
+//!    chunk's offsets; counts that don't fit into the index list are clamped and counted as dropped,
+//! 3. `cluster_prefix_fill.wgsl`, one thread per cluster: repeats the tests and writes the lights at
+//!    the cluster's offset.
+//!
+//! Each dispatch submits on its own, so every pass sees the previous one's writes. The result is
+//! `cluster_grid[cluster] = { index: offset into cluster_light_indices, count }`. A cluster's box is the
+//! view-space AABB of its frustum chunk, unprojected through the uniform's clip-to-view; the first and
+//! last slices reach the camera's own near and far, because fragments outside
+//! `[cluster_near, cluster_far]` are clamped into them. A light is a view-space sphere (its range
+//! scaled like the view), and a spot is additionally culled with a cone-vs-sphere test against the
+//! box's bounding sphere. Every 120th frame, until it has printed once, the pass reads the dropped
+//! pairs back (a blocking GPU wait).
 //!
 //! #### Material feature
 //!
@@ -194,7 +240,7 @@
 //!    `Transparent`.
 //!
 //! A draw binds group 0 to the globals (uniform at 0, lights at 1, shadow views at 2, shadow atlas at
-//! 3, its comparison sampler at 4), the material's uniform buffers
+//! 3, its comparison sampler at 4, cluster grid at 5, cluster light indices at 6), the material's uniform buffers
 //! at their mapped `(group, binding)`, and every texture input resolved from
 //! `AssetStorageResource<StandardTexture>` on each draw, falling back to the input's
 //! `MaterialTextureFallback` texture of `RenderApiResource`. It draws into the view's target
@@ -262,6 +308,7 @@
 //! is unloaded.
 
 mod builtins;
+mod clustering;
 mod components;
 mod feature;
 mod gizmos;
@@ -276,6 +323,7 @@ mod shadows;
 mod utils;
 
 pub use builtins::*;
+pub use clustering::ClusteringRenderFeature;
 pub use components::*;
 pub use feature::*;
 pub use gizmos::*;
@@ -296,6 +344,7 @@ use aphyn_render::{ComputeShader, Material, MaterialTemplate, Shader, StandardMe
 pub const SYSTEM_GROUP_RENDER: &str = "aphyn_render";
 
 pub const RENDER_FEATURE_GLOBALS: &str = "globals";
+pub const RENDER_FEATURE_CLUSTERING: &str = "clustering";
 pub const RENDER_FEATURE_MATERIAL: &str = "material";
 pub const RENDER_FEATURE_EXPOSURE: &str = "exposure";
 pub const RENDER_FEATURE_BLOOM: &str = "bloom";
@@ -323,6 +372,7 @@ pub fn add_render_features_module_to(
     resources.insert(ExposureResource::default());
     resources.insert(BloomResource::default());
     resources.insert(ColorGradingResource::default());
+    resources.insert(ClusteredLightingResource::default());
 
     behavior
         .get_mut(Schedule::Start)
@@ -334,6 +384,7 @@ pub fn add_render_features_module_to(
         .insert_child_system(prepare_gizmos);
 
     render.add_feature(RENDER_FEATURE_GLOBALS, GlobalsRenderFeature::default());
+    render.add_feature(RENDER_FEATURE_CLUSTERING, ClusteringRenderFeature::default());
     render.add_feature(RENDER_FEATURE_MATERIAL, MaterialRenderFeature::default());
     render.add_feature(RENDER_FEATURE_EXPOSURE, ExposureRenderFeature::default());
     render.add_feature(RENDER_FEATURE_BLOOM, BloomRenderFeature::default());

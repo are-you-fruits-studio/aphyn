@@ -27,7 +27,9 @@
 //! [`set_resizable`](WindowResource::set_resizable), [`set_icon`](WindowResource::set_icon)
 //! (a [`WindowIcon`] of RGBA8 pixels, `None` for the platform default),
 //! [`set_cursor_grab`](WindowResource::set_cursor_grab) (a [`CursorGrabState`]) or
-//! [`set_cursor_visible`](WindowResource::set_cursor_visible); the request is applied to the real window at the end of the frame and shows up in
+//! [`set_cursor_visible`](WindowResource::set_cursor_visible) or
+//! [`set_vsync`](WindowResource::set_vsync) (on by default; off picks an immediate or mailbox present
+//! mode when the platform has one, else stays on); the request is applied to the real window at the end of the frame and shows up in
 //! [`state`](WindowResource::state) from the next frame on. A cursor grab mode the platform does
 //! not support is dropped, so the state keeps the previous mode:
 //!
@@ -79,6 +81,7 @@ pub struct WindowState {
     pub icon: FfiOption<WindowIcon>,
     pub cursor_grab: CursorGrabState,
     pub is_cursor_visible: bool,
+    pub is_vsync: bool,
 }
 
 impl Default for WindowState {
@@ -91,6 +94,7 @@ impl Default for WindowState {
             icon: FfiOption::None,
             cursor_grab: CursorGrabState::None,
             is_cursor_visible: true,
+            is_vsync: true,
         }
     }
 }
@@ -118,6 +122,9 @@ impl WindowState {
         if let Some(cursor_visible) = changes.is_cursor_visible.into_option() {
             this.is_cursor_visible = cursor_visible;
         }
+        if let Some(vsync) = changes.is_vsync.into_option() {
+            this.is_vsync = vsync;
+        }
     }
 }
 
@@ -138,6 +145,7 @@ pub struct WindowChangeRequests {
     pub icon: FfiOption<FfiOption<WindowIcon>>,
     pub cursor_grab: FfiOption<CursorGrabState>,
     pub is_cursor_visible: FfiOption<bool>,
+    pub is_vsync: FfiOption<bool>,
 }
 
 #[repr(C)]
@@ -191,5 +199,8 @@ impl WindowResource {
     }
     pub fn set_cursor_visible(&mut self, cursor_visible: bool) {
         self.change_requests.is_cursor_visible = cursor_visible.into();
+    }
+    pub fn set_vsync(&mut self, is_vsync: bool) {
+        self.change_requests.is_vsync = is_vsync.into();
     }
 }

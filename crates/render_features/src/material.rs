@@ -378,6 +378,8 @@ impl MaterialRenderFeature {
                     groups[0].push((2, GpuBinding::Buffer(globals.bindings.shadow_views_buffer())));
                     groups[0].push((3, texture_binding(atlas.texture())));
                     groups[0].push((4, GpuBinding::Sampler(atlas.sampler())));
+                    groups[0].push((5, GpuBinding::Buffer(globals.bindings.cluster_grid_buffer())));
+                    groups[0].push((6, GpuBinding::Buffer(globals.bindings.cluster_indices_buffer())));
                 }
 
                 for uniform in gpu_pass.uniforms() {

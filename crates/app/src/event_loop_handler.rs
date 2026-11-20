@@ -105,6 +105,7 @@ impl ApplicationHandler for EventLoopHandler {
         window_state_refresh_from_window(&mut window_state, &window);
 
         let state = RenderApiResource::new(Arc::clone(&window));
+        state.core().set_vsync(window_state.is_vsync);
 
         let render_target = RenderTarget::new(&state);
 
@@ -362,8 +363,16 @@ fn core_system_read_window(world: WorldDataMut, window: &Window) {
 }
 
 fn core_system_update_window(world: WorldDataMut, window: &Window) {
-    let window_res = world.into_resources_mut().into_get_mut::<WindowResource>().unwrap();
+    let res = world.into_resources_mut();
+    let render_api = res.get::<RenderApiResource>().map(|render_api| render_api.core().clone());
+    let window_res = res.into_get_mut::<WindowResource>().unwrap();
 
     let (state, changes) = WindowResource::state_and_changes_mut(window_res);
     window_state_apply_changes(state, changes, window);
+
+    if let Some(is_vsync) = changes.is_vsync.as_ref().filter(|v| **v != state.is_vsync)
+        && let Some(render_api) = render_api
+    {
+        render_api.set_vsync(*is_vsync);
+    }
 }

@@ -275,9 +275,17 @@
 //!   both `matrix_world_to_clip` (the camera) and `matrix_window_to_clip` (window pixels); a custom
 //!   shader multiplies by whichever fits the space its geometry is in.
 //! - `aphyn/standard_bindings.wgsl`: the standard bind groups (`global_data`, `lights`, `shadow_views`,
-//!   `shadow_atlas`, `shadow_sampler`, `material_data`, and the five material texture/sampler pairs). Includes `standard_types`.
-//! - `aphyn/pbr.wgsl`: `PI`, `FragmentLight`, `light_generic_to_fragment`, `cook_torrance_brdf`
-//!   and its terms, and `create_matrix_tbn`. Includes `standard_types`.
+//!   `shadow_atlas`, `shadow_sampler`, `cluster_grid`, `cluster_light_indices`, `material_data`, and
+//!   the five material texture/sampler pairs). Includes `standard_types`.
+//! - `aphyn/pbr.wgsl`: `PI`, `FragmentLight`, `light_generic_to_fragment` (point and spot lights fall
+//!   off as `1/d²` times `light_range_window`, `saturate(1 - (d/range)^4)^2`, which eases to 0 at
+//!   `range`), `cook_torrance_brdf` and its terms, and `create_matrix_tbn`. Includes
+//!   `standard_types`.
+//! - `aphyn/clusters.wgsl`: the light-cluster math: `cluster_index_world(global_data, frag_coord,
+//!   position_world)` gives a fragment's cluster, whose `cluster_grid` cell lists its point and spot
+//!   lights in `cluster_light_indices`; `cluster_aabb`, `cluster_light` and `cluster_light_intersects`
+//!   are what the culling passes test with. Includes `standard_types`. A custom lit shader shades like
+//!   the standard one: the first `directional_lights_count` lights plus its cluster's lights.
 //! - `aphyn/shadows.wgsl`: `light_shadow(light, position_world, normal_world)`, the 0..1 shadow
 //!   factor of a light (1 without shadows). Includes `standard_bindings`.
 //! - `aphyn/fullscreen.wgsl`: `fullscreen_triangle_position(vertex_index)` and `fullscreen_uv(position)`
@@ -360,8 +368,10 @@
 //! shaded); `aphyn_app` passes `None`. Its optional `ambient_light` replaces the world's
 //! `AmbientLightResource` color for this rendering only (the Scene window's ambient override);
 //! `aphyn_app` passes `None`.
-//! [`world_to_clip`](CurrentRenderingResource::world_to_clip) is the perspective projection, using
-//! the target's aspect, times the inverse of the camera transform. The target is created by
+//! [`world_to_clip`](CurrentRenderingResource::world_to_clip) is
+//! [`view_to_clip`](CurrentRenderingResource::view_to_clip) (the projection, using the target's
+//! aspect) times [`world_to_view`](CurrentRenderingResource::world_to_view) (the inverse of the
+//! camera transform). The target is created by
 //! `aphyn_app` in [`RENDER_TARGET_FORMAT`], which the render features also use, so both sides must
 //! keep agreeing on it. It is not `#[repr(C)]` yet (`todo: support ffi`).
 //!
@@ -428,7 +438,16 @@
 //! fields round the structs up the same way. A third buffer holds up to [`SHADOW_VIEWS_MAX`]
 //! [`StandardShadowView`]s; a light uses the `shadow_count` views from `shadow_start` (cascades in
 //! increasing `split_far`). The shadow atlas itself is owned by `aphyn_render_features`.
-//! [`StandardUniformGlobal`], [`StandardGenericLight`], [`StandardShadowView`], and [`StandardVertex`] are `#[repr(C)]` and
+//!
+//! The remaining buffers serve clustered lighting ([`CLUSTER_DIMS`], [`CLUSTERS_COUNT`] clusters):
+//! the grid of [`StandardClusterCell`]s (one per cluster), the light index list (the pairs capacity,
+//! [`CLUSTER_PAIRS_CAPACITY_DEFAULT`] at first) and one atomic counter of dropped light-cluster pairs.
+//! `set_cluster_pairs_capacity` re-creates the index list when the capacity changes, so bind groups
+//! must be resolved from the bindings each frame. The uniform carries what the cluster math needs:
+//! world-to-view, clip-to-view, the cluster dims, the target size, the slicing depth range,
+//! `directional_lights_count` (lights are uploaded directional first) and the index capacity. The
+//! cluster passes themselves live in `aphyn_render_features`.
+//! [`StandardUniformGlobal`], [`StandardGenericLight`], [`StandardShadowView`], [`StandardClusterCell`], and [`StandardVertex`] are `#[repr(C)]` and
 //! marked [`AllBitsInit`](aphyn_utils::mem::AllBitsInit) /
 //! [`AllBitVariationsValid`](aphyn_utils::mem::AllBitVariationsValid) so they can be uploaded as raw
 //! bytes.
@@ -522,7 +541,7 @@
 //! [`StandardInstance::desc`], the group 0 bindings the material feature of `aphyn_render_features`
 //! passes, and that crate's built-in standard templates. `shader_standard.wgsl` sits next to them
 //! but is not a library ([`STANDARD_SHADER_WGSL`]); it includes `aphyn/standard_bindings.wgsl`,
-//! `aphyn/pbr.wgsl` and `aphyn/shadows.wgsl`. `shader_shadow_caster.wgsl` ([`SHADOW_CASTER_SHADER_WGSL`]) is
+//! `aphyn/pbr.wgsl`, `aphyn/shadows.wgsl` and `aphyn/clusters.wgsl`. `shader_shadow_caster.wgsl` ([`SHADOW_CASTER_SHADER_WGSL`]) is
 //! the depth-only caster: its own `ShadowCasterData` uniform at group 0 binding 0, `standard_types`
 //! for the vertex layout, an empty `fs_main`.
 //! `mip_fill_shader.wgsl` uses `aphyn/fullscreen.wgsl`. The `engine_shaders_are_valid` unit test

@@ -3,8 +3,22 @@ use aphyn_render_core::{GpuUniformStorageBuffer, RenderApi};
 use aphyn_serialization::*;
 use aphyn_utils::mem::{AllBitVariationsValid, AllBitsInit};
 
-pub const LIGHTS_COUNT_MAX: usize = 1024;
+pub const LIGHTS_COUNT_MAX: usize = 4096;
 pub const SHADOW_VIEWS_MAX: usize = 64;
+
+pub const CLUSTER_DIMS: [u32; 3] = [16, 9, 24];
+pub const CLUSTERS_COUNT: usize = (CLUSTER_DIMS[0] * CLUSTER_DIMS[1] * CLUSTER_DIMS[2]) as usize;
+pub const CLUSTER_PAIRS_CAPACITY_DEFAULT: usize = CLUSTERS_COUNT * 64;
+
+#[repr(C)]
+#[derive(Copy, Clone, Default, Debug, PartialEq, Eq)]
+pub struct StandardClusterCell {
+    pub index: u32,
+    pub count: u32,
+}
+
+unsafe impl AllBitVariationsValid for StandardClusterCell {}
+unsafe impl AllBitsInit for StandardClusterCell {}
 
 #[repr(C)]
 #[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serializable)]
@@ -53,12 +67,21 @@ impl Default for StandardGenericLight {
 pub struct StandardUniformGlobal {
     pub world_to_clip: Mat4<f32>,
     pub window_to_clip: Mat4<f32>,
+    pub world_to_view: Mat4<f32>,
+    pub clip_to_view: Mat4<f32>,
     pub camera_position_world: Vec3<f32>,
     pub lights_count: u32,
     pub ambient_color: Vec3<f32>,
     pub shadow_bias: f32,
     pub camera_forward_world: Vec3<f32>,
     pub shadow_normal_offset: f32,
+    pub cluster_dims: [u32; 3],
+    pub directional_lights_count: u32,
+    pub target_size: [f32; 2],
+    pub cluster_near: f32,
+    pub cluster_far: f32,
+    pub cluster_index_capacity: u32,
+    pub _padding: [u32; 3],
 }
 
 unsafe impl AllBitVariationsValid for StandardUniformGlobal {}
@@ -69,12 +92,21 @@ impl Default for StandardUniformGlobal {
         Self {
             world_to_clip: Mat4::IDENTITY,
             window_to_clip: Mat4::IDENTITY,
+            world_to_view: Mat4::IDENTITY,
+            clip_to_view: Mat4::IDENTITY,
             camera_position_world: Vec3::splat(0.0),
             lights_count: 0,
             ambient_color: Vec3::splat(0.0),
             shadow_bias: 0.0,
             camera_forward_world: Vec3::new(0.0, 0.0, 1.0),
             shadow_normal_offset: 0.0,
+            cluster_dims: CLUSTER_DIMS,
+            directional_lights_count: 0,
+            target_size: [1.0, 1.0],
+            cluster_near: 0.1,
+            cluster_far: 1000.0,
+            cluster_index_capacity: 0,
+            _padding: [0; 3],
         }
     }
 }
@@ -191,6 +223,10 @@ pub struct StandardGlobalBindings {
     uniform_buffer: GpuUniformStorageBuffer,
     lights_buffer: GpuUniformStorageBuffer,
     shadow_views_buffer: GpuUniformStorageBuffer,
+    cluster_grid_buffer: GpuUniformStorageBuffer,
+    cluster_indices_buffer: GpuUniformStorageBuffer,
+    cluster_dropped_pairs_buffer: GpuUniformStorageBuffer,
+    cluster_pairs_capacity: usize,
 }
 
 impl StandardGlobalBindings {
@@ -202,15 +238,55 @@ impl StandardGlobalBindings {
             Some("standard shadow views"),
             SHADOW_VIEWS_MAX * size_of::<StandardShadowView>(),
         );
+        let cluster_grid_buffer = core.create_uniform_storage_buffer(
+            Some("standard cluster grid"),
+            CLUSTERS_COUNT * size_of::<StandardClusterCell>(),
+        );
+        let cluster_indices_buffer = Self::create_cluster_indices_buffer(core, CLUSTER_PAIRS_CAPACITY_DEFAULT);
+        let cluster_dropped_pairs_buffer =
+            core.create_uniform_storage_buffer(Some("standard cluster dropped pairs"), size_of::<u32>());
 
         let this = Self {
             uniform_buffer,
             lights_buffer,
             shadow_views_buffer,
+            cluster_grid_buffer,
+            cluster_indices_buffer,
+            cluster_dropped_pairs_buffer,
+            cluster_pairs_capacity: CLUSTER_PAIRS_CAPACITY_DEFAULT,
         };
         this.write_uniform(core, StandardUniformGlobal::default());
 
         this
+    }
+
+    fn create_cluster_indices_buffer(core: &RenderApi, pairs_capacity: usize) -> GpuUniformStorageBuffer {
+        core.create_uniform_storage_buffer(Some("standard cluster light indices"), pairs_capacity * size_of::<u32>())
+    }
+
+    pub(crate) fn set_cluster_pairs_capacity(&mut self, core: &RenderApi, pairs_capacity: usize) {
+        let pairs_capacity = pairs_capacity.max(1);
+
+        if pairs_capacity == self.cluster_pairs_capacity {
+            return;
+        }
+
+        self.cluster_indices_buffer = Self::create_cluster_indices_buffer(core, pairs_capacity);
+        self.cluster_pairs_capacity = pairs_capacity;
+    }
+
+    pub fn cluster_pairs_capacity(&self) -> usize {
+        self.cluster_pairs_capacity
+    }
+
+    pub(crate) fn reset_cluster_dropped_pairs(&self, core: &RenderApi) {
+        crate::write_buffer_elements_with(core, &self.cluster_dropped_pairs_buffer, 0, 1, |_| 0_u32);
+    }
+
+    pub(crate) fn read_cluster_dropped_pairs(&self, core: &RenderApi) -> Option<u32> {
+        let bytes = core.read_uniform_storage_buffer(&self.cluster_dropped_pairs_buffer)?;
+
+        Some(u32::from_ne_bytes(bytes.as_slice().get(..4)?.try_into().unwrap()))
     }
 
     pub(crate) fn write_uniform(&self, core: &RenderApi, uniform: StandardUniformGlobal) {
@@ -239,5 +315,17 @@ impl StandardGlobalBindings {
 
     pub fn shadow_views_buffer(&self) -> &GpuUniformStorageBuffer {
         &self.shadow_views_buffer
+    }
+
+    pub fn cluster_grid_buffer(&self) -> &GpuUniformStorageBuffer {
+        &self.cluster_grid_buffer
+    }
+
+    pub fn cluster_indices_buffer(&self) -> &GpuUniformStorageBuffer {
+        &self.cluster_indices_buffer
+    }
+
+    pub fn cluster_dropped_pairs_buffer(&self) -> &GpuUniformStorageBuffer {
+        &self.cluster_dropped_pairs_buffer
     }
 }

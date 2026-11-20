@@ -69,6 +69,8 @@
 //! `Rgba16Float`).
 //! It submits a copy and blocks until the GPU has finished all submitted work, so use it for tools and
 //! captures, not every frame. It returns `None` for depth textures and missing mip levels.
+//! [`RenderApi::read_uniform_storage_buffer`] does the same for a whole uniform/storage buffer, e.g. to
+//! read counters a compute shader wrote.
 //!
 //! Handles are `Clone`, and clones share one GPU resource with the same id. The resource is released,
 //! and the bind groups and pipelines made from it are evicted, when the last clone is dropped. Handles
@@ -91,7 +93,8 @@
 //! per frame. Its pass must have no `target`, and the load operation is passed separately. It returns
 //! `false` without presenting if the frame cannot be acquired or the draw fails.
 //! [`RenderApiNew::resize_surface`] ignores zero sizes, and [`RenderApiNew::surface_size`] returns the
-//! last accepted size.
+//! last accepted size. The surface starts with vsync (`Fifo`); [`RenderApi::set_vsync`]`(false)`
+//! switches to `Immediate`, else `Mailbox`, else stays on `Fifo` when the surface supports neither.
 //!
 //! [`GpuVertexBuffer`] holds vertices or instances, as set by its [`GpuVertexBufferLayout`], which
 //! computes tightly packed
@@ -251,7 +254,8 @@
 //! Removing a resource only drops wgpu objects, and `writer` closures run unlocked, so neither does this.
 //! `read_texture` holds the state lock only while encoding and submitting the copy into a fresh
 //! `MAP_READ` buffer (rows padded to `COPY_BYTES_PER_ROW_ALIGNMENT`), then releases it before polling the
-//! device and mapping, so other threads are not blocked while it waits for the GPU.
+//! device and mapping, so other threads are not blocked while it waits for the GPU. `read_buffer`
+//! (behind `read_uniform_storage_buffer`) does the same with a buffer-to-buffer copy.
 //!
 //! #### Surface
 //!

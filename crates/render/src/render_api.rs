@@ -8,10 +8,10 @@ use winit::window::Window;
 
 use crate::{
     ComputeShader, ComputeShaderAssetMetadata, FilterMode, GpuVertexBufferLayout, Material, MaterialData, MaterialGpuData,
-    MaterialTemplate, MaterialTextureFallback, Shader, ShaderAssetMetadata, StandardGenericLight, StandardGlobalBindings, StandardShadowView,
-    StandardInstanceBuffer, StandardMesh, StandardMeshAssetMetadata, StandardTexture, StandardTextureAssetMetadata,
-    StandardTextureFormat, StandardUniformGlobal, StandardVertex, TypedStorageBuffer, TypedUniformBuffer, TypedUniformBufferLayout,
-    TypedVertexBuffer, TypedVertexWriter,
+    MaterialTemplate, MaterialTextureFallback, Shader, ShaderAssetMetadata, StandardGenericLight, StandardGlobalBindings,
+    StandardInstanceBuffer, StandardMesh, StandardMeshAssetMetadata, StandardShadowView, StandardTexture,
+    StandardTextureAssetMetadata, StandardTextureFormat, StandardUniformGlobal, StandardVertex, TypedStorageBuffer,
+    TypedUniformBuffer, TypedUniformBufferLayout, TypedVertexBuffer, TypedVertexWriter,
 };
 
 #[derive(Resource)]
@@ -214,6 +214,19 @@ impl RenderApiResource {
 
     pub fn write_shadow_views(&self, bindings: &StandardGlobalBindings, views: &[StandardShadowView]) {
         bindings.write_shadow_views(&self.core, views);
+    }
+
+    pub fn set_cluster_pairs_capacity(&self, bindings: &mut StandardGlobalBindings, pairs_capacity: usize) {
+        bindings.set_cluster_pairs_capacity(&self.core, pairs_capacity);
+    }
+
+    pub fn reset_cluster_dropped_pairs(&self, bindings: &StandardGlobalBindings) {
+        bindings.reset_cluster_dropped_pairs(&self.core);
+    }
+
+    // blocks until the GPU finished the submitted work
+    pub fn read_cluster_dropped_pairs(&self, bindings: &StandardGlobalBindings) -> Option<u32> {
+        bindings.read_cluster_dropped_pairs(&self.core)
     }
 
     pub fn create_uniform_buffer(&self, layout: TypedUniformBufferLayout) -> TypedUniformBuffer {

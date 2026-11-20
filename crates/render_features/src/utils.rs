@@ -57,6 +57,7 @@ pub fn light_from_components(light: &StandardLightComponent, transform: &GlobalT
 pub fn render_wgsl_composer() -> WgslComposer {
     let mut composer = WgslComposer::with_engine_libraries();
     composer.add_library("aphyn/bloom.wgsl", include_str!("./assets/bloom.wgsl"));
+    composer.add_library("aphyn/cluster_compute.wgsl", include_str!("./assets/cluster_compute.wgsl"));
     composer
 }
 

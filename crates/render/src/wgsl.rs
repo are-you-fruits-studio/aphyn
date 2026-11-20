@@ -16,6 +16,7 @@ const ENGINE_LIBRARIES: &[(&str, &str)] = &[
     ),
     ("aphyn/pbr.wgsl", include_str!("./assets/wgsl/pbr.wgsl")),
     ("aphyn/shadows.wgsl", include_str!("./assets/wgsl/shadows.wgsl")),
+    ("aphyn/clusters.wgsl", include_str!("./assets/wgsl/clusters.wgsl")),
 ];
 
 #[derive(Default, Clone)]

@@ -294,6 +294,7 @@ struct RenderSurface {
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     size: [usize; 2],
+    present_modes: Vec<wgpu::PresentMode>,
 }
 
 struct SurfaceDrawTarget<'a> {
@@ -802,8 +803,10 @@ impl RenderApiInner {
         let adapter = request_adapter(&instance, Some(&surface))?;
         {
             let adapter_info = adapter.get_info();
-            println!("GPU: {} - {:?} - {}", adapter_info.backend, adapter_info.device_type, adapter_info.name);
-
+            println!(
+                "GPU: {} - {:?} - {}",
+                adapter_info.backend, adapter_info.device_type, adapter_info.name
+            );
         }
         let (device, queue) = request_device(&adapter)?;
 
@@ -821,7 +824,8 @@ impl RenderApiInner {
             format,
             width: size[0] as u32,
             height: size[1] as u32,
-            present_mode: *capabilities.present_modes.first()?,
+            // always supported; `set_vsync` picks another one
+            present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: *capabilities.alpha_modes.first()?,
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
@@ -832,7 +836,12 @@ impl RenderApiInner {
         Some(Self {
             device,
             queue,
-            surface: Some(Mutex::new(RenderSurface { surface, config, size })),
+            surface: Some(Mutex::new(RenderSurface {
+                surface,
+                config,
+                size,
+                present_modes: capabilities.present_modes,
+            })),
             state: Default::default(),
         })
     }
@@ -869,6 +878,29 @@ impl RenderApiInner {
         surface.config.width = size[0] as u32;
         surface.config.height = size[1] as u32;
 
+        surface.surface.configure(&self.device, &surface.config);
+    }
+
+    fn set_vsync(&self, is_vsync: bool) {
+        let Some(surface) = &self.surface else {
+            return;
+        };
+
+        let mut surface = surface.lock().unwrap();
+
+        let present_mode = match is_vsync {
+            true => wgpu::PresentMode::Fifo,
+            false => [wgpu::PresentMode::Immediate, wgpu::PresentMode::Mailbox]
+                .into_iter()
+                .find(|mode| surface.present_modes.contains(mode))
+                .unwrap_or(wgpu::PresentMode::Fifo),
+        };
+
+        if surface.config.present_mode == present_mode {
+            return;
+        }
+
+        surface.config.present_mode = present_mode;
         surface.surface.configure(&self.device, &surface.config);
     }
 
@@ -1322,6 +1354,48 @@ impl RenderApiInner {
         self.queue.submit([encoder.finish()]);
 
         true
+    }
+
+    fn read_buffer(&self, id: VersionIndex, size: usize) -> Option<Vec<u8>> {
+        let state = self.state.lock().unwrap();
+
+        let source = state.resources.buffers.get(id)?.buffer.clone();
+        let size = (size as u64).min(source.size());
+
+        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("aphyn buffer readback buffer"),
+            size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("aphyn buffer readback encoder"),
+        });
+        encoder.copy_buffer_to_buffer(&source, 0, &buffer, 0, size);
+        self.queue.submit([encoder.finish()]);
+
+        // waiting for the GPU doesn't need the state
+        drop(state);
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let slice = buffer.slice(..);
+        slice.map_async(wgpu::MapMode::Read, move |result| _ = sender.send(result));
+
+        if let Err(err) = self.device.poll(wgpu::PollType::wait_indefinitely()) {
+            println!("failed to read buffer: {err}");
+            return None;
+        }
+
+        if let Err(err) = receiver.recv().ok()? {
+            println!("failed to read buffer: {err}");
+            return None;
+        }
+
+        let data = slice.get_mapped_range().to_vec();
+        buffer.unmap();
+
+        Some(data)
     }
 
     fn read_texture(&self, texture: &GpuTexture, mip_level: usize) -> Option<Vec<u8>> {
@@ -1848,6 +1922,7 @@ impl FfiBinding<'_> {
 struct RenderApiVTable {
     surface_size_fn: unsafe extern "C-unwind" fn(this: *const c_void) -> FfiArray<usize, 2>,
     resize_surface_fn: unsafe extern "C-unwind" fn(this: *const c_void, size: FfiArray<usize, 2>),
+    set_vsync_fn: unsafe extern "C-unwind" fn(this: *const c_void, is_vsync: bool),
     create_vertex_buffer_fn: unsafe extern "C-unwind" fn(
         this: *const c_void,
         label: FfiOption<FfiStrSliceRef<'_>>,
@@ -1919,6 +1994,7 @@ struct RenderApiVTable {
     copy_texture_fn: unsafe extern "C-unwind" fn(this: *const c_void, src: &GpuTexture, dst: &GpuTexture) -> bool,
     read_texture_fn:
         unsafe extern "C-unwind" fn(this: *const c_void, texture: &GpuTexture, mip_level: usize) -> FfiOption<FfiVec<u8>>,
+    read_buffer_fn: unsafe extern "C-unwind" fn(this: *const c_void, id: VersionIndex, size: usize) -> FfiOption<FfiVec<u8>>,
     clone_fn: unsafe extern "C-unwind" fn(this: *const c_void) -> FfiDroppable,
 }
 
@@ -1966,6 +2042,9 @@ impl RenderApi {
         }
         unsafe extern "C-unwind" fn ffi_resize_surface(this: *const c_void, size: FfiArray<usize, 2>) {
             unsafe { inner_ref(this) }.resize_surface(size.0)
+        }
+        unsafe extern "C-unwind" fn ffi_set_vsync(this: *const c_void, is_vsync: bool) {
+            unsafe { inner_ref(this) }.set_vsync(is_vsync)
         }
         unsafe extern "C-unwind" fn ffi_create_vertex_buffer(
             this: *const c_void,
@@ -2105,6 +2184,9 @@ impl RenderApi {
                 .map(FfiVec::from)
                 .into()
         }
+        unsafe extern "C-unwind" fn ffi_read_buffer(this: *const c_void, id: VersionIndex, size: usize) -> FfiOption<FfiVec<u8>> {
+            unsafe { inner_ref(this) }.read_buffer(id, size).map(FfiVec::from).into()
+        }
         unsafe extern "C-unwind" fn ffi_clone(this: *const c_void) -> FfiDroppable {
             FfiDroppable::new(Arc::clone(unsafe { &*(this as *const Arc<RenderApiInner>) }))
         }
@@ -2114,6 +2196,7 @@ impl RenderApi {
             vtable: FfiStaticRef::new(&RenderApiVTable {
                 surface_size_fn: ffi_surface_size,
                 resize_surface_fn: ffi_resize_surface,
+                set_vsync_fn: ffi_set_vsync,
                 create_vertex_buffer_fn: ffi_create_vertex_buffer,
                 create_uniform_storage_buffer_fn: ffi_create_uniform_storage_buffer,
                 create_index_buffer_fn: ffi_create_index_buffer,
@@ -2131,6 +2214,7 @@ impl RenderApi {
                 clear_depth_texture_fn: ffi_clear_depth_texture,
                 copy_texture_fn: ffi_copy_texture,
                 read_texture_fn: ffi_read_texture,
+                read_buffer_fn: ffi_read_buffer,
                 clone_fn: ffi_clone,
             }),
         }
@@ -2149,6 +2233,10 @@ impl RenderApi {
 
     pub fn resize_surface(&self, size: [usize; 2]) {
         unsafe { (self.vtable.resize_surface_fn)(self.data.get(), FfiArray(size)) }
+    }
+
+    pub fn set_vsync(&self, is_vsync: bool) {
+        unsafe { (self.vtable.set_vsync_fn)(self.data.get(), is_vsync) }
     }
 
     pub fn create_vertex_buffer(&self, label: Option<&str>, len: usize, layout: GpuVertexBufferLayout) -> GpuVertexBuffer {
@@ -2317,6 +2405,10 @@ impl RenderApi {
     }
 
     // blocks until the GPU has finished all submitted work
+    pub fn read_uniform_storage_buffer(&self, buffer: &GpuUniformStorageBuffer) -> Option<FfiVec<u8>> {
+        unsafe { (self.vtable.read_buffer_fn)(self.data.get(), buffer.id, buffer.size) }.into_option()
+    }
+
     pub fn read_texture(&self, texture: &GpuTexture, mip_level: usize) -> Option<FfiVec<u8>> {
         unsafe { (self.vtable.read_texture_fn)(self.data.get(), texture, mip_level) }.into_option()
     }
@@ -3039,6 +3131,19 @@ mod tests {
         assert!(api.read_texture(&depth, 0).is_none());
         assert!(api.read_texture(&color, 1).is_none());
         assert_eq!(api.read_texture(&color, 0).map(|data| data.len()), Some(4 * 4 * 8));
+    }
+
+    #[test]
+    fn reads_back_uniform_storage_buffers() {
+        let Some(api) = RenderApi::new_headless() else {
+            return;
+        };
+
+        let buffer = api.create_uniform_storage_buffer(None, 16);
+        assert!(api.write_uniform_storage_buffer_with(&buffer, 4, 8, |bytes| bytes.copy_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8])));
+
+        let data = api.read_uniform_storage_buffer(&buffer).unwrap();
+        assert_eq!(data.to_vec(), [0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 0, 0, 0, 0]);
     }
 
     #[test]
