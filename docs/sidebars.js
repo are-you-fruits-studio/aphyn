@@ -2,9 +2,16 @@
 const sidebars = {
   docsSidebar: [
     {
-      type: 'doc',
-      id: 'getting-started',
-      label: 'Getting Started',
+      type: 'category',
+      label: 'Getting started',
+      collapsible: false,
+      items: ['getting-started', 'build-a-game'],
+    },
+    {
+      type: 'category',
+      label: 'Concepts',
+      collapsible: false,
+      items: ['concepts/architecture', 'concepts/ecs'],
     },
   ],
 };
