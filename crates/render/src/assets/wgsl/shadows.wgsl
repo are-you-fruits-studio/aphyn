@@ -31,5 +31,5 @@ fn light_shadow(light: GenericLight, position_world: vec3<f32>, normal_world: ve
     let tile_uv = ndc.xy * vec2<f32>(0.5, -0.5) + 0.5;
     let uv = clamp(view.atlas_rect.xy + tile_uv * view.atlas_rect.zw, view.atlas_rect.xy + half_texel, view.atlas_rect.xy + view.atlas_rect.zw - half_texel);
 
-    return textureSampleCompareLevel(shadow_atlas, shadow_sampler, uv, ndc.z - global_data.shadow_bias);
+    return textureSampleCompareLevel(shadow_atlas, shadow_sampler, uv, ndc.z + global_data.shadow_bias);
 }

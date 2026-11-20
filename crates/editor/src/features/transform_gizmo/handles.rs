@@ -71,8 +71,8 @@ impl GizmoView {
         let x = view_pos.x / self.size.x * 2.0 - 1.0;
         let y = 1.0 - view_pos.y / self.size.y * 2.0;
 
-        let near = self.clip_to_world.mul_with_projection(Vec3::new(x, y, 0.0));
-        let far = self.clip_to_world.mul_with_projection(Vec3::new(x, y, 1.0));
+        let near = self.clip_to_world.mul_with_projection(Vec3::new(x, y, 1.0));
+        let far = self.clip_to_world.mul_with_projection(Vec3::new(x, y, 0.0));
 
         (near, (far - near).normalized())
     }

@@ -56,7 +56,8 @@
 //! perspective map over their `fov` and `range`; point lights ignore the flag for now. Every map is
 //! a tile of one depth atlas ([`ShadowAtlasResource`]): `atlas_size / tile_size` squared tiles, a
 //! directional light takes `cascade_count` of them, a spot light one, and a light that does not fit
-//! gets no shadow (printed once). Bias, normal offset, cascade split distribution and the other
+//! gets no shadow (printed once). The atlas uses the same reversed depth as the view, so its
+//! comparison sampler is `GreaterEqual` and the bias is added to the fragment's depth. Bias, normal offset, cascade split distribution and the other
 //! knobs are global, in [`ShadowSettingsResource`]. Only templates with a
 //! [`MaterialPassTarget::Shadow`](aphyn_render::MaterialPassTarget) pass cast shadows: the built-in
 //! opaque, non-UI ones do (without alpha cutout); transparent and UI ones don't. A custom template
@@ -177,7 +178,8 @@
 //! with the [`ScreenSpaceResource`] depth range, `CurrentRenderingResource::ambient_light` when set,
 //! else the [`AmbientLightResource`] color, else zero), and replaces [`DepthTextureResource`] and
 //! [`TransparentTargetResource`] when their size differs from the target. Its pass at
-//! [`RENDER_ORDER_PREPARE`] clears both. The uploads are queued writes that land at the next
+//! [`RENDER_ORDER_PREPARE`] clears both (depth, like the shadow atlas, to 0: depth is reversed, 1 is
+//! near and 0 is far, so every engine shader tests with `GreaterEqual`). The uploads are queued writes that land at the next
 //! submit, which is before any draw. Lights are uploaded directional first; the uniform's
 //! `directional_lights_count` marks where the clustered (point and spot) lights start. It also
 //! applies [`ClusteredLightingResource::max_light_cluster_pairs`] to the bindings before writing the

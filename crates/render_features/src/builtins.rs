@@ -92,7 +92,7 @@ pub fn standard_shader_desc(is_transparent: bool) -> GpuShaderDesc {
         blend,
         write_mask: GpuColorWrites::All,
         depth_write: !is_transparent,
-        depth_compare: GpuCompareFunction::LessEqual,
+        depth_compare: GpuCompareFunction::GreaterEqual,
     }
 }
 

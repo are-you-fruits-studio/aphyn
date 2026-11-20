@@ -249,7 +249,8 @@
 //! an earlier formulation is kept commented out above the active one.
 //! [`orthographic_proj_matrix`] is its orthographic counterpart, taking the full view
 //! height instead of fov. Both are column-major (each inner array of `from_array` is a
-//! column), left-handed, and map view-space z in `[near, far]` to depth `[0, 1]` (wgpu).
+//! column), left-handed, and map view-space z in `[near, far]` to depth `[1, 0]` (reversed Z:
+//! near is 1, far is 0, so depth tests use `GreaterEqual` and depth buffers clear to 0).
 //! [`into_matrix4x4_with_pos`] embeds a [`Mat3`] rotation plus a [`Vec3`]
 //! translation into a [`Mat4`]. The free slice helpers (`dot`, `cross`,
 //! `normalized`, `lerp_slice`, …) operate on `[T; N]` directly and back the
@@ -315,8 +316,8 @@ pub fn perspective_proj_matrix(fov: f32, near: f32, far: f32, aspect: f32) -> Ma
     Mat4::<f32>::from_array([
         [(s / aspect), 0.0, 0.0, 0.0],
         [0.0, s, 0.0, 0.0],
-        [0.0, 0.0, (far / (far - near)), 1.0],
-        [0.0, 0.0, ((-far * near) / (far - near)), 0.0],
+        [0.0, 0.0, (-near / (far - near)), 1.0],
+        [0.0, 0.0, ((far * near) / (far - near)), 0.0],
     ])
 }
 
@@ -326,8 +327,8 @@ pub fn orthographic_proj_matrix(height: f32, near: f32, far: f32, aspect: f32) -
     Mat4::<f32>::from_array([
         [(s / aspect), 0.0, 0.0, 0.0],
         [0.0, s, 0.0, 0.0],
-        [0.0, 0.0, (1.0 / (far - near)), 0.0],
-        [0.0, 0.0, (-near / (far - near)), 1.0],
+        [0.0, 0.0, (-1.0 / (far - near)), 0.0],
+        [0.0, 0.0, (far / (far - near)), 1.0],
     ])
 }
 

@@ -26,7 +26,7 @@ impl ShadowAtlasResource {
             sampler: core.create_comparison_sampler(
                 Some("shadow atlas sampler"),
                 GpuFilterMode::Linear,
-                GpuCompareFunction::LessEqual,
+                GpuCompareFunction::GreaterEqual,
             ),
             views: FfiVec::new(),
             caster_uniforms: FfiVec::new(),
@@ -168,8 +168,8 @@ pub(crate) fn cascade_view(
 
     for x in [-1.0, 1.0] {
         for y in [-1.0, 1.0] {
-            let corner_near = clip_to_world.mul_with_projection(Vec3::new(x, y, 0.0));
-            let corner_far = clip_to_world.mul_with_projection(Vec3::new(x, y, 1.0));
+            let corner_near = clip_to_world.mul_with_projection(Vec3::new(x, y, 1.0));
+            let corner_far = clip_to_world.mul_with_projection(Vec3::new(x, y, 0.0));
 
             for t in [t_near, t_far] {
                 corners[corner_index] = corner_near + (corner_far - corner_near) * t;

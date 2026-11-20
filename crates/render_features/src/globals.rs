@@ -177,7 +177,7 @@ impl RenderFeature for GlobalsRenderFeature {
             let resources = ctx.world.resources();
 
             if let Some(depth) = resources.get::<DepthTextureResource>() {
-                core.clear_depth_texture(depth.texture.texture(), 0, 1.0);
+                core.clear_depth_texture(depth.texture.texture(), 0, 0.0);
             }
 
             if let Some(transparent) = resources.get::<TransparentTargetResource>() {
@@ -185,7 +185,7 @@ impl RenderFeature for GlobalsRenderFeature {
             }
 
             if has_shadows && let Some(atlas) = resources.get::<ShadowAtlasResource>() {
-                core.clear_depth_texture(atlas.texture(), 0, 1.0);
+                core.clear_depth_texture(atlas.texture(), 0, 0.0);
             }
         });
     }

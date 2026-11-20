@@ -48,6 +48,8 @@
 //! [`RenderApiNew::create_shader`] returns `None` unless every `@location` input of `fs_main` is a
 //! `@location` output of `vs_main` with the same type. Extra outputs are allowed. Pipeline errors,
 //! such as a fragment output that does not fit the target format, only show at the first draw.
+//! [`GpuShaderDesc`]'s `depth_compare` defaults to `GreaterEqual`, matching the engine's reversed
+//! depth (1 is near, 0 is far, depth textures clear to 0).
 //!
 //! Draws and clears work on one mip level at a time: [`GpuRenderPassTarget`] and
 //! [`GpuRenderPassDepth`] name the `mip_level` they render into. A [`GpuBinding::Texture`] samples

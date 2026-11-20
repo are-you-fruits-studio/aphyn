@@ -118,7 +118,7 @@ impl TransformGizmoRenderFeature {
                 depth: Some(GpuRenderPassDepth {
                     view: depth,
                     mip_level: 0,
-                    ops: GpuPassOps::Clear(1.0),
+                    ops: GpuPassOps::Clear(0.0),
                 }),
                 bind_groups: &[&[(0, GpuBinding::Buffer(&gpu.uniform_buffer))]],
                 vertex_buffers: &[vertex_buffer],

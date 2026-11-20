@@ -355,7 +355,7 @@
 //! [`Camera`] holds the plain projection parameters: a [`CameraProjection`] (`Perspective { fov }`
 //! with `fov` in radians, or `Orthographic { height }` with the full view height in world units,
 //! width following the aspect), plus `near` and `far`. [`Camera::projection_matrix`] picks the
-//! matching `aphyn_math` builder; route every projection through it rather than reading the
+//! matching `aphyn_math` builder (reversed Z: `near` maps to depth 1, `far` to 0); route every projection through it rather than reading the
 //! variant fields directly. The ECS component that wraps it is `aphyn_render_features::CameraComponent`.
 //! [`CurrentRenderingResource`] is inserted by `RenderFeatureRegistry::render_view`
 //! (`aphyn_render_features`) for the duration of one view and removed right after. It

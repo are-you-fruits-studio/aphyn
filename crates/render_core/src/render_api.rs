@@ -2721,10 +2721,10 @@ pub enum GpuCompareFunction {
     Never,
     Less,
     Equal,
-    #[default]
     LessEqual,
     Greater,
     NotEqual,
+    #[default]
     GreaterEqual,
     Always,
 }

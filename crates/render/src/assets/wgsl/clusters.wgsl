@@ -59,8 +59,8 @@ fn cluster_aabb(g: GlobalData, cluster: u32) -> ClusterAabb {
         vec2<f32>(ndc_x1, ndc_y1),
     );
 
-    let near_z = cluster_view_point(g, vec2<f32>(0.0), 0.0).z;
-    let far_z = cluster_view_point(g, vec2<f32>(0.0), 1.0).z;
+    let near_z = cluster_view_point(g, vec2<f32>(0.0), 1.0).z;
+    let far_z = cluster_view_point(g, vec2<f32>(0.0), 0.0).z;
     let t_lo = select((cluster_slice_depth(g, z) - near_z) / (far_z - near_z), 0.0, z == 0u);
     let t_hi = select((cluster_slice_depth(g, z + 1u) - near_z) / (far_z - near_z), 1.0, z + 1u >= dims.z);
 
@@ -69,8 +69,8 @@ fn cluster_aabb(g: GlobalData, cluster: u32) -> ClusterAabb {
     aabb.max = vec3<f32>(-3.4e38);
 
     for (var i = 0u; i < 4u; i++) {
-        let p0 = cluster_view_point(g, corners[i], 0.0);
-        let p1 = cluster_view_point(g, corners[i], 1.0);
+        let p0 = cluster_view_point(g, corners[i], 1.0);
+        let p1 = cluster_view_point(g, corners[i], 0.0);
         let a = mix(p0, p1, t_lo);
         let b = mix(p0, p1, t_hi);
 
