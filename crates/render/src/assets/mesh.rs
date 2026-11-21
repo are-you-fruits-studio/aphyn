@@ -1,4 +1,5 @@
 use aphyn_ffi::{FfiOption, FfiString};
+use aphyn_math::{Aabb, Vec3};
 use aphyn_reflection::*;
 use aphyn_render_core::{
     GpuIndexBuffer, GpuVertexBuffer, GpuVertexBufferLayout, GpuVertexBufferLayoutEntryTy, GpuVertexStepMode, RenderApi,
@@ -59,6 +60,7 @@ pub struct StandardMesh {
     vertex_buffer: GpuVertexBuffer,
     index_buffer: GpuIndexBuffer,
     indices_count: usize,
+    aabb: Aabb,
     meta: FfiOption<StandardMeshAssetMetadata>,
 }
 
@@ -80,10 +82,13 @@ impl StandardMesh {
         let index_buffer = core.create_index_buffer(label, indices.len());
         crate::write_buffer_bytes(core, &index_buffer, 0, aphyn_utils::mem::as_bytes_slice(indices));
 
+        let aabb = Aabb::from_points(vertices.iter().map(|vertex| Vec3::from_array(vertex.position))).unwrap_or_default();
+
         Self {
             vertex_buffer,
             index_buffer,
             indices_count: indices.len(),
+            aabb,
             meta: meta.into(),
         }
     }
@@ -102,5 +107,9 @@ impl StandardMesh {
 
     pub fn indices_count(&self) -> usize {
         self.indices_count
+    }
+
+    pub fn aabb(&self) -> Aabb {
+        self.aabb
     }
 }

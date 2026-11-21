@@ -269,15 +269,15 @@ pub fn insert_builtin_render_assets_to(mut res: ResourcesHolderMut) {
             return;
         };
         let is_opaque_world = !variant.is_transparent && !variant.is_ui;
-        templates.insert_and_register(
-            standard_material_template(
-                shader,
-                variant.is_transparent,
-                is_opaque_world.then(|| shadow_caster.clone()),
-                is_opaque_world.then(|| depth_normals.clone()),
-            ),
-            template_key.into(),
+        let mut template = standard_material_template(
+            shader,
+            variant.is_transparent,
+            is_opaque_world.then(|| shadow_caster.clone()),
+            is_opaque_world.then(|| depth_normals.clone()),
         );
+        // ui geometry is in window pixels, so the world frusta don't apply
+        template.skip_frustum_culling = variant.is_ui;
+        templates.insert_and_register(template, template_key.into());
     }
 }
 

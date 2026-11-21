@@ -120,6 +120,24 @@
 //! }
 //! ```
 //!
+//! #### Bounds and frustum culling
+//!
+//! [`Aabb`] is an `f32` axis-aligned box; [`transformed`](Aabb::transformed) bounds the box
+//! after an affine matrix. [`Frustum::from_world_to_clip`] extracts the six inward planes of a
+//! projection (times view) matrix, and [`intersects_aabb`](Frustum::intersects_aabb) is a
+//! conservative test: it never rejects a box that touches the frustum, but may accept one just
+//! outside a corner.
+//!
+//! ```
+//! use aphyn_math::{Aabb, Frustum, Mat4, Vec3, perspective_proj_matrix};
+//!
+//! let frustum = Frustum::from_world_to_clip(&perspective_proj_matrix(1.5, 0.1, 100.0, 1.0));
+//! let unit = Aabb::new(Vec3::splat(-0.5), Vec3::splat(0.5));
+//!
+//! assert!(frustum.intersects_aabb(&unit.transformed(&Mat4::offset(Vec3::new(0.0, 0.0, 10.0)))));
+//! assert!(!frustum.intersects_aabb(&unit.transformed(&Mat4::offset(Vec3::new(0.0, 0.0, -10.0)))));
+//! ```
+//!
 //! #### Interpolation
 //!
 //! [`lerp`] interpolates between two values, [`inv_lerp`] recovers the parameter,
@@ -257,6 +275,15 @@
 //! method versions; the standing `// todo`s suggest loosening their [`Number`]
 //! bound and making more of them `const`.
 //!
+//! #### Bounds
+//!
+//! [`Aabb::transformed`] is Arvo's method: the center goes through the matrix, each new
+//! half-extent is the absolute upper-left 3x3 times the old ones (so projective matrices are not
+//! supported). [`Frustum`] planes are Gribb–Hartmann combinations of the matrix rows (`w ± x`,
+//! `w ± y`, `z`, `w − z`), matching wgpu's clip depth `[0, w]`; with reversed Z the `z` plane is
+//! the far one and `w − z` the near one. Planes are not normalized, which only scales the test.
+//! The box test checks the corner farthest along each plane normal.
+//!
 //! #### Equation results
 //!
 //! [`LinearEquationResult`] and [`QuadraticEquationResult`] separate the
@@ -271,6 +298,7 @@
 //! does not depend on `aphyn_serialization`; the engine's own `Serializable`
 //! impls for these types live in that crate instead.
 
+mod bounds;
 mod colors;
 mod equations;
 mod mat;
@@ -281,6 +309,7 @@ mod num;
 mod quat;
 mod vec;
 
+pub use bounds::*;
 pub use colors::*;
 pub use equations::*;
 pub use mat::*;

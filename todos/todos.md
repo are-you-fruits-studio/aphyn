@@ -6,7 +6,8 @@
 - allow using cached TypesRegistry key to avoid string lookup and even hashmap lookup where possible.
 - finish shaders, materials, material templates
     - including materials having inputs affect shader compilation directives
-- frustum culling
+    - also, check with nsight
+- frustum culling and other types of culling (occlusion culling with visibility passes&buffers)
 - screen-space effects (SSR, SSAO, SSGI)
 - rename current scene into multi-prefab and create a new scene asset that contains both entities and resources. It's used as a game bootstrap
 - implement animation (infrastructure and window)
@@ -77,9 +78,11 @@
 - convenient LayerMask inspector
 - console window
 - frustum culling
+- turn Disableable (both local and global) bool into Disabled (both local and global) marker component 
 
 # Not prioritized yet
 
+- figure out the destinction between standard mesh and gpu mesh (and other similar assets). Potentially remove one of them.
 - Materials that have configurations that change render pipeline configuration (e.g. culling)
 - refactor/optimize/make-prettier lib compilation waiting
 - undo in editor

@@ -80,6 +80,7 @@ pub struct MaterialTemplatePass {
 pub struct MaterialTemplate {
     pub inputs: FfiIndexMap<FfiString, MaterialInput>,
     pub passes: FfiVec<MaterialTemplatePass>,
+    pub skip_frustum_culling: bool,
 }
 
 impl MaterialTemplate {

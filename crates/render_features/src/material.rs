@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use aphyn_asset_storage::{AssetHandle, AssetStorageResource};
 use aphyn_ecs::{EntitiesHolderMut, OrFilter, ResourcesHolderMut, ThreadPoolAccess, WithFilter, WorldDataMut};
 use aphyn_ffi::{FfiIndexSet, FfiOption, FfiVec};
-use aphyn_math::{Mat4, Vec3};
+use aphyn_math::{Aabb, Frustum, Mat4, Vec3};
 use aphyn_render::{
     CurrentRenderingResource, Material, MaterialPassTarget, MaterialTemplate, RenderApiResource, StandardInstanceBuffer,
     StandardMesh, StandardTexture, StandardVertex, write_buffer_elements_with,
@@ -34,6 +34,9 @@ pub(crate) struct MaterialItem {
     material: AssetHandle<Material>,
     mesh: ItemMesh,
     local_to_world: Mat4<f32>,
+    in_camera: bool,
+    // bit `i` set: drawn into shadow view `i`
+    shadow_mask: u64,
 }
 
 impl MaterialItem {
@@ -61,6 +64,9 @@ enum DrawGeometry {
         mesh: AssetHandle<StandardMesh>,
         instance_start: u32,
         instance_count: u32,
+        // per shadow view `(instance_start, instance_count)` in `shadow_ranges`, empty when nothing casts
+        shadow_ranges_start: u32,
+        shadow_ranges_count: u32,
     },
     Batched {
         vertex_start: u32,
@@ -83,6 +89,9 @@ struct MaterialDraw {
 pub struct MaterialRenderFeature {
     items: FfiVec<MaterialItem>,
     geometry: FfiVec<(u32, u32, DrawGeometry)>,
+    shadow_frusta: FfiVec<Frustum>,
+    shadow_ranges: FfiVec<(u32, u32)>,
+    matrices: FfiVec<Mat4<f32>>,
     draws: FfiVec<MaterialDraw>,
     logged: FfiIndexSet<AssetHandle<Material>>,
     instances: FfiOption<StandardInstanceBuffer>,
@@ -99,6 +108,23 @@ impl MaterialRenderFeature {
     fn gather(&mut self, res: &ResourcesHolderMut, entities: &EntitiesHolderMut) {
         let Some(materials) = res.get::<AssetStorageResource<Material>>() else {
             return;
+        };
+        let templates = res.get::<AssetStorageResource<MaterialTemplate>>();
+        let meshes = res.get::<AssetStorageResource<StandardMesh>>();
+
+        let camera = res
+            .get::<CurrentRenderingResource>()
+            .map(|current| Frustum::from_world_to_clip(&current.world_to_clip()));
+
+        self.shadow_frusta.clear();
+        if let Some(atlas) = res.get::<ShadowAtlasResource>() {
+            for view in atlas.views() {
+                self.shadow_frusta.push(Frustum::from_world_to_clip(&view.world_to_clip));
+            }
+        }
+        let all_shadow_views = match self.shadow_frusta.len() {
+            64.. => u64::MAX,
+            count => (1u64 << count) - 1,
         };
 
         // todo: reusable allocation-free ECS query
@@ -122,20 +148,38 @@ impl MaterialRenderFeature {
             let local_to_world = transform.map_or(Mat4::IDENTITY, |transform| {
                 transform.scale_rotation.into_4x4_with_offset(transform.position)
             });
-            let mut push = |mesh| {
+            let template = templates.and_then(|templates| templates.get(&asset.template));
+            let is_culled = template.is_some_and(|template| !template.skip_frustum_culling);
+            let shadow_views = match template.is_some_and(has_shadow_pass) {
+                true => all_shadow_views,
+                false => 0,
+            };
+
+            let mut push = |mesh, in_camera, shadow_mask| {
                 self.items.push(MaterialItem {
                     template: asset.template.clone(),
                     material: material.material.clone(),
                     mesh,
                     local_to_world,
+                    in_camera,
+                    shadow_mask,
                 })
             };
 
             if let Some(mesh) = mesh {
-                push(ItemMesh::Instanced(mesh.mesh.clone()));
+                let bounds = meshes
+                    .and_then(|meshes| meshes.get(&mesh.mesh))
+                    .filter(|_| is_culled)
+                    .map(|asset| asset.aabb().transformed(&local_to_world));
+
+                let (in_camera, shadow_mask) = visibility(bounds, camera.as_ref(), &self.shadow_frusta, shadow_views);
+
+                if in_camera || shadow_mask != 0 {
+                    push(ItemMesh::Instanced(mesh.mesh.clone()), in_camera, shadow_mask);
+                }
             }
             if let Some(batched) = batched {
-                push(ItemMesh::Batched(batched));
+                push(ItemMesh::Batched(batched), true, shadow_views);
             }
         }
 
@@ -158,7 +202,15 @@ impl MaterialRenderFeature {
         let core = render_api.core();
         self.geometry.clear();
 
-        let instance_count = self.items.iter().filter(|item| item.instanced_mesh().is_some()).count() as u32;
+        self.shadow_ranges.clear();
+        let views_count = self.shadow_frusta.len() as u32;
+
+        let instance_count = self
+            .items
+            .iter()
+            .filter(|item| item.instanced_mesh().is_some())
+            .map(|item| item.in_camera as u32 + item.shadow_mask.count_ones())
+            .sum::<u32>();
         let vertex_count = self
             .items
             .iter()
@@ -194,10 +246,32 @@ impl MaterialRenderFeature {
             let batched_start = chunk.partition_point(|item| item.instanced_mesh().is_some());
 
             for instances in chunk[..batched_start].chunk_by(|a, b| a.instanced_mesh() == b.instanced_mesh()) {
-                let count = instances.len() as u32;
+                let camera_start = instance_start;
+                let camera_count = write_instances_filtered(
+                    render_api,
+                    &self.instances,
+                    &mut self.matrices,
+                    instances,
+                    instance_start,
+                    |item| item.in_camera,
+                );
+                instance_start += camera_count;
 
-                if let FfiOption::Some(buffer) = &self.instances {
-                    render_api.write_instances_with(buffer, instance_start, count, |i| instances[i as usize].local_to_world);
+                let shadow_ranges_start = self.shadow_ranges.len() as u32;
+                let casts = instances.iter().any(|item| item.shadow_mask != 0);
+                let shadow_ranges_count = if casts { views_count } else { 0 };
+
+                for view in 0..shadow_ranges_count {
+                    let count = write_instances_filtered(
+                        render_api,
+                        &self.instances,
+                        &mut self.matrices,
+                        instances,
+                        instance_start,
+                        |item| item.shadow_mask & (1 << view) != 0,
+                    );
+                    self.shadow_ranges.push((instance_start, count));
+                    instance_start += count;
                 }
 
                 let range = (index as u32, (index + instances.len()) as u32);
@@ -206,12 +280,13 @@ impl MaterialRenderFeature {
                     range.1,
                     DrawGeometry::Instanced {
                         mesh: instances[0].instanced_mesh().unwrap().clone(),
-                        instance_start,
-                        instance_count: count,
+                        instance_start: camera_start,
+                        instance_count: camera_count,
+                        shadow_ranges_start,
+                        shadow_ranges_count,
                     },
                 ));
 
-                instance_start += count;
                 index += instances.len();
             }
 
@@ -445,16 +520,26 @@ impl MaterialRenderFeature {
                         mesh,
                         instance_start,
                         instance_count,
+                        shadow_ranges_start,
+                        shadow_ranges_count,
                     } => {
                         let (Some(mesh), FfiOption::Some(instances)) = (meshes.get(mesh), &self.instances) else {
                             continue;
                         };
 
-                        if mesh.indices_count() == 0 {
+                        let (instance_start, instance_count) = match is_shadow {
+                            false => (*instance_start, *instance_count),
+                            true if (view_index as u32) < *shadow_ranges_count => {
+                                self.shadow_ranges[(*shadow_ranges_start + view_index as u32) as u64]
+                            }
+                            true => (0, 0),
+                        };
+
+                        if mesh.indices_count() == 0 || instance_count == 0 {
                             continue;
                         }
 
-                        let [instance_start, instance_count] = instances.clamp_range(*instance_start, *instance_count);
+                        let [instance_start, instance_count] = instances.clamp_range(instance_start, instance_count);
 
                         core.draw_indexed(
                             &pass(&[mesh.vertex_buffer(), instances.buffer()]),
@@ -538,6 +623,51 @@ impl MaterialRenderFeature {
     pub(crate) fn logged(&self) -> &FfiIndexSet<AssetHandle<Material>> {
         &self.logged
     }
+}
+
+// (in camera, shadow view mask); unbounded items are visible everywhere
+fn visibility(bounds: Option<Aabb>, camera: Option<&Frustum>, shadow_frusta: &[Frustum], shadow_views: u64) -> (bool, u64) {
+    let Some(bounds) = bounds else {
+        return (true, shadow_views);
+    };
+
+    let in_camera = camera.is_none_or(|camera| camera.intersects_aabb(&bounds));
+    let shadow_mask = match shadow_views {
+        0 => 0,
+        _ => shadow_frusta
+            .iter()
+            .enumerate()
+            .filter(|(_, frustum)| frustum.intersects_aabb(&bounds))
+            .fold(0u64, |mask, (view, _)| mask | 1 << view),
+    };
+
+    (in_camera, shadow_mask & shadow_views)
+}
+
+fn has_shadow_pass(template: &MaterialTemplate) -> bool {
+    template.passes.iter().any(|pass| pass.target == MaterialPassTarget::Shadow)
+}
+
+fn write_instances_filtered(
+    render_api: &RenderApiResource,
+    buffer: &FfiOption<StandardInstanceBuffer>,
+    matrices: &mut FfiVec<Mat4<f32>>,
+    items: &[MaterialItem],
+    start: u32,
+    is_visible: impl Fn(&MaterialItem) -> bool,
+) -> u32 {
+    matrices.clear();
+    for item in items.iter().filter(|item| is_visible(item)) {
+        matrices.push(item.local_to_world);
+    }
+
+    if let FfiOption::Some(buffer) = buffer
+        && !matrices.is_empty()
+    {
+        render_api.write_instances(buffer, start, matrices);
+    }
+
+    matrices.len() as u32
 }
 
 // returns how many vertices were written
@@ -652,6 +782,8 @@ mod tests {
                 None => ItemMesh::Batched(batched),
             },
             local_to_world: Mat4::IDENTITY,
+            in_camera: true,
+            shadow_mask: 0,
         }
     }
 
@@ -726,6 +858,63 @@ mod tests {
         assert_eq!(logged.len(), 2);
         assert!(logged.contains(&unbuilt));
         assert!(logged.contains(&orphan));
+    }
+
+    #[test]
+    fn visibility_culls_per_frustum() {
+        use aphyn_math::{Aabb, Frustum, Vec3, orthographic_proj_matrix, perspective_proj_matrix};
+
+        let camera = Frustum::from_world_to_clip(&perspective_proj_matrix(1.5, 0.1, 100.0, 1.0));
+        // a light box around the origin, reaching behind the camera
+        let light =
+            Frustum::from_world_to_clip(&(orthographic_proj_matrix(20.0, 0.0, 40.0, 1.0) * Mat4::offset(Vec3::new(0.0, 0.0, 20.0))));
+        let far_light =
+            Frustum::from_world_to_clip(&(orthographic_proj_matrix(2.0, 0.0, 2.0, 1.0) * Mat4::offset(Vec3::new(500.0, 0.0, 0.0))));
+        let shadows = [light, far_light];
+        let cube = |z: f32| Some(Aabb::new(Vec3::new(-0.5, -0.5, z - 0.5), Vec3::new(0.5, 0.5, z + 0.5)));
+
+        assert_eq!(visibility(cube(5.0), Some(&camera), &shadows, 0b11), (true, 0b01));
+        assert_eq!(
+            visibility(cube(-5.0), Some(&camera), &shadows, 0b11),
+            (false, 0b01),
+            "off-screen caster"
+        );
+        assert_eq!(visibility(cube(-50.0), Some(&camera), &shadows, 0b11), (false, 0));
+        assert_eq!(
+            visibility(cube(-5.0), Some(&camera), &shadows, 0),
+            (false, 0),
+            "no shadow pass"
+        );
+        assert_eq!(
+            visibility(cube(-5.0), None, &shadows, 0b11),
+            (true, 0b01),
+            "no camera, no camera culling"
+        );
+        assert_eq!(visibility(None, Some(&camera), &shadows, 0b11), (true, 0b11), "unbounded");
+    }
+
+    #[test]
+    fn unloaded_meshes_are_not_culled() {
+        let mut templates = AssetStorageResource::<MaterialTemplate>::new();
+        let template = templates.insert(MaterialTemplate::default());
+        let mut materials = AssetStorageResource::<Material>::new();
+        let material = materials.insert(Material::new(template, MaterialData::new()));
+
+        let mut world = WorldData::default();
+        {
+            let mut data = world.as_mut();
+            let mut resources = data.resources_mut();
+            resources.insert(templates);
+            resources.insert(materials);
+        }
+        spawn(&mut world, material, true, true);
+
+        let mut feature = MaterialRenderFeature::default();
+        let (res, entities, _) = world.as_mut().into_tuple_mut();
+        feature.gather(&res, &entities);
+
+        assert_eq!(feature.items().len(), 2);
+        assert!(feature.items().iter().all(|item| item.in_camera));
     }
 
     #[test]

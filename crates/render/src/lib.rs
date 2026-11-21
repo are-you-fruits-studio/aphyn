@@ -19,6 +19,8 @@
 //! #### Uploading a mesh to the GPU
 //!
 //! Turn a vertex list and a `u32` index list into a [`StandardMesh`] that lives in GPU memory.
+//! The mesh also keeps the local-space [`Aabb`](aphyn_math::Aabb) of its vertex positions
+//! ([`aabb`](StandardMesh::aabb), a zero box at the origin for an empty mesh), which frustum culling uses.
 //! Most code reaches the resource through the world it is running in:
 //!
 //! ```ignore
@@ -112,7 +114,8 @@
 //! into the named member of the uniform (or read-only storage) buffer at `(group, binding)`, a
 //! [`MaterialTextureBinding`] binds a texture input's texture and optionally its sampler. Group 0
 //! belongs to the engine (camera, lights and shadows, see [`StandardGlobalBindings`]); material inputs use
-//! groups 1 and up:
+//! groups 1 and up. `skip_frustum_culling` (default `false`) draws the template's meshes without
+//! frustum culling, for geometry that is not in world space (the built-in UI templates set it):
 //!
 //! ```
 //! use aphyn_asset_storage::AssetHandle;
@@ -405,7 +408,7 @@
 //!
 //! The asset types hold core handles directly in `#[repr(C)]` fields and expose them through
 //! accessors: [`StandardTexture`] its texture and sampler, [`StandardMesh`] its vertex and index
-//! buffers and index count, [`StandardInstanceBuffer`] its vertex buffer, [`StandardGlobalBindings`]
+//! buffers, index count and the AABB computed once in `new` (not serialized), [`StandardInstanceBuffer`] its vertex buffer, [`StandardGlobalBindings`]
 //! its uniform and lights buffers, [`Shader`] its `GpuShader`, and [`ComputeShader`] its
 //! `GpuComputeShader`. Meshes, textures and both shader kinds keep their optional asset metadata so the
 //! asset can be saved back.

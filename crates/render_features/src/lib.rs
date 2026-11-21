@@ -21,7 +21,11 @@
 //! An entity is drawn when it has a [`MaterialComponent`] plus a [`MeshComponent`] (an instanced
 //! `StandardMesh`), a [`BatchedMeshComponent`] (raw vertices and indices, e.g. produced by
 //! `aphyn_ui`), or both. A `GlobalTransform` places it (identity when missing), and a set
-//! `GlobalDisableableComponent::is_disabled` hides it. Nothing is drawn without a camera: the app
+//! `GlobalDisableableComponent::is_disabled` hides it. Instanced meshes are frustum culled: the
+//! mesh's AABB, moved by the `GlobalTransform`, must intersect the camera frustum to be drawn into the
+//! view's passes, and a shadow map tile's light frustum to be drawn into that tile (so off-screen
+//! casters keep their shadows). Batched meshes and templates with `skip_frustum_culling` (the
+//! built-in UI ones) are never culled. Nothing is drawn without a camera: the app
 //! renders through the first [`CameraComponent`]. Lit materials are shaded by every
 //! [`StandardLightComponent`] (up to `LIGHTS_COUNT_MAX`); point and spot lights sit at their
 //! transform's position, spot and directional lights point along their local `-Y` axis. Point and spot
@@ -247,11 +251,18 @@
 //!
 //! 1. gathers one item per mesh component of every enabled entity whose material resolves
 //!    (template handle, material, instanced mesh handle or a raw pointer to the
-//!    `BatchedMeshComponent`, `local_to_world`) and sorts them by `(template, material, instanced
-//!    before batched, mesh)`,
+//!    `BatchedMeshComponent`, `local_to_world`, visibility) and sorts them by `(template, material, instanced
+//!    before batched, mesh)`. Visibility is `in_camera` plus a `shadow_mask` bit per
+//!    `ShadowAtlasResource` view (at most `SHADOW_VIEWS_MAX` = 64, so a `u64`), tested with
+//!    `aphyn_math::Frustum`s built from `CurrentRenderingResource::world_to_clip` and each view's
+//!    `world_to_clip` (the globals feature is registered first, so the views are already laid out).
+//!    Shadow bits are only set when the template has a `Shadow` pass. Items with nothing to test
+//!    (batched, `skip_frustum_culling`, mesh or template not loaded) are visible everywhere; items
+//!    visible nowhere are dropped,
 //! 2. calls `RenderApiResource::upload_material_changes` once per material (snapshot-driven),
-//! 3. uploads the frame's geometry: per `(material, mesh)` run the instance matrices into one
-//!    growing `StandardInstanceBuffer`, per material the CPU-transformed batched vertices (vertex
+//! 3. uploads the frame's geometry: per `(material, mesh)` run the camera-visible instance matrices,
+//!    then, when any item of the run casts, one compacted range per shadow view (kept in
+//!    `shadow_ranges`), into one growing `StandardInstanceBuffer` sized for all ranges; per material the CPU-transformed batched vertices (vertex
 //!    colors are taken as linear and copied as is) into one growing vertex buffer. All ranges of the frame
 //!    coexist in the buffers, so passes may run in any order,
 //! 4. builds one draw per (template pass, geometry run) whose material has GPU data for that pass;
@@ -271,7 +282,8 @@
 //! `shader_transparent_final.wgsl`) or [`SceneNormalsTextureResource`] (`DepthNormals`), always with
 //! [`DepthTextureResource`]. A `Shadow` pass instead
 //! repeats the draw once per shadow view with no color target, the atlas as depth, the tile as
-//! viewport and only that view's caster uniform at group 0 binding 0. The caster shader declares no
+//! viewport, that view's instance range and only that view's caster uniform at group 0 binding 0.
+//! Other passes draw the camera range; empty ranges issue no draw. The caster shader declares no
 //! other group 0 binding, so the atlas is never sampled by the pass that renders into it. Batched draws pass a
 //! one-element identity instance buffer. The batched pointers are only dereferenced inside
 //! `add_passes`, while no entity can change; the item vec is cleared before returning.
@@ -322,7 +334,7 @@
 //!
 //! #### Allocation-free pass list
 //!
-//! The entry list, the closure vec, the material feature's items, geometry and draws, the globals
+//! The entry list, the closure vec, the material feature's items, geometry, shadow frusta and ranges, matrix scratch and draws, the globals
 //! feature's light lists and the atlas's shadow views are cleared, not dropped, so they keep their capacity. Known exceptions: the ECS queries of the
 //! material and globals features allocate every frame (`// todo` at the queries), the material
 //! feature allocates its bind group lists per draw (`// todo`), and `render_view`, the globals and
