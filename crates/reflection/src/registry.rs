@@ -1,127 +1,101 @@
-use std::{
-    any::{Any, TypeId},
-    collections::HashMap,
-};
+use aphyn_ffi::{FfiArc, FfiIndexMap, FfiString};
 
-use crate::{
-    refl_repr::{ReflRepr, ReflReprFields, ReflReprStruct},
-    refl_repr_reg_entries,
-    refl_ty::{ReflTy, ReflTyId},
-};
+use crate::{ReflectField, Reflectable, Reflector};
 
-// todo: ffi?
-
+#[repr(C)]
 #[derive(Default)]
-pub struct ReflTyRegistry {
-    pub types: HashMap<ReflTyId, ReflTy>,
+pub struct ReflectionRegistryBuilder {
+    reflectors: FfiIndexMap<FfiString, Reflector>,
 }
 
-impl ReflTyRegistry {
-    pub fn set(&mut self, id: ReflTyId, ty: ReflTy) {
-        self.types.insert(id, ty);
+impl ReflectionRegistryBuilder {
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    pub fn get(&self, id: &ReflTyId) -> Option<&ReflTy> {
-        self.types.get(id)
-    }
-}
-
-#[derive(Default)]
-pub struct ReflRepresenterRegistry {
-    pub representers: HashMap<TypeId, Box<dyn Any>>,
-}
-
-impl ReflRepresenterRegistry {
-    pub fn set<T: 'static>(&mut self, representer: Box<dyn ReflRepresenter<Item = T>>) {
-        let any = Box::new(representer) as Box<dyn Any>;
-
-        self.representers.insert(TypeId::of::<T>(), any);
-    }
-    pub fn get<T: 'static>(&self) -> Option<&dyn ReflRepresenter<Item = T>> {
-        let any = self.representers.get(&TypeId::of::<T>())?;
-
-        Some(&**(any.downcast_ref::<Box<dyn ReflRepresenter<Item = T>>>()?))
+    pub fn register<T: Reflectable>(&mut self) -> &mut Self {
+        if !self.reflectors.contains_key(std::any::type_name::<T>()) {
+            self.register_reflector(T::reflector());
+        }
+        self
     }
 
-    pub fn item_name<T: 'static>(&self) -> Option<String> {
-        Some(self.get::<T>()?.item_name(&ReflRepresenterCtx { reg: self }))
+    pub fn register_reflector(&mut self, reflector: Reflector) -> &mut Self {
+        self.reflectors.entry(reflector.type_name().into()).or_insert(reflector);
+        self
     }
-    pub fn into_repr<T: 'static>(&self, v: &T) -> Option<ReflRepr> {
-        self.get::<T>()?.into_repr(&ReflRepresenterCtx { reg: self }, v)
+
+    pub fn contains(&self, type_name: &str) -> bool {
+        self.reflectors.contains_key(type_name)
     }
-    pub fn from_repr<T: 'static>(&self, v: &ReflRepr) -> Option<T> {
-        self.get::<T>()?.from_repr(&ReflRepresenterCtx { reg: self }, v)
+
+    pub fn build(self) -> ReflectionRegistry {
+        ReflectionRegistry {
+            reflectors: FfiArc::new(self.reflectors.into_iter().map(|(k, v)| (k, FfiArc::new(v))).collect()),
+        }
     }
 }
 
-pub struct ReflRepresenterCtx<'a> {
-    reg: &'a ReflRepresenterRegistry,
+#[repr(C)]
+#[derive(Clone)]
+pub struct ReflectionRegistry {
+    reflectors: FfiArc<FfiIndexMap<FfiString, FfiArc<Reflector>>>,
 }
 
-impl<'a> ReflRepresenterCtx<'a> {
-    pub fn item_name<T: 'static>(&self) -> Option<String> {
-        Some(self.reg.get::<T>()?.item_name(self))
+impl ReflectionRegistry {
+    pub fn get(&self, type_name: &str) -> Option<&FfiArc<Reflector>> {
+        self.reflectors.get(type_name)
     }
-    pub fn into_repr<T: 'static>(&self, v: &T) -> Option<ReflRepr> {
-        self.reg.get::<T>()?.into_repr(self, v)
+
+    pub fn get_of<T: 'static>(&self) -> Option<&FfiArc<Reflector>> {
+        self.get(std::any::type_name::<T>())
     }
-    pub fn from_repr<T: 'static>(&self, v: &ReflRepr) -> Option<T> {
-        self.reg.get::<T>()?.from_repr(self, v)
+
+    pub fn dst_of(&self, field: &ReflectField) -> Option<&FfiArc<Reflector>> {
+        self.get(field.dst_type_name())
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &FfiArc<Reflector>> {
+        self.reflectors.values()
+    }
+
+    pub fn len(&self) -> usize {
+        self.reflectors.len() as usize
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.reflectors.is_empty()
+    }
+
+    pub fn missing_dst_types(&self) -> Vec<&'static str> {
+        let mut missing = Vec::new();
+        let mut check = |type_name: &'static str| {
+            if !self.reflectors.contains_key(type_name) && !missing.contains(&type_name) {
+                missing.push(type_name);
+            }
+        };
+
+        for reflector in self.iter() {
+            match &**reflector {
+                Reflector::Value(_) => {}
+                Reflector::Struct(r) => r.fields().for_each(|f| check(f.dst_type_name())),
+                Reflector::Enum(r) => r.variants().flat_map(|v| v.fields()).for_each(|f| check(f.dst_type_name())),
+                Reflector::Collection(r) => check(r.element_type_name()),
+            }
+        }
+
+        missing
     }
 }
 
-pub trait ReflRepresenter {
-    type Item;
-
-    fn item_name(&self, ctx: &ReflRepresenterCtx) -> String;
-    fn into_repr(&self, ctx: &ReflRepresenterCtx, v: &Self::Item) -> Option<ReflRepr>;
-    fn from_repr(&self, ctx: &ReflRepresenterCtx, v: &ReflRepr) -> Option<Self::Item> {
-        None
+impl Default for ReflectionRegistry {
+    fn default() -> Self {
+        ReflectionRegistryBuilder::new().build()
     }
 }
 
-// example
-
-#[derive(Debug)]
-pub struct ExampleStruct {
-    pub age: u8,
-    pub name: Option<String>,
-}
-
-pub fn registry_use_case() {
-    let mut reg = ReflRepresenterRegistry::default();
-
-    refl_repr_reg_entries::set_common_representers(&mut reg);
-
-    reg.set(Box::new(ExampleStructReflRepresenter::default()));
-
-    let example_struct = ExampleStruct {
-        age: 55,
-        name: Some(String::from("Barry")),
-    };
-
-    let repr = reg.into_repr(&example_struct).unwrap();
-
-    println!("{:?}", repr);
-    println!("{:?}", example_struct);
-}
-
-#[derive(Default)]
-struct ExampleStructReflRepresenter;
-impl ReflRepresenter for ExampleStructReflRepresenter {
-    type Item = ExampleStruct;
-
-    fn item_name(&self, _ctx: &ReflRepresenterCtx) -> String {
-        String::from("ExampleStruct")
-    }
-
-    fn into_repr(&self, ctx: &ReflRepresenterCtx, v: &Self::Item) -> Option<ReflRepr> {
-        Some(ReflRepr::Struct(ReflReprStruct {
-            name: String::from("ExampleStruct"),
-            fields: ReflReprFields::Named(vec![
-                (String::from("age"), ctx.into_repr(&v.age)?),
-                (String::from("name"), ctx.into_repr(&v.name)?),
-            ]),
-        }))
+impl std::fmt::Debug for ReflectionRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list().entries(self.reflectors.keys()).finish()
     }
 }

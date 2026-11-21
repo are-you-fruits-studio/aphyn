@@ -15,4 +15,5 @@ aphyn_ffi = { path = "../ffi" }
 aphyn_math = { path = "../math" }
 aphyn_render_features = { path = "../render_features" }
 aphyn_serialization = { path = "../serialization" }
+aphyn_reflection = { path = "../reflection" }
 aphyn_transform = { path = "../transform" }

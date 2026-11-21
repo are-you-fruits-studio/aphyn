@@ -35,6 +35,9 @@
     - Html-css-like ui will have to notice user input, delete old fields and spawn new ones. It's more conventional, but less convenient.
     - The whole editor is not obligated to use the inspecting thing - it can draw itself with ecs. Inspecting tool is only used in the inspector.
     - So imgui shouldn't have universal api, it should expose a list of currently supported tools (layout, slider, checkbox, etc.) to quickly draw the inspector
+- implement reflection:
+    - Type Kind: Struct, Enum, Collection?
+    - field getters and setters
 
 - Create ffi type id (TypeRegistry-depending) and use it instead of the typename where possible? Also integrate it into ecs
 

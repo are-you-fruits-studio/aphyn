@@ -7,9 +7,7 @@ license.workspace = true
 [lib]
 crate-type = ["lib"]
 
-[[bin]]
-name = "aphyn_reflection_example"
-path = "src/main.rs"
-
 [dependencies]
 aphyn_reflection_macros = { path = "../reflection_macros" }
+aphyn_ffi = { path = "../ffi" }
+aphyn_math = { path = "../math" }

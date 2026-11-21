@@ -1,5 +1,6 @@
 use aphyn_ecs::Resource;
 use aphyn_math::{Mat3, Mat4, Vec3};
+use aphyn_reflection::*;
 use aphyn_render_core::GpuTextureFormat;
 use aphyn_serialization::*;
 
@@ -10,7 +11,7 @@ pub const DEPTH_TEXTURE_FORMAT: GpuTextureFormat = GpuTextureFormat::Depth32Floa
 pub const TRANSPARENT_TARGET_FORMAT: GpuTextureFormat = GpuTextureFormat::Rgba16Float;
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Serializable)]
+#[derive(Clone, Copy, Debug, Serializable, Reflectable)]
 pub struct Camera {
     pub projection: CameraProjection,
     pub near: f32,
@@ -27,7 +28,7 @@ impl Default for Camera {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Serializable)]
+#[derive(Clone, Copy, Debug, Serializable, Reflectable)]
 pub enum CameraProjection {
     Perspective { fov: f32 },
     Orthographic { height: f32 },

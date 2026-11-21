@@ -17,4 +17,5 @@ aphyn_window = { path = "../window" }
 aphyn_ffi = { path = "../ffi" }
 aphyn_transform = { path = "../transform" }
 aphyn_serialization = { path = "../serialization" }
+aphyn_reflection = { path = "../reflection" }
 image = "0.25"

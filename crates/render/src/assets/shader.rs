@@ -1,9 +1,10 @@
 use aphyn_ffi::{FfiOption, FfiString};
+use aphyn_reflection::*;
 use aphyn_render_core::{GpuShader, GpuShaderDesc, RenderApi};
 use aphyn_serialization::*;
 
 #[repr(C)]
-#[derive(Clone, Debug, Default, PartialEq, Serializable)]
+#[derive(Clone, Debug, Default, PartialEq, Serializable, Reflectable)]
 pub struct ShaderAssetMetadata {
     pub wgsl: FfiString,
     pub desc: GpuShaderDesc,

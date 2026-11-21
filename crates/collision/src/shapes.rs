@@ -1,12 +1,13 @@
 use std::fmt::Debug;
 
 use aphyn_math::{Mat4, Quat, Vec3};
+use aphyn_reflection::*;
 use aphyn_serialization::*;
 
 use crate::LineBoundType;
 
 #[repr(C, u8)]
-#[derive(Copy, Clone, PartialEq, Debug, Serializable)]
+#[derive(Copy, Clone, PartialEq, Debug, Serializable, Reflectable)]
 pub enum CollisionShape {
     Point(Vec3<f32>),
     Line(CollisionLine),
@@ -156,7 +157,7 @@ impl CollisionShape {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, PartialEq, Debug, Serializable)]
+#[derive(Copy, Clone, PartialEq, Debug, Serializable, Reflectable)]
 pub struct CollisionBox {
     pub center: Vec3<f32>,
     pub extents: Vec3<f32>,
@@ -173,7 +174,7 @@ impl Default for CollisionBox {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, PartialEq, Debug, Serializable)]
+#[derive(Copy, Clone, PartialEq, Debug, Serializable, Reflectable)]
 pub struct CollisionAabb {
     pub center: Vec3<f32>,
     pub extents: Vec3<f32>,
@@ -250,7 +251,7 @@ impl CollisionAabb {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, PartialEq, Debug, Serializable)]
+#[derive(Copy, Clone, PartialEq, Debug, Serializable, Reflectable)]
 pub struct CollisionLine {
     pub start: Vec3<f32>,
     pub end: Vec3<f32>,
@@ -267,7 +268,7 @@ impl Default for CollisionLine {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, PartialEq, Debug, Serializable)]
+#[derive(Copy, Clone, PartialEq, Debug, Serializable, Reflectable)]
 pub struct CollisionSphere {
     pub center: Vec3<f32>,
     pub radius: f32,

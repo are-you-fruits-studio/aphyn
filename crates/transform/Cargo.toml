@@ -14,5 +14,6 @@ aphyn_math = { path = "../math" }
 aphyn_render = { path = "../render" }
 aphyn_window = { path = "../window" }
 aphyn_serialization = { path = "../serialization" }
+aphyn_reflection = { path = "../reflection" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }

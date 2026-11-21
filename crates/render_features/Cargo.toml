@@ -15,6 +15,7 @@ aphyn_asset_storage = { path = "../asset_storage" }
 aphyn_transform = { path = "../transform" }
 aphyn_math = { path = "../math" }
 aphyn_serialization = { path = "../serialization" }
+aphyn_reflection = { path = "../reflection" }
 aphyn_utils = { path = "../utils" }
 
 

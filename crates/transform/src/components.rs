@@ -1,11 +1,12 @@
 use aphyn_ecs::{Component, EntityId, Resource};
 use aphyn_ffi::{FfiOption, FfiVec};
 use aphyn_math::{Mat, Mat3, Quat, Vec2, Vec3};
+use aphyn_reflection::*;
 use aphyn_serialization::*;
 use serde::{Deserialize, Serialize};
 
 #[repr(C)]
-#[derive(Component, Copy, Clone, Debug, PartialEq, Serializable, Serialize, Deserialize)]
+#[derive(Component, Copy, Clone, Debug, PartialEq, Serializable, Reflectable, Serialize, Deserialize)]
 pub struct GlobalTransform {
     pub position: Vec3<f32>,
     pub scale_rotation: Mat3<f32>,
@@ -30,7 +31,7 @@ impl Default for GlobalTransform {
 }
 
 #[repr(C)]
-#[derive(Component, Copy, Clone, Debug, PartialEq, Serializable, Serialize, Deserialize)]
+#[derive(Component, Copy, Clone, Debug, PartialEq, Serializable, Reflectable, Serialize, Deserialize)]
 pub struct LocalTransform {
     pub position: Vec3<f32>,
     pub rotation: Quat<f32>,
@@ -50,7 +51,7 @@ impl Default for LocalTransform {
 }
 
 #[repr(C)]
-#[derive(Component, Clone, Debug, PartialEq, Default, Serializable)]
+#[derive(Component, Clone, Debug, PartialEq, Default, Serializable, Reflectable)]
 pub struct ParentComponent {
     children: FfiVec<EntityId>,
 }
@@ -71,7 +72,7 @@ impl ParentComponent {
 }
 
 #[repr(C)]
-#[derive(Default, Component, Copy, Clone, Debug, PartialEq, Serializable)]
+#[derive(Default, Component, Copy, Clone, Debug, PartialEq, Serializable, Reflectable)]
 pub struct ChildComponent {
     parent: EntityId,
 }
@@ -92,7 +93,7 @@ impl ChildComponent {
 }
 
 #[repr(C)]
-#[derive(Component, Copy, Clone, Debug, Default, PartialEq, Eq, Serializable, Serialize, Deserialize)]
+#[derive(Component, Copy, Clone, Debug, Default, PartialEq, Eq, Serializable, Reflectable, Serialize, Deserialize)]
 pub struct StaticComponent;
 
 #[derive(Resource, Default, Debug)]
@@ -106,7 +107,7 @@ impl TransformSettingsResource {
 }
 
 #[repr(C)]
-#[derive(Component, Copy, Clone, Debug, PartialEq, Default, Serializable, Serialize, Deserialize)]
+#[derive(Component, Copy, Clone, Debug, PartialEq, Default, Serializable, Reflectable, Serialize, Deserialize)]
 pub struct GlobalRectComponent {
     pub center: Vec2<f32>,
     pub scale: Vec2<f32>,
@@ -114,7 +115,7 @@ pub struct GlobalRectComponent {
 }
 
 #[repr(C)]
-#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Serializable, Serialize, Deserialize)]
+#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Serializable, Reflectable, Serialize, Deserialize)]
 pub enum UiDirection {
     #[default]
     Vertical,
@@ -131,7 +132,7 @@ impl UiDirection {
 }
 
 #[repr(C)]
-#[derive(Component, Copy, Clone, Debug, PartialEq, Serializable, Serialize, Deserialize)]
+#[derive(Component, Copy, Clone, Debug, PartialEq, Serializable, Reflectable, Serialize, Deserialize)]
 pub struct LocalRectComponent {
     pub parent_padding_min: Vec2<UiVal>,
     pub parent_padding_max: Vec2<UiVal>,
@@ -156,7 +157,7 @@ impl Default for LocalRectComponent {
 }
 
 #[repr(C)]
-#[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serializable, Serialize, Deserialize)]
+#[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serializable, Reflectable, Serialize, Deserialize)]
 pub struct GlobalDisableableComponent {
     pub is_disabled: bool,
 }
@@ -166,7 +167,7 @@ impl Default for GlobalDisableableComponent {
     }
 }
 #[repr(C)]
-#[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serializable, Serialize, Deserialize)]
+#[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serializable, Reflectable, Serialize, Deserialize)]
 pub struct LocalDisableableComponent {
     pub is_disabled: bool,
 }
@@ -177,7 +178,7 @@ impl Default for LocalDisableableComponent {
 }
 
 #[repr(C)]
-#[derive(Component, Copy, Clone, Debug, PartialEq, Serializable, Serialize, Deserialize)]
+#[derive(Component, Copy, Clone, Debug, PartialEq, Serializable, Reflectable, Serialize, Deserialize)]
 pub struct RectChildAlignComponent {
     pub anchor: Vec2<f32>,
     pub direction: UiDirection,
@@ -197,7 +198,7 @@ impl Default for RectChildAlignComponent {
 }
 
 #[repr(C)]
-#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Serializable, Serialize, Deserialize)]
+#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Serializable, Reflectable, Serialize, Deserialize)]
 pub enum UiSpacing {
     #[default]
     Chunk,
@@ -207,14 +208,14 @@ pub enum UiSpacing {
 }
 
 #[repr(C)]
-#[derive(Default, Copy, Clone, Debug, PartialEq, Serializable, Serialize, Deserialize)]
+#[derive(Default, Copy, Clone, Debug, PartialEq, Serializable, Reflectable, Serialize, Deserialize)]
 pub struct UiVal {
     pub unit: UiUnit,
     pub val: f32,
 }
 
 #[repr(C)]
-#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serializable, Serialize, Deserialize)]
+#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serializable, Reflectable, Serialize, Deserialize)]
 pub enum UiUnit {
     #[default]
     Px,

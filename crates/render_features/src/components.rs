@@ -2,30 +2,31 @@ use aphyn_asset_storage::AssetHandle;
 use aphyn_ecs::Component;
 use aphyn_ffi::FfiVec;
 use aphyn_math::Vec3;
+use aphyn_reflection::*;
 use aphyn_render::{Camera, Material, StandardMesh, StandardVertex};
 use aphyn_serialization::*;
 
 #[repr(C)]
-#[derive(Default, Component, Clone, Serializable)]
+#[derive(Default, Component, Clone, Serializable, Reflectable)]
 pub struct MaterialComponent {
     pub material: AssetHandle<Material>,
 }
 
 #[repr(C)]
-#[derive(Default, Component, Clone, Serializable)]
+#[derive(Default, Component, Clone, Serializable, Reflectable)]
 pub struct MeshComponent {
     pub mesh: AssetHandle<StandardMesh>,
 }
 
 #[repr(C)]
-#[derive(Component, Default, Clone, Serializable)]
+#[derive(Component, Default, Clone, Serializable, Reflectable)]
 pub struct BatchedMeshComponent {
     pub vertices: FfiVec<StandardVertex>,
     pub indices: FfiVec<u32>,
 }
 
 #[repr(C)]
-#[derive(Component, Clone, Copy, Serializable)]
+#[derive(Component, Clone, Copy, Serializable, Reflectable)]
 pub enum StandardLightComponent {
     Point {
         color: Vec3<f32>,
@@ -55,5 +56,5 @@ impl Default for StandardLightComponent {
 }
 
 #[repr(C)]
-#[derive(Component, Clone, Copy, Default, Serializable)]
+#[derive(Component, Clone, Copy, Default, Serializable, Reflectable)]
 pub struct CameraComponent(pub Camera);

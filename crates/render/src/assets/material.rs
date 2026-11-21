@@ -1,6 +1,7 @@
 use aphyn_asset_storage::{AssetHandle, AssetStorageResource};
 use aphyn_ffi::{FfiIndexMap, FfiOption, FfiString, FfiVec};
 use aphyn_math::Vec4;
+use aphyn_reflection::*;
 use aphyn_render_core::{GpuBindingTy, GpuBufferMemberTy, GpuShader, GpuTextureSampleKind, GpuUniformStorageBuffer, RenderApi};
 use aphyn_serialization::*;
 
@@ -9,7 +10,7 @@ use crate::{MaterialTemplate, MaterialTemplatePass, Shader, StandardTexture};
 // todo: more input types (integers, vec2/vec3, matrices)
 // todo: a convenient way to author colors in sRGB; Vec4 inputs are always uploaded as is (linear)
 #[repr(C, u8)]
-#[derive(Clone, Debug, PartialEq, Serializable)]
+#[derive(Clone, Debug, PartialEq, Serializable, Reflectable)]
 pub enum MaterialDataValue {
     F32(f32),
     Vec4(Vec4<f32>),
@@ -735,5 +736,27 @@ mod tests {
         MaterialDataValue::F32(0.5).write_bytes(&mut bytes);
         assert_eq!(&bytes[..4], &0.5_f32.to_le_bytes());
         assert_eq!(&bytes[4..8], &2.0_f32.to_le_bytes());
+    }
+}
+
+impl Reflectable for MaterialData {
+    fn reflector() -> Reflector {
+        ValueReflector::of::<Self>()
+    }
+}
+
+impl Reflectable for MaterialDataEntry {
+    fn reflector() -> Reflector {
+        ValueReflector::of::<Self>()
+    }
+}
+
+// gpu is runtime state, not reflected
+impl Reflectable for Material {
+    fn reflector() -> Reflector {
+        StructReflectorBuilder::<Self>::new()
+            .field("template", |v| Some(&v.template), |v| Some(&mut v.template))
+            .field("data", |v| Some(&v.data), |v| Some(&mut v.data))
+            .build()
     }
 }

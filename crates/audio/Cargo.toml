@@ -15,3 +15,4 @@ aphyn_render_features = { path = "../render_features" }
 aphyn_asset_storage = { path = "../asset_storage" }
 aphyn_ffi = { path = "../ffi" }
 aphyn_serialization = { path = "../serialization" }
+aphyn_reflection = { path = "../reflection" }

@@ -149,6 +149,7 @@ use aphyn_asset_storage::*;
 use aphyn_ecs::*;
 use aphyn_ffi::{FfiDroppable, FfiOption, FfiString, FfiVec};
 use aphyn_render_features::RenderFeatureRegistry;
+use aphyn_reflection::*;
 use aphyn_serialization::*;
 use cpal::{
     OutputCallbackInfo, StreamConfig,
@@ -192,7 +193,7 @@ pub fn add_audio_module_to(mut data: WorldDataMut, mut behavior: WorldBehaviorBu
 }
 
 #[repr(C)]
-#[derive(Serializable, Clone, Default)]
+#[derive(Serializable, Reflectable, Clone, Default)]
 pub struct AudioClipAssetMetadata {
     pub raw_audio: FfiString,
 }
@@ -239,7 +240,7 @@ impl AudioClip {
 }
 
 #[repr(C)]
-#[derive(Component, Serializable)]
+#[derive(Component, Serializable, Reflectable)]
 pub struct AudioSource {
     pub clip: AssetHandle<AudioClip>,
     pub playback_time: f64,

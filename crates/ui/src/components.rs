@@ -2,13 +2,14 @@ use aphyn_asset_storage::AssetHandle;
 use aphyn_ecs::Component;
 use aphyn_ffi::FfiString;
 use aphyn_math::Vec4;
+use aphyn_reflection::*;
 use aphyn_serialization::*;
 use aphyn_transform::UiVal;
 
 use crate::assets::Font;
 
 #[repr(C)]
-#[derive(Component, Serializable)]
+#[derive(Component, Serializable, Reflectable)]
 pub struct TextComponent {
     pub font: AssetHandle<Font>,
     pub text: FfiString,
@@ -35,7 +36,7 @@ impl Default for TextComponent {
 }
 
 #[repr(C)]
-#[derive(Component, Serializable)]
+#[derive(Component, Serializable, Reflectable)]
 pub struct ImageComponent {
     pub is_y_inverted: bool,
     pub color: Vec4<f32>,
@@ -54,7 +55,7 @@ impl Default for ImageComponent {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Default, Serializable)]
+#[derive(Copy, Clone, Default, Serializable, Reflectable)]
 pub enum ImageFillSettings {
     // todo: add more variants and details.
     #[default]
@@ -62,7 +63,7 @@ pub enum ImageFillSettings {
 }
 
 #[repr(C)]
-#[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Default, Serializable)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Default, Serializable, Reflectable)]
 pub enum HorizontalAlign {
     #[default]
     Left,
@@ -71,7 +72,7 @@ pub enum HorizontalAlign {
 }
 
 #[repr(C)]
-#[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Default, Serializable)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Default, Serializable, Reflectable)]
 pub enum VerticalAlign {
     Top,
     #[default]
@@ -80,5 +81,5 @@ pub enum VerticalAlign {
 }
 
 #[repr(C)]
-#[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default, Serializable)]
+#[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default, Serializable, Reflectable)]
 pub struct ChildrenRectMaskComponent;

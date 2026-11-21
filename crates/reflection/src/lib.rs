@@ -1,199 +1,180 @@
 //! # aphyn_reflection
 //!
-//! Runtime reflection for engine types. It lets code inspect a type's
-//! structure, build and take apart values dynamically, and convert values to a
-//! self-describing data tree without knowing the concrete type at compile time.
-//! This is the groundwork for tooling — editors, inspectors, serializers — that
-//! must operate over arbitrary user types.
+//! Runtime reflection for engine types: reach into a type-erased value's fields, enum variants and
+//! collection elements by name or index, without knowing the concrete type at compile time. It is
+//! the groundwork for animations (which resolve a field once and then read/write it every frame)
+//! and for other tooling that operates over arbitrary types.
 //!
 //! # How to use
 //!
-//! The crate exposes three independent facilities. Pick the one that matches the
-//! task: a self-describing value tree ([`ReflRepr`]), dynamic construction and
-//! field access ([`ReflMapStruct`]), or a static structural schema ([`ReflTy`]).
+//! A type describes itself through [`Reflectable`], whose single method builds its [`Reflector`].
+//! Derive it with [`Reflectable`](derive@Reflectable) or write it by hand with the builders.
+//! Reflectors are collected in a [`ReflectionRegistryBuilder`] and built into a read-only
+//! [`ReflectionRegistry`], which looks them up by [`std::any::type_name`].
 //!
-//! #### Convert a value to a self-describing representation
-//!
-//! Turn a typed value into a [`ReflRepr`] tree that mirrors its fields. Register
-//! the built-in representers for primitives, `Option`, and `Vec`, then add a
-//! [`ReflRepresenter`] for your own type and call
-//! [`into_repr`](ReflRepresenterRegistry::into_repr).
+//! #### Register and access a field
 //!
 //! ```
+//! use aphyn_ffi::{FfiAnyMut, FfiAnyRef};
 //! use aphyn_reflection::*;
 //!
+//! #[derive(Reflectable)]
 //! struct Player {
 //!     health: u32,
 //!     name: String,
 //! }
 //!
-//! struct PlayerRepresenter;
-//! impl ReflRepresenter for PlayerRepresenter {
-//!     type Item = Player;
+//! let mut builder = ReflectionRegistryBuilder::new();
+//! builder.register::<Player>().register::<u32>().register::<String>();
+//! let registry = builder.build();
 //!
-//!     fn item_name(&self, _ctx: &ReflRepresenterCtx) -> String {
-//!         String::from("Player")
+//! let reflector = registry.get_of::<Player>().unwrap();
+//! let health = reflector.as_struct().unwrap().field("health").unwrap().clone();
+//!
+//! let mut player = Player { health: 100, name: String::from("Barry") };
+//! *health.get_mut(FfiAnyMut::new(&mut player)).unwrap().downcast_mut::<u32>().unwrap() = 50;
+//! assert_eq!(player.health, 50);
+//!
+//! // a field only names its type; the registry resolves it
+//! let health_reflector = registry.dst_of(&health).unwrap();
+//! assert!(health_reflector.as_value().is_some());
+//!
+//! // a field reference is shared and outlives the registry
+//! drop(registry);
+//! assert_eq!(health.get(FfiAnyRef::new(&player)).unwrap().downcast_ref::<u32>(), Some(&50));
+//! ```
+//!
+//! #### Enums
+//!
+//! An [`EnumReflector`] lists every variant; [`active_variant`](EnumReflector::active_variant)
+//! tells which one a value holds. Variant fields return `None` while another variant is active.
+//! Tuple fields (of structs and variants) are named by index: `"0"`, `"1"`, …
+//!
+//! ```
+//! use aphyn_ffi::FfiAnyRef;
+//! use aphyn_reflection::*;
+//!
+//! #[derive(Reflectable)]
+//! enum PersonId {
+//!     Username(String),
+//!     Token { value: u64 },
+//! }
+//!
+//! let Reflector::Enum(reflector) = PersonId::reflector() else { unreachable!() };
+//!
+//! let id = PersonId::Token { value: 7 };
+//! let active = reflector.active_variant(FfiAnyRef::new(&id)).unwrap();
+//! assert_eq!(active.name(), "Token");
+//!
+//! let value = active.field("value").unwrap();
+//! assert_eq!(value.get(FfiAnyRef::new(&id)).unwrap().downcast_ref::<u64>(), Some(&7));
+//!
+//! let username = reflector.variant("Username").unwrap().field("0").unwrap();
+//! assert!(username.get(FfiAnyRef::new(&id)).is_none());
+//! ```
+//!
+//! #### Collections
+//!
+//! A [`CollectionReflector`] reads and writes elements of an indexed list. `Vec<T>` and
+//! [`FfiVec<T>`](aphyn_ffi::FfiVec) also insert and remove; fixed-size `[T; N]` and
+//! [`Mat<N, T>`](aphyn_math::Mat) (a list of columns) do not
+//! ([`is_resizable`](CollectionReflector::is_resizable) is `false`).
+//!
+//! ```
+//! use aphyn_ffi::{FfiAny, FfiAnyMut, FfiAnyRef};
+//! use aphyn_reflection::*;
+//!
+//! let Reflector::Collection(reflector) = Vec::<u8>::reflector() else { unreachable!() };
+//!
+//! let mut list = vec![1_u8, 3];
+//! assert!(reflector.insert(FfiAnyMut::new(&mut list), 1, FfiAny::new(2_u8)).is_ok());
+//! assert!(reflector.insert(FfiAnyMut::new(&mut list), 0, FfiAny::new(2_u32)).is_err());
+//! assert_eq!(list, [1, 2, 3]);
+//!
+//! assert_eq!(reflector.len(FfiAnyRef::new(&list)), Some(3));
+//! let removed = reflector.remove(FfiAnyMut::new(&mut list), 0).unwrap();
+//! assert_eq!(removed.downcast_ref::<u8>(), Some(&1));
+//! ```
+//!
+//! #### Hand-written reflectors
+//!
+//! The builders take non-capturing closures, which coerce to plain `fn` pointers.
+//! [`ValueReflector`] marks a leaf type with no reflected inner structure.
+//!
+//! ```
+//! use aphyn_reflection::*;
+//!
+//! struct Health(u32);
+//!
+//! impl Reflectable for Health {
+//!     fn reflector() -> Reflector {
+//!         StructReflectorBuilder::<Self>::new()
+//!             .field("0", |v| Some(&v.0), |v| Some(&mut v.0))
+//!             .build()
 //!     }
-//!
-//!     fn into_repr(&self, ctx: &ReflRepresenterCtx, v: &Self::Item) -> Option<ReflRepr> {
-//!         Some(ReflRepr::Struct(ReflReprStruct {
-//!             name: self.item_name(ctx),
-//!             fields: ReflReprFields::Named(vec![
-//!                 (String::from("health"), ctx.into_repr(&v.health)?),
-//!                 (String::from("name"), ctx.into_repr(&v.name)?),
-//!             ]),
-//!         }))
-//!     }
 //! }
 //!
-//! let mut reg = ReflRepresenterRegistry::default();
-//! set_common_representers(&mut reg);
-//! reg.set(Box::new(PlayerRepresenter));
+//! let mut builder = ReflectionRegistryBuilder::new();
+//! builder.register::<Health>();
+//! builder.register_reflector(ValueReflector::of::<Health>()); // ignored: the first one is kept
+//! let registry = builder.build();
 //!
-//! let player = Player { health: 100, name: String::from("Barry") };
-//! let repr = reg.into_repr(&player).unwrap();
-//!
-//! assert!(matches!(repr, ReflRepr::Struct(_)));
-//! ```
-//!
-//! #### Construct and destructure a value dynamically
-//!
-//! Build a value from type-erased parameters and read its fields back out
-//! without naming the concrete type, using [`ReflMapStruct`] and
-//! [`ReflMapStructField`].
-//!
-//! ```
-//! use aphyn_reflection::*;
-//! use std::collections::HashMap;
-//!
-//! struct Player {
-//!     health: u32,
-//!     name: String,
-//! }
-//!
-//! let map = ReflMapStruct::new(
-//!     |(health, name)| Player { health, name },
-//!     |v| (v.health, v.name),
-//!     HashMap::from([
-//!         ("health", ReflMapStructField::new(
-//!             |p: &Player| &p.health,
-//!             |p: &mut Player| &mut p.health,
-//!         )),
-//!         ("name", ReflMapStructField::new(
-//!             |p: &Player| &p.name,
-//!             |p: &mut Player| &mut p.name,
-//!         )),
-//!     ]),
-//! );
-//!
-//! let value = map.create(vec![Box::new(100_u32), Box::new(String::from("Barry"))]).unwrap();
-//! let health = map.fields["health"].get_ref(&*value).unwrap().downcast_ref::<u32>().unwrap();
-//!
-//! assert_eq!(*health, 100);
-//! ```
-//!
-//! #### Derive a type's structural schema
-//!
-//! Generate a [`ReflTy`] describing a type's fields and their type ids with the
-//! [`ReflectTy`](derive@ReflectTy) derive. The schema carries no values — only
-//! the shape.
-//!
-//! ```
-//! use aphyn_reflection::*;
-//!
-//! #[derive(ReflectTy)]
-//! struct Player {
-//!     health: u32,
-//!     name: String,
-//! }
-//!
-//! let ty = Player::refl_ty();
-//!
-//! assert!(matches!(ty, ReflTy::Struct(ReflTyStruct::Named(_))));
+//! assert!(registry.get_of::<Health>().unwrap().as_struct().is_some());
+//! assert_eq!(registry.missing_dst_types(), [std::any::type_name::<u32>()]);
 //! ```
 //!
 //! # How to maintain
 //!
-//! The crate is early and experimental — the source is dotted with `// todo`
-//! markers for enums, collections, and generics, and several `example` /
-//! `*_use_case` functions (in `refl_ty.rs`, `registry.rs`, and the
-//! `aphyn_reflection_example` binary) are scratch demonstrations rather than
-//! API. It currently offers three parallel, independent reflection facilities;
-//! the private `Reflect` trait in this file is an unfinished attempt to unify
-//! them and is not used yet.
+//! #### Identity and lookup
 //!
-//! #### Structural schema: `ReflTy`
+//! Types are identified by [`std::any::type_name`], as everywhere else across the dynamic-library
+//! boundary (`FfiShortTypeInfo::does_match` compares size, align and that name). Every reflector
+//! and field stores [`FfiShortTypeInfo`](aphyn_ffi::FfiShortTypeInfo)s, not the names themselves.
+//! A field knows only its target type's name, never its reflector: resolving goes through
+//! [`ReflectionRegistry::dst_of`]. This keeps registration order free and recursive types free of
+//! reference cycles. [`missing_dst_types`](ReflectionRegistry::missing_dst_types) lists target and
+//! element types with no registered reflector.
 //!
-//! [`ReflTy`] is a value-free description of a type's shape (struct, enum,
-//! array, slice). Types are identified by [`ReflTyId`], whose identity is
-//! currently the [`std::any::type_name`] string — a `// todo` flags this as not
-//! collision-proof or guaranteed stable across compilations. [`ReflTyRegistry`]
-//! maps ids to schemas. The [`ReflectTy`](derive@ReflectTy) derive macro (in the
-//! sibling `aphyn_reflection_macros` crate) builds the `refl_ty()` body by
-//! emitting source text as a string and parsing it; it panics on lifetimes and
-//! unions, and references `ReflTy`/`ReflTyStruct`/`ReflTyId` unqualified, so the
-//! derive only works where those names are in scope.
+//! #### Sharing
 //!
-//! #### Dynamic construction: `ReflMapStruct`
+//! [`ReflectionRegistry`] is an [`FfiArc`](aphyn_ffi::FfiArc) of an
+//! [`FfiIndexMap`](aphyn_ffi::FfiIndexMap) of `FfiArc<Reflector>`; fields and enum variants are
+//! `FfiArc`s too. Users clone exactly the part they need (an animation keeps the field chain of its
+//! property path) and use it without borrowing the registry. The registry never changes after
+//! [`ReflectionRegistryBuilder::build`]. Registering a type that is already registered keeps the
+//! first reflector; [`register`](ReflectionRegistryBuilder::register) does not even build the
+//! second one.
 //!
-//! [`ReflMapStruct`] stores the user's `fn(P) -> T` factory and `fn(T) -> P`
-//! deconstructor as type-erased `*const ()` pointers, alongside monomorphized
-//! wrapper functions that capture the concrete `T` and `P` at construction and
-//! transmute the raw pointer back to the real signature before calling it. The
-//! transmute is sound only because each raw pointer is ever invoked through its
-//! own matching wrapper. [`TupleFromVecOfAny`] bridges `Vec<Box<dyn Any>>` and
-//! tuples — a macro implements it for arities 0 through 16 — which is what lets
-//! the factory take a variadic parameter list. [`create`](ReflMapStruct::create)
-//! and [`deconstruct`](ReflMapStruct::deconstruct) return `None` on an
-//! arity or type mismatch, surfaced as a failed `try_into`/`downcast`. Field
-//! access works the same way through [`ReflMapStructField`]. Enums and
-//! collections are not yet supported.
+//! #### Erased accessors
 //!
-//! #### Value tree: `ReflRepr` and representers
+//! Getters, `is_active`, and collection functions are stored as the user's typed `fn` pointer cast
+//! to `*const ()` plus a monomorphized `extern "C-unwind"` trampoline that casts it back. This is
+//! sound only because each erased pointer is called solely through the trampoline instantiated with
+//! the same type parameters at the same construction site. Trampolines check the input value's type
+//! info before reinterpreting it, so a value of a wrong type yields `None` / `false` / `Err`, never
+//! UB. Rust-side `Option`/`Result` cross the trampolines as `FfiOption`; a rejected collection
+//! insert hands the element back.
 //!
-//! [`ReflRepr`] is a runtime value tree of structs, enums, and primitives with a
-//! hand-written [`Debug`] impl that prints Rust-like syntax. A
-//! [`ReflRepresenter`] converts a concrete type to and from [`ReflRepr`];
-//! [`ReflRepresenterRegistry`] keys them by [`std::any::TypeId`]. Because
-//! `dyn ReflRepresenter` is not [`Any`](std::any::Any), the registry stores each
-//! representer double-boxed as `Box<Box<dyn ReflRepresenter<Item = T>>>` erased
-//! to `Box<dyn Any>` and recovers it by downcasting to the inner box type.
-//! [`ReflRepresenterCtx`] lends the registry to a representer so it can recurse
-//! into field types via [`ctx.into_repr`](ReflRepresenterCtx::into_repr).
-//! [`from_repr`](ReflRepresenter::from_repr) defaults to `None`: the value→repr
-//! direction works, but repr→value round-tripping is unimplemented for most
-//! types.
+//! #### Built-in impls and the derive
 //!
-//! `refl_repr_reg_entries` seeds the built-ins via [`set_common_representers`]:
-//! a macro generates primitive representers (integers → `Int(i128)`, floats →
-//! `Float(f64)`, plus `char` and `String`), and for each item type
-//! `set_common_generic_*` also registers `Option<T>` and `Vec<T>` wrappers. Only
-//! one level of generic nesting is pre-registered, so e.g. `Vec<Vec<u8>>` is not
-//! representable out of the box.
+//! `impls.rs` implements [`Reflectable`] for primitives, `String`, `FfiString`, `FfiSmallString`
+//! (values), `Vec`, `FfiVec`, arrays, `Mat` (collections), `Option`, `FfiOption` (enums) and
+//! `Vec2`/`Vec3`/`Vec4`/`Quat` (structs). Generic impls only require `T: 'static`: a field's target
+//! is referenced by name, so its reflectability is checked by the registry, not by the type system.
+//! The derive lives in `aphyn_reflection_macros` and generates the same builder calls as the
+//! hand-written example above; its generated code names this crate's items unqualified.
 
-mod refl_map;
-mod refl_repr;
-mod refl_repr_reg_entries;
-mod refl_ty;
+mod field;
+mod impls;
+mod reflector;
 mod registry;
-mod tuple_from_vec_of_any;
 
-pub use refl_map::*;
-pub use refl_repr::*;
-pub use refl_repr_reg_entries::*;
-pub use refl_ty::*;
+pub use field::*;
+pub use reflector::*;
 pub use registry::*;
-pub use tuple_from_vec_of_any::*;
 
 pub use aphyn_reflection_macros::*;
 
-pub trait ReflectTy: 'static {
-    fn refl_ty() -> ReflTy;
-}
-
-// todo
-trait Reflect: 'static {
-    fn refl_ty() -> ReflTy;
-    fn to_refl_repr(&self) -> ReflRepr;
-    fn from_refl_repr(repr: &ReflRepr) -> Self;
+pub trait Reflectable: 'static {
+    fn reflector() -> Reflector;
 }

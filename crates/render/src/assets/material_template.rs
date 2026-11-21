@@ -1,11 +1,12 @@
 use aphyn_asset_storage::AssetHandle;
 use aphyn_ffi::{FfiIndexMap, FfiOption, FfiString, FfiVec};
+use aphyn_reflection::*;
 use aphyn_serialization::*;
 
 use crate::{MaterialDataValue, Shader};
 
 #[repr(C)]
-#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Hash, Serializable)]
+#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Hash, Serializable, Reflectable)]
 pub enum MaterialTextureFallback {
     #[default]
     White,
@@ -14,7 +15,7 @@ pub enum MaterialTextureFallback {
 }
 
 #[repr(C)]
-#[derive(Default, Clone, Debug, PartialEq, Serializable)]
+#[derive(Default, Clone, Debug, PartialEq, Serializable, Reflectable)]
 pub struct MaterialInput {
     pub default: MaterialDataValue,
     pub texture_fallback: MaterialTextureFallback,
@@ -37,7 +38,7 @@ impl MaterialInput {
 }
 
 #[repr(C)]
-#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serializable)]
+#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serializable, Reflectable)]
 pub enum MaterialPassTarget {
     #[default]
     Main,
@@ -46,7 +47,7 @@ pub enum MaterialPassTarget {
 }
 
 #[repr(C)]
-#[derive(Default, Clone, Debug, PartialEq, Serializable)]
+#[derive(Default, Clone, Debug, PartialEq, Serializable, Reflectable)]
 pub struct MaterialValueBinding {
     pub input: FfiString,
     pub group: usize,
@@ -55,7 +56,7 @@ pub struct MaterialValueBinding {
 }
 
 #[repr(C)]
-#[derive(Default, Clone, Debug, PartialEq, Serializable)]
+#[derive(Default, Clone, Debug, PartialEq, Serializable, Reflectable)]
 pub struct MaterialTextureBinding {
     pub input: FfiString,
     pub group: usize,
@@ -64,7 +65,7 @@ pub struct MaterialTextureBinding {
 }
 
 #[repr(C)]
-#[derive(Default, Clone, Debug, PartialEq, Serializable)]
+#[derive(Default, Clone, Debug, PartialEq, Serializable, Reflectable)]
 pub struct MaterialTemplatePass {
     pub shader: AssetHandle<Shader>,
     pub order: u64,
@@ -74,7 +75,7 @@ pub struct MaterialTemplatePass {
 }
 
 #[repr(C)]
-#[derive(Default, Clone, Debug, Serializable)]
+#[derive(Default, Clone, Debug, Serializable, Reflectable)]
 pub struct MaterialTemplate {
     pub inputs: FfiIndexMap<FfiString, MaterialInput>,
     pub passes: FfiVec<MaterialTemplatePass>,

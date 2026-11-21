@@ -32,6 +32,7 @@ members = [
     "crates/prefab",
     "crates/serialization_macros",
     "crates/serialization_ecs",
+    "crates/reflection_ecs",
     "crates/audio",
     "crates/ui",
     "crates/file_storage",
@@ -64,6 +65,7 @@ aphyn_math_macros = { path = "./crates/math_macros" }
 aphyn_serialization = { path = "./crates/serialization" }
 aphyn_serialization_ecs = { path = "./crates/serialization_ecs" }
 aphyn_reflection = { path = "./crates/reflection" }
+aphyn_reflection_ecs = { path = "./crates/reflection_ecs" }
 aphyn_entry_point = { path = "./crates/entry_point" }
 aphyn_app_launcher = { path = "./crates/app_launcher" }
 aphyn_asset_loading = { path = "./crates/asset_loading" }

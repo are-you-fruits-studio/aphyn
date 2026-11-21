@@ -14,3 +14,4 @@ aphyn_utils = { path = "../utils" }
 aphyn_ecs_macros = { path = "../ecs_macros" }
 aphyn_math = { path = "../math" }
 aphyn_serialization = { path = "../serialization" }
+aphyn_reflection = { path = "../reflection" }

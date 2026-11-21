@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 
 use aphyn_ffi::{FfiOption, FfiString};
+use aphyn_reflection::*;
 use aphyn_render_core::{
     GpuBinding, GpuPassOps, GpuRenderPass, GpuRenderPassTarget, GpuResourceId, GpuSampler, GpuShader, GpuTexture, GpuTextureFormat,
     RenderApi,
@@ -10,7 +11,7 @@ use aphyn_serialization::*;
 pub use aphyn_render_core::GpuFilterMode as FilterMode;
 
 #[repr(C)]
-#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Serializable)]
+#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Serializable, Reflectable)]
 pub enum StandardTextureFormat {
     Rgba8Unorm,
     #[default]
@@ -40,7 +41,7 @@ impl From<StandardTextureFormat> for GpuTextureFormat {
 }
 
 #[repr(C)]
-#[derive(Serializable, Clone)]
+#[derive(Serializable, Reflectable, Clone)]
 pub struct StandardTextureAssetMetadata {
     pub raw_texture: FfiString,
     pub format: StandardTextureFormat,

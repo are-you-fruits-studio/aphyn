@@ -112,6 +112,7 @@ impl Drop for FfiAny {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct FfiAnyRef<'a> {
     ptr: *mut c_void,
     type_info: &'static FfiExtendedTypeInfo,

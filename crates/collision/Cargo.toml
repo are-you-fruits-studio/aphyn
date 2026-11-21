@@ -14,3 +14,4 @@ aphyn_math = { path = "../math" }
 aphyn_ecs = { path = "../ecs" }
 aphyn_render_features = { path = "../render_features" }
 aphyn_serialization = { path = "../serialization" }
+aphyn_reflection = { path = "../reflection" }

@@ -1,4 +1,5 @@
 use aphyn_ffi::{FfiOption, FfiString};
+use aphyn_reflection::*;
 use aphyn_render_core::{
     GpuIndexBuffer, GpuVertexBuffer, GpuVertexBufferLayout, GpuVertexBufferLayoutEntryTy, GpuVertexStepMode, RenderApi,
 };
@@ -6,7 +7,7 @@ use aphyn_serialization::*;
 use aphyn_utils::mem::{AllBitVariationsValid, AllBitsInit};
 
 #[repr(C)]
-#[derive(Copy, Clone, Default, Debug, Serializable)]
+#[derive(Copy, Clone, Default, Debug, Serializable, Reflectable)]
 pub struct StandardVertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],
@@ -35,7 +36,7 @@ impl StandardVertex {
 }
 
 #[repr(C)]
-#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serializable)]
+#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serializable, Reflectable)]
 pub enum CoordinateSpaceType {
     #[default]
     LeftHandZForward,
@@ -44,7 +45,7 @@ pub enum CoordinateSpaceType {
 }
 
 #[repr(C)]
-#[derive(Serializable, Clone, Debug, Default)]
+#[derive(Serializable, Reflectable, Clone, Debug, Default)]
 pub struct StandardMeshAssetMetadata {
     pub raw_mesh: FfiString,
     pub coordinate_space: CoordinateSpaceType,

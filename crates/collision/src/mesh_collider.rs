@@ -125,3 +125,9 @@ impl<S: Copy> Serializable<S> for MeshCollider {
 
     fn deserialize(&mut self, _ctx: SerializerCtx<S>, _path: &str, _serialized: &SerializedValue) {}
 }
+
+impl aphyn_reflection::Reflectable for MeshCollider {
+    fn reflector() -> aphyn_reflection::Reflector {
+        aphyn_reflection::ValueReflector::of::<Self>()
+    }
+}

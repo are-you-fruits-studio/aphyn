@@ -11,6 +11,7 @@ crate-type = ["lib"]
 aphyn_ffi = { path = "../ffi" }
 aphyn_utils = { path = "../utils" }
 aphyn_serialization = { path = "../serialization" }
+aphyn_reflection = { path = "../reflection" }
 wgpu = "27"
 pollster = "0.4"
 naga = { version = "27", features = ["wgsl-in"] }

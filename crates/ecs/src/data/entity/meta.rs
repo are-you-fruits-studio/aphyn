@@ -6,6 +6,12 @@ use aphyn_utils::index_version_collection::{VersionCollection, VersionIndex};
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct EntityId(VersionIndex);
 
+impl aphyn_reflection::Reflectable for EntityId {
+    fn reflector() -> aphyn_reflection::Reflector {
+        aphyn_reflection::ValueReflector::of::<Self>()
+    }
+}
+
 impl EntityId {
     pub const EMPTY: Self = Self(VersionIndex::EMPTY);
 

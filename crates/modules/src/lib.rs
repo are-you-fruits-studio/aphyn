@@ -2,7 +2,7 @@
 //!
 //! Bundles the engine's built-in subsystems into a single registration step, so an
 //! app starts from a world that already has collision, physics, transforms, UI, rendering, audio,
-//! asset loading, and serialization wired together.
+//! asset loading, serialization, and reflection wired together.
 //!
 //! # How to use
 //!
@@ -58,6 +58,21 @@
 //! }
 //! ```
 //!
+//! #### Reflecting the common types
+//!
+//! The default modules also insert a read-only [`ReflectionRegistryResource`] built by
+//! [`register_common_reflectors`] from the same types. Use it to resolve fields once and keep them:
+//!
+//! ```ignore
+//! use aphyn::*;
+//!
+//! fn position_field(data: WorldDataMut) -> Option<FfiArc<ReflectField>> {
+//!     let res = data.resources();
+//!     let registry = res.get::<ReflectionRegistryResource>()?;
+//!     registry.get_of::<LocalTransform>()?.as_struct()?.field("position").cloned()
+//! }
+//! ```
+//!
 //! # How to maintain
 //!
 //! #### Default module set and ordering
@@ -98,6 +113,17 @@
 //! `Serializable` in their own crate; the `aphyn_ffi`/`aphyn_math` and primitive types get
 //! their impls in `aphyn_serialization`.
 //!
+//! #### Shared reflection registry
+//!
+//! [`register_common_reflectors`] mirrors [`register_common_transserializers`]: every type listed
+//! there is registered in a `ReflectionRegistryBuilder`, which [`add_defult_modules_to`] builds into
+//! the [`ReflectionRegistryResource`] (defined in `aphyn_reflection_ecs`). Each type implements
+//! `Reflectable` in its own crate, mostly by derive; `Material` hides its GPU state, and the types
+//! with hand-written serializers whose fields carry invariants (`MaterialData`, `MaterialDataEntry`,
+//! `CollisionLayer`, `LineBoundType`, `MeshCollider`) are reflected as values. The registry is
+//! immutable, so a type added later needs a rebuilt registry. A unit test checks that every field
+//! and element type referenced by a registered reflector is registered too.
+//!
 //! [`DebugNameComponent`] is a serializable component wrapping an `FfiSmallString` name.
 //!
 //! #### FPS counter
@@ -109,7 +135,8 @@
 //! value accessors are currently commented out (`todo`), so the measured numbers are
 //! only printed, not exposed to other systems.
 
-use aphyn_audio::{AudioClipAssetMetadata, AudioSource};
+use aphyn_asset_storage::AssetHandle;
+use aphyn_audio::{AudioClip, AudioClipAssetMetadata, AudioSource};
 use aphyn_collision::{
     ColliderComponent, ColliderShape, CollisionAabb, CollisionBox, CollisionLayer, CollisionLine, CollisionShape, CollisionSphere,
     LineBoundType, MeshCollider,
@@ -121,11 +148,13 @@ use aphyn_physics::{
     PhysicsMaterial, PhysicsMaterialComponent, RigidbodyComponent, RigidbodyForces, RigidbodyInterpolationComponent,
     RigidbodyInterpolationState, RigidbodyType,
 };
+use aphyn_reflection::*;
+use aphyn_reflection_ecs::ReflectionRegistryResource;
 use aphyn_render::{
     Camera, CameraProjection, ComputeShaderAssetMetadata, CoordinateSpaceType, Material, MaterialData, MaterialDataEntry,
     MaterialDataValue, MaterialInput, MaterialPassTarget, MaterialTemplate, MaterialTemplatePass, MaterialTextureBinding,
-    MaterialTextureFallback, MaterialValueBinding, RenderSpace, ShaderAssetMetadata, StandardMeshAssetMetadata,
-    StandardTextureAssetMetadata, StandardTextureFormat, StandardVertex,
+    MaterialTextureFallback, MaterialValueBinding, RenderSpace, Shader, ShaderAssetMetadata, StandardMesh,
+    StandardMeshAssetMetadata, StandardTexture, StandardTextureAssetMetadata, StandardTextureFormat, StandardVertex,
 };
 use aphyn_render_core::{
     GpuBlendComponent, GpuBlendFactor, GpuBlendOperation, GpuBlendState, GpuColorWrites, GpuCompareFunction, GpuCullMode,
@@ -140,7 +169,7 @@ use aphyn_transform::{
     ChildComponent, GlobalDisableableComponent, GlobalRectComponent, GlobalTransform, LocalDisableableComponent, LocalRectComponent,
     LocalTransform, ParentComponent, RectChildAlignComponent, StaticComponent, UiDirection, UiSpacing, UiUnit, UiVal,
 };
-use aphyn_ui::{ChildrenRectMaskComponent, HorizontalAlign, ImageComponent, ImageFillSettings, TextComponent, VerticalAlign};
+use aphyn_ui::{ChildrenRectMaskComponent, Font, HorizontalAlign, ImageComponent, ImageFillSettings, TextComponent, VerticalAlign};
 
 pub mod fps_counter;
 
@@ -158,6 +187,12 @@ pub fn add_defult_modules_to(mut data: WorldDataMut, mut behavior: WorldBehavior
         let mut serializers = SerializersResource::default();
         register_common_transserializers(&mut *serializers);
         serializers
+    });
+
+    data.resources_mut().insert({
+        let mut reflectors = ReflectionRegistryBuilder::new();
+        register_common_reflectors(&mut reflectors);
+        ReflectionRegistryResource(reflectors.build())
     });
 
     behavior
@@ -300,6 +335,134 @@ pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry
     register_transserializer::<FfiVec<EntityId>>(serializer);
 }
 
+pub fn register_common_reflectors(reflectors: &mut ReflectionRegistryBuilder) {
+    // components
+    reflectors
+        .register::<DebugNameComponent>()
+        .register::<GlobalTransform>()
+        .register::<LocalTransform>()
+        .register::<ParentComponent>()
+        .register::<ChildComponent>()
+        .register::<StaticComponent>()
+        .register::<GlobalRectComponent>()
+        .register::<LocalRectComponent>()
+        .register::<GlobalDisableableComponent>()
+        .register::<LocalDisableableComponent>()
+        .register::<RectChildAlignComponent>()
+        .register::<BatchedMeshComponent>()
+        .register::<MeshComponent>()
+        .register::<MaterialComponent>()
+        .register::<StandardLightComponent>()
+        .register::<CameraComponent>()
+        .register::<TextComponent>()
+        .register::<ImageComponent>()
+        .register::<ChildrenRectMaskComponent>()
+        .register::<AudioSource>()
+        .register::<ColliderComponent>()
+        .register::<RigidbodyComponent>()
+        .register::<PhysicsMaterialComponent>()
+        .register::<RigidbodyInterpolationComponent>();
+
+    // asset metadata
+    reflectors
+        .register::<StandardMeshAssetMetadata>()
+        .register::<StandardTextureAssetMetadata>()
+        .register::<ShaderAssetMetadata>()
+        .register::<ComputeShaderAssetMetadata>()
+        .register::<AudioClipAssetMetadata>()
+        .register::<Material>()
+        .register::<MaterialTemplate>();
+
+    // field types
+    reflectors
+        .register::<bool>()
+        .register::<u8>()
+        .register::<u16>()
+        .register::<u64>()
+        .register::<usize>()
+        .register::<FfiOption<usize>>()
+        .register::<f32>()
+        .register::<f64>()
+        .register::<FfiString>()
+        .register::<FfiSmallString>()
+        .register::<FfiOption<f32>>()
+        .register::<FfiVec<u16>>()
+        .register::<[f32; 2]>()
+        .register::<[f32; 3]>()
+        .register::<[f32; 4]>()
+        .register::<[[f32; 3]; 3]>()
+        .register::<Vec2<f32>>()
+        .register::<Vec3<f32>>()
+        .register::<Vec4<f32>>()
+        .register::<[Vec3<f32>; 3]>()
+        .register::<Mat3<f32>>()
+        .register::<Quat<f32>>()
+        .register::<UiVal>()
+        .register::<UiUnit>()
+        .register::<UiSpacing>()
+        .register::<UiDirection>()
+        .register::<Vec2<UiVal>>()
+        .register::<FfiOption<UiVal>>()
+        .register::<Vec2<FfiOption<UiVal>>>()
+        .register::<MaterialData>()
+        .register::<MaterialDataEntry>()
+        .register::<MaterialDataValue>()
+        .register::<StandardVertex>()
+        .register::<FfiVec<StandardVertex>>()
+        .register::<Camera>()
+        .register::<CameraProjection>()
+        .register::<RenderSpace>()
+        .register::<MaterialInput>()
+        .register::<FfiIndexMap<FfiString, MaterialInput>>()
+        .register::<MaterialTextureFallback>()
+        .register::<MaterialPassTarget>()
+        .register::<MaterialTemplatePass>()
+        .register::<FfiVec<MaterialTemplatePass>>()
+        .register::<MaterialValueBinding>()
+        .register::<FfiVec<MaterialValueBinding>>()
+        .register::<MaterialTextureBinding>()
+        .register::<FfiVec<MaterialTextureBinding>>()
+        .register::<GpuShaderDesc>()
+        .register::<GpuPrimitiveTopology>()
+        .register::<GpuFrontFace>()
+        .register::<GpuCullMode>()
+        .register::<GpuBlendState>()
+        .register::<GpuBlendComponent>()
+        .register::<GpuBlendFactor>()
+        .register::<GpuBlendOperation>()
+        .register::<GpuColorWrites>()
+        .register::<GpuCompareFunction>()
+        .register::<CoordinateSpaceType>()
+        .register::<StandardTextureFormat>()
+        .register::<HorizontalAlign>()
+        .register::<VerticalAlign>()
+        .register::<ImageFillSettings>()
+        .register::<CollisionShape>()
+        .register::<CollisionLine>()
+        .register::<CollisionAabb>()
+        .register::<CollisionBox>()
+        .register::<CollisionSphere>()
+        .register::<LineBoundType>()
+        .register::<ColliderShape>()
+        .register::<CollisionLayer>()
+        .register::<MeshCollider>()
+        .register::<RigidbodyType>()
+        .register::<RigidbodyForces>()
+        .register::<RigidbodyInterpolationState>()
+        .register::<PhysicsMaterial>()
+        .register::<EntityId>()
+        .register::<FfiVec<EntityId>>()
+        .register::<u32>()
+        .register::<FfiVec<u32>>()
+        .register::<AssetHandle<StandardMesh>>()
+        .register::<AssetHandle<StandardTexture>>()
+        .register::<AssetHandle<Shader>>()
+        .register::<AssetHandle<Material>>()
+        .register::<AssetHandle<MaterialTemplate>>()
+        .register::<AssetHandle<Font>>()
+        .register::<AssetHandle<AudioClip>>();
+}
+
 pub fn register_transserializer<T: 'static + Default + for<'a> Serializable<TransSerializerCtxState<'a>>>(
     serializer: &mut TransSerializerRegistry,
 ) {
@@ -361,5 +524,18 @@ pub fn register_related_common_transserializers<T: 'static + Default>(serializer
 }
 
 #[repr(transparent)]
-#[derive(Component, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Default, Serializable)]
+#[derive(Component, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Default, Serializable, Reflectable)]
 pub struct DebugNameComponent(pub FfiSmallString);
+
+#[cfg(test)]
+mod tests {
+    use aphyn_reflection::ReflectionRegistryBuilder;
+
+    #[test]
+    fn common_reflectors_reference_only_registered_types() {
+        let mut reflectors = ReflectionRegistryBuilder::new();
+        super::register_common_reflectors(&mut reflectors);
+
+        assert_eq!(reflectors.build().missing_dst_types(), Vec::<&str>::new());
+    }
+}

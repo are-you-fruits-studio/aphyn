@@ -11,3 +11,4 @@ crate-type = ["lib"]
 aphyn_ecs = { path = "../ecs" }
 aphyn_ffi = { path = "../ffi" }
 aphyn_utils = { path = "../utils" }
+aphyn_reflection = { path = "../reflection" }

@@ -18,6 +18,7 @@ use std::{
 use aphyn_ffi::{
     FfiArc, FfiDroppable, FfiFnMutMut, FfiOption, FfiSliceMut, FfiSliceRef, FfiStaticRef, FfiStrSliceRef, FfiString, FfiVec,
 };
+use aphyn_reflection::*;
 use aphyn_serialization::*;
 use aphyn_utils::index_version_collection::VersionIndex;
 use wgpu::{
@@ -2477,7 +2478,7 @@ pub struct GpuComputePass<'a> {
 }
 
 #[repr(C)]
-#[derive(Clone, Debug, PartialEq, Serializable)]
+#[derive(Clone, Debug, PartialEq, Serializable, Reflectable)]
 pub struct GpuShaderDesc {
     pub topology: GpuPrimitiveTopology,
     pub front_face: GpuFrontFace,
@@ -2503,7 +2504,7 @@ impl Default for GpuShaderDesc {
 }
 
 #[repr(C)]
-#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serializable)]
+#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serializable, Reflectable)]
 pub enum GpuPrimitiveTopology {
     PointList,
     LineList,
@@ -2526,7 +2527,7 @@ impl GpuPrimitiveTopology {
 }
 
 #[repr(C)]
-#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serializable)]
+#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serializable, Reflectable)]
 pub enum GpuFrontFace {
     #[default]
     Ccw,
@@ -2543,7 +2544,7 @@ impl GpuFrontFace {
 }
 
 #[repr(C)]
-#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serializable)]
+#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serializable, Reflectable)]
 pub enum GpuCullMode {
     None,
     Front,
@@ -2562,7 +2563,7 @@ impl GpuCullMode {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serializable)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serializable, Reflectable)]
 pub struct GpuBlendState {
     pub color: GpuBlendComponent,
     pub alpha: GpuBlendComponent,
@@ -2603,7 +2604,7 @@ impl Default for GpuBlendState {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serializable)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serializable, Reflectable)]
 pub struct GpuBlendComponent {
     pub src_factor: GpuBlendFactor,
     pub dst_factor: GpuBlendFactor,
@@ -2640,7 +2641,7 @@ impl GpuBlendComponent {
 
 // todo: constant factors (needs a way to set the blend constant) and dual-source `Src1*` factors
 #[repr(C)]
-#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serializable)]
+#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serializable, Reflectable)]
 pub enum GpuBlendFactor {
     Zero,
     #[default]
@@ -2675,7 +2676,7 @@ impl GpuBlendFactor {
 }
 
 #[repr(C)]
-#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serializable)]
+#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serializable, Reflectable)]
 pub enum GpuBlendOperation {
     #[default]
     Add,
@@ -2699,7 +2700,7 @@ impl GpuBlendOperation {
 
 // todo: per-channel write masks
 #[repr(C)]
-#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serializable)]
+#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serializable, Reflectable)]
 pub enum GpuColorWrites {
     #[default]
     All,
@@ -2716,7 +2717,7 @@ impl GpuColorWrites {
 }
 
 #[repr(C)]
-#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serializable)]
+#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serializable, Reflectable)]
 pub enum GpuCompareFunction {
     Never,
     Less,

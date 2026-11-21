@@ -63,3 +63,9 @@ impl<S: Copy> Serializable<S> for LineBoundType {
             .finish(self, |_, _| {});
     }
 }
+
+impl aphyn_reflection::Reflectable for LineBoundType {
+    fn reflector() -> aphyn_reflection::Reflector {
+        aphyn_reflection::ValueReflector::of::<Self>()
+    }
+}

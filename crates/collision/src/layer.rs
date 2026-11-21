@@ -39,3 +39,9 @@ impl<S: Copy> Serializable<S> for CollisionLayer {
         self.0 = layer.min(Self::MAX);
     }
 }
+
+impl aphyn_reflection::Reflectable for CollisionLayer {
+    fn reflector() -> aphyn_reflection::Reflector {
+        aphyn_reflection::ValueReflector::of::<Self>()
+    }
+}

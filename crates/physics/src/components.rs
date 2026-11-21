@@ -1,10 +1,11 @@
 use aphyn_ecs::Component;
 use aphyn_math::{Quat, Vec3};
+use aphyn_reflection::*;
 use aphyn_serialization::*;
 use aphyn_transform::LocalTransform;
 
 #[repr(u8)]
-#[derive(Copy, Clone, PartialEq, Eq, Debug, Default, Serializable)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Default, Serializable, Reflectable)]
 pub enum RigidbodyType {
     #[default]
     Dynamic,
@@ -12,7 +13,7 @@ pub enum RigidbodyType {
 }
 
 #[repr(C)]
-#[derive(Component, Clone, Debug, PartialEq, Serializable)]
+#[derive(Component, Clone, Debug, PartialEq, Serializable, Reflectable)]
 pub struct RigidbodyComponent {
     pub body_type: RigidbodyType,
     pub mass: f32,
@@ -63,7 +64,7 @@ impl RigidbodyComponent {
 
 // world-space accumulators, consumed and cleared by each physics step
 #[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Reflectable)]
 pub struct RigidbodyForces {
     force: Vec3<f32>,
     torque: Vec3<f32>,
@@ -106,7 +107,7 @@ impl<S: Copy> Serializable<S> for RigidbodyForces {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq, Serializable)]
+#[derive(Copy, Clone, Debug, PartialEq, Serializable, Reflectable)]
 pub struct PhysicsMaterial {
     pub friction: f32,
     pub restitution: f32,
@@ -131,18 +132,18 @@ impl PhysicsMaterial {
 }
 
 #[repr(C)]
-#[derive(Component, Copy, Clone, Debug, PartialEq, Default, Serializable)]
+#[derive(Component, Copy, Clone, Debug, PartialEq, Default, Serializable, Reflectable)]
 pub struct PhysicsMaterialComponent(pub PhysicsMaterial);
 
 #[repr(C)]
-#[derive(Component, Copy, Clone, Debug, PartialEq, Default, Serializable)]
+#[derive(Component, Copy, Clone, Debug, PartialEq, Default, Serializable, Reflectable)]
 pub struct RigidbodyInterpolationComponent {
     pub state: RigidbodyInterpolationState,
 }
 
 // pose history in the body's parent space, written by the physics step and the interpolation systems
 #[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Reflectable)]
 pub struct RigidbodyInterpolationState {
     previous_position: Vec3<f32>,
     previous_rotation: Quat<f32>,

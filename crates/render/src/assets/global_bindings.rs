@@ -1,4 +1,5 @@
 use aphyn_math::{Mat4, Vec3, Vec4};
+use aphyn_reflection::*;
 use aphyn_render_core::{GpuUniformStorageBuffer, RenderApi};
 use aphyn_serialization::*;
 use aphyn_utils::mem::{AllBitVariationsValid, AllBitsInit};
@@ -21,7 +22,7 @@ unsafe impl AllBitVariationsValid for StandardClusterCell {}
 unsafe impl AllBitsInit for StandardClusterCell {}
 
 #[repr(C)]
-#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serializable)]
+#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serializable, Reflectable)]
 pub enum RenderSpace {
     Clip,
     Window,

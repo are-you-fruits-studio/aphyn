@@ -7,6 +7,7 @@ pub use aphyn_math::*;
 pub use aphyn_math_macros::*;
 pub use aphyn_modules::*;
 pub use aphyn_reflection::*;
+pub use aphyn_reflection_ecs::*;
 pub use aphyn_serialization::*;
 pub use aphyn_serialization_ecs::*;
 pub use aphyn_utils::*;

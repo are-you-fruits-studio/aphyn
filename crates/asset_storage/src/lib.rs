@@ -257,6 +257,12 @@ impl<T> AssetHandle<T> {
     pub const EMPTY: Self = Self { index: VersionIndex::EMPTY, _phantom: PhantomData };
 }
 
+impl<T: 'static> aphyn_reflection::Reflectable for AssetHandle<T> {
+    fn reflector() -> aphyn_reflection::Reflector {
+        aphyn_reflection::ValueReflector::of::<Self>()
+    }
+}
+
 impl<T> Default for AssetHandle<T> {
     fn default() -> Self {
         Self::EMPTY

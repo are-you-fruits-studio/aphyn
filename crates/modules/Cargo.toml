@@ -23,6 +23,8 @@ aphyn_prefab = { path = "../prefab" }
 aphyn_asset_storage = { path = "../asset_storage" }
 aphyn_asset_loading = { path = "../asset_loading" }
 aphyn_serialization = { path = "../serialization" }
+aphyn_reflection = { path = "../reflection" }
 aphyn_serialization_ecs = { path = "../serialization_ecs" }
+aphyn_reflection_ecs = { path = "../reflection_ecs" }
 aphyn_math = { path = "../math" }
 aphyn_ffi = { path = "../ffi" }

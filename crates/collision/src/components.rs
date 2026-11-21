@@ -1,10 +1,11 @@
 use aphyn_ecs::Component;
+use aphyn_reflection::*;
 use aphyn_serialization::*;
 
 use crate::{CollisionLayer, CollisionShape, MeshCollider};
 
 #[repr(C)]
-#[derive(Component, Clone, Default, Debug, Serializable)]
+#[derive(Component, Clone, Default, Debug, Serializable, Reflectable)]
 pub struct ColliderComponent {
     pub shape: ColliderShape,
     pub layer: CollisionLayer,
@@ -25,7 +26,7 @@ impl ColliderComponent {
 }
 
 #[repr(C, u8)]
-#[derive(Clone, Debug, Serializable)]
+#[derive(Clone, Debug, Serializable, Reflectable)]
 pub enum ColliderShape {
     Primitive(CollisionShape),
     Mesh(MeshCollider),
