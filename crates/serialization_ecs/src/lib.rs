@@ -23,10 +23,10 @@
 //!
 //! # How to maintain
 //!
-//! [`SerializersResource`] is a `#[repr(C)]` newtype over a `'static` `TransSerializerRegistry`
+//! [`SerializersResource`] is a `#[repr(C)]` newtype over a `TransSerializerRegistry`
 //! that derefs to it, so every registry method is callable on the resource directly. It holds no
 //! logic of its own; consumers (`aphyn_asset_loading`, `aphyn_prefab` users, the editor) fetch it
-//! from the world and wrap it with their local registries.
+//! from the world and pair it with a per-operation `ContextData` to build a context.
 
 use std::ops::{Deref, DerefMut};
 
@@ -35,12 +35,12 @@ use aphyn_serialization::TransSerializerRegistry;
 
 #[repr(C)]
 #[derive(Default)]
-pub struct SerializersResource(pub TransSerializerRegistry<'static>);
+pub struct SerializersResource(pub TransSerializerRegistry);
 
 impl Resource for SerializersResource {}
 
 impl Deref for SerializersResource {
-    type Target = TransSerializerRegistry<'static>;
+    type Target = TransSerializerRegistry;
 
     fn deref(&self) -> &Self::Target {
         &self.0

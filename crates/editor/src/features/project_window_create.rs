@@ -300,15 +300,10 @@ fn create_named_root_prefab(res: ResourcesHolderRef, name: &str) -> Option<Prefa
 }
 
 fn serialize_with_world_serializers<T: 'static>(res: ResourcesHolderRef, value: &T) -> Option<SerializedValue> {
-    let serializers_global = &**res.get::<SerializersResource>()?;
-
     let mut err_handler = |err| eprintln!("[{}:{}] {err}", file!(), line!());
 
-    save_load_with_asset_serializers_from_world(res, |serializers_local| {
-        let serializer_ctx_state = serializers_global.to_ctx_state();
-        let mut serializer_ctx = serializer_ctx_state
-            .wrap_with_local(&serializers_local)
-            .into_ctx(&mut err_handler);
+    save_load_with_asset_serializers_from_world(res, EntityIdCtx::default(), |serializer_ctx_state| {
+        let mut serializer_ctx = serializer_ctx_state.into_ctx(&mut err_handler);
 
         serializer_ctx.serialize(value, "")
     })

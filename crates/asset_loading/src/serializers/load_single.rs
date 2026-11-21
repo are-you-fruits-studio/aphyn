@@ -1,9 +1,8 @@
 use std::{path::Path, sync::Mutex};
 
-use aphyn_asset_storage::{AssetHandle, AssetStorageResource};
+use aphyn_asset_storage::AssetStorageResource;
 use aphyn_audio::{AudioClip, AudioStateResource};
 use aphyn_ecs::ResourcesHolderMut;
-use aphyn_ffi::FfiString;
 use aphyn_prefab::{Prefab, Scene};
 use aphyn_render::{
     ComputeShader, ComputeShaderAssetMetadata, Material, MaterialTemplate, RenderApiResource, Shader, ShaderAssetMetadata,
@@ -13,15 +12,17 @@ use aphyn_serialization::*;
 use aphyn_serialization_ecs::SerializersResource;
 
 use crate::{
-    AudioClipLoader, ComputeShaderLoader, EntityIdDecoder, EntityIdEncoder, EntityTransSerializer, MaterialLoader, MeshLoader,
-    PrefabLoader, SceneLoader, ShaderLoader, TextureLoader, deserialize_material,
+    AssetHandleCtx, AssetHandleCtxKey, AudioClipLoader, ComputeShaderLoader, DirectAssetLoadCtx, DirectAssetLoadCtxKey, EntityIdCtx,
+    EntityIdCtxKey, MaterialLoader, MeshLoader, PrefabLoader, SceneLoader, ShaderLoader, TextureLoader, asset_loader,
+    deserialize_material,
 };
 
 pub fn load_asset_single_from_world<R>(
     res: ResourcesHolderMut,
     assets_dir_path: impl AsRef<Path>,
     asset_key: &str,
-    f: impl FnOnce(TransSerializerRegistry, &SerializersResource) -> R,
+    entity_ids: EntityIdCtx,
+    f: impl FnOnce(TransSerializerCtxState) -> R,
 ) -> Option<R> {
     let material_loader = MaterialLoader::from_world(&res);
 
@@ -42,6 +43,7 @@ pub fn load_asset_single_from_world<R>(
             &mut *res.get_ptr::<AssetStorageResource<MaterialTemplate>>()?,
             assets_dir_path,
             asset_key,
+            entity_ids,
             f,
         )
     })
@@ -51,7 +53,7 @@ pub fn load_asset_single<R>(
     render_api: &RenderApiResource,
     material_loader: MaterialLoader,
     audio_state: &mut AudioStateResource,
-    serializers: &SerializersResource,
+    serializers: &TransSerializerRegistry,
     prefabs: &mut AssetStorageResource<Prefab>,
     scenes: &mut AssetStorageResource<Scene>,
     textures: &mut AssetStorageResource<StandardTexture>,
@@ -63,278 +65,160 @@ pub fn load_asset_single<R>(
     templates: &mut AssetStorageResource<MaterialTemplate>,
     assets_dir_path: impl AsRef<Path>,
     asset_key: &str,
-    f: impl FnOnce(TransSerializerRegistry, &SerializersResource) -> R,
+    entity_ids: EntityIdCtx,
+    f: impl FnOnce(TransSerializerCtxState) -> R,
 ) -> R {
-    let (audio_state, prefabs, scenes, textures, materials, meshes, audio_clips, shaders, compute_shaders, templates) = (
-        &Mutex::new(audio_state),
-        &Mutex::new(prefabs),
-        &Mutex::new(scenes),
-        &Mutex::new(textures),
-        &Mutex::new(materials),
-        &Mutex::new(meshes),
-        &Mutex::new(audio_clips),
-        &Mutex::new(shaders),
-        &Mutex::new(compute_shaders),
-        &Mutex::new(templates),
-    );
-
     let assets_dir_path = assets_dir_path.as_ref();
 
-    let mut serializer_local = TransSerializerRegistry::new();
+    let audio_state = Mutex::new(audio_state);
+    let prefabs = Mutex::new(&mut *prefabs);
+    let scenes = Mutex::new(&mut *scenes);
+    let textures = Mutex::new(&mut *textures);
+    let materials = Mutex::new(&mut *materials);
+    let meshes = Mutex::new(&mut *meshes);
+    let audio_clips = Mutex::new(&mut *audio_clips);
+    let shaders = Mutex::new(&mut *shaders);
+    let compute_shaders = Mutex::new(&mut *compute_shaders);
+    let templates = Mutex::new(&mut *templates);
 
-    serializer_local.register(EntityTransSerializer::new(EntityIdDecoder::Empty, EntityIdEncoder::Empty));
-
-    serializer_local.register(SingleLoadTransSerializer { assets: textures });
-    serializer_local.register(SingleLoadTransSerializer { assets: materials });
-    serializer_local.register(SingleLoadTransSerializer { assets: meshes });
-    serializer_local.register(SingleLoadTransSerializer { assets: audio_clips });
-    serializer_local.register(SingleLoadTransSerializer { assets: shaders });
-    serializer_local.register(SingleLoadTransSerializer { assets: compute_shaders });
-    serializer_local.register(SingleLoadTransSerializer { assets: templates });
-    // todo: font
-    serializer_local.register(SingleLoadTransSerializer { assets: prefabs });
-    serializer_local.register(SingleLoadTransSerializer { assets: scenes });
-
-    serializer_local.register(SingleDirectLoadTransSerializer {
-        assets: textures,
-        assets_dir_path,
-        asset_key,
-        loader: |mut ctx, value, assets_dir_path| {
-            TextureLoader {
-                render_api,
-                // todo: use real path?
-            }
-            .load_from_deserialized(ctx.deserialize_default("", value), assets_dir_path)
-        },
+    let texture_loader = asset_loader(|mut ctx, value, assets_dir_path| {
+        // todo: use real path?
+        TextureLoader { render_api }.load_from_deserialized(ctx.deserialize_default("", value), assets_dir_path)
     });
-    serializer_local.register(material_direct_load_serializer(
-        materials,
-        templates,
-        shaders,
-        material_loader,
-        assets_dir_path,
-        asset_key,
-    ));
-    serializer_local.register(SingleDirectLoadTransSerializer {
-        assets: meshes,
-        assets_dir_path,
-        asset_key,
-        loader: |mut ctx, value, assets_dir_path| {
-            MeshLoader {
-                render_api,
-                // todo: use real path?
-            }
-            .load_from_deserialized(ctx.deserialize_default("", value), assets_dir_path)
-        },
+    let material_loader = asset_loader(|ctx, value, _assets_dir_path| {
+        // todo: use real path?
+        reload_material(ctx, value, &materials, &templates, &shaders, &material_loader, asset_key)
     });
-    serializer_local.register(SingleDirectLoadTransSerializer {
-        assets: audio_clips,
-        assets_dir_path,
-        asset_key,
-        loader: |mut ctx, value, assets_dir_path| {
-            AudioClipLoader {
-                audio_state: &mut *audio_state.lock().unwrap(),
-                // todo: use real path?
-            }
-            .load_from_deserialized(ctx.deserialize_default("", value), assets_dir_path)
-        },
+    let mesh_loader = asset_loader(|mut ctx, value, assets_dir_path| {
+        // todo: use real path?
+        MeshLoader { render_api }.load_from_deserialized(ctx.deserialize_default("", value), assets_dir_path)
     });
-    serializer_local.register(SingleDirectLoadTransSerializer {
-        assets: shaders,
-        assets_dir_path,
-        asset_key,
-        loader: |mut ctx, value, assets_dir_path| {
-            ShaderLoader { render_api }
-                .load_from_deserialized(ctx.deserialize_default::<ShaderAssetMetadata>("", value), assets_dir_path)
-        },
+    let audio_clip_loader = asset_loader(|mut ctx, value, assets_dir_path| {
+        // todo: use real path?
+        AudioClipLoader {
+            audio_state: &mut *audio_state.lock().unwrap(),
+        }
+        .load_from_deserialized(ctx.deserialize_default("", value), assets_dir_path)
     });
-    serializer_local.register(SingleDirectLoadTransSerializer {
-        assets: compute_shaders,
-        assets_dir_path,
-        asset_key,
-        loader: |mut ctx, value, assets_dir_path| {
-            ComputeShaderLoader { render_api }.load_from_deserialized(
-                ctx.deserialize_default::<ComputeShaderAssetMetadata>("", value),
-                assets_dir_path,
-            )
-        },
+    let shader_loader = asset_loader(|mut ctx, value, assets_dir_path| {
+        ShaderLoader { render_api }
+            .load_from_deserialized(ctx.deserialize_default::<ShaderAssetMetadata>("", value), assets_dir_path)
     });
-    serializer_local.register(SingleDirectLoadTransSerializer {
-        assets: templates,
-        assets_dir_path,
-        asset_key,
-        loader: |mut ctx, value, _assets_dir_path| Some(ctx.deserialize_default::<MaterialTemplate>("", value)),
+    let compute_shader_loader = asset_loader(|mut ctx, value, assets_dir_path| {
+        ComputeShaderLoader { render_api }.load_from_deserialized(
+            ctx.deserialize_default::<ComputeShaderAssetMetadata>("", value),
+            assets_dir_path,
+        )
     });
+    let template_loader =
+        asset_loader(|mut ctx, value, _assets_dir_path| Some(ctx.deserialize_default::<MaterialTemplate>("", value)));
     // todo: fonts
-    serializer_local.register(SingleDirectLoadTransSerializer {
-        assets: prefabs,
-        assets_dir_path,
-        asset_key,
-        loader: |ctx, value, assets_dir_path| PrefabLoader.load_from_serialized(ctx, value),
-    });
-    serializer_local.register(SingleDirectLoadTransSerializer {
-        assets: scenes,
-        assets_dir_path,
-        asset_key,
-        loader: |ctx, value, assets_dir_path| SceneLoader.load_from_serialized(ctx, value),
-    });
+    let prefab_loader = asset_loader(|ctx, value, _assets_dir_path| PrefabLoader.load_from_serialized(ctx, value));
+    let scene_loader = asset_loader(|ctx, value, _assets_dir_path| SceneLoader.load_from_serialized(ctx, value));
 
-    f(serializer_local, serializers)
-}
-
-pub(crate) fn material_direct_load_serializer<'m, 'brw: 'm>(
-    materials: &'m Mutex<&'brw mut AssetStorageResource<Material>>,
-    templates: &'m Mutex<&'brw mut AssetStorageResource<MaterialTemplate>>,
-    shaders: &'m Mutex<&'brw mut AssetStorageResource<Shader>>,
-    material_loader: MaterialLoader<'m>,
-    assets_dir_path: &'m Path,
-    asset_key: &'m str,
-) -> SingleDirectLoadTransSerializer<
-    'm,
-    'brw,
-    Material,
-    impl 'm + Send + Sync + Fn(SerializerCtx<TransSerializerCtxState>, &SerializedValue, &Path) -> Option<Material>,
-> {
-    SingleDirectLoadTransSerializer {
-        assets: materials,
-        assets_dir_path,
-        asset_key,
-        loader: move |ctx, value, _assets_dir_path| {
-            // todo: use real path?
-            let material = deserialize_material(ctx, value, templates);
-            let materials = materials.lock().unwrap();
-            let old = materials.get_registered(asset_key).and_then(|handle| materials.get(handle));
-            Some(material_loader.reload(material, old, &templates.lock().unwrap(), &shaders.lock().unwrap()))
+    let handle_entries = (
+        AssetHandleCtx::RegisteredLocked(&textures),
+        AssetHandleCtx::RegisteredLocked(&materials),
+        AssetHandleCtx::RegisteredLocked(&meshes),
+        AssetHandleCtx::RegisteredLocked(&audio_clips),
+        AssetHandleCtx::RegisteredLocked(&shaders),
+        AssetHandleCtx::RegisteredLocked(&compute_shaders),
+        AssetHandleCtx::RegisteredLocked(&templates),
+        AssetHandleCtx::RegisteredLocked(&prefabs),
+        AssetHandleCtx::RegisteredLocked(&scenes),
+    );
+    let direct_entries = (
+        DirectAssetLoadCtx {
+            assets: &textures,
+            assets_dir_path,
+            asset_key,
+            loader: &texture_loader,
         },
-    }
+        DirectAssetLoadCtx {
+            assets: &materials,
+            assets_dir_path,
+            asset_key,
+            loader: &material_loader,
+        },
+        DirectAssetLoadCtx {
+            assets: &meshes,
+            assets_dir_path,
+            asset_key,
+            loader: &mesh_loader,
+        },
+        DirectAssetLoadCtx {
+            assets: &audio_clips,
+            assets_dir_path,
+            asset_key,
+            loader: &audio_clip_loader,
+        },
+        DirectAssetLoadCtx {
+            assets: &shaders,
+            assets_dir_path,
+            asset_key,
+            loader: &shader_loader,
+        },
+        DirectAssetLoadCtx {
+            assets: &compute_shaders,
+            assets_dir_path,
+            asset_key,
+            loader: &compute_shader_loader,
+        },
+        DirectAssetLoadCtx {
+            assets: &templates,
+            assets_dir_path,
+            asset_key,
+            loader: &template_loader,
+        },
+        DirectAssetLoadCtx {
+            assets: &prefabs,
+            assets_dir_path,
+            asset_key,
+            loader: &prefab_loader,
+        },
+        DirectAssetLoadCtx {
+            assets: &scenes,
+            assets_dir_path,
+            asset_key,
+            loader: &scene_loader,
+        },
+    );
+
+    let context = ContextData::new()
+        .with::<EntityIdCtxKey>(&entity_ids)
+        .with::<AssetHandleCtxKey<StandardTexture>>(&handle_entries.0)
+        .with::<AssetHandleCtxKey<Material>>(&handle_entries.1)
+        .with::<AssetHandleCtxKey<StandardMesh>>(&handle_entries.2)
+        .with::<AssetHandleCtxKey<AudioClip>>(&handle_entries.3)
+        .with::<AssetHandleCtxKey<Shader>>(&handle_entries.4)
+        .with::<AssetHandleCtxKey<ComputeShader>>(&handle_entries.5)
+        .with::<AssetHandleCtxKey<MaterialTemplate>>(&handle_entries.6)
+        .with::<AssetHandleCtxKey<Prefab>>(&handle_entries.7)
+        .with::<AssetHandleCtxKey<Scene>>(&handle_entries.8)
+        .with::<DirectAssetLoadCtxKey<StandardTexture>>(&direct_entries.0)
+        .with::<DirectAssetLoadCtxKey<Material>>(&direct_entries.1)
+        .with::<DirectAssetLoadCtxKey<StandardMesh>>(&direct_entries.2)
+        .with::<DirectAssetLoadCtxKey<AudioClip>>(&direct_entries.3)
+        .with::<DirectAssetLoadCtxKey<Shader>>(&direct_entries.4)
+        .with::<DirectAssetLoadCtxKey<ComputeShader>>(&direct_entries.5)
+        .with::<DirectAssetLoadCtxKey<MaterialTemplate>>(&direct_entries.6)
+        .with::<DirectAssetLoadCtxKey<Prefab>>(&direct_entries.7)
+        .with::<DirectAssetLoadCtxKey<Scene>>(&direct_entries.8);
+
+    f(serializers.to_ctx_state(&context))
 }
 
-pub struct SingleLoadTransSerializer<'m, 'brw: 'm, T: 'static> {
-    pub assets: &'m Mutex<&'brw mut AssetStorageResource<T>>,
-}
-impl<'m, 'brw: 'm, T: 'static, S: Copy> Serializer<S> for SingleLoadTransSerializer<'m, 'brw, T> {
-    type Deserialized = AssetHandle<T>;
-
-    fn serialize(&self, value: &Self::Deserialized, mut ctx: SerializerCtx<S>, path: &str) -> SerializedValue {
-        let asset_storage = self.assets.lock().unwrap();
-        let key = asset_storage.get_registration(&value);
-
-        if key.is_none() {
-            ctx.report_err(SerializationError::InvalidInput {
-                message: "AssetHandle is not registered".into(),
-            });
-        }
-
-        SerializedValue::Primitive(SerializedPrimitive::String(key.unwrap_or("").into()))
-    }
-
-    fn deserialize(&self, value: &mut Self::Deserialized, mut ctx: SerializerCtx<S>, path: &str, serialized: &SerializedValue) {
-        *value = Default::default();
-
-        let SerializedValue::Primitive(SerializedPrimitive::String(key)) = serialized else {
-            ctx.report_err(SerializationError::InvalidInput {
-                message: "AssetHandle can only be deserialized from string".into(),
-            });
-            return;
-        };
-
-        *value = self
-            .assets
-            .lock()
-            .unwrap()
-            .get_registered(key.as_str())
-            .cloned()
-            .unwrap_or_default()
-    }
-
-    fn serializable_default(&self) -> Self::Deserialized {
-        Default::default()
-    }
-}
-
-pub struct SingleDirectLoadTransSerializer<
-    'm,
-    'brw: 'm,
-    T: 'static,
-    F: 'm + Send + Sync + Fn(SerializerCtx<TransSerializerCtxState>, &SerializedValue, &Path) -> Option<T>,
-> {
-    pub assets: &'m Mutex<&'brw mut AssetStorageResource<T>>,
-    pub assets_dir_path: &'m Path,
-    pub asset_key: &'m str,
-    pub loader: F,
-}
-impl<
-    'a,
-    'm,
-    'brw: 'm,
-    T: 'static,
-    F: 'm + Send + Sync + Fn(SerializerCtx<TransSerializerCtxState>, &SerializedValue, &Path) -> Option<T>,
-> Serializer<TransSerializerCtxState<'a>> for SingleDirectLoadTransSerializer<'m, 'brw, T, F>
-{
-    type Deserialized = DirectDeserializedAsset<T>;
-
-    fn serialize(&self, value: &Self::Deserialized, mut ctx: SerializerCtx<TransSerializerCtxState>, path: &str) -> SerializedValue {
-        let asset_storage = self.assets.lock().unwrap();
-        let key = asset_storage.get_registration(&value.handle);
-
-        if key.is_none() {
-            ctx.report_err(SerializationError::InvalidInput {
-                message: "AssetHandle is not registered".into(),
-            });
-        }
-
-        SerializedValue::Primitive(SerializedPrimitive::String(key.unwrap_or("").into()))
-    }
-
-    fn deserialize(
-        &self,
-        value: &mut Self::Deserialized,
-        mut ctx: SerializerCtx<TransSerializerCtxState>,
-        path: &str,
-        serialized: &SerializedValue,
-    ) {
-        let Some(asset) = (self.loader)(ctx.as_mut(), &serialized, self.assets_dir_path) else {
-            *value = self.serializable_default();
-            return;
-        };
-
-        let asset_key: FfiString = self.asset_key.into();
-        let asset_handle = 'reg: {
-            let mut assets = self.assets.lock().unwrap();
-            if let Some(registered_asset_handle) = assets.get_registered(&asset_key).cloned() {
-                if let Some(stored_asset) = assets.get_mut(&registered_asset_handle) {
-                    *stored_asset = asset;
-                    break 'reg registered_asset_handle;
-                }
-            }
-
-            assets.insert_and_register(asset, asset_key.clone())
-        };
-
-        *value = DirectDeserializedAsset {
-            handle: asset_handle,
-            key: asset_key,
-        };
-    }
-
-    fn serializable_default(&self) -> Self::Deserialized {
-        DirectDeserializedAsset {
-            handle: AssetHandle::EMPTY,
-            key: Default::default(),
-        }
-    }
-}
-
-pub struct DirectDeserializedAsset<T> {
-    handle: AssetHandle<T>,
-    key: FfiString,
-}
-
-impl<T> Default for DirectDeserializedAsset<T> {
-    fn default() -> Self {
-        Self {
-            handle: Default::default(),
-            key: Default::default(),
-        }
-    }
+pub(crate) fn reload_material(
+    ctx: SerializerCtx<TransSerializerCtxState>,
+    value: &SerializedValue,
+    materials: &Mutex<&mut AssetStorageResource<Material>>,
+    templates: &Mutex<&mut AssetStorageResource<MaterialTemplate>>,
+    shaders: &Mutex<&mut AssetStorageResource<Shader>>,
+    material_loader: &MaterialLoader,
+    asset_key: &str,
+) -> Option<Material> {
+    let material = deserialize_material(ctx, value, templates);
+    let materials = materials.lock().unwrap();
+    let old = materials.get_registered(asset_key).and_then(|handle| materials.get(handle));
+    Some(material_loader.reload(material, old, &templates.lock().unwrap(), &shaders.lock().unwrap()))
 }

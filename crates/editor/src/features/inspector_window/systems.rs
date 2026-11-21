@@ -1447,21 +1447,11 @@ pub fn update_inspector_window_system(
         // let mut err_handler = |_| ();
 
         let serialized =
-            save_load_with_asset_serializers_from_world(simulated_world.data.as_ref().resources(), |serializers_local| {
-                let serializers_global = simulated_world
-                    .data
-                    .as_ref()
-                    .resources()
-                    .get::<SerializersResource>()
-                    .unwrap();
-
-                let serializer_ctx_state = serializers_global.to_ctx_state();
-                let serializer_ctx = serializer_ctx_state
-                    .wrap_with_local(&serializers_local)
-                    .into_ctx(&mut err_handler);
-
-                inspected_asset.to_serialized(serializer_ctx)
-            })
+            save_load_with_asset_serializers_from_world(
+                simulated_world.data.as_ref().resources(),
+                EntityIdCtx::default(),
+                |serializer_ctx_state| inspected_asset.to_serialized(serializer_ctx_state.into_ctx(&mut err_handler)),
+            )
             .unwrap();
 
         let ent_last = ent

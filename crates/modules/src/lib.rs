@@ -81,7 +81,7 @@
 //!
 //! #### Shared serializer registry
 //!
-//! [`SerializersResource`] (defined in `aphyn_serialization_ecs`) is a newtype over a `'static`
+//! [`SerializersResource`] (defined in `aphyn_serialization_ecs`) is a newtype over a
 //! [`TransSerializerRegistry`] that derefs to it. It is filled here, with the world, because
 //! this crate is the one that depends on every subsystem whose types it registers.
 //! [`register_common_transserializers`] registers a [`StandardSerializer`] for exactly the
@@ -90,9 +90,9 @@
 //! `MaterialTemplate` assets the asset loaders read (with `GpuShaderDesc` and its parts), and, recursively, the type of every field they contain, generic instantiations
 //! included (`Vec2<FfiOption<UiVal>>`, `[[f32; 3]; 3]` behind `Mat3<f32>`, `f64` behind
 //! `Quat<f32>`, ...). The list is maintained by hand: adding a component or a field type means
-//! adding it here, otherwise (de)serialization reports `MissingSerializer`. `AssetHandle<T>` and
-//! `EntityId` are deliberately absent: they are (de)serialized by the per-operation local
-//! serializers in `aphyn_asset_loading`, which layer over this registry.
+//! adding it here, otherwise (de)serialization reports `MissingSerializer`. The `AssetHandle<T>`,
+//! `EntityId` and direct asset save/load serializers come from `aphyn_asset_loading`'s
+//! `register_asset_loading_serializers`, called first; they read their per-operation data from the context's `ContextData`.
 //!
 //! Since `aphyn_serialization` sits below the subsystem crates, most of these types derive
 //! `Serializable` in their own crate; the `aphyn_ffi`/`aphyn_math` and primitive types get
@@ -183,6 +183,8 @@ pub fn add_defult_modules_to(mut data: WorldDataMut, mut behavior: WorldBehavior
 
 pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry) {
     // todo: automate it better (make components expose an api to register all their dependent types that implement Serializable).
+    aphyn_asset_loading::register_asset_loading_serializers(serializer);
+
     // components
     register_transserializer::<DebugNameComponent>(serializer);
     register_transserializer::<GlobalTransform>(serializer);

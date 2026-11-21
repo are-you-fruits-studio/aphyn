@@ -63,7 +63,8 @@
 //!
 //! let serializers = res.get::<SerializersResource>().unwrap();
 //! let mut on_err = |err| println!("{err}");
-//! let mut ctx = serializers.to_ctx(&mut on_err);
+//! let context = ContextData::new();
+//! let mut ctx = serializers.to_ctx(&context, &mut on_err);
 //!
 //! let components = serialize_components(source, ctx.as_mut(), ent.as_ref());
 //! deserialize_entity_components(&components, target, ctx, ent.as_mut());

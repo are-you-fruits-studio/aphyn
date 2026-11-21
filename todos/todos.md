@@ -1,5 +1,43 @@
 # Prioritized
 
+- refactor serialization (optimize)
+    - separate ContextData (different per save/load approach) from SerializersRegistry (immutable)
+    - register serializers at app loading, build it and use as immutable in systems and render-features
+    - implement reflection
+    - implement inspector
+- separate serialization into reflection and inspector:
+    - There are 3 sides to it, and all work with the runtime type, not between each other:
+        - reflection (update/read values)
+        - serialization (converting between serialized values and runtime typed values)
+        - inspecting (edit and visualize the type values with user-friendly visuals)
+    - All 3 are registerable at the app init and then are built and set in stone
+    - Reflection is the main one - it's used for animation and potentially prefabs. Other sides can figure out fallback behaviour based on reflection. Without it the type cannot participate in inspector and animation. It's main goal is to edit/read the type data without knowing the type at compile time.
+    - Serialization is used to save and restore the type. If reflection is registered, serialization is optional. Serializarion is done like today with additional optimizations.
+    - Inspecting is used to edit the type by user. If reflection is registered, inspecting is optional. Inspecting is done using custom imgui.
+- implement custom inspectors. Inspecting ideally can be used in multiple layers of simplicity/detail:
+    - describe field names and their getters/setters
+    - use simplified ui commands (like imgui) and change inspected data directly
+    - describe a ui and change inspected data directly
+    - What inspecting should ideally support:
+        - labels
+        - (draggable) input fields
+        - checkbox
+        - buttons
+        - horizontal/vertical layout
+        - scrollview
+        - dropdown
+        - slider
+        - color picker
+        - collections?
+        - curve?
+    - Enums have different structure based on variants. Collections have different count based on length. 
+    - Imgui is interesting here because it can easily react to changes in variant dropdown and update the contents accordingly.
+    - Html-css-like ui will have to notice user input, delete old fields and spawn new ones. It's more conventional, but less convenient.
+    - The whole editor is not obligated to use the inspecting thing - it can draw itself with ecs. Inspecting tool is only used in the inspector.
+    - So imgui shouldn't have universal api, it should expose a list of currently supported tools (layout, slider, checkbox, etc.) to quickly draw the inspector
+
+- Create ffi type id (TypeRegistry-depending) and use it instead of the typename where possible? Also integrate it into ecs
+
 - make sure prefab root entity is the first one serialized
 
 - implement Skybox (probably need separation of vertex/fragment shaders in assets)
@@ -10,7 +48,6 @@
 - visualize pretty/conveniently the other types of serialized values (bool as checkbox, color as a color selector, etc.)
 - fbx import
 - fonts and their import
-- refactor serialization (optimize)
 
 - resources serialization (or resources as assets)
     - What holds serialized resources? Scene? ResourcesScene? Maybe I should rename current Scene into MultiPrefab and create a separate scene that contains entities+components AND resources?
@@ -25,7 +62,6 @@
 - SSAO
 - make sure skybox affects SSGI and SSR
 - optional Deferred rendering
-- invert depth buffer (make far=0, near=1)
 - instantiate prefabs in editor (probably need to support prefabs as part of other prefabs and overrides)
 - convenient LayerMask inspector
 - console window

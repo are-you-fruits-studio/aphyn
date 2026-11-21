@@ -103,14 +103,15 @@ mod tests {
     use aphyn_serialization::*;
 
     use crate::{
-        DirectDeserializedAsset, DirectSerializableAsset, MaterialLoader, SingleLoadTransSerializer,
-        material_direct_load_serializer, save_load_with_asset_serializers,
+        AssetHandleCtx, AssetHandleCtxKey, DirectAssetLoadCtx, DirectAssetLoadCtxKey, DirectDeserializedAsset,
+        DirectSerializableAsset, EntityIdCtx, MaterialLoader, asset_loader, register_asset_loading_serializers, reload_material,
+        save_load_with_asset_serializers,
     };
 
     const KEY: &str = "materials/red.asset";
     const TEMPLATE_KEY: &str = "templates/unlit.asset";
 
-    fn global_serializers() -> TransSerializerRegistry<'static> {
+    fn global_serializers() -> TransSerializerRegistry {
         let mut registry = TransSerializerRegistry::new();
         registry.register(StandardSerializer::<Material>::default());
         registry.register(StandardSerializer::<MaterialData>::default());
@@ -119,6 +120,7 @@ mod tests {
         registry.register(StandardSerializer::<FfiString>::default());
         registry.register(StandardSerializer::<f32>::default());
         registry.register(StandardSerializer::<Vec4<f32>>::default());
+        register_asset_loading_serializers(&mut registry);
         registry
     }
 
@@ -146,13 +148,14 @@ mod tests {
         Material::new(templates.get_registered(TEMPLATE_KEY).unwrap().clone(), data)
     }
 
-    fn with_asset_serializers<R>(
+    fn save_material(
+        global: &TransSerializerRegistry,
         materials: &AssetStorageResource<Material>,
         templates: &AssetStorageResource<MaterialTemplate>,
         textures: &AssetStorageResource<StandardTexture>,
-        f: impl FnOnce(TransSerializerRegistry) -> R,
-    ) -> R {
+    ) -> SerializedValue {
         save_load_with_asset_serializers(
+            global,
             &AssetStorageResource::<Prefab>::new(),
             &AssetStorageResource::<Scene>::new(),
             textures,
@@ -162,26 +165,59 @@ mod tests {
             &AssetStorageResource::<AudioClip>::new(),
             &AssetStorageResource::<Shader>::new(),
             &AssetStorageResource::<ComputeShader>::new(),
-            f,
+            None,
+            EntityIdCtx::default(),
+            |state| {
+                let mut errors = Vec::new();
+                let mut err_handler = |err| errors.push(format!("{err}"));
+                let mut ctx = state.into_ctx(&mut err_handler);
+                let saved = ctx.serialize(&DirectSerializableAsset::<Material>::Key(KEY.into()), "");
+                drop(ctx);
+                assert!(errors.is_empty(), "{errors:?}");
+                saved
+            },
         )
     }
 
-    fn save_material(
+    fn direct_load_material(
         global: &TransSerializerRegistry,
-        materials: &AssetStorageResource<Material>,
-        templates: &AssetStorageResource<MaterialTemplate>,
-        textures: &AssetStorageResource<StandardTexture>,
-    ) -> SerializedValue {
-        with_asset_serializers(materials, templates, textures, |local| {
-            let mut errors = Vec::new();
-            let mut err_handler = |err| errors.push(format!("{err}"));
-            let state = global.to_ctx_state();
-            let mut ctx = state.wrap_with_local(&local).into_ctx(&mut err_handler);
-            let saved = ctx.serialize(&DirectSerializableAsset::<Material>::Key(KEY.into()), "");
-            drop(ctx);
-            assert!(errors.is_empty(), "{errors:?}");
-            saved
-        })
+        saved: &SerializedValue,
+        materials: &mut AssetStorageResource<Material>,
+        templates: &mut AssetStorageResource<MaterialTemplate>,
+    ) -> Vec<String> {
+        let mut textures = AssetStorageResource::<StandardTexture>::new();
+        let mut shaders = AssetStorageResource::<Shader>::new();
+
+        let materials = Mutex::new(&mut *materials);
+        let textures = Mutex::new(&mut textures);
+        let templates = Mutex::new(&mut *templates);
+        let shaders = Mutex::new(&mut shaders);
+
+        let loader = asset_loader(|ctx, value, _assets_dir_path| {
+            reload_material(ctx, value, &materials, &templates, &shaders, &MaterialLoader::default(), KEY)
+        });
+
+        let textures_entry = AssetHandleCtx::RegisteredLocked(&textures);
+        let templates_entry = AssetHandleCtx::RegisteredLocked(&templates);
+        let materials_entry = DirectAssetLoadCtx {
+            assets: &materials,
+            assets_dir_path: Path::new(""),
+            asset_key: KEY,
+            loader: &loader,
+        };
+
+        let context = ContextData::new()
+            .with::<AssetHandleCtxKey<StandardTexture>>(&textures_entry)
+            .with::<AssetHandleCtxKey<MaterialTemplate>>(&templates_entry)
+            .with::<DirectAssetLoadCtxKey<Material>>(&materials_entry);
+
+        let mut errors = Vec::new();
+        let mut err_handler = |err| errors.push(format!("{err}"));
+        let mut ctx = global.to_ctx_state(&context).into_ctx(&mut err_handler);
+        _ = ctx.deserialize_default::<DirectDeserializedAsset<Material>>("", saved);
+        drop(ctx);
+
+        errors
     }
 
     #[test]
@@ -236,32 +272,7 @@ mod tests {
         templates: &mut AssetStorageResource<MaterialTemplate>,
         expect_errors: bool,
     ) -> AssetHandle<Material> {
-        let mut textures = AssetStorageResource::<StandardTexture>::new();
-        let mut shaders = AssetStorageResource::<Shader>::new();
-
-        let mut errors = Vec::new();
-        {
-            let materials = Mutex::new(&mut *materials);
-            let textures = Mutex::new(&mut textures);
-            let templates = Mutex::new(&mut *templates);
-            let shaders = Mutex::new(&mut shaders);
-            let mut local = TransSerializerRegistry::new();
-            local.register(SingleLoadTransSerializer { assets: &textures });
-            local.register(SingleLoadTransSerializer { assets: &templates });
-            local.register(material_direct_load_serializer(
-                &materials,
-                &templates,
-                &shaders,
-                MaterialLoader::default(),
-                Path::new(""),
-                KEY,
-            ));
-
-            let mut err_handler = |err| errors.push(format!("{err}"));
-            let state = global.to_ctx_state();
-            let mut ctx = state.wrap_with_local(&local).into_ctx(&mut err_handler);
-            _ = ctx.deserialize_default::<DirectDeserializedAsset<Material>>("", saved);
-        }
+        let errors = direct_load_material(global, saved, materials, templates);
 
         assert_eq!(!errors.is_empty(), expect_errors, "{errors:?}");
         materials.get_registered(KEY).unwrap().clone()
@@ -270,9 +281,8 @@ mod tests {
     #[test]
     fn reloading_under_the_same_key_carries_snapshots() {
         let mut templates = templates();
-        let mut shaders = AssetStorageResource::<Shader>::new();
         let mut materials = AssetStorageResource::<Material>::new();
-        let mut textures = AssetStorageResource::<StandardTexture>::new();
+        let textures = AssetStorageResource::<StandardTexture>::new();
 
         let mut material = red_material(&templates);
         material.data.reconcile(templates.get(&material.template).unwrap());
@@ -281,31 +291,8 @@ mod tests {
         let global = global_serializers();
         let saved = save_material(&global, &materials, &templates, &textures);
 
-        {
-            let materials = Mutex::new(&mut materials);
-            let textures = Mutex::new(&mut textures);
-            let templates = Mutex::new(&mut templates);
-            let shaders = Mutex::new(&mut shaders);
-            let mut local = TransSerializerRegistry::new();
-            local.register(SingleLoadTransSerializer { assets: &textures });
-            local.register(SingleLoadTransSerializer { assets: &templates });
-            local.register(material_direct_load_serializer(
-                &materials,
-                &templates,
-                &shaders,
-                MaterialLoader::default(),
-                Path::new(""),
-                KEY,
-            ));
-
-            let mut errors = Vec::new();
-            let mut err_handler = |err| errors.push(format!("{err}"));
-            let state = global.to_ctx_state();
-            let mut ctx = state.wrap_with_local(&local).into_ctx(&mut err_handler);
-            _ = ctx.deserialize_default::<DirectDeserializedAsset<Material>>("", &saved);
-            drop(ctx);
-            assert!(errors.is_empty(), "{errors:?}");
-        }
+        let errors = direct_load_material(&global, &saved, &mut materials, &mut templates);
+        assert!(errors.is_empty(), "{errors:?}");
 
         assert_eq!(materials.get_registered(KEY), Some(&handle));
         let reloaded = &materials.get(&handle).unwrap().data;

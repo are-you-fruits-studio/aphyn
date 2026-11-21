@@ -173,28 +173,44 @@
 //!
 //! #### Loading is driven by the serializers
 //!
-//! The deserialization above runs through a context made of the world's `SerializersResource`
-//! wrapped with a local registry built by [`load_asset_transitively`]. That registry holds an
-//! [`EntityTransSerializer`] and a [`TransitiveLoadTransSerializer`] per asset type. Its
-//! `deserialize` turns a key into a handle: an empty key yields an empty handle; a key that is
-//! registered and still resolves returns the cached handle; a registered key whose asset was
-//! removed is unregistered; otherwise it reads `assets/<key>`, converts the JSON to a
-//! `SerializedValue`, runs the type's loader, and stores the result with `insert_and_register`.
-//! Because the loaders deserialize the asset file's metadata through the same context, any
-//! `AssetHandle` field inside it (a material's template and textures, a template's shaders) is loaded transitively,
-//! and loading the same key again returns the same handle. The asset storages are wrapped in
-//! [`std::sync::Mutex`] because several serializers borrow them at once.
+//! There is one serializer registry, the world's `SerializersResource`.
+//! [`register_asset_loading_serializers`] (called by `aphyn_modules::register_common_transserializers`)
+//! registers into it, per asset type, an [`AssetHandleSerializer`], a [`DirectAssetLoadSerializer`]
+//! and (except fonts) a [`DirectAssetSaveSerializer`], plus one [`EntityIdSerializer`]. These are
+//! `'static`; what differs per operation is the `ContextData` the context carries:
 //!
-//! [`save_with_asset_serializers`] builds the counterpart registry for saving:
-//! [`AssetHandleLinkTransSerializer`] writes a handle as its registered key, and
-//! [`DirectAssetSaveTransSerializer`] writes a [`DirectSerializableAsset`] as the asset's own
-//! metadata (or the prefab's / scene's entities); its `deserialize` is a `todo!()`.
-//! Every registry builder takes the scene storage next to the prefab one, so the
-//! `*_from_world` variants return `None` when either storage is missing.
-//! [`load_asset_single`] loads one asset's content under a given key
-//! ([`SingleDirectLoadTransSerializer`]) while resolving other handles only from what is already
-//! registered ([`SingleLoadTransSerializer`]). Each of these has a `*_from_world` variant that
-//! fetches the resources out of [`aphyn_ecs::ResourcesHolderMut`] through raw pointers.
+//! - [`AssetHandleCtx`] (key [`AssetHandleCtxKey<T>`]) decides how an `AssetHandle<T>` resolves.
+//!   `Registered` / `RegisteredLocked` only look a key up in the storage (missing key: error,
+//!   empty handle); `LoadTransitively` also loads it. Serializing writes the registered key (an
+//!   unregistered non-empty handle is an error). A missing entry reports `MissingContextData`.
+//!   The enum carries a `// todo` to allow custom entries later.
+//! - [`EntityIdCtx`] (key [`EntityIdCtxKey`]) maps `EntityId`s to stored ids and back
+//!   ([`EntityIdEncoder`] / [`EntityIdDecoder`]); without an entry ids encode as `0` and decode
+//!   to the empty entity.
+//! - [`DirectAssetLoadCtx`] (key [`DirectAssetLoadCtxKey<T>`]) is what a
+//!   [`DirectDeserializedAsset`] deserializes through: the loader, storage and key to load under.
+//! - [`DirectSerializableAsset`] saves through the `AssetHandleCtx` entry's storage and a static
+//!   per-type extractor (the asset's metadata, or a prefab's / scene's entities); deserializing it
+//!   reports an error.
+//!
+//! The builders below create these entries (and the [`std::sync::Mutex`]es around the storages
+//! that several entries and loaders borrow at once), take the caller's [`EntityIdCtx`], and hand
+//! the callback a ready `TransSerializerCtxState`. The deserialization above runs through
+//! [`load_asset_transitively`], whose `LoadTransitively` entries turn a key into a handle: an
+//! empty key yields an empty handle; a key that is registered and still resolves returns the
+//! cached handle; a registered key whose asset was removed is unregistered; otherwise it reads
+//! `assets/<key>`, converts the JSON to a `SerializedValue`, runs the type's loader, and stores the
+//! result with `insert_and_register`. Because the loaders deserialize the asset file's metadata
+//! through the same context, any `AssetHandle` field inside it (a material's template and
+//! textures, a template's shaders) is loaded transitively, and loading the same key again returns
+//! the same handle.
+//!
+//! [`save_load_with_asset_serializers`] builds the context for saving (`Registered` entries; the
+//! font storage is optional). [`load_asset_single`] loads one asset's content under a given key
+//! (`DirectAssetLoadCtx` entries) while resolving other handles only from what is already
+//! registered (`RegisteredLocked`). Every builder takes the scene storage next to the prefab one,
+//! so the `*_from_world` variants return `None` when either storage is missing; the loading ones
+//! fetch the resources out of [`aphyn_ecs::ResourcesHolderMut`] through raw pointers.
 //! The loading variants need `AssetStorageResource<Material>` in the world, which this module
 //! does not insert: `aphyn_render_features::add_render_features_module_to` does (called by
 //! `add_defult_modules_to`). Without it `load_asset_transitively_from_world` and
@@ -260,13 +276,12 @@
 //!
 //! The shared machinery lives in `serialized_entities.rs`; `prefab.rs` and `scene.rs` only add
 //! the root handling. [`instantiate_serialized_entities`] creates one entity per local id, then
-//! deserializes every component through a context that layers a local registry over the
-//! world's `SerializersResource`: [`EntityTransSerializer`] maps stored ids to the new entities
-//! (`0` is the empty entity), and an [`AssetInstantiateTransSerializer`] per asset type
-//! resolves an asset key to the handle already registered under it in the world's
+//! deserializes every component through a context whose [`EntityIdCtx`] maps stored ids to the
+//! new entities (`0` is the empty entity) and whose `AssetHandleCtx::Registered` entry per asset
+//! type resolves an asset key to the handle already registered under it in the world's
 //! `AssetStorageResource` (textures, materials, meshes, audio clips, shaders, compute shaders, fonts,
-//! prefabs, scenes). It loads nothing: a key that isn't registered, or a missing storage, reports an error and leaves
-//! the handle empty. Its `serialize` is `unimplemented!`. [`instantiate_prefab`] returns the
+//! prefabs, scenes). It loads nothing: a key that isn't registered, or a missing storage (no entry), reports an error and leaves
+//! the handle empty. [`instantiate_prefab`] returns the
 //! entity of the first id (the root); [`instantiate_scene`] returns nothing.
 //! [`record_serialized_entities`] serializes the given entities with entity references mapped
 //! to their ids. [`record_into_prefab`] feeds it the hierarchy walked breadth-first through
@@ -468,12 +483,10 @@ pub fn load_all_assets(mut res: ResourcesHolderMut, assets_dir_path: impl AsRef<
     load_asset_transitively_from_world(
         res.as_mut(),
         assets_dir_path.as_ref(),
-        |serializers_local, serializers_global| {
+        EntityIdCtx::default(),
+        |serializer_ctx_state| {
             let mut err_handler = |err| println!("[{}:{}] {err}", file!(), line!());
-            let serializer_ctx_state = serializers_global.to_ctx_state();
-            let mut serializer_ctx = serializer_ctx_state
-                .wrap_with_local(&serializers_local)
-                .into_ctx(&mut err_handler);
+            let mut serializer_ctx = serializer_ctx_state.into_ctx(&mut err_handler);
 
             traverse_files_in_dir_deep(&assets_dir_path, &mut |file_path| {
                 if file_path.extension() != Some(OsStr::new("asset")) {

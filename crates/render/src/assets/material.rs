@@ -575,7 +575,7 @@ mod tests {
     use super::*;
     use crate::MaterialInput;
 
-    fn registry() -> TransSerializerRegistry<'static> {
+    fn registry() -> TransSerializerRegistry {
         let mut registry = TransSerializerRegistry::new();
         registry.register(StandardSerializer::<f32>::default());
         registry.register(StandardSerializer::<Vec4<f32>>::default());

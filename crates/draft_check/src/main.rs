@@ -70,12 +70,11 @@ fn check_prefab_serialization() {
         .into_iter()
         .collect();
 
-    let mut serializers_local = TransSerializerRegistry::new();
-
-    serializers_local.register(EntityTransSerializer::new(
+    let entity_ids = EntityIdCtx::new(
         EntityIdDecoder::Restricted(&entities_deserialized),
         EntityIdEncoder::Restricted(&entities_serialized),
-    ));
+    );
+    let context = ContextData::new().with::<EntityIdCtxKey>(&entity_ids);
 
     //
 
@@ -96,10 +95,7 @@ fn check_prefab_serialization() {
     let entity = world.entities().query::<EntityId>().iter().next().unwrap();
 
     let mut err_handler = |err| println!("{err}");
-    let serializer_ctx_state = serializers_global.to_ctx_state();
-    let mut serializer_ctx = serializer_ctx_state
-        .wrap_with_local(&serializers_local)
-        .into_ctx(&mut err_handler);
+    let serializer_ctx = serializers_global.to_ctx_state(&context).into_ctx(&mut err_handler);
 
     let prefab = serialize_prefab_single_entity(entity, serializer_ctx, world.entities());
 

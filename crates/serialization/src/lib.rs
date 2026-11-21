@@ -13,7 +13,8 @@
 //! which carries a *state* that decides how nested values are handled, and an error callback.
 //! Two states ship with the crate: [`PureSerializerCtxState`] dispatches statically to each
 //! type's own [`Serializable`] impl, and [`TransSerializerCtxState`] looks the serializer up at
-//! runtime in a [`TransSerializerRegistry`]. Inside the engine the shared registry already lives
+//! runtime in a [`TransSerializerRegistry`] and carries a [`ContextData`] with per-operation data
+//! for those serializers. Inside the engine the shared registry already lives
 //! in the world as `SerializersResource` (crate `aphyn_serialization_ecs`, which keeps this crate
 //! independent of the ECS), inserted (and filled with the common types) by the
 //! engine's default-modules setup.
@@ -77,6 +78,56 @@
 //!
 //! assert!(errors.is_empty());
 //! assert_eq!(restored, player);
+//! ```
+//!
+//! #### Pass per-operation data to a registered serializer
+//!
+//! A registry holds only `'static` serializers. Data that differs per operation (borrowed
+//! storages, id mappings, loaders) goes into a [`ContextData`] under a [`ContextDataKey`], and
+//! the serializer reads it with [`context_data`](SerializerCtx::context_data):
+//!
+//! ```
+//! use aphyn_serialization::*;
+//!
+//! struct Meters(f32);
+//!
+//! struct Scale;
+//! impl ContextDataKey for Scale {
+//!     type Value<'a> = f32;
+//! }
+//!
+//! struct MetersSerializer;
+//! impl<'x> Serializer<TransSerializerCtxState<'x>> for MetersSerializer {
+//!     type Deserialized = Meters;
+//!
+//!     fn serializable_default(&self) -> Meters {
+//!         Meters(0.0)
+//!     }
+//!
+//!     fn serialize(&self, value: &Meters, ctx: SerializerCtx<TransSerializerCtxState<'x>>, _path: &str) -> SerializedValue {
+//!         let scale = ctx.context_data::<Scale>().copied().unwrap_or(1.0);
+//!         SerializedPrimitive::Float((value.0 * scale) as f64).into()
+//!     }
+//!
+//!     fn deserialize(&self, value: &mut Meters, ctx: SerializerCtx<TransSerializerCtxState<'x>>, _path: &str, serialized: &SerializedValue) {
+//!         let scale = ctx.context_data::<Scale>().copied().unwrap_or(1.0);
+//!         if let SerializedValue::Primitive(SerializedPrimitive::Float(v)) = serialized {
+//!             value.0 = *v as f32 / scale;
+//!         }
+//!     }
+//! }
+//!
+//! let mut registry = TransSerializerRegistry::new();
+//! registry.register(MetersSerializer);
+//!
+//! let scale = 100.0;
+//! let context = ContextData::new().with::<Scale>(&scale);
+//!
+//! let mut on_err = |err: SerializationError| panic!("{err}");
+//! let mut ctx = registry.to_ctx(&context, &mut on_err);
+//!
+//! let serialized = ctx.serialize(&Meters(1.5), "");
+//! assert!(matches!(serialized, SerializedValue::Primitive(SerializedPrimitive::Float(v)) if v == 150.0));
 //! ```
 //!
 //! #### Read or write a single field by path
@@ -235,13 +286,25 @@
 //! [`Serializable<S>`] is generic over the context state `S`, and the state decides how a
 //! nested `T` is handled through [`SerializerCtxState<T>`]. [`PureSerializerCtxState`]
 //! implements it for every `T: Serializable<PureSerializerCtxState>` by calling `T`'s impl
-//! directly. [`TransSerializerCtxState`] implements it for every `T: 'static` by looking up a
-//! serializer for `T` in its registry, then in each wider state it wraps
-//! ([`wrap_with_local`](TransSerializerCtxState::wrap_with_local)), innermost first. This is how
-//! the asset and prefab code in `aphyn_asset_loading` layers transient, borrowing serializers
-//! (for example one that remaps `EntityId`s) over the shared `SerializersResource`.
-//! [`SerializerCtx::map_state`] swaps the state, which the prefab loader uses to drop from a
-//! registry-backed context to a pure one.
+//! directly. [`TransSerializerCtxState`] is a single registry plus a [`ContextData`]; it
+//! implements it for every `T: 'static` by looking up a serializer for `T` in that registry
+//! (there is no chain of registries). [`SerializerCtx::map_state`] swaps the state, which the
+//! prefab loader uses to drop from a registry-backed context to a pure one.
+//!
+//! #### Context data
+//!
+//! [`ContextData`] is how a `'static` serializer gets per-operation, borrowed data: for example
+//! `aphyn_asset_loading` registers one `AssetHandle<T>` serializer per asset type, and the
+//! context entry for it decides whether a key is only looked up or loaded from disk. An entry is
+//! inserted as `&'a K::Value<'a>` under a `'static` marker type `K: ContextDataKey` and read
+//! back with [`ContextData::get`] or [`SerializerCtx::context_data`]. It is stored as an erased
+//! pointer in an `FfiIndexMap` keyed by `type_name::<K>()` (the same caveat as for the registry
+//! below applies). The key is a separate `'static` type with a generic associated `Value<'a>`
+//! because `type_name` drops lifetimes, so keying by the value type itself would let a caller
+//! read an entry back with a longer lifetime than it was stored with; for the same reason
+//! `ContextData<'a>` is invariant in `'a`, and so is [`TransSerializerCtxState`]. A serializer
+//! decides itself what a missing entry means; `SerializationError::MissingContextData` exists for
+//! reporting it.
 //!
 //! #### Serializers and the registry
 //!
@@ -254,8 +317,8 @@
 //!
 //! [`TransSerializerRegistry`] keys each entry by `std::any::type_name` of its `Deserialized`
 //! type and stores it as a [`TransSerializerFfi`]: the serializer boxed in an `FfiDroppable`
-//! plus a static `extern "C-unwind"` vtable, so the registry stays FFI-safe. Its lifetime
-//! parameter lets a registry hold serializers that borrow local data. Typed lookups cast the
+//! plus a static `extern "C-unwind"` vtable, so the registry stays FFI-safe. It holds only
+//! `'static` serializers; borrowed data reaches them through [`ContextData`]. Typed lookups cast the
 //! erased pointers back to `T` guarded only by the type-name string. **Caveat for
 //! maintainers:** `type_name` is not guaranteed to be unique or stable across builds, so this
 //! scheme is sound only as long as distinct types never collide on their `type_name` string.
@@ -275,7 +338,8 @@
 //! it as a [`SerializationError`] while (de)serialization carries on. Deserialization is
 //! deliberately coercive: reading an int from a string, a bool from a number, a `Vec` from a
 //! rigid composite, and so on each yields a best-effort value while reporting an `InvalidInput`
-//! error. A missing registered serializer reports `MissingSerializer`; serialization then yields
+//! error. A missing registered serializer reports `MissingSerializer` (a missing context entry,
+//! when a serializer needs one, `MissingContextData`); serialization then yields
 //! `Null` and deserialization leaves the target unchanged.
 //!
 //! #### Enum decoding
@@ -314,8 +378,7 @@
 //! registry-backed context the key type needs a registered serializer too; a key whose field
 //! name contains `/` cannot be addressed by path; `HashMap` field order is unspecified. The `Mat<N, T>` impl is a
 //! `todo!()` and panics if called. The numerous `// todo: ffi` markers flag where the FFI
-//! surface is still being built out, alongside the crate root's `todo` list and the
-//! commented-out older `FfiAny` support in `serialization_transitive.rs`.
+//! surface is still being built out, alongside the crate root's `todo` list.
 //!
 //! #### Code generation
 //!
@@ -335,6 +398,7 @@ mod serialization_model;
 mod serialization_utils;
 mod serialization_core;
 mod serialization_ctx;
+mod serialization_context_data;
 
 pub use aphyn_serialization_macros::*;
 pub use serialization_transitive::*;
@@ -344,6 +408,7 @@ pub use serialization_model::*;
 pub use serialization_utils::*;
 pub use serialization_core::*;
 pub use serialization_ctx::*;
+pub use serialization_context_data::*;
 
 // todo:
 // + impls for standard types

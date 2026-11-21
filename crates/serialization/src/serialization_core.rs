@@ -11,6 +11,7 @@ use crate::{
 #[derive(Clone)]
 pub enum SerializationError {
     MissingSerializer { type_name: FfiString },
+    MissingContextData { key: FfiString },
     InvalidInput { message: FfiString },
 }
 impl Display for SerializationError {
@@ -19,6 +20,7 @@ impl Display for SerializationError {
             Self::MissingSerializer { type_name } => {
                 write!(f, "missing serializer for type {}", type_name)
             }
+            Self::MissingContextData { key } => write!(f, "missing serializer context data {}", key),
             Self::InvalidInput { message } => write!(f, "invalid serialization input: {}", message),
         }
     }
