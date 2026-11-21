@@ -12,7 +12,7 @@ use aphyn_render_core::{
     GpuFrontFace, GpuPrimitiveTopology, GpuShaderDesc,
 };
 
-use crate::{RENDER_ORDER_OPAQUE, RENDER_ORDER_SHADOW, RENDER_ORDER_TRANSPARENT};
+use crate::{RENDER_ORDER_DEPTH_PREPASS, RENDER_ORDER_OPAQUE, RENDER_ORDER_SHADOW, RENDER_ORDER_TRANSPARENT};
 
 pub const BUILTIN_TEMPLATE_OPAQUE_UNLIT: &str = "aphyn/templates/opaque_unlit";
 pub const BUILTIN_TEMPLATE_OPAQUE_LIT: &str = "aphyn/templates/opaque_lit";
@@ -21,6 +21,7 @@ pub const BUILTIN_TEMPLATE_TRANSPARENT_LIT: &str = "aphyn/templates/transparent_
 pub const BUILTIN_TEMPLATE_UI_OPAQUE_UNLIT: &str = "aphyn/templates/ui_opaque_unlit";
 pub const BUILTIN_TEMPLATE_UI_TRANSPARENT_UNLIT: &str = "aphyn/templates/ui_transparent_unlit";
 pub const BUILTIN_SHADER_SHADOW_CASTER: &str = "aphyn/shaders/shadow_caster";
+pub const BUILTIN_SHADER_DEPTH_NORMALS: &str = "aphyn/shaders/depth_normals";
 
 struct StandardVariant {
     name: &'static str,
@@ -112,44 +113,32 @@ pub fn shadow_caster_template_pass(shadow_caster: AssetHandle<Shader>) -> Materi
     }
 }
 
+const STANDARD_VALUES: [(&str, MaterialDataValue); 5] = [
+    ("color", MaterialDataValue::Vec4(Vec4::splat(1.0))),
+    ("emission_color", MaterialDataValue::Vec4(Vec4::splat(0.0))),
+    ("metallic", MaterialDataValue::F32(0.0)),
+    ("roughness", MaterialDataValue::F32(0.5)),
+    ("alpha_threshold", MaterialDataValue::F32(0.5)),
+];
+
 // binding indices follow `standard_bindings.wgsl`
-pub fn standard_material_template(
-    shader: AssetHandle<Shader>,
-    is_transparent: bool,
-    shadow_caster: Option<AssetHandle<Shader>>,
-) -> MaterialTemplate {
-    let mut template = MaterialTemplate::default();
+const STANDARD_TEXTURES: [(&str, usize, MaterialTextureFallback); 5] = [
+    ("color_tex", 1, MaterialTextureFallback::White),
+    ("roughness_tex", 3, MaterialTextureFallback::White),
+    ("metallic_tex", 5, MaterialTextureFallback::White),
+    ("normal_tex", 7, MaterialTextureFallback::FlatNormal),
+    ("emission_tex", 9, MaterialTextureFallback::White),
+];
 
-    let values = [
-        ("color", MaterialDataValue::Vec4(Vec4::splat(1.0))),
-        ("emission_color", MaterialDataValue::Vec4(Vec4::splat(0.0))),
-        ("metallic", MaterialDataValue::F32(0.0)),
-        ("roughness", MaterialDataValue::F32(0.5)),
-        ("alpha_threshold", MaterialDataValue::F32(0.5)),
-    ];
-    let textures = [
-        ("color_tex", 1, MaterialTextureFallback::White),
-        ("roughness_tex", 3, MaterialTextureFallback::White),
-        ("metallic_tex", 5, MaterialTextureFallback::White),
-        ("normal_tex", 7, MaterialTextureFallback::FlatNormal),
-        ("emission_tex", 9, MaterialTextureFallback::White),
-    ];
-
+fn standard_template_pass(shader: AssetHandle<Shader>, order: u64, target: MaterialPassTarget) -> MaterialTemplatePass {
     let mut pass = MaterialTemplatePass {
         shader,
-        order: match is_transparent {
-            false => RENDER_ORDER_OPAQUE,
-            true => RENDER_ORDER_TRANSPARENT,
-        },
-        target: match is_transparent {
-            false => MaterialPassTarget::Main,
-            true => MaterialPassTarget::Transparent,
-        },
+        order,
+        target,
         ..Default::default()
     };
 
-    for (name, default) in values {
-        template.inputs.insert(name.into(), MaterialInput::new(default));
+    for (name, _) in STANDARD_VALUES {
         pass.values.push(MaterialValueBinding {
             input: name.into(),
             group: 1,
@@ -158,8 +147,7 @@ pub fn standard_material_template(
         });
     }
 
-    for (name, binding, fallback) in textures {
-        template.inputs.insert(name.into(), MaterialInput::texture(fallback));
+    for (name, binding, _) in STANDARD_TEXTURES {
         pass.textures.push(MaterialTextureBinding {
             input: name.into(),
             group: 1,
@@ -168,10 +156,42 @@ pub fn standard_material_template(
         });
     }
 
-    template.passes.push(pass);
+    pass
+}
+
+// maps the standard inputs, like `standard_material_template`
+pub fn depth_normals_template_pass(depth_normals: AssetHandle<Shader>) -> MaterialTemplatePass {
+    standard_template_pass(depth_normals, RENDER_ORDER_DEPTH_PREPASS, MaterialPassTarget::DepthNormals)
+}
+
+pub fn standard_material_template(
+    shader: AssetHandle<Shader>,
+    is_transparent: bool,
+    shadow_caster: Option<AssetHandle<Shader>>,
+    depth_normals: Option<AssetHandle<Shader>>,
+) -> MaterialTemplate {
+    let mut template = MaterialTemplate::default();
+
+    for (name, default) in STANDARD_VALUES {
+        template.inputs.insert(name.into(), MaterialInput::new(default));
+    }
+
+    for (name, _, fallback) in STANDARD_TEXTURES {
+        template.inputs.insert(name.into(), MaterialInput::texture(fallback));
+    }
+
+    let (order, target) = match is_transparent {
+        false => (RENDER_ORDER_OPAQUE, MaterialPassTarget::Main),
+        true => (RENDER_ORDER_TRANSPARENT, MaterialPassTarget::Transparent),
+    };
+    template.passes.push(standard_template_pass(shader, order, target));
 
     if let Some(shadow_caster) = shadow_caster {
         template.passes.push(shadow_caster_template_pass(shadow_caster));
+    }
+
+    if let Some(depth_normals) = depth_normals {
+        template.passes.push(depth_normals_template_pass(depth_normals));
     }
 
     template
@@ -195,7 +215,22 @@ pub fn insert_builtin_render_assets_to(mut res: ResourcesHolderMut) {
         return;
     };
 
-    let Some(shadow_caster) = register_shadow_caster_shader(&mut res, &render_api) else {
+    let Some(shadow_caster) = register_builtin_shader(
+        &mut res,
+        &render_api,
+        BUILTIN_SHADER_SHADOW_CASTER,
+        ("shader_shadow_caster.wgsl", SHADOW_CASTER_SHADER_WGSL, &[]),
+        shadow_caster_shader_desc(),
+    ) else {
+        return;
+    };
+    let Some(depth_normals) = register_builtin_shader(
+        &mut res,
+        &render_api,
+        BUILTIN_SHADER_DEPTH_NORMALS,
+        ("shader_standard.wgsl", STANDARD_SHADER_WGSL, &["DEPTH_NORMALS"]),
+        standard_shader_desc(false),
+    ) else {
         return;
     };
 
@@ -233,29 +268,36 @@ pub fn insert_builtin_render_assets_to(mut res: ResourcesHolderMut) {
         let Some(templates) = res.get_mut::<AssetStorageResource<MaterialTemplate>>() else {
             return;
         };
-        let casts_shadows = !variant.is_transparent && !variant.is_ui;
+        let is_opaque_world = !variant.is_transparent && !variant.is_ui;
         templates.insert_and_register(
-            standard_material_template(shader, variant.is_transparent, casts_shadows.then(|| shadow_caster.clone())),
+            standard_material_template(
+                shader,
+                variant.is_transparent,
+                is_opaque_world.then(|| shadow_caster.clone()),
+                is_opaque_world.then(|| depth_normals.clone()),
+            ),
             template_key.into(),
         );
     }
 }
 
-fn register_shadow_caster_shader(res: &mut ResourcesHolderMut, render_api: &RenderApiResource) -> Option<AssetHandle<Shader>> {
+fn register_builtin_shader(
+    res: &mut ResourcesHolderMut,
+    render_api: &RenderApiResource,
+    key: &str,
+    (file, source, defines): (&str, &str, &[&str]),
+    desc: GpuShaderDesc,
+) -> Option<AssetHandle<Shader>> {
     let shaders = res.get_mut::<AssetStorageResource<Shader>>()?;
 
-    if let Some(handle) = shaders.get_registered(BUILTIN_SHADER_SHADOW_CASTER).cloned() {
+    if let Some(handle) = shaders.get_registered(key).cloned() {
         return Some(handle);
     }
 
-    let code = WgslComposer::with_engine_libraries()
-        .compose("shader_shadow_caster.wgsl", SHADOW_CASTER_SHADER_WGSL, &[])
-        .unwrap();
-    let shader = render_api
-        .create_shader(BUILTIN_SHADER_SHADOW_CASTER, &code, shadow_caster_shader_desc(), None)
-        .unwrap();
+    let code = WgslComposer::with_engine_libraries().compose(file, source, defines).unwrap();
+    let shader = render_api.create_shader(key, &code, desc, None).unwrap();
 
-    Some(shaders.insert_and_register(shader, BUILTIN_SHADER_SHADOW_CASTER.into()))
+    Some(shaders.insert_and_register(shader, key.into()))
 }
 
 #[cfg(test)]
@@ -281,7 +323,7 @@ mod tests {
 
     #[test]
     fn standard_template_maps_every_standard_binding() {
-        let template = standard_material_template(AssetHandle::EMPTY, false, None);
+        let template = standard_material_template(AssetHandle::EMPTY, false, None, None);
         let pass = &template.passes[0];
 
         let mut texture_bindings = pass
@@ -299,12 +341,23 @@ mod tests {
     #[test]
     fn shadow_caster_pass_is_appended() {
         let caster = AssetHandle::<Shader>::EMPTY;
-        let template = standard_material_template(AssetHandle::EMPTY, false, Some(caster.clone()));
+        let template = standard_material_template(AssetHandle::EMPTY, false, Some(caster.clone()), None);
 
         assert_eq!(template.passes.len(), 2);
         let pass = &template.passes[1];
         assert_eq!(pass.target, MaterialPassTarget::Shadow);
         assert_eq!(pass.order, RENDER_ORDER_SHADOW);
         assert!(pass.values.is_empty() && pass.textures.is_empty());
+    }
+
+    #[test]
+    fn depth_normals_pass_maps_like_the_standard_pass() {
+        let template = standard_material_template(AssetHandle::EMPTY, false, None, Some(AssetHandle::EMPTY));
+
+        assert_eq!(template.passes.len(), 2);
+        let (main, prepass) = (&template.passes[0], &template.passes[1]);
+        assert_eq!(prepass.target, MaterialPassTarget::DepthNormals);
+        assert_eq!(prepass.order, RENDER_ORDER_DEPTH_PREPASS);
+        assert_eq!((&prepass.values, &prepass.textures), (&main.values, &main.textures));
     }
 }

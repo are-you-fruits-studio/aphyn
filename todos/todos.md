@@ -1,9 +1,20 @@
+# Immediate
+
+- fix collection reflection
+- implement custom inspector
+- move serialization, reflection, inspecting to being builder at app-init stage and immutable at runtime (probably store them separately from the ECS world and somewhere near the TypesRegistry)
+- allow using cached TypesRegistry key to avoid string lookup and even hashmap lookup where possible.
+- finish shaders, materials, material templates
+    - including materials having inputs affect shader compilation directives
+- frustum culling
+- screen-space effects (SSR, SSAO, SSGI)
+- rename current scene into multi-prefab and create a new scene asset that contains both entities and resources. It's used as a game bootstrap
+- implement animation (infrastructure and window)
+
 # Prioritized
 
 - refactor serialization (optimize)
-    - separate ContextData (different per save/load approach) from SerializersRegistry (immutable)
     - register serializers at app loading, build it and use as immutable in systems and render-features
-    - implement reflection
     - implement inspector
 - separate serialization into reflection and inspector:
     - There are 3 sides to it, and all work with the runtime type, not between each other:
@@ -35,9 +46,6 @@
     - Html-css-like ui will have to notice user input, delete old fields and spawn new ones. It's more conventional, but less convenient.
     - The whole editor is not obligated to use the inspecting thing - it can draw itself with ecs. Inspecting tool is only used in the inspector.
     - So imgui shouldn't have universal api, it should expose a list of currently supported tools (layout, slider, checkbox, etc.) to quickly draw the inspector
-- implement reflection:
-    - Type Kind: Struct, Enum, Collection?
-    - field getters and setters
 
 - Create ffi type id (TypeRegistry-depending) and use it instead of the typename where possible? Also integrate it into ecs
 

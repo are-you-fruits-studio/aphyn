@@ -9,8 +9,8 @@ use aphyn_transform::GlobalTransform;
 
 use crate::{
     AmbientLightResource, ClusteredLightingResource, DepthTextureResource, GlobalBindingsResource, RENDER_ORDER_PREPARE,
-    RenderFeature, RenderPassWriter, ScreenSpaceResource, ShadowAtlasResource, ShadowSettingsResource, StandardLightComponent,
-    TransparentTargetResource, create_window_to_clip_matrix, light_from_components,
+    RenderFeature, RenderPassWriter, SceneNormalsTextureResource, ScreenSpaceResource, ShadowAtlasResource, ShadowSettingsResource,
+    StandardLightComponent, TransparentTargetResource, create_window_to_clip_matrix, light_from_components,
     shadows::{ShadowCamera, push_light_shadow_views},
 };
 
@@ -164,6 +164,15 @@ impl RenderFeature for GlobalsRenderFeature {
         }
 
         if res
+            .get::<SceneNormalsTextureResource>()
+            .is_none_or(|normals| normals.texture.size() != target_size)
+        {
+            res.insert(SceneNormalsTextureResource {
+                texture: create_target(StandardTextureFormat::Rg16Float),
+            });
+        }
+
+        if res
             .get::<TransparentTargetResource>()
             .is_none_or(|transparent| transparent.texture.size() != target_size)
         {
@@ -178,6 +187,10 @@ impl RenderFeature for GlobalsRenderFeature {
 
             if let Some(depth) = resources.get::<DepthTextureResource>() {
                 core.clear_depth_texture(depth.texture.texture(), 0, 0.0);
+            }
+
+            if let Some(normals) = resources.get::<SceneNormalsTextureResource>() {
+                core.clear_color_texture(normals.texture.texture(), 0, [0.0; 4]);
             }
 
             if let Some(transparent) = resources.get::<TransparentTargetResource>() {

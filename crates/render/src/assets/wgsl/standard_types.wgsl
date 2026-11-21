@@ -79,3 +79,19 @@ fn map_instance_data(input: InstanceRawAttributes) -> InstanceAttributes {
 
     return output;
 }
+
+// octahedral mapping of a unit vector to [-1, 1]^2
+fn octahedral_encode(normal: vec3<f32>) -> vec2<f32> {
+    let n = normal / (abs(normal.x) + abs(normal.y) + abs(normal.z));
+    let wrapped = (1.0 - abs(n.yx)) * select(vec2<f32>(-1.0), vec2<f32>(1.0), n.xy >= vec2<f32>(0.0));
+
+    return select(wrapped, n.xy, n.z >= 0.0);
+}
+
+fn octahedral_decode(encoded: vec2<f32>) -> vec3<f32> {
+    var n = vec3<f32>(encoded, 1.0 - abs(encoded.x) - abs(encoded.y));
+    let t = saturate(-n.z);
+    n = vec3<f32>(n.xy + select(vec2<f32>(t), vec2<f32>(-t), n.xy >= vec2<f32>(0.0)), n.z);
+
+    return normalize(n);
+}

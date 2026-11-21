@@ -247,6 +247,7 @@ mod tests {
             &["LIT", "TRANSPARENT"],
             &["UI"],
             &["UI", "TRANSPARENT"],
+            &["DEPTH_NORMALS"],
         ];
 
         for defs in standard_defs {

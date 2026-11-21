@@ -67,8 +67,8 @@
 //! copied onto itself.
 //!
 //! [`RenderApi::read_texture`] reads one mip level of a color texture back to the CPU, as tightly
-//! packed rows in the texture's format (4 bytes per pixel for the 8-bit formats and `R32Float`, 8 for
-//! `Rgba16Float`).
+//! packed rows in the texture's format (4 bytes per pixel for the 8-bit formats, `Rg16Float` and
+//! `R32Float`, 8 for `Rgba16Float`).
 //! It submits a copy and blocks until the GPU has finished all submitted work, so use it for tools and
 //! captures, not every frame. It returns `None` for depth textures and missing mip levels.
 //! [`RenderApi::read_uniform_storage_buffer`] does the same for a whole uniform/storage buffer, e.g. to
@@ -159,8 +159,8 @@
 //! texture fails shader creation. They are bound with [`GpuBinding::Texture`]; the texture's format
 //! must equal the declared one, and the binding must select a single mip level (`Some(level)`, or
 //! `None` for a texture with one level). Writable storage textures and buffers are visible to fragment
-//! and compute shaders, read-only ones to every stage. `Rgba8UnormSrgb` and `Depth32Float` textures
-//! can't be storage textures.
+//! and compute shaders, read-only ones to every stage. `Rgba8UnormSrgb`, `Rg16Float` and `Depth32Float`
+//! textures can't be storage textures.
 //!
 //! [`GpuBinding::VertexBuffer`] and [`GpuBinding::IndexBuffer`] bind a vertex or index buffer to a
 //! storage buffer binding, so a compute shader can fill geometry or instances that a draw then reads.

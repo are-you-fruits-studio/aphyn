@@ -16,8 +16,8 @@ use aphyn_transform::{GlobalDisableableComponent, GlobalTransform};
 
 use crate::{
     BatchedMeshComponent, DepthTextureResource, GlobalBindingsResource, MaterialComponent, MeshComponent,
-    RENDER_ORDER_TRANSPARENT_COMPOSITE, RenderFeature, RenderPassCtx, RenderPassWriter, ShadowAtlasResource,
-    TransparentTargetResource, create_engine_shader, draw_fullscreen, fullscreen_shader_desc, texture_binding,
+    RENDER_ORDER_TRANSPARENT_COMPOSITE, RenderFeature, RenderPassCtx, RenderPassWriter, SceneNormalsTextureResource,
+    ShadowAtlasResource, TransparentTargetResource, create_engine_shader, draw_fullscreen, fullscreen_shader_desc, texture_binding,
 };
 
 #[repr(C, u8)]
@@ -322,6 +322,7 @@ impl MaterialRenderFeature {
             Some(meshes),
             Some(textures),
             Some(atlas),
+            Some(normals),
         ) = (
             resources.get::<CurrentRenderingResource>(),
             resources.get::<DepthTextureResource>(),
@@ -332,6 +333,7 @@ impl MaterialRenderFeature {
             resources.get::<AssetStorageResource<StandardMesh>>(),
             resources.get::<AssetStorageResource<StandardTexture>>(),
             resources.get::<ShadowAtlasResource>(),
+            resources.get::<SceneNormalsTextureResource>(),
         )
         else {
             return;
@@ -356,7 +358,9 @@ impl MaterialRenderFeature {
                 MaterialPassTarget::Main => Some(current.target.texture()),
                 MaterialPassTarget::Transparent => Some(transparent.texture.texture()),
                 MaterialPassTarget::Shadow => None,
+                MaterialPassTarget::DepthNormals => Some(normals.texture.texture()),
             };
+            let is_depth_normals = template_pass.target == MaterialPassTarget::DepthNormals;
             let depth_view = match is_shadow {
                 true => atlas.texture(),
                 false => depth.texture.texture(),
@@ -380,6 +384,11 @@ impl MaterialRenderFeature {
                     groups[0].push((4, GpuBinding::Sampler(atlas.sampler())));
                     groups[0].push((5, GpuBinding::Buffer(globals.bindings.cluster_grid_buffer())));
                     groups[0].push((6, GpuBinding::Buffer(globals.bindings.cluster_indices_buffer())));
+
+                    // the depth-normals pass renders into the scene normals
+                    if !is_depth_normals {
+                        groups[0].push((7, texture_binding(normals.texture.texture())));
+                    }
                 }
 
                 for uniform in gpu_pass.uniforms() {

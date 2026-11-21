@@ -17,13 +17,14 @@ pub enum StandardTextureFormat {
     #[default]
     Rgba8UnormSrgb,
     Rgba16Float,
+    Rg16Float,
     Depth32Float,
 }
 
 impl StandardTextureFormat {
     fn bytes_per_pixel(self) -> usize {
         match self {
-            Self::Rgba8Unorm | Self::Rgba8UnormSrgb | Self::Depth32Float => 4,
+            Self::Rgba8Unorm | Self::Rgba8UnormSrgb | Self::Rg16Float | Self::Depth32Float => 4,
             Self::Rgba16Float => 8,
         }
     }
@@ -35,6 +36,7 @@ impl From<StandardTextureFormat> for GpuTextureFormat {
             StandardTextureFormat::Rgba8Unorm => GpuTextureFormat::Rgba8Unorm,
             StandardTextureFormat::Rgba8UnormSrgb => GpuTextureFormat::Rgba8UnormSrgb,
             StandardTextureFormat::Rgba16Float => GpuTextureFormat::Rgba16Float,
+            StandardTextureFormat::Rg16Float => GpuTextureFormat::Rg16Float,
             StandardTextureFormat::Depth32Float => GpuTextureFormat::Depth32Float,
         }
     }
@@ -88,7 +90,12 @@ impl StandardTexture {
         let mut data = data;
         let mut data_vec = Vec::new();
 
-        if !data.is_empty() && format_bytes_per_pixel == 4 && bytes_per_pixel < 4 {
+        let is_8_bit = matches!(
+            meta.format,
+            StandardTextureFormat::Rgba8Unorm | StandardTextureFormat::Rgba8UnormSrgb
+        );
+
+        if !data.is_empty() && is_8_bit && format_bytes_per_pixel == 4 && bytes_per_pixel < 4 {
             for i in 0..px_count {
                 let mut px = [0, 0, 0, 255];
 

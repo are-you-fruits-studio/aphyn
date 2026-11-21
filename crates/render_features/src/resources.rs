@@ -60,6 +60,12 @@ pub struct DepthTextureResource {
 
 #[repr(C)]
 #[derive(Resource)]
+pub struct SceneNormalsTextureResource {
+    pub texture: StandardTexture,
+}
+
+#[repr(C)]
+#[derive(Resource)]
 pub struct TransparentTargetResource {
     pub texture: StandardTexture,
 }

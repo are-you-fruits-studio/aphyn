@@ -5,7 +5,7 @@
 //! features of one world. Every [`render_view`](RenderFeatureRegistry::render_view) asks each
 //! feature for its passes, sorts them by an absolute `u64` order, and runs them one after another
 //! on the calling thread. Everything the engine draws is such a feature: [`GlobalsRenderFeature`]
-//! (camera, lights, depth and transparent targets), [`ClusteringRenderFeature`] (assigns lights to
+//! (camera, lights, depth, scene normals and transparent targets), [`ClusteringRenderFeature`] (assigns lights to
 //! view clusters), [`MaterialRenderFeature`] (every entity with a material), [`ExposureRenderFeature`], [`BloomRenderFeature`], [`ColorGradingRenderFeature`] and
 //! [`GizmosRenderFeature`].
 //!
@@ -68,6 +68,26 @@
 //!
 //! let caster = shaders.get_registered(BUILTIN_SHADER_SHADOW_CASTER).unwrap().clone();
 //! template.passes.push(shadow_caster_template_pass(caster));
+//! ```
+//!
+//! #### Depth-normals prepass
+//!
+//! Opaque geometry is drawn twice: at [`RENDER_ORDER_DEPTH_PREPASS`] a
+//! [`MaterialPassTarget::DepthNormals`](aphyn_render::MaterialPassTarget) pass fills the view's
+//! [`DepthTextureResource`] and [`SceneNormalsTextureResource`] (an `Rg16Float` texture of
+//! octahedral-encoded world-space vertex normals), then the opaque pass shades with the normal it reads
+//! back from group 0 binding 7 (`scene_normals` in `aphyn/standard_bindings.wgsl`) and keeps testing
+//! depth with `GreaterEqual`. The built-in opaque, non-UI templates have this pass (with
+//! [`BUILTIN_SHADER_DEPTH_NORMALS`], which discards like the opaque pass below `alpha_threshold`);
+//! transparent and UI ones don't, and transparent lit materials shade with their own interpolated
+//! normals. Pixels no prepass covered hold a cleared normal. A custom template whose shader uses the
+//! standard inputs opts in with [`depth_normals_template_pass`]:
+//!
+//! ```ignore
+//! use aphyn::*;
+//!
+//! let prepass = shaders.get_registered(BUILTIN_SHADER_DEPTH_NORMALS).unwrap().clone();
+//! template.passes.push(depth_normals_template_pass(prepass));
 //! ```
 //!
 //! #### Materials
@@ -176,9 +196,9 @@
 //! use, uploads the lights of every `StandardLightComponent` plus `CurrentRenderingResource::light`
 //! and the `StandardUniformGlobal` (world-to-clip of the view, window-to-clip for the target size
 //! with the [`ScreenSpaceResource`] depth range, `CurrentRenderingResource::ambient_light` when set,
-//! else the [`AmbientLightResource`] color, else zero), and replaces [`DepthTextureResource`] and
-//! [`TransparentTargetResource`] when their size differs from the target. Its pass at
-//! [`RENDER_ORDER_PREPARE`] clears both (depth, like the shadow atlas, to 0: depth is reversed, 1 is
+//! else the [`AmbientLightResource`] color, else zero), and replaces [`DepthTextureResource`],
+//! [`SceneNormalsTextureResource`] and [`TransparentTargetResource`] when their size differs from the
+//! target. Its pass at [`RENDER_ORDER_PREPARE`] clears all three (depth, like the shadow atlas, to 0: depth is reversed, 1 is
 //! near and 0 is far, so every engine shader tests with `GreaterEqual`). The uploads are queued writes that land at the next
 //! submit, which is before any draw. Lights are uploaded directional first; the uniform's
 //! `directional_lights_count` marks where the clustered (point and spot) lights start. It also
@@ -242,12 +262,14 @@
 //!    `Transparent`.
 //!
 //! A draw binds group 0 to the globals (uniform at 0, lights at 1, shadow views at 2, shadow atlas at
-//! 3, its comparison sampler at 4, cluster grid at 5, cluster light indices at 6), the material's uniform buffers
+//! 3, its comparison sampler at 4, cluster grid at 5, cluster light indices at 6, scene normals at 7 except
+//! for `DepthNormals` passes, which render into them), the material's uniform buffers
 //! at their mapped `(group, binding)`, and every texture input resolved from
 //! `AssetStorageResource<StandardTexture>` on each draw, falling back to the input's
 //! `MaterialTextureFallback` texture of `RenderApiResource`. It draws into the view's target
-//! (`Main`) or [`TransparentTargetResource`] (`Transparent`, composited with alpha blending by
-//! `shader_transparent_final.wgsl`), always with [`DepthTextureResource`]. A `Shadow` pass instead
+//! (`Main`), [`TransparentTargetResource`] (`Transparent`, composited with alpha blending by
+//! `shader_transparent_final.wgsl`) or [`SceneNormalsTextureResource`] (`DepthNormals`), always with
+//! [`DepthTextureResource`]. A `Shadow` pass instead
 //! repeats the draw once per shadow view with no color target, the atlas as depth, the tile as
 //! viewport and only that view's caster uniform at group 0 binding 0. The caster shader declares no
 //! other group 0 binding, so the atlas is never sampled by the pass that renders into it. Batched draws pass a
@@ -260,8 +282,11 @@
 //! `LIT` / `TRANSPARENT` / `UI` per variant, creates the shaders with [`standard_shader_desc`] and
 //! registers them as `aphyn/shaders/<variant>`, then registers [`standard_material_template`] for
 //! each as `aphyn/templates/<variant>`. Before that it registers the depth-only
-//! `aphyn_render::SHADOW_CASTER_SHADER_WGSL` as [`BUILTIN_SHADER_SHADOW_CASTER`] (once), and the opaque,
-//! non-UI templates get a second pass with it at [`RENDER_ORDER_SHADOW`]. It needs the `RenderApiResource`, so it runs in `Start`; asset
+//! `aphyn_render::SHADOW_CASTER_SHADER_WGSL` as [`BUILTIN_SHADER_SHADOW_CASTER`] and the standard shader
+//! composed with `DEPTH_NORMALS` as [`BUILTIN_SHADER_DEPTH_NORMALS`] (each once), and the opaque,
+//! non-UI templates get a pass with each, at [`RENDER_ORDER_SHADOW`] and [`RENDER_ORDER_DEPTH_PREPASS`].
+//! The standard pass and [`depth_normals_template_pass`] share one input-to-binding mapping
+//! (`standard_template_pass`), so the prepass sees the same material data. It needs the `RenderApiResource`, so it runs in `Start`; asset
 //! loading must run after it so material files can reference the built-in keys. A variant whose
 //! template key is already registered is skipped: registering it again would leave the handles that
 //! loaded materials hold unregistered, so they would save with an empty template.

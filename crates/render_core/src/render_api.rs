@@ -2900,6 +2900,7 @@ pub enum GpuTextureFormat {
     #[default]
     Rgba8UnormSrgb,
     Rgba16Float,
+    Rg16Float,
     R32Float,
     Depth32Float,
 }
@@ -2910,20 +2911,21 @@ impl GpuTextureFormat {
             Self::Rgba8Unorm => wgpu::TextureFormat::Rgba8Unorm,
             Self::Rgba8UnormSrgb => wgpu::TextureFormat::Rgba8UnormSrgb,
             Self::Rgba16Float => wgpu::TextureFormat::Rgba16Float,
+            Self::Rg16Float => wgpu::TextureFormat::Rg16Float,
             Self::R32Float => wgpu::TextureFormat::R32Float,
             Self::Depth32Float => wgpu::TextureFormat::Depth32Float,
         }
     }
     fn bytes_per_pixel(self) -> u32 {
         match self {
-            Self::Rgba8Unorm | Self::Rgba8UnormSrgb | Self::R32Float | Self::Depth32Float => 4,
+            Self::Rgba8Unorm | Self::Rgba8UnormSrgb | Self::Rg16Float | Self::R32Float | Self::Depth32Float => 4,
             Self::Rgba16Float => 8,
         }
     }
     fn is_copy_compatible(self, other: Self) -> bool {
         self.to_wgpu().remove_srgb_suffix() == other.to_wgpu().remove_srgb_suffix()
     }
-    // depth formats can't be copy destinations, and sRGB formats can't be storage textures
+    // depth formats can't be copy destinations, and sRGB and Rg16Float formats can't be storage textures
     fn usages(self) -> wgpu::TextureUsages {
         let color = wgpu::TextureUsages::COPY_SRC
             | wgpu::TextureUsages::COPY_DST
@@ -2931,7 +2933,7 @@ impl GpuTextureFormat {
             | wgpu::TextureUsages::RENDER_ATTACHMENT;
 
         match self {
-            Self::Rgba8UnormSrgb => color,
+            Self::Rgba8UnormSrgb | Self::Rg16Float => color,
             Self::Rgba8Unorm | Self::Rgba16Float | Self::R32Float => color | wgpu::TextureUsages::STORAGE_BINDING,
             Self::Depth32Float => {
                 wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT
@@ -3021,10 +3023,11 @@ mod tests {
         assert!(api.draw(&pass, 0..3, 0..1));
     }
 
-    const COLOR_FORMATS: [GpuTextureFormat; 3] = [
+    const COLOR_FORMATS: [GpuTextureFormat; 4] = [
         GpuTextureFormat::Rgba8Unorm,
         GpuTextureFormat::Rgba8UnormSrgb,
         GpuTextureFormat::Rgba16Float,
+        GpuTextureFormat::Rg16Float,
     ];
 
     #[test]

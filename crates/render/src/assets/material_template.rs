@@ -44,6 +44,7 @@ pub enum MaterialPassTarget {
     Main,
     Transparent,
     Shadow,
+    DepthNormals,
 }
 
 #[repr(C)]

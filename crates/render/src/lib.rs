@@ -106,7 +106,8 @@
 //! [`MaterialInput`]: the default [`MaterialDataValue`] and, for textures, the
 //! [`MaterialTextureFallback`] bound when the material's handle is empty or unresolved. Its `passes`
 //! are [`MaterialTemplatePass`]es: a [`Shader`] handle, an absolute `u64` order (the render pass
-//! orders of `aphyn_render_features`), a [`MaterialPassTarget`] (`Main`, `Transparent`, or `Shadow`: depth only, repeated per shadow map tile), and the
+//! orders of `aphyn_render_features`), a [`MaterialPassTarget`] (`Main`, `Transparent`, `Shadow`: depth only, repeated per shadow map tile,
+//! or `DepthNormals`: the view's depth plus the scene normals texture), and the
 //! pass's mapping from inputs to the shader: a [`MaterialValueBinding`] puts an `F32` / `Vec4` input
 //! into the named member of the uniform (or read-only storage) buffer at `(group, binding)`, a
 //! [`MaterialTextureBinding`] binds a texture input's texture and optionally its sampler. Group 0
@@ -271,12 +272,16 @@
 //! [`with_engine_libraries`](WgslComposer::with_engine_libraries) registers the engine ones:
 //!
 //! - `aphyn/standard_types.wgsl`: `GlobalData`, `MaterialData`, `GenericLight`, `ShadowView`, `VertexAttributes`,
-//!   `InstanceRawAttributes`, `InstanceAttributes`, and `map_instance_data`. `GlobalData` carries
+//!   `InstanceRawAttributes`, `InstanceAttributes`, `map_instance_data`, and `octahedral_encode` /
+//!   `octahedral_decode` (a unit vector to and from `[-1, 1]²`, the scene normals encoding). `GlobalData` carries
 //!   both `matrix_world_to_clip` (the camera) and `matrix_window_to_clip` (window pixels); a custom
 //!   shader multiplies by whichever fits the space its geometry is in.
 //! - `aphyn/standard_bindings.wgsl`: the standard bind groups (`global_data`, `lights`, `shadow_views`,
-//!   `shadow_atlas`, `shadow_sampler`, `cluster_grid`, `cluster_light_indices`, `material_data`, and
-//!   the five material texture/sampler pairs). Includes `standard_types`.
+//!   `shadow_atlas`, `shadow_sampler`, `cluster_grid`, `cluster_light_indices`, `scene_normals`,
+//!   `material_data`, and the five material texture/sampler pairs). `scene_normals` (group 0 binding 7)
+//!   holds the octahedral-encoded world normals the depth-normals prepass wrote; read it with
+//!   `textureLoad` at the fragment's pixel. It is left out when the `DEPTH_NORMALS` define is set,
+//!   because a prepass renders into it. Includes `standard_types`.
 //! - `aphyn/pbr.wgsl`: `PI`, `FragmentLight`, `light_generic_to_fragment` (point and spot lights fall
 //!   off as `1/d²` times `light_range_window`, `saturate(1 - (d/range)^4)^2`, which eases to 0 at
 //!   `range`), `cook_torrance_brdf` and its terms, and `create_matrix_tbn`. Includes
@@ -414,9 +419,9 @@
 //!
 //! `StandardTexture::new` clamps the dimensions to at least 1 and creates the texture in the
 //! metadata's [`StandardTextureFormat`], which converts into core's `GpuTextureFormat`
-//! (`Rgba16Float` matches [`RENDER_TARGET_FORMAT`] so a texture can be drawn into, and
-//! `Depth32Float` matches [`DEPTH_TEXTURE_FORMAT`]; a depth texture ignores the data and mipmaps).
-//! For the 8-bit formats it derives bytes-per-pixel from the data length over the pixel count and
+//! (`Rgba16Float` matches [`RENDER_TARGET_FORMAT`] so a texture can be drawn into, `Rg16Float` is the
+//! scene normals target, and `Depth32Float` matches [`DEPTH_TEXTURE_FORMAT`]; a depth texture ignores
+//! the data and mipmaps). For the 8-bit formats it derives bytes-per-pixel from the data length over the pixel count and
 //! pads any source with fewer than four channels out to RGBA with opaque alpha; `Rgba16Float` data
 //! must already be 8 bytes per pixel. Empty data skips the upload and leaves the texture zeroed,
 //! which is how render targets are created. Its sampler uses the caller's [`FilterMode`], which is
@@ -541,11 +546,16 @@
 //! [`StandardInstance::desc`], the group 0 bindings the material feature of `aphyn_render_features`
 //! passes, and that crate's built-in standard templates. `shader_standard.wgsl` sits next to them
 //! but is not a library ([`STANDARD_SHADER_WGSL`]); it includes `aphyn/standard_bindings.wgsl`,
-//! `aphyn/pbr.wgsl`, `aphyn/shadows.wgsl` and `aphyn/clusters.wgsl`. `shader_shadow_caster.wgsl` ([`SHADOW_CASTER_SHADER_WGSL`]) is
+//! `aphyn/pbr.wgsl`, `aphyn/shadows.wgsl` and `aphyn/clusters.wgsl`. Its defines are `LIT`,
+//! `TRANSPARENT`, `UI`, and `DEPTH_NORMALS`, which replaces everything else with the depth-normals prepass:
+//! the same alpha cutout as the opaque variants, writing the octahedral-encoded interpolated vertex
+//! normal. The opaque lit variant reads that normal back from `scene_normals` (for the TBN and the
+//! shadow normal offset) instead of interpolating one; the transparent lit variant still interpolates
+//! its own. `shader_shadow_caster.wgsl` ([`SHADOW_CASTER_SHADER_WGSL`]) is
 //! the depth-only caster: its own `ShadowCasterData` uniform at group 0 binding 0, `standard_types`
 //! for the vertex layout, an empty `fs_main`.
 //! `mip_fill_shader.wgsl` uses `aphyn/fullscreen.wgsl`. The `engine_shaders_are_valid` unit test
-//! composes every library, `mip_fill_shader.wgsl`, `shader_shadow_caster.wgsl`, and the six `shader_standard.wgsl` define sets,
+//! composes every library, `mip_fill_shader.wgsl`, `shader_shadow_caster.wgsl`, and the seven `shader_standard.wgsl` define sets,
 //! and `custom_shader_with_user_library_is_valid` composes a custom standard shader with a user
 //! library; both validate with `naga`, so no GPU is needed. The composer uses std types because it
 //! runs at shader creation and is not stored in the world.
