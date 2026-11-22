@@ -25,3 +25,4 @@ pub use aphyn_prefab::*;
 pub use aphyn_audio::*;
 pub use aphyn_file_storage::*;
 pub use aphyn_window::*;
+pub use aphyn_noise::*;

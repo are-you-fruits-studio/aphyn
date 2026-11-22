@@ -68,6 +68,7 @@ Every engine crate has one, including the `*_macros` crates, except: `aphyn_ui` 
 - Subsystem crates (`aphyn_transform`, `aphyn_collision`, `aphyn_physics` (rigidbodies, runs in `FixedUpdate`), `aphyn_render_core` (wgpu) + `aphyn_render` + `aphyn_render_features`, `aphyn_ui`, `aphyn_audio`, `aphyn_asset_storage`, `aphyn_asset_loading`, `aphyn_prefab`) each expose an `add_<x>_module_to(data, behavior, render)` function (`aphyn_transform` takes only `(data, behavior)`: `aphyn_render_features` depends on it).
 - `aphyn_modules::add_defult_modules_to` (note the existing misspelling — keep it, callers depend on it) registers all subsystem modules, inserts `SerializersResource` pre-filled with common serializers, and fixes the cross-module ordering collision → transform → render.
 - Rendering is data-driven: `aphyn_render_features` owns the render features (globals/lights, materials, post-processing, gizmos) that `RenderFeatureRegistry::render_view` runs per view. Shaders (`Shader`), material templates (`MaterialTemplate`: passes + input-to-binding mappings, no Rust code) and materials (`Material`) are assets defined in `aphyn_render`; the engine's built-in templates are registered under `aphyn/templates/*`.
+- `aphyn_noise` — standalone seeded CPU noise (`OpenSimplex2`, `Worley`) for procedural generation; depends only on `aphyn_math`.
 - `aphyn_app` owns the winit event loop, window, input, and wgpu surface; `App::new()` / `app.data_mut()` / `app.behavior_mut()` / `app.render_mut()` / `app.init_ctx_mut()` / `app.run()`.
 
 ### Two ways to launch a game
