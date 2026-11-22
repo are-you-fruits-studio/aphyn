@@ -103,41 +103,10 @@
 //!
 //! #### Mapping keys to values
 //!
-//! [`FfiHashMap<K, V>`] is the stable-layout counterpart of
-//! [`HashMap<K, V>`](std::collections::HashMap), with
-//! insert / remove / get / get_mut.
-//!
-//! ```
-//! use aphyn_ffi::FfiHashMap;
-//!
-//! let mut map: FfiHashMap<i32, String> = FfiHashMap::new();
-//! map.insert(1, "one".to_string());
-//!
-//! assert_eq!(map.get(&1).map(String::as_str), Some("one"));
-//! assert_eq!(map.remove(&1).as_deref(), Some("one"));
-//! assert!(map.get(&1).is_none());
-//! ```
-//!
-//! #### Looking up a string-keyed map without allocating a key
-//!
-//! When the key type is [`FfiString`], a map can be queried with a plain `&str`, so
-//! a lookup needs no owned key.
-//!
-//! ```
-//! use aphyn_ffi::{FfiHashMap, FfiString};
-//!
-//! let mut map: FfiHashMap<FfiString, i32> = FfiHashMap::new();
-//! map.insert(FfiString::from("health"), 100);
-//!
-//! assert_eq!(map.get_by_str("health"), Some(&100));
-//! assert_eq!(map.get_by_str("missing"), None);
-//! ```
-//!
-//! #### Keeping insertion order in a map or set
-//!
 //! [`FfiIndexMap<K, V>`] is an insertion-ordered hash map (like `indexmap::IndexMap`) and
-//! [`FfiIndexSet<T>`] the matching set; the engine uses them wherever iteration order
-//! matters. Lookups accept any borrowed form of the key, and entries can be removed by
+//! [`FfiIndexSet<T>`] the matching set; they are the engine's only FFI-safe map and set.
+//! Lookups accept any borrowed form of the key (an [`FfiString`]-keyed map is queried with a
+//! plain `&str`, so a lookup needs no owned key), and entries can be removed by
 //! swapping in the last one ([`remove_swap`](FfiIndexMap::remove_swap)) or by shifting the
 //! rest down ([`remove_shift`](FfiIndexMap::remove_shift)).
 //!
@@ -258,7 +227,7 @@
 //!   own — a slice view is a pointer plus a [`u64`] length, an option is a tagged
 //!   union — so a fixed layout is all they need.
 //! - **Owning types that carry their behavior as embedded `extern "C-unwind"` function
-//!   pointers.** [`FfiAny`], [`FfiArc`], [`FfiBox`], [`FfiDroppable`], [`FfiHashMap`],
+//!   pointers.** [`FfiAny`], [`FfiArc`], [`FfiBox`], [`FfiDroppable`],
 //!   [`FfiIndexMap`], and [`FfiAllocator`]
 //!   store the operations they need (drop, deallocate, insert, look up) as function
 //!   pointers alongside the data, because the consuming side cannot monomorphize
@@ -299,15 +268,7 @@
 //! [`FfiStaticRef<T>`] is a `#[repr(transparent)]`, [`Copy`] pointer to a `'static`
 //! value, used to share these tables cheaply.
 //!
-//! [`FfiHashMap<K, V>`] composes both ideas: the actual data is a real `std`
-//! [`HashMap`](std::collections::HashMap) held behind an [`FfiDroppable`], and every operation is reached
-//! through an [`FfiStaticRef`] to a per-`(K, V)` vtable of `extern "C-unwind"` functions
-//! that down-cast the opaque pointer and call the matching `HashMap` method. The
-//! `FfiString`-keyed `get_by_str` / `remove_by_str` entries take an
-//! [`FfiStrSliceRef`] so a borrowed `&str` can probe the map without building an
-//! owned key.
-//!
-//! [`FfiIndexMap<K, V>`] is built differently: the entries (key, value, cached hash) live
+//! [`FfiIndexMap<K, V>`] composes both ideas: the entries (key, value, cached hash) live
 //! in an `FfiVec` in insertion order, and a `hashbrown` hash table of `u64` entry indices,
 //! held behind an `FfiDroppable` with its own `extern "C-unwind"` vtable, maps hashes to
 //! positions. Key hashing goes through a `RandomState` that is likewise held behind an
@@ -373,7 +334,6 @@ mod arc;
 mod boxed;
 mod convert;
 mod drop;
-mod hash_map;
 mod index_map;
 mod index_set;
 mod option;
@@ -393,7 +353,6 @@ pub use arc::*;
 pub use boxed::*;
 pub use convert::*;
 pub use drop::*;
-pub use hash_map::*;
 pub use index_map::*;
 pub use index_set::*;
 pub use option::*;

@@ -80,7 +80,11 @@ impl ReflectionRegistry {
                 Reflector::Value(_) => {}
                 Reflector::Struct(r) => r.fields().for_each(|f| check(f.dst_type_name())),
                 Reflector::Enum(r) => r.variants().flat_map(|v| v.fields()).for_each(|f| check(f.dst_type_name())),
-                Reflector::Collection(r) => check(r.element_type_name()),
+                Reflector::List(r) => check(r.element_type_name()),
+                Reflector::Map(r) => {
+                    check(r.key_type_name());
+                    check(r.value_type_name());
+                }
             }
         }
 

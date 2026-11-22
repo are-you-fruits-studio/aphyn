@@ -73,18 +73,19 @@
 //! assert!(username.get(FfiAnyRef::new(&id)).is_none());
 //! ```
 //!
-//! #### Collections
+//! #### Lists
 //!
-//! A [`CollectionReflector`] reads and writes elements of an indexed list. `Vec<T>` and
+//! A [`ListReflector`] reads and writes elements of an indexed list. `Vec<T>` and
 //! [`FfiVec<T>`](aphyn_ffi::FfiVec) also insert and remove; fixed-size `[T; N]` and
-//! [`Mat<N, T>`](aphyn_math::Mat) (a list of columns) do not
-//! ([`is_resizable`](CollectionReflector::is_resizable) is `false`).
+//! [`Mat<N, T>`](aphyn_math::Mat) (a list of columns) are rigid
+//! ([`is_rigid`](ListReflector::is_rigid) is `true`): the builder got no insert/remove pair.
 //!
 //! ```
 //! use aphyn_ffi::{FfiAny, FfiAnyMut, FfiAnyRef};
 //! use aphyn_reflection::*;
 //!
-//! let Reflector::Collection(reflector) = Vec::<u8>::reflector() else { unreachable!() };
+//! let Reflector::List(reflector) = Vec::<u8>::reflector() else { unreachable!() };
+//! assert!(!reflector.is_rigid());
 //!
 //! let mut list = vec![1_u8, 3];
 //! assert!(reflector.insert(FfiAnyMut::new(&mut list), 1, FfiAny::new(2_u8)).is_ok());
@@ -94,6 +95,39 @@
 //! assert_eq!(reflector.len(FfiAnyRef::new(&list)), Some(3));
 //! let removed = reflector.remove(FfiAnyMut::new(&mut list), 0).unwrap();
 //! assert_eq!(removed.downcast_ref::<u8>(), Some(&1));
+//! ```
+//!
+//! #### Maps
+//!
+//! A [`MapReflector`] reads and writes values by key, passed as type-erased references.
+//! [`keys`](MapReflector::keys) returns a snapshot of the keys to enumerate entries.
+//! [`FfiIndexMap`](aphyn_ffi::FfiIndexMap), `HashMap` and `BTreeMap` are reflected; inserting a
+//! key that is already present fails and hands both key and value back.
+//!
+//! ```
+//! use aphyn_ffi::{FfiAny, FfiAnyMut, FfiAnyRef, FfiIndexMap, FfiString};
+//! use aphyn_reflection::*;
+//!
+//! let Reflector::Map(reflector) = FfiIndexMap::<FfiString, u32>::reflector() else { unreachable!() };
+//!
+//! let mut map = FfiIndexMap::<FfiString, u32>::new();
+//! map.insert("health".into(), 100);
+//!
+//! let health = FfiString::from("health");
+//! let keys = reflector.keys(FfiAnyRef::new(&map)).unwrap();
+//! assert_eq!(keys[0].downcast_ref::<FfiString>(), Some(&health));
+//! drop(keys);
+//!
+//! let mut value = reflector.get_mut(FfiAnyMut::new(&mut map), FfiAnyRef::new(&health)).unwrap();
+//! *value.downcast_mut::<u32>().unwrap() = 50;
+//! assert_eq!(map.get("health"), Some(&50));
+//!
+//! let rejected = reflector.insert(FfiAnyMut::new(&mut map), FfiAny::new(health.clone()), FfiAny::new(1_u32));
+//! assert!(rejected.is_err());
+//!
+//! let removed = reflector.remove(FfiAnyMut::new(&mut map), FfiAnyRef::new(&health)).unwrap();
+//! assert_eq!(removed.downcast_ref::<u32>(), Some(&50));
+//! assert_eq!(reflector.len(FfiAnyRef::new(&map)), Some(0));
 //! ```
 //!
 //! #### Hand-written reflectors
@@ -132,8 +166,8 @@
 //! and field stores [`FfiShortTypeInfo`](aphyn_ffi::FfiShortTypeInfo)s, not the names themselves.
 //! A field knows only its target type's name, never its reflector: resolving goes through
 //! [`ReflectionRegistry::dst_of`]. This keeps registration order free and recursive types free of
-//! reference cycles. [`missing_dst_types`](ReflectionRegistry::missing_dst_types) lists target and
-//! element types with no registered reflector.
+//! reference cycles. [`missing_dst_types`](ReflectionRegistry::missing_dst_types) lists field
+//! target, list element, map key and map value types with no registered reflector.
 //!
 //! #### Sharing
 //!
@@ -147,20 +181,23 @@
 //!
 //! #### Erased accessors
 //!
-//! Getters, `is_active`, and collection functions are stored as the user's typed `fn` pointer cast
+//! Getters, `is_active`, and list/map functions are stored as the user's typed `fn` pointer cast
 //! to `*const ()` plus a monomorphized `extern "C-unwind"` trampoline that casts it back. This is
 //! sound only because each erased pointer is called solely through the trampoline instantiated with
 //! the same type parameters at the same construction site. Trampolines check the input value's type
 //! info before reinterpreting it, so a value of a wrong type yields `None` / `false` / `Err`, never
-//! UB. Rust-side `Option`/`Result` cross the trampolines as `FfiOption`; a rejected collection
-//! insert hands the element back.
+//! UB. Rust-side `Option`/`Result` cross the trampolines as `FfiOption`; a rejected list insert
+//! hands the element back, a rejected map insert the key and value. A list's or map's insert and
+//! remove are stored together in one `FfiOption`: either both exist or the reflector is rigid.
+//! Map keys are returned as a freshly collected `FfiVec` snapshot on every call.
 //!
 //! #### Built-in impls and the derive
 //!
 //! `impls.rs` implements [`Reflectable`] for primitives, `String`, `FfiString`, `FfiSmallString`
-//! (values), `Vec`, `FfiVec`, arrays, `Mat` (collections), `Option`, `FfiOption` (enums) and
-//! `Vec2`/`Vec3`/`Vec4`/`Quat` (structs). Generic impls only require `T: 'static`: a field's target
-//! is referenced by name, so its reflectability is checked by the registry, not by the type system.
+//! (values), `Vec`, `FfiVec`, arrays, `Mat` (lists), `FfiIndexMap`, `HashMap`, `BTreeMap` (maps),
+//! `Option`, `FfiOption` (enums) and `Vec2`/`Vec3`/`Vec4`/`Quat` (structs). Generic impls only
+//! require `T: 'static` (plus what the map itself needs of its key): a field's target is referenced
+//! by name, so its reflectability is checked by the registry, not by the type system.
 //! The derive lives in `aphyn_reflection_macros` and generates the same builder calls as the
 //! hand-written example above; its generated code names this crate's items unqualified.
 

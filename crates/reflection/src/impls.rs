@@ -1,7 +1,11 @@
-use aphyn_ffi::{FfiHashMap, FfiIndexMap, FfiOption, FfiSmallString, FfiString, FfiVec};
+use std::collections::{BTreeMap, HashMap};
+
+use aphyn_ffi::{FfiIndexMap, FfiOption, FfiSmallString, FfiString, FfiVec};
 use aphyn_math::{Mat, Quat, Vec2, Vec3, Vec4};
 
-use crate::{CollectionReflectorBuilder, EnumReflectorBuilder, Reflectable, Reflector, StructReflectorBuilder, ValueReflector};
+use crate::{
+    EnumReflectorBuilder, ListReflectorBuilder, MapReflectorBuilder, Reflectable, Reflector, StructReflectorBuilder, ValueReflector,
+};
 
 macro_rules! value_reflectables {
     ($($T: ty),* $(,)?) => {
@@ -38,53 +42,118 @@ value_reflectables!(
     FfiSmallString,
 );
 
-// maps are not reflected yet
-impl<K: 'static, V: 'static> Reflectable for FfiIndexMap<K, V> {
+impl<K: 'static + Eq + std::hash::Hash, V: 'static> Reflectable for FfiIndexMap<K, V> {
     fn reflector() -> Reflector {
-        ValueReflector::of::<Self>()
+        MapReflectorBuilder::<Self, K, V>::new(
+            |m| m.len() as usize,
+            |m| m.keys().collect(),
+            |m, k| m.get(k),
+            |m, k| m.get_mut(k),
+            Some((
+                |m, k, v| {
+                    if m.contains_key(&k) {
+                        return Err((k, v));
+                    }
+                    m.insert(k, v);
+                    Ok(())
+                },
+                |m, k| m.remove_shift(k),
+            )),
+        )
+        .build()
     }
 }
 
-impl<K: 'static + Eq + std::hash::Hash, V: 'static> Reflectable for FfiHashMap<K, V> {
+impl<K: 'static + Eq + std::hash::Hash, V: 'static> Reflectable for HashMap<K, V> {
     fn reflector() -> Reflector {
-        ValueReflector::of::<Self>()
+        MapReflectorBuilder::<Self, K, V>::new(
+            |m| m.len(),
+            |m| m.keys().collect(),
+            |m, k| m.get(k),
+            |m, k| m.get_mut(k),
+            Some((
+                |m, k, v| {
+                    if m.contains_key(&k) {
+                        return Err((k, v));
+                    }
+                    m.insert(k, v);
+                    Ok(())
+                },
+                |m, k| m.remove(k),
+            )),
+        )
+        .build()
+    }
+}
+
+impl<K: 'static + Ord, V: 'static> Reflectable for BTreeMap<K, V> {
+    fn reflector() -> Reflector {
+        MapReflectorBuilder::<Self, K, V>::new(
+            |m| m.len(),
+            |m| m.keys().collect(),
+            |m, k| m.get(k),
+            |m, k| m.get_mut(k),
+            Some((
+                |m, k, v| {
+                    if m.contains_key(&k) {
+                        return Err((k, v));
+                    }
+                    m.insert(k, v);
+                    Ok(())
+                },
+                |m, k| m.remove(k),
+            )),
+        )
+        .build()
     }
 }
 
 impl<T: 'static> Reflectable for Vec<T> {
     fn reflector() -> Reflector {
-        CollectionReflectorBuilder::<Self, T>::new(|v| v.len(), |v, i| v.get(i), |v, i| v.get_mut(i))
-            .insert(|v, i, e| {
-                if i > v.len() {
-                    return Err(e);
-                }
-                v.insert(i, e);
-                Ok(())
-            })
-            .remove(|v, i| (i < v.len()).then(|| v.remove(i)))
-            .build()
+        ListReflectorBuilder::<Self, T>::new(
+            |v| v.len(),
+            |v, i| v.get(i),
+            |v, i| v.get_mut(i),
+            Some((
+                |v, i, e| {
+                    if i > v.len() {
+                        return Err(e);
+                    }
+                    v.insert(i, e);
+                    Ok(())
+                },
+                |v, i| (i < v.len()).then(|| v.remove(i)),
+            )),
+        )
+        .build()
     }
 }
 
 impl<T: 'static> Reflectable for FfiVec<T> {
     fn reflector() -> Reflector {
-        CollectionReflectorBuilder::<Self, T>::new(|v| v.len() as usize, |v, i| v.get(i as u64), |v, i| v.get_mut(i as u64))
-            .insert(|v, i, e| {
-                if i > v.len() as usize {
-                    return Err(e);
-                }
-                v.push(e);
-                v.as_mut_slice()[i..].rotate_right(1);
-                Ok(())
-            })
-            .remove(|v, i| v.remove(i as u64))
-            .build()
+        ListReflectorBuilder::<Self, T>::new(
+            |v| v.len() as usize,
+            |v, i| v.get(i as u64),
+            |v, i| v.get_mut(i as u64),
+            Some((
+                |v, i, e| {
+                    if i > v.len() as usize {
+                        return Err(e);
+                    }
+                    v.push(e);
+                    v.as_mut_slice()[i..].rotate_right(1);
+                    Ok(())
+                },
+                |v, i| v.remove(i as u64),
+            )),
+        )
+        .build()
     }
 }
 
 impl<T: 'static, const N: usize> Reflectable for [T; N] {
     fn reflector() -> Reflector {
-        CollectionReflectorBuilder::<Self, T>::new(|_| N, |v, i| v.get(i), |v, i| v.get_mut(i)).build()
+        ListReflectorBuilder::<Self, T>::new(|_| N, |v, i| v.get(i), |v, i| v.get_mut(i), None).build()
     }
 }
 
@@ -166,6 +235,6 @@ impl<T: 'static> Reflectable for Quat<T> {
 // columns
 impl<T: 'static, const N: usize> Reflectable for Mat<N, T> {
     fn reflector() -> Reflector {
-        CollectionReflectorBuilder::<Self, [T; N]>::new(|_| N, |m, i| m.try_col(i), |m, i| m.try_col_mut(i)).build()
+        ListReflectorBuilder::<Self, [T; N]>::new(|_| N, |m, i| m.try_col(i), |m, i| m.try_col_mut(i), None).build()
     }
 }
