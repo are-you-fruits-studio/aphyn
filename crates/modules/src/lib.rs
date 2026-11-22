@@ -118,11 +118,17 @@
 //! [`register_common_reflectors`] mirrors [`register_common_transserializers`]: every type listed
 //! there is registered in a `ReflectionRegistryBuilder`, which [`add_defult_modules_to`] builds into
 //! the [`ReflectionRegistryResource`] (defined in `aphyn_reflection_ecs`). Each type implements
-//! `Reflectable` in its own crate, mostly by derive; `Material` hides its GPU state, and the types
-//! with hand-written serializers whose fields carry invariants (`MaterialData`, `MaterialDataEntry`,
-//! `CollisionLayer`, `LineBoundType`, `MeshCollider`) are reflected as values. The registry is
-//! immutable, so a type added later needs a rebuilt registry. A unit test checks that every field
-//! and element type referenced by a registered reflector is registered too.
+//! `Reflectable` in its own crate, mostly by derive; `Material` hides its GPU state.
+//! `MaterialData` is a map of `MaterialDataEntry`s whose `value` accessor bumps the entry's change
+//! snapshot when borrowed mutably; `CollisionLayer`, `LineBoundType`, `MeshCollider`, `EntityId` and
+//! `AssetHandle<T>` are reflected as values with default and clone factories (their invariants
+//! live in their own serializers). Generic instantiations are registered with
+//! `register_with_factories`, since their generic impls can't name `Default`/`Clone` of `T`. The
+//! registry is immutable, so a type added later needs a rebuilt registry
+//! (`aphyn_reflection_ecs::extend_reflection_registry`). Unit tests check that every field and
+//! element type referenced by a registered reflector is registered too, that every value type can
+//! be cloned, that every component has a default factory, and that cloning and variant
+//! construction work on a few engine types.
 //!
 //! [`DebugNameComponent`] is a serializable component wrapping an `FfiSmallString` name.
 //!
@@ -380,48 +386,48 @@ pub fn register_common_reflectors(reflectors: &mut ReflectionRegistryBuilder) {
         .register::<u16>()
         .register::<u64>()
         .register::<usize>()
-        .register::<FfiOption<usize>>()
+        .register_with_factories::<FfiOption<usize>>()
         .register::<f32>()
         .register::<f64>()
         .register::<FfiString>()
         .register::<FfiSmallString>()
-        .register::<FfiOption<f32>>()
-        .register::<FfiVec<u16>>()
-        .register::<[f32; 2]>()
-        .register::<[f32; 3]>()
-        .register::<[f32; 4]>()
-        .register::<[[f32; 3]; 3]>()
-        .register::<Vec2<f32>>()
-        .register::<Vec3<f32>>()
-        .register::<Vec4<f32>>()
-        .register::<[Vec3<f32>; 3]>()
-        .register::<Mat3<f32>>()
-        .register::<Quat<f32>>()
+        .register_with_factories::<FfiOption<f32>>()
+        .register_with_factories::<FfiVec<u16>>()
+        .register_with_factories::<[f32; 2]>()
+        .register_with_factories::<[f32; 3]>()
+        .register_with_factories::<[f32; 4]>()
+        .register_with_factories::<[[f32; 3]; 3]>()
+        .register_with_factories::<Vec2<f32>>()
+        .register_with_factories::<Vec3<f32>>()
+        .register_with_factories::<Vec4<f32>>()
+        .register_with_factories::<[Vec3<f32>; 3]>()
+        .register_with_factories::<Mat3<f32>>()
+        .register_with_factories::<Quat<f32>>()
         .register::<UiVal>()
         .register::<UiUnit>()
         .register::<UiSpacing>()
         .register::<UiDirection>()
-        .register::<Vec2<UiVal>>()
-        .register::<FfiOption<UiVal>>()
-        .register::<Vec2<FfiOption<UiVal>>>()
+        .register_with_factories::<Vec2<UiVal>>()
+        .register_with_factories::<FfiOption<UiVal>>()
+        .register_with_factories::<Vec2<FfiOption<UiVal>>>()
         .register::<MaterialData>()
         .register::<MaterialDataEntry>()
         .register::<MaterialDataValue>()
         .register::<StandardVertex>()
-        .register::<FfiVec<StandardVertex>>()
+        .register_with_factories::<FfiVec<StandardVertex>>()
         .register::<Camera>()
         .register::<CameraProjection>()
         .register::<RenderSpace>()
         .register::<MaterialInput>()
-        .register::<FfiIndexMap<FfiString, MaterialInput>>()
+        .register_with_factories::<FfiIndexMap<FfiString, MaterialInput>>()
         .register::<MaterialTextureFallback>()
         .register::<MaterialPassTarget>()
         .register::<MaterialTemplatePass>()
-        .register::<FfiVec<MaterialTemplatePass>>()
+        .register_with_factories::<FfiVec<MaterialTemplatePass>>()
         .register::<MaterialValueBinding>()
-        .register::<FfiVec<MaterialValueBinding>>()
+        .register_with_factories::<FfiVec<MaterialValueBinding>>()
         .register::<MaterialTextureBinding>()
-        .register::<FfiVec<MaterialTextureBinding>>()
+        .register_with_factories::<FfiVec<MaterialTextureBinding>>()
         .register::<GpuShaderDesc>()
         .register::<GpuPrimitiveTopology>()
         .register::<GpuFrontFace>()
@@ -451,9 +457,9 @@ pub fn register_common_reflectors(reflectors: &mut ReflectionRegistryBuilder) {
         .register::<RigidbodyInterpolationState>()
         .register::<PhysicsMaterial>()
         .register::<EntityId>()
-        .register::<FfiVec<EntityId>>()
+        .register_with_factories::<FfiVec<EntityId>>()
         .register::<u32>()
-        .register::<FfiVec<u32>>()
+        .register_with_factories::<FfiVec<u32>>()
         .register::<AssetHandle<StandardMesh>>()
         .register::<AssetHandle<StandardTexture>>()
         .register::<AssetHandle<Shader>>()
@@ -529,13 +535,104 @@ pub struct DebugNameComponent(pub FfiSmallString);
 
 #[cfg(test)]
 mod tests {
-    use aphyn_reflection::ReflectionRegistryBuilder;
+    use std::any::type_name;
+
+    use aphyn_ffi::{FfiAny, FfiAnyRef};
+    use aphyn_reflection::*;
+
+    use super::*;
+
+    fn common_registry() -> ReflectionRegistry {
+        let mut reflectors = ReflectionRegistryBuilder::new();
+        register_common_reflectors(&mut reflectors);
+        reflectors.build()
+    }
 
     #[test]
     fn common_reflectors_reference_only_registered_types() {
-        let mut reflectors = ReflectionRegistryBuilder::new();
-        super::register_common_reflectors(&mut reflectors);
+        assert_eq!(common_registry().missing_dst_types(), Vec::<&str>::new());
+    }
 
-        assert_eq!(reflectors.build().missing_dst_types(), Vec::<&str>::new());
+    #[test]
+    fn value_reflectors_have_clone_factories() {
+        let registry = common_registry();
+        let missing = registry
+            .iter()
+            .filter(|r| r.as_value().is_some() && !r.has_clone())
+            .map(|r| r.type_name())
+            .collect::<Vec<_>>();
+
+        assert_eq!(missing, Vec::<&str>::new());
+    }
+
+    #[test]
+    fn components_have_default_factories() {
+        let registry = common_registry();
+        let components = [
+            type_name::<DebugNameComponent>(),
+            type_name::<GlobalTransform>(),
+            type_name::<LocalTransform>(),
+            type_name::<ParentComponent>(),
+            type_name::<ChildComponent>(),
+            type_name::<StaticComponent>(),
+            type_name::<GlobalRectComponent>(),
+            type_name::<LocalRectComponent>(),
+            type_name::<GlobalDisableableComponent>(),
+            type_name::<LocalDisableableComponent>(),
+            type_name::<RectChildAlignComponent>(),
+            type_name::<BatchedMeshComponent>(),
+            type_name::<MeshComponent>(),
+            type_name::<MaterialComponent>(),
+            type_name::<StandardLightComponent>(),
+            type_name::<CameraComponent>(),
+            type_name::<TextComponent>(),
+            type_name::<ImageComponent>(),
+            type_name::<ChildrenRectMaskComponent>(),
+            type_name::<AudioSource>(),
+            type_name::<ColliderComponent>(),
+            type_name::<RigidbodyComponent>(),
+            type_name::<PhysicsMaterialComponent>(),
+            type_name::<RigidbodyInterpolationComponent>(),
+        ];
+        let missing = components
+            .into_iter()
+            .filter(|name| !registry.get(name).is_some_and(|r| r.has_default()))
+            .collect::<Vec<_>>();
+
+        assert_eq!(missing, Vec::<&str>::new());
+    }
+
+    #[test]
+    fn reflect_clone_round_trips() {
+        let registry = common_registry();
+
+        let mut transform = LocalTransform::IDENTITY;
+        transform.position = Vec3::new(1.0, 2.0, 3.0);
+        let cloned = reflect_clone(&registry, FfiAnyRef::new(&transform)).unwrap();
+        assert_eq!(cloned.downcast_ref::<LocalTransform>(), Some(&transform));
+
+        let collider = ColliderComponent::new(CollisionShape::Point(Vec3::new(4.0, 5.0, 6.0)));
+        let cloned = reflect_clone(&registry, FfiAnyRef::new(&collider)).unwrap();
+        let ColliderShape::Primitive(CollisionShape::Point(point)) = cloned.downcast_ref::<ColliderComponent>().unwrap().shape else {
+            panic!("the variant was not cloned");
+        };
+        assert_eq!(point, Vec3::new(4.0, 5.0, 6.0));
+
+        // Material has no clone factory: default + fill
+        let mut data = MaterialData::new();
+        data.insert("roughness", MaterialDataValue::F32(0.25));
+        let material = Material::new(AssetHandle::EMPTY, data);
+        let cloned: FfiAny = reflect_clone(&registry, FfiAnyRef::new(&material)).unwrap();
+        let cloned = cloned.downcast_ref::<Material>().unwrap();
+        assert_eq!(cloned.data.get_f32("roughness"), Some(&0.25));
+    }
+
+    #[test]
+    fn enum_variants_construct_from_defaults() {
+        let registry = common_registry();
+        let shape = registry.get_of::<CollisionShape>().unwrap().as_enum().unwrap();
+
+        let sphere = reflect_construct_variant(&registry, shape.variant("Sphere").unwrap()).unwrap();
+        assert!(matches!(sphere.downcast_ref::<CollisionShape>(), Some(CollisionShape::Sphere(_))));
     }
 }

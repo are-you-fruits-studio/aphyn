@@ -5,7 +5,8 @@ use crate::{
         input_field::InputFieldComponent,
         inspector_window::{
             FIELD_GAP, FIELD_HEIGHT, FONT_SIZE, INDENT_WIDTH,
-            data::{HierarchyWindowEntryComponent, SerializedCompositeAddButton, SerializedCompositeRemoveButton},
+            data::{HierarchyWindowEntryComponent, InspectorCompositeAddButton, InspectorCompositeRemoveButton},
+            utils::reflection::{InspectorContainerKind, InspectorEnum, InspectorLeafKind, InspectorValue},
         },
     },
     *,
@@ -99,169 +100,45 @@ pub fn spawn_hierarchy_window_entry(
     (ent_name_container, ent_name)
 }
 
-pub fn parse_serialized(ent: EntitiesHolderRef, ent_target: EntityId) -> SerializedValue {
-    let Some(serialized_value_component) = ent.get_component::<SerializedValueComponent>(ent_target) else {
-        return SerializedValue::Null;
-    };
-
-    match &serialized_value_component.ty {
-        SerializedValueComponentTy::Primitive { text, ty } => {
-            let default_result = match ty {
-                SerializedValuePrimitiveType::Null => SerializedValue::Null,
-                SerializedValuePrimitiveType::Bool => SerializedValue::Primitive(SerializedPrimitive::Bool(false)),
-                SerializedValuePrimitiveType::Int => SerializedValue::Primitive(SerializedPrimitive::Int(0)),
-                SerializedValuePrimitiveType::Float => SerializedValue::Primitive(SerializedPrimitive::Float(0.0)),
-                SerializedValuePrimitiveType::String => SerializedValue::Primitive(SerializedPrimitive::String(FfiString::new())),
-            };
-
-            let Some(input_c) = ent.get_component::<InputFieldComponent>(*text) else {
-                return default_result;
-            };
-
-            let Some(text_c) = ent.get_component::<TextComponent>(input_c.text) else {
-                return default_result;
-            };
-
-            match ty {
-                SerializedValuePrimitiveType::Null => SerializedValue::Null,
-                SerializedValuePrimitiveType::Bool => SerializedValue::Primitive(SerializedPrimitive::Bool(
-                    text_c.text.as_str() == "true" || text_c.text.as_str() == "True",
-                )),
-                SerializedValuePrimitiveType::Int => {
-                    SerializedValue::Primitive(SerializedPrimitive::Int(text_c.text.as_str().parse().unwrap_or(0)))
-                }
-                SerializedValuePrimitiveType::Float => {
-                    SerializedValue::Primitive(SerializedPrimitive::Float(text_c.text.as_str().parse().unwrap_or(0.0)))
-                }
-                SerializedValuePrimitiveType::String => {
-                    SerializedValue::Primitive(SerializedPrimitive::String(text_c.text.as_str().into()))
-                }
-            }
-        }
-        SerializedValueComponentTy::Container {
-            ty,
-            container_enum_metadata: ent_enum_meta_container,
-            container_fields: container,
-            ..
-        } => {
-            let default_result = match ty {
-                SerializedValueContainerType::List => SerializedValue::Composite(SerializedComposite {
-                    is_rigid: false,
-                    values: SerializedCompositeValues::List(FfiVec::new()),
-                }),
-                SerializedValueContainerType::Map => SerializedValue::Composite(SerializedComposite {
-                    is_rigid: false,
-                    values: SerializedCompositeValues::Map(SerializedMap::default()),
-                }),
-            };
-
-            let Some(container_parent_c) = ent.get_component::<ParentComponent>(*container) else {
-                return default_result;
-            };
-
-            let Some(enum_meta_parent_c) = ent.get_component::<ParentComponent>(*ent_enum_meta_container) else {
-                return default_result;
-            };
-
-            let mut enum_metadata = None;
-
-            if let Some(ent_enum_meta) = enum_meta_parent_c.children().first() {
-                if let Some(enum_metadata_c) = ent.get_component::<SerializedEnumMetadataComponent>(*ent_enum_meta) {
-                    if let Some(text_c) = ent.get_component::<TextComponent>(enum_metadata_c.value_text) {
-                        enum_metadata = Some(SerializedEnumMetadata {
-                            variant: text_c.text.clone(),
-                            variants: enum_metadata_c.variants.clone(),
-                        });
-                    };
-                }
-            }
-
-            let mut values = Vec::new();
-
-            for child in container_parent_c.children() {
-                let Some(field_c) = ent.get_component::<SerializedFieldComponent>(*child) else {
-                    continue;
-                };
-
-                let Some(value_parent_c) = ent.get_component::<ParentComponent>(field_c.value_container) else {
-                    continue;
-                };
-
-                let Some(value_ent) = value_parent_c.children().first() else {
-                    continue;
-                };
-
-                let value = parse_serialized(ent, *value_ent);
-
-                let key = match ent.get_component::<InputFieldComponent>(field_c.key_text) {
-                    Some(input_c) => match ent.get_component::<TextComponent>(input_c.text) {
-                        Some(key_text_c) => key_text_c.text.clone(),
-                        None => FfiString::new(),
-                    },
-                    None => match ent.get_component::<TextComponent>(field_c.key_text) {
-                        Some(key_text_c) => key_text_c.text.clone(),
-                        None => FfiString::new(),
-                    },
-                };
-
-                values.push((key, value));
-            }
-
-            match ty {
-                SerializedValueContainerType::List => SerializedValue::Composite(SerializedComposite {
-                    is_rigid: false,
-                    values: SerializedCompositeValues::List(values.into_iter().map(|(_, v)| v).collect()),
-                }),
-                SerializedValueContainerType::Map => SerializedValue::Composite(SerializedComposite {
-                    is_rigid: false,
-                    values: SerializedCompositeValues::Map({
-                        let mut map = SerializedMap::default();
-
-                        map.enum_metadata = enum_metadata.into();
-
-                        for (key, value) in values {
-                            map.values.insert(key, value);
-                        }
-
-                        map
-                    }),
-                }),
-            }
-        }
-    }
-}
-
-pub fn spawn_serialized(
+pub fn spawn_inspector_value(
     ent: EntitiesHolderMut,
     ent_last: EntityId,
     ent_parent: EntityId,
     ent_selected_input: EntityId,
-    serializer_path: FfiString,
-    serialized: &SerializedValue,
+    path: ReflectPath,
+    value: &InspectorValue,
     material_panel: AssetHandle<Material>,
     material_text: AssetHandle<Material>,
     font: AssetHandle<Font>,
 ) -> EntityId {
-    match serialized {
-        SerializedValue::Null => spawn_default_layout_ent(ent, ent_parent, false),
-        SerializedValue::Primitive(serialized) => spawn_serialized_primitive(
+    match value {
+        InspectorValue::Leaf { text, kind } => spawn_inspector_leaf(
             ent,
             ent_last,
             ent_parent,
             ent_selected_input,
-            serializer_path,
-            serialized,
+            path,
+            text.clone(),
+            *kind,
             material_panel,
             material_text,
             font,
         ),
-        SerializedValue::Composite(serialized) => spawn_serialized_composite(
+        InspectorValue::Container {
+            kind,
+            is_rigid,
+            enum_variants,
+            entries,
+        } => spawn_inspector_container(
             ent,
             ent_last,
             ent_parent,
             ent_selected_input,
-            serializer_path,
-            serialized,
+            path,
+            *kind,
+            *is_rigid,
+            enum_variants.as_ref(),
+            entries,
             material_panel,
             material_text,
             font,
@@ -269,41 +146,37 @@ pub fn spawn_serialized(
     }
 }
 
-fn spawn_serialized_primitive(
+fn spawn_inspector_leaf(
     mut ent: EntitiesHolderMut,
     ent_last: EntityId,
     ent_parent: EntityId,
     ent_selected_input: EntityId,
-    serializer_path: FfiString,
-    serialized: &SerializedPrimitive,
+    path: ReflectPath,
+    text: FfiString,
+    kind: InspectorLeafKind,
     material_panel: AssetHandle<Material>,
     material_text: AssetHandle<Material>,
     font: AssetHandle<Font>,
 ) -> EntityId {
-    let (text, ty) = match serialized {
-        SerializedPrimitive::Bool(serialized) => (serialized.to_string().into(), SerializedValuePrimitiveType::Bool),
-        SerializedPrimitive::Int(serialized) => (serialized.to_string().into(), SerializedValuePrimitiveType::Int),
-        SerializedPrimitive::Float(serialized) => (serialized.to_string().into(), SerializedValuePrimitiveType::Float),
-        SerializedPrimitive::String(serialized) => (serialized.to_string().into(), SerializedValuePrimitiveType::String),
-    };
+    let is_read_only = kind == InspectorLeafKind::ReadOnly;
 
-    if let Some(SerializedValueComponent {
-        path,
-        ty: SerializedValueComponentTy::Primitive { text: ent_text, .. },
-    }) = ent.get_component::<SerializedValueComponent>(ent_last)
+    if let Some(InspectorValueComponent {
+        ty: InspectorValueComponentTy::Leaf {
+            text: ent_text,
+            kind: last_kind,
+        },
+        ..
+    }) = ent.get_component::<InspectorValueComponent>(ent_last)
+        && (*last_kind == InspectorLeafKind::ReadOnly) == is_read_only
         && let ent_text = *ent_text
         && let Some(input_c) = ent.get_component::<InputFieldComponent>(ent_text)
         && let Some(text_c) = ent.get_component_mut::<TextComponent>(input_c.text)
     {
         if ent_text != ent_selected_input {
             text_c.text = text;
-            if let Some(SerializedValueComponent {
-                path,
-                ty: SerializedValueComponentTy::Primitive { ty: ent_ty, .. },
-            }) = ent.get_component_mut::<SerializedValueComponent>(ent_last)
-            {
-                *ent_ty = ty;
-                *path = serializer_path;
+            if let Some(value_c) = ent.get_component_mut::<InspectorValueComponent>(ent_last) {
+                value_c.ty = InspectorValueComponentTy::Leaf { text: ent_text, kind };
+                value_c.path = path;
             }
         }
         return ent_last;
@@ -319,11 +192,21 @@ fn spawn_serialized_primitive(
         font.clone(),
     );
 
+    // a read-only leaf can't be selected for editing
+    if is_read_only {
+        ent.remove_component::<ButtonComponent>(ent_text);
+        if let Some(ent_input_text) = ent.get_component::<InputFieldComponent>(ent_text).map(|c| c.text)
+            && let Some(text_c) = ent.get_component_mut::<TextComponent>(ent_input_text)
+        {
+            text_c.color = Vec4::from_array(rgba_f32_array!("#9a9a9aff"));
+        }
+    }
+
     ent.add_component(
         ent_text,
-        SerializedValueComponent {
-            path: serializer_path,
-            ty: SerializedValueComponentTy::Primitive { text: ent_text, ty },
+        InspectorValueComponent {
+            path,
+            ty: InspectorValueComponentTy::Leaf { text: ent_text, kind },
         },
     )
     .ok()
@@ -331,44 +214,44 @@ fn spawn_serialized_primitive(
     ent_text
 }
 
-fn spawn_serialized_composite(
+fn spawn_inspector_container(
     mut ent: EntitiesHolderMut,
     ent_last: EntityId,
     ent_parent: EntityId,
     ent_selected_input: EntityId,
-    serializer_path: FfiString,
-    serialized_composite: &SerializedComposite,
+    path: ReflectPath,
+    kind: InspectorContainerKind,
+    is_rigid: bool,
+    enum_variants: Option<&InspectorEnum>,
+    entries: &[(FfiString, InspectorValue)],
     material_panel: AssetHandle<Material>,
     material_text: AssetHandle<Material>,
     font: AssetHandle<Font>,
 ) -> EntityId {
-    let expected_ty = match &serialized_composite.values {
-        SerializedCompositeValues::Map(_) => SerializedValueContainerType::Map,
-        SerializedCompositeValues::List(_) => SerializedValueContainerType::List,
-    };
-
-    let (ent_root, ent_enum_meta_container, ent_fields_container, ent_container_buttons) = if let Some(SerializedValueComponent {
+    let (ent_root, ent_enum_meta_container, ent_fields_container, ent_container_buttons) = if let Some(InspectorValueComponent {
         ty:
-            SerializedValueComponentTy::Container {
-                ty,
+            InspectorValueComponentTy::Container {
+                kind: last_kind,
                 container_enum_metadata: ent_enum_meta_container,
                 container_fields: ent_fields_container,
                 container_buttons: ent_container_buttons,
             },
         ..
     }) =
-        ent.get_component::<SerializedValueComponent>(ent_last)
+        ent.get_component::<InspectorValueComponent>(ent_last)
         && ent.get_component::<ParentComponent>(*ent_fields_container).is_some()
         && ent.get_component::<ParentComponent>(*ent_enum_meta_container).is_some()
         && ent.get_component::<ParentComponent>(*ent_container_buttons).is_some()
-        && *ty == expected_ty
+        && *last_kind == kind
     {
-        (
+        let containers = (
             ent_last,
             *ent_enum_meta_container,
             *ent_fields_container,
             *ent_container_buttons,
-        )
+        );
+        ent.get_component_mut::<InspectorValueComponent>(ent_last).unwrap().path = path.clone();
+        containers
     } else {
         destroy_entity_and_children(ent.as_mut(), ent_last);
 
@@ -383,14 +266,14 @@ fn spawn_serialized_composite(
 
         ent.add_component(
             ent_root,
-            SerializedValueComponent {
-                ty: SerializedValueComponentTy::Container {
+            InspectorValueComponent {
+                ty: InspectorValueComponentTy::Container {
+                    kind,
                     container_fields: ent_fields_container,
-                    ty: expected_ty,
                     container_enum_metadata: ent_enum_meta_container,
                     container_buttons: ent_container_buttons,
                 },
-                path: serializer_path.clone(),
+                path: path.clone(),
             },
         )
         .ok()
@@ -399,25 +282,18 @@ fn spawn_serialized_composite(
         (ent_root, ent_enum_meta_container, ent_fields_container, ent_container_buttons)
     };
 
-    match &serialized_composite.values {
-        SerializedCompositeValues::Map(serialized_map) => {
-            spawn_serialized_enum_metadata(
-                ent.as_mut(),
-                ent_enum_meta_container,
-                serialized_map.enum_metadata.as_ref(),
-                material_panel.clone(),
-                material_text.clone(),
-                font.clone(),
-            );
-        }
-        SerializedCompositeValues::List(_) => {
-            destroy_entity_children(ent.as_mut(), ent_enum_meta_container);
-        }
-    }
+    spawn_inspector_enum(
+        ent.as_mut(),
+        ent_enum_meta_container,
+        enum_variants,
+        material_panel.clone(),
+        material_text.clone(),
+        font.clone(),
+    );
 
     destroy_entity_children(ent.as_mut(), ent_container_buttons);
 
-    if !serialized_composite.is_rigid {
+    if !is_rigid {
         let ent_button_add = spawn_default_layout_ent(ent.as_mut(), ent_container_buttons, false);
         let ent_button_remove = spawn_default_layout_ent(ent.as_mut(), ent_container_buttons, false);
 
@@ -427,100 +303,77 @@ fn spawn_serialized_composite(
             if let Some(rect_c) = ent.get_component_mut::<LocalRectComponent>(ent_button) {
                 rect_c.scale = Vec2::new(UiVal::pw(0.5).into(), FIELD_HEIGHT.into());
             }
-            ent.add_component(ent_button, BatchedMeshComponent::default()).ok().unwrap();
-            ent.add_component(ent_button, ButtonComponent::default()).ok().unwrap();
-            ent.add_component(
+            ent.set_components(
                 ent_button,
-                MaterialComponent {
-                    material: material_panel.clone(),
-                },
-            )
-            .ok()
-            .unwrap();
-            ent.add_component(
-                ent_button,
-                ImageComponent {
-                    is_y_inverted: true,
-                    color: Vec4::new(0.5, 0.5, 0.5, 1.0),
-                    ..Default::default()
-                },
-            )
-            .ok()
-            .unwrap();
+                (
+                    BatchedMeshComponent::default(),
+                    ButtonComponent::default(),
+                    MaterialComponent {
+                        material: material_panel.clone(),
+                    },
+                    ImageComponent {
+                        is_y_inverted: true,
+                        color: Vec4::new(0.5, 0.5, 0.5, 1.0),
+                        ..Default::default()
+                    },
+                ),
+            );
 
-            ent.add_component(ent_text, GlobalRectComponent::default()).ok().unwrap();
-            ent.add_component(ent_text, GlobalDisableableComponent::default())
-                .ok()
-                .unwrap();
-            ent.add_component(ent_text, LocalRectComponent::default()).ok().unwrap();
-            ent.add_component(ent_text, BatchedMeshComponent::default()).ok().unwrap();
-            ent.add_component(
+            ent.set_components(
                 ent_text,
-                MaterialComponent {
-                    material: material_text.clone(),
-                },
-            )
-            .ok()
-            .unwrap();
-            ent.add_component(
-                ent_text,
-                TextComponent {
-                    font: font.clone(),
-                    color: Vec4::new(1.0, 1.0, 1.0, 1.0),
-                    font_size: FONT_SIZE,
-                    horizontal_align: HorizontalAlign::Middle,
-                    vertical_align: VerticalAlign::Middle,
-                    horizontal_spacing: UiVal::px(0.0),
-                    is_y_inverted: true,
-                    text: text.into(),
-                },
-            )
-            .ok()
-            .unwrap();
+                (
+                    GlobalRectComponent::default(),
+                    GlobalDisableableComponent::default(),
+                    LocalRectComponent::default(),
+                    BatchedMeshComponent::default(),
+                    MaterialComponent {
+                        material: material_text.clone(),
+                    },
+                    TextComponent {
+                        font: font.clone(),
+                        color: Vec4::new(1.0, 1.0, 1.0, 1.0),
+                        font_size: FONT_SIZE,
+                        horizontal_align: HorizontalAlign::Middle,
+                        vertical_align: VerticalAlign::Middle,
+                        horizontal_spacing: UiVal::px(0.0),
+                        is_y_inverted: true,
+                        text: text.into(),
+                    },
+                ),
+            );
 
             set_parent(ent.as_mut(), ent_text, ent_button);
         }
 
-        ent.add_component(ent_button_add, SerializedCompositeAddButton { composite: ent_root })
-            .ok()
-            .unwrap();
-        ent.add_component(ent_button_remove, SerializedCompositeRemoveButton { composite: ent_root })
-            .ok()
-            .unwrap();
+        ent.set_component(ent_button_add, InspectorCompositeAddButton { composite: ent_root });
+        ent.set_component(ent_button_remove, InspectorCompositeRemoveButton { composite: ent_root });
     }
 
-    let len = match &serialized_composite.values {
-        SerializedCompositeValues::Map(serialized_map) => serialized_map.values.len(),
-        SerializedCompositeValues::List(serialized_list) => serialized_list.len(),
-    };
+    let len = entries.len();
 
     while let Some(&ent_to_destroy) = ent
         .get_component::<ParentComponent>(ent_fields_container)
         .unwrap()
         .children()
-        .get(len as usize..)
+        .get(len..)
         .and_then(|extra| extra.last())
     {
         destroy_entity_and_children(ent.as_mut(), ent_to_destroy);
     }
 
-    for i in 0..len {
-        let (serialized_key, serialized_val) = match &serialized_composite.values {
-            SerializedCompositeValues::Map(serialized_map) => {
-                serialized_map.values.get_by_idx(i).map(|(k, v)| (k.clone(), v)).unwrap()
-            }
-            SerializedCompositeValues::List(serialized_list) => (FfiString::from(i.to_string()), &serialized_list[i]),
+    for (i, (key, value)) in entries.iter().enumerate() {
+        let segment = match kind {
+            InspectorContainerKind::Fields => ReflectPathSegment::Field(key.clone()),
+            InspectorContainerKind::List | InspectorContainerKind::Map => ReflectPathSegment::Index(i as u64),
         };
 
-        let field_path = format!("{serializer_path}/{serialized_key}").into();
-
-        spawn_serialized_field(
+        spawn_inspector_field(
             ent.as_mut(),
             i,
-            serialized_key,
+            key.clone(),
             ent_fields_container,
-            field_path,
-            serialized_val,
+            path.join(segment),
+            value,
             ent_selected_input,
             material_panel.clone(),
             material_text.clone(),
@@ -531,71 +384,98 @@ fn spawn_serialized_composite(
     ent_root
 }
 
-fn spawn_serialized_enum_metadata(
+fn spawn_inspector_enum(
     mut ent: EntitiesHolderMut,
     ent_enum_meta_container: EntityId,
-    serialized_enum_metadata: Option<&SerializedEnumMetadata>,
+    enum_variants: Option<&InspectorEnum>,
     material_panel: AssetHandle<Material>,
     material_text: AssetHandle<Material>,
     font: AssetHandle<Font>,
 ) {
+    // keep the field (and the dropdown request it holds) while only the variant text changes
+    if let Some(enum_variants) = enum_variants
+        && let Some(&ent_enum_field) = ent
+            .get_component::<ParentComponent>(ent_enum_meta_container)
+            .and_then(|p| p.children().first())
+        && let Some(enum_c) = ent.get_component_mut::<InspectorEnumComponent>(ent_enum_field)
+    {
+        enum_c.variants = enum_variants.variants.clone();
+        let ent_value_text = enum_c.value_text;
+        if let Some(text_c) = ent.get_component_mut::<TextComponent>(ent_value_text) {
+            text_c.text = enum_variants.variant.clone();
+        }
+        return;
+    }
+
     destroy_entity_children(ent.as_mut(), ent_enum_meta_container);
 
-    if let Some(serialized_enum_metadata) = serialized_enum_metadata {
-        let ent_enum_field = spawn_default_layout_ent(ent.as_mut(), ent_enum_meta_container, false);
+    let Some(enum_variants) = enum_variants else {
+        return;
+    };
 
-        let (ent_key_enum, ent_key_text_enum) = spawn_text_ent(
-            ent.as_mut(),
-            ent_enum_field,
-            String::from("$enum_variant").into(),
-            material_panel.clone(),
-            material_text.clone(),
-            font.clone(),
-        );
+    let ent_enum_field = spawn_default_layout_ent(ent.as_mut(), ent_enum_meta_container, false);
 
-        let ent_value_container = spawn_default_layout_ent(ent.as_mut(), ent_enum_field, false);
+    let (ent_key_enum, _) = spawn_text_ent(
+        ent.as_mut(),
+        ent_enum_field,
+        FfiString::from("variant"),
+        material_panel.clone(),
+        material_text.clone(),
+        font.clone(),
+    );
 
-        let (ent_dropdown_button, ent_dropdown_text) = spawn_dropdown_button_ent(
-            ent.as_mut(),
-            ent_value_container,
-            serialized_enum_metadata.variant.clone().into(),
-            material_panel.clone(),
-            material_text.clone(),
-            font.clone(),
-        );
+    let ent_value_container = spawn_default_layout_ent(ent.as_mut(), ent_enum_field, false);
 
-        {
-            ent.get_component_mut::<RectChildAlignComponent>(ent_enum_field)
-                .unwrap()
-                .direction = UiDirection::Horizontal;
-            ent.get_component_mut::<LocalRectComponent>(ent_key_enum).unwrap().scale.x = UiVal::pd(0.5).into();
-            ent.get_component_mut::<LocalRectComponent>(ent_value_container)
-                .unwrap()
-                .scale
-                .x = UiVal::pd(0.5).into();
+    let (ent_dropdown_button, ent_dropdown_text) = spawn_dropdown_button_ent(
+        ent.as_mut(),
+        ent_value_container,
+        enum_variants.variant.clone(),
+        material_panel.clone(),
+        material_text.clone(),
+        font.clone(),
+    );
+
+    ent.get_component_mut::<RectChildAlignComponent>(ent_enum_field)
+        .unwrap()
+        .direction = UiDirection::Horizontal;
+    ent.get_component_mut::<LocalRectComponent>(ent_key_enum).unwrap().scale.x = UiVal::pd(0.5).into();
+    ent.get_component_mut::<LocalRectComponent>(ent_value_container)
+        .unwrap()
+        .scale
+        .x = UiVal::pd(0.5).into();
+
+    ent.set_component(
+        ent_enum_field,
+        InspectorEnumComponent {
+            value_button: ent_dropdown_button,
+            value_text: ent_dropdown_text,
+            variants: enum_variants.variants.clone(),
+            dropdown_request_id: 0,
+        },
+    );
+}
+
+fn set_field_direction(mut ent: EntitiesHolderMut, ent_field: EntityId, is_leaf: bool) {
+    let (direction, width) = match is_leaf {
+        true => (UiDirection::Horizontal, 0.5),
+        false => (UiDirection::Vertical, 1.0),
+    };
+
+    ent.get_component_mut::<RectChildAlignComponent>(ent_field).unwrap().direction = direction;
+    if let Some(children) = ent.get_component::<ParentComponent>(ent_field).map(|p| p.children().to_vec()) {
+        for ent_child in children {
+            ent.get_component_mut::<LocalRectComponent>(ent_child).unwrap().scale.x = UiVal::pd(width).into();
         }
-
-        ent.add_component(
-            ent_enum_field,
-            SerializedEnumMetadataComponent {
-                value_button: ent_dropdown_button,
-                value_text: ent_dropdown_text,
-                variants: serialized_enum_metadata.variants.clone(),
-                dropdown_request_id: 0,
-            },
-        )
-        .ok()
-        .unwrap();
     }
 }
 
-pub fn spawn_serialized_field(
+pub fn spawn_inspector_field(
     mut ent: EntitiesHolderMut,
-    i: u64,
-    serialized_key: FfiString,
+    i: usize,
+    key: FfiString,
     ent_fields_container: EntityId,
-    serializer_path: FfiString,
-    serialized_val: &SerializedValue,
+    path: ReflectPath,
+    value: &InspectorValue,
     ent_selected_input: EntityId,
     material_panel: AssetHandle<Material>,
     material_text: AssetHandle<Material>,
@@ -605,57 +485,50 @@ pub fn spawn_serialized_field(
         .get_component::<ParentComponent>(ent_fields_container)
         .unwrap()
         .children()
-        .get(i as usize)
+        .get(i)
         .copied()
-        && let Some(field_c) = ent.get_component::<SerializedFieldComponent>(ent_field).copied()
+        && let Some(field_c) = ent.get_component::<InspectorFieldComponent>(ent_field).copied()
         && let Some(text_c) = ent.get_component::<TextComponent>(field_c.key_text)
-        && text_c.text.as_str() == serialized_key.as_str()
+        && text_c.text.as_str() == key.as_str()
         && let Some(parent_c) = ent.get_component::<ParentComponent>(field_c.value_container)
         && parent_c.children().len() == 1
     {
-        if matches!(serialized_val, SerializedValue::Primitive { .. } | SerializedValue::Null) {
-            ent.get_component_mut::<RectChildAlignComponent>(ent_field).unwrap().direction = UiDirection::Horizontal;
-            if let Some(children) = ent.get_component::<ParentComponent>(ent_field).map(|p| p.children().to_vec()) {
-                for ent_child in children {
-                    ent.get_component_mut::<LocalRectComponent>(ent_child).unwrap().scale.x = UiVal::pd(0.5).into();
-                }
-            }
-        } else {
-            ent.get_component_mut::<RectChildAlignComponent>(ent_field).unwrap().direction = UiDirection::Vertical;
-            if let Some(children) = ent.get_component::<ParentComponent>(ent_field).map(|p| p.children().to_vec()) {
-                for ent_child in children {
-                    ent.get_component_mut::<LocalRectComponent>(ent_child).unwrap().scale.x = UiVal::pd(1.0).into();
-                }
-            }
-        }
+        set_field_direction(ent.as_mut(), ent_field, value.is_leaf());
 
-        let parent_c = ent.get_component::<ParentComponent>(field_c.value_container).unwrap();
-        let ent_child = parent_c.children()[0];
-        spawn_serialized(
+        let ent_child = ent
+            .get_component::<ParentComponent>(field_c.value_container)
+            .unwrap()
+            .children()[0];
+        spawn_inspector_value(
             ent.as_mut(),
             ent_child,
             field_c.value_container,
             ent_selected_input,
-            serializer_path,
-            serialized_val,
-            material_panel.clone(),
-            material_text.clone(),
-            font.clone(),
+            path,
+            value,
+            material_panel,
+            material_text,
+            font,
         );
         return;
     }
 
-    let parent_c = ent.get_component::<ParentComponent>(ent_fields_container).unwrap();
-    let ent_to_destroy = parent_c.children().get(i as usize).copied().unwrap_or(EntityId::EMPTY);
+    let ent_to_destroy = ent
+        .get_component::<ParentComponent>(ent_fields_container)
+        .unwrap()
+        .children()
+        .get(i)
+        .copied()
+        .unwrap_or(EntityId::EMPTY);
     destroy_entity_and_children(ent.as_mut(), ent_to_destroy);
 
     let ent_field = spawn_default_layout_ent(ent.as_mut(), EntityId::EMPTY, false);
-    set_parent_at(ent.as_mut(), ent_field, ent_fields_container, i as usize);
+    set_parent_at(ent.as_mut(), ent_field, ent_fields_container, i);
 
     let (ent_key, ent_key_text) = spawn_text_ent(
         ent.as_mut(),
         ent_field,
-        serialized_key,
+        key,
         material_panel.clone(),
         material_text.clone(),
         font.clone(),
@@ -666,36 +539,29 @@ pub fn spawn_serialized_field(
 
     let ent_value_container = spawn_default_layout_ent(ent.as_mut(), ent_field, false);
 
-    if matches!(serialized_val, SerializedValue::Primitive { .. } | SerializedValue::Null) {
-        ent.get_component_mut::<RectChildAlignComponent>(ent_field).unwrap().direction = UiDirection::Horizontal;
-        ent.get_component_mut::<LocalRectComponent>(ent_key).unwrap().scale.x = UiVal::pd(0.5).into();
-        ent.get_component_mut::<LocalRectComponent>(ent_value_container)
-            .unwrap()
-            .scale
-            .x = UiVal::pd(0.5).into();
+    if value.is_leaf() {
+        set_field_direction(ent.as_mut(), ent_field, true);
     }
 
-    spawn_serialized(
+    spawn_inspector_value(
         ent.as_mut(),
         EntityId::EMPTY,
         ent_value_container,
         ent_selected_input,
-        serializer_path,
-        serialized_val,
-        material_panel.clone(),
-        material_text.clone(),
-        font.clone(),
+        path,
+        value,
+        material_panel,
+        material_text,
+        font,
     );
 
-    ent.add_component(
+    ent.set_component(
         ent_field,
-        SerializedFieldComponent {
+        InspectorFieldComponent {
             key_text: ent_key_text,
             value_container: ent_value_container,
         },
-    )
-    .ok()
-    .unwrap();
+    );
 }
 
 //

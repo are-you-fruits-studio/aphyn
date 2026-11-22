@@ -43,11 +43,20 @@
 //!   coerce to the builder's `fn` pointer parameters. Tuple fields are named by index (`"0"`,
 //!   `"1"`, …); unit structs have no fields.
 //! - Enums become an `EnumReflectorBuilder::<Self>` chain with one `.variant(name, is_active,
-//!   fields)` per variant. `is_active` is `matches!(v, Self::Name { .. })`, which works for unit,
+//!   fields, construct)` per variant. `is_active` is `matches!(v, Self::Name { .. })`, which works for unit,
 //!   tuple and struct variants alike. Each variant field getter `match`es the variant and binds
 //!   the field (by name, or by position padded with `_` for tuple variants), returning `None`
-//!   for other variants. `reflector()` carries `#[allow(unreachable_patterns)]` because the
+//!   for other variants. `construct` takes the fields in order from the `FfiVec<FfiAny>` with
+//!   `__reflect_take::<FieldType>` and builds the variant, `None` on a missing or mistyped field.
+//!   `reflector()` carries `#[allow(unreachable_patterns)]` because the
 //!   fallback `_ => None` arm is unreachable for single-variant enums.
+//! - Both end with `.default_fn(__reflect_default_fn!(Self))` and `.clone_fn(__reflect_clone_fn!(Self))`.
+//!   These `aphyn_reflection` macros use autoref specialization: `(&&ReflectProbe::<Self>::new())`
+//!   picks the impl on `&ReflectProbe<T>` (bounded by `Default` / `Clone`) when the bound holds,
+//!   and the unbounded fallback on `ReflectProbe<T>` otherwise, so the factories are `Some` exactly
+//!   when the type implements the trait. The choice is made where the derive expands; for a generic
+//!   type the bound is not provable there and the factory is `None` (registration can add it, see
+//!   `register_with_factories`).
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
@@ -78,14 +87,19 @@ pub fn derive_reflectable(stream: TokenStream) -> TokenStream {
                 let ident = &variant.ident;
                 let name = ident.to_string();
                 let fields = variant_fields(ident, &variant.fields);
+                let construct = variant_construct(ident, &variant.fields);
 
                 quote! {
-                    .variant(#name, |v| matches!(v, Self::#ident { .. }), |b| b #(#fields)*)
+                    .variant(#name, |v| matches!(v, Self::#ident { .. }), |b| b #(#fields)*, #construct)
                 }
             });
 
             quote! {
-                EnumReflectorBuilder::<Self>::new() #(#variants)* .build()
+                EnumReflectorBuilder::<Self>::new()
+                    #(#variants)*
+                    .default_fn(__reflect_default_fn!(Self))
+                    .clone_fn(__reflect_clone_fn!(Self))
+                    .build()
             }
         }
         Data::Union(_) => panic!("Union types are not supported."),
@@ -121,7 +135,35 @@ fn struct_body(fields: &Fields) -> TokenStream2 {
     });
 
     quote! {
-        StructReflectorBuilder::<Self>::new() #(#fields)* .build()
+        StructReflectorBuilder::<Self>::new()
+            #(#fields)*
+            .default_fn(__reflect_default_fn!(Self))
+            .clone_fn(__reflect_clone_fn!(Self))
+            .build()
+    }
+}
+
+fn variant_construct(variant: &syn::Ident, fields: &Fields) -> TokenStream2 {
+    let takes = fields.iter().map(|field| {
+        let ty = &field.ty;
+        quote!(__reflect_take::<#ty>(&mut fields)?)
+    });
+
+    let value = match fields {
+        Fields::Named(named) => {
+            let idents = named.named.iter().map(|f| f.ident.as_ref().unwrap());
+            quote!(Self::#variant { #(#idents: #takes),* })
+        }
+        Fields::Unnamed(_) => quote!(Self::#variant(#(#takes),*)),
+        Fields::Unit => quote!(Self::#variant),
+    };
+
+    quote! {
+        |fields| {
+            #[allow(unused_mut, unused_variables)]
+            let mut fields = fields.into_iter();
+            Some(#value)
+        }
     }
 }
 

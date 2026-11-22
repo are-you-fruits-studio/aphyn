@@ -1,16 +1,21 @@
 use std::ffi::OsString;
 
-use crate::*;
+use crate::{
+    features::inspector_window::utils::reflection::{EditorValue, InspectorValue},
+    *,
+};
 
 #[derive(Resource, Clone)]
 pub struct OpenProjectResource {
     pub dir_path: String,
 }
 
+// `edited` is the reflected copy the inspector edits; the asset is rebuilt from it after every edit
 #[derive(Resource, Default)]
 pub struct InspectedAssetResource {
     pub asset_key: String,
     pub path: OsString,
+    pub edited: Option<EditorValue>,
 }
 
 #[derive(Resource, Default)]
@@ -26,7 +31,7 @@ pub struct OpenedEntitiesAssetResource {
 #[derive(Resource, Default)]
 pub struct InspectedEntityResource {
     pub selected_entity: EntityId,
-    pub shown_components: Option<FfiIndexMap<FfiString, SerializedValue>>,
+    pub shown_components: Option<Vec<(FfiString, InspectorValue)>>,
 }
 
 #[derive(Component, Default, Copy, Clone)]
@@ -127,17 +132,17 @@ pub struct HierarchyContextMenuResource {
 }
 
 #[derive(Component, Default, Copy, Clone)]
-pub struct SerializedCompositeAddButton {
+pub struct InspectorCompositeAddButton {
     pub composite: EntityId,
 }
 
 #[derive(Component, Default, Copy, Clone)]
-pub struct SerializedCompositeRemoveButton {
+pub struct InspectorCompositeRemoveButton {
     pub composite: EntityId,
 }
 
 #[derive(Component, Default, Copy, Clone)]
-pub struct SerializedComponentComponent {
+pub struct InspectorComponentComponent {
     pub component_id_text: EntityId,
     pub component_data_container: EntityId,
     pub foldout_arrow: EntityId,

@@ -8,7 +8,10 @@ pub struct EntityId(VersionIndex);
 
 impl aphyn_reflection::Reflectable for EntityId {
     fn reflector() -> aphyn_reflection::Reflector {
-        aphyn_reflection::ValueReflector::of::<Self>()
+        aphyn_reflection::ValueReflectorBuilder::<Self>::new()
+            .default_fn(Some(|| Self::EMPTY))
+            .clone_fn(Some(Self::clone))
+            .build()
     }
 }
 

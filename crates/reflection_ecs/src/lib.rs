@@ -18,16 +18,36 @@
 //! }
 //! ```
 //!
+//! #### Registering your own types
+//!
+//! Game setup code adds its reflectors with [`extend_reflection_registry`] after the default
+//! modules are added (the editor's inspector shows only components it finds there):
+//!
+//! ```ignore
+//! use aphyn::*;
+//!
+//! #[derive(Component, Default, Clone, Reflectable)]
+//! struct Health(u32);
+//!
+//! fn setup(ctx: AppInitCtx) {
+//!     extend_reflection_registry(ctx.data.resources_mut(), |reflectors| {
+//!         reflectors.register::<Health>();
+//!     });
+//! }
+//! ```
+//!
 //! # How to maintain
 //!
 //! [`ReflectionRegistryResource`] is a `#[repr(C)]` newtype over a `ReflectionRegistry` that derefs
-//! to it. The registry is immutable once built, so the resource has no `DerefMut`; registering more
-//! types means building a new registry and replacing the resource.
+//! to it. The registry is immutable once built, so the resource has no `DerefMut`;
+//! [`extend_reflection_registry`] copies the reflectors into a builder (`ReflectionRegistry::to_builder`),
+//! registers more types and replaces the resource with the rebuilt registry. Fields and reflectors
+//! cloned out of the old registry stay valid, since they are shared `FfiArc`s.
 
 use std::ops::Deref;
 
-use aphyn_ecs::Resource;
-use aphyn_reflection::ReflectionRegistry;
+use aphyn_ecs::{Resource, ResourcesHolderMut};
+use aphyn_reflection::{ReflectionRegistry, ReflectionRegistryBuilder};
 
 #[repr(C)]
 #[derive(Default, Clone, Debug)]
@@ -41,4 +61,16 @@ impl Deref for ReflectionRegistryResource {
     fn deref(&self) -> &Self::Target {
         &self.0
     }
+}
+
+// rebuilds the world's registry (an empty one when missing) with more types and replaces the resource
+pub fn extend_reflection_registry(mut res: ResourcesHolderMut, register: impl FnOnce(&mut ReflectionRegistryBuilder)) {
+    let mut builder = res
+        .get::<ReflectionRegistryResource>()
+        .map(|r| r.to_builder())
+        .unwrap_or_default();
+
+    register(&mut builder);
+
+    res.insert(ReflectionRegistryResource(builder.build()));
 }

@@ -36,6 +36,10 @@ impl FfiShortTypeInfo {
         && std::any::type_name::<T>() == unsafe { (self.fn_name)() }.into_slice()
     }
 
+    pub fn matches(&self, other: &FfiShortTypeInfo) -> bool {
+        self.size == other.size && self.align == other.align && self.name() == other.name()
+    }
+
     pub const fn size(&self) -> u64 {
         self.size
     }

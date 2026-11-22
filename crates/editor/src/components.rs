@@ -2,6 +2,8 @@ use std::ffi::OsString;
 
 use aphyn::*;
 
+use crate::features::inspector_window::utils::reflection::{InspectorContainerKind, InspectorLeafKind};
+
 #[derive(Component, Default, Debug)]
 pub struct ProjectWindowComponent {
     pub is_init: bool,
@@ -29,50 +31,35 @@ pub struct HierarchyWindowContentComponent {
 pub struct HierarchyWindowEmptyAreaComponent;
 
 #[derive(Debug, Copy, Clone)]
-pub enum SerializedValueComponentTy {
+pub enum InspectorValueComponentTy {
     Container {
-        ty: SerializedValueContainerType,
+        kind: InspectorContainerKind,
         container_enum_metadata: EntityId,
         container_fields: EntityId,
         container_buttons: EntityId,
     },
-    Primitive {
+    Leaf {
         text: EntityId,
-        ty: SerializedValuePrimitiveType,
+        kind: InspectorLeafKind,
     },
 }
 
 #[derive(Component, Clone)]
-pub struct SerializedValueComponent {
-    pub ty: SerializedValueComponentTy,
-    pub path: FfiString,
+pub struct InspectorValueComponent {
+    pub ty: InspectorValueComponentTy,
+    pub path: ReflectPath,
 }
 
 #[derive(Component, Debug, Copy, Clone)]
-pub struct SerializedFieldComponent {
+pub struct InspectorFieldComponent {
     pub key_text: EntityId,
     pub value_container: EntityId,
 }
 
 #[derive(Component, Clone)]
-pub struct SerializedEnumMetadataComponent {
+pub struct InspectorEnumComponent {
     pub value_button: EntityId,
     pub value_text: EntityId,
     pub variants: FfiVec<FfiString>,
     pub dropdown_request_id: u64,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum SerializedValueContainerType {
-    List,
-    Map,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum SerializedValuePrimitiveType {
-    Null,
-    Bool,
-    Int,
-    Float,
-    String,
 }

@@ -259,7 +259,10 @@ impl<T> AssetHandle<T> {
 
 impl<T: 'static> aphyn_reflection::Reflectable for AssetHandle<T> {
     fn reflector() -> aphyn_reflection::Reflector {
-        aphyn_reflection::ValueReflector::of::<Self>()
+        aphyn_reflection::ValueReflectorBuilder::<Self>::new()
+            .default_fn(Some(Self::default))
+            .clone_fn(Some(Self::clone))
+            .build()
     }
 }
 

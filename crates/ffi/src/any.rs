@@ -188,6 +188,33 @@ impl<'a> FfiAnyMut<'a> {
         }
     }
 
+    pub fn reborrow<'r>(&'r mut self) -> FfiAnyMut<'r>
+        where 'a: 'r
+    {
+        FfiAnyMut {
+            ptr: self.ptr,
+            type_info: self.type_info,
+            _phantom: PhantomData,
+        }
+    }
+
+    // Err gives the value back when its type differs; Ok holds the previous value
+    pub fn replace(&mut self, value: FfiAny) -> Result<FfiAny, FfiAny> {
+        if !self.type_info.short().matches(value.type_info().short()) {
+            return Err(value);
+        }
+
+        unsafe {
+            std::ptr::swap_nonoverlapping(
+                self.ptr as *mut u8,
+                value.ptr as *mut u8,
+                self.type_info.short().size() as usize,
+            );
+        }
+
+        Ok(value)
+    }
+
     pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
         unsafe { self.type_info.short().does_match::<T>().then(|| &*(self.ptr as *const T)) }
     }

@@ -212,7 +212,13 @@ fn build_simulated_world(
                 let mut serializers = SerializersResource::default();
                 register_common_transserializers(&mut *serializers);
                 serializers
-            })
+            });
+            // the inspector edits through it; the scripts lib extends it with its own types
+            _ = data.resources_mut().insert({
+                let mut reflectors = ReflectionRegistryBuilder::new();
+                register_common_reflectors(&mut reflectors);
+                ReflectionRegistryResource(reflectors.build())
+            });
         }
         SimulationMode::Play => add_defult_modules_to(data.as_mut(), behavior.as_mut(), &mut render),
     }

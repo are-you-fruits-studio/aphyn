@@ -82,6 +82,7 @@
 
 # Not prioritized yet
 
+- stencil buffer?
 - figure out the destinction between standard mesh and gpu mesh (and other similar assets). Potentially remove one of them.
 - Materials that have configurations that change render pipeline configuration (e.g. culling)
 - refactor/optimize/make-prettier lib compilation waiting

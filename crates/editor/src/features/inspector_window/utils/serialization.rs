@@ -24,58 +24,6 @@ pub fn save_asset_from_world_res(res: ResourcesHolderRef, asset_key: &str) -> Op
     Some(serialized)
 }
 
-pub fn deserialize_asset_to_world_res(
-    res: ResourcesHolderMut,
-    asset_key: &str,
-    serializer_path: &str,
-    serialized: &SerializedValue,
-    asset_type: AssetType,
-    assets_dir_path: &str,
-) -> bool {
-    let mut last_serialized = save_asset_from_world_res(res.as_ref(), asset_key).unwrap_or_else(|| SerializedValue::Null);
-
-    let mut err_handler = |err| println!("{err}");
-
-    let mut serializer_ctx = SerializerCtx::new(PureSerializerCtxState, &mut err_handler);
-
-    serializer_ctx.deserialize(&mut last_serialized, serializer_path, serialized);
-
-    let serialized = last_serialized;
-
-    load_asset_single_from_world(
-        res,
-        assets_dir_path,
-        asset_key,
-        EntityIdCtx::default(),
-        |serializer_ctx_state| {
-            let mut err_handler = |err| println!("{err}");
-            let mut serializer_ctx = serializer_ctx_state.into_ctx(&mut err_handler);
-
-            match asset_type {
-                AssetType::Texture => {
-                    _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<StandardTexture>>("", &serialized)
-                }
-                AssetType::Material => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<Material>>("", &serialized),
-                AssetType::Mesh => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<StandardMesh>>("", &serialized),
-                AssetType::Font => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<Font>>("", &serialized),
-                AssetType::AudioClip => {
-                    _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<AudioClip>>("", &serialized)
-                }
-                AssetType::Prefab => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<Prefab>>("", &serialized),
-                AssetType::Scene => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<Scene>>("", &serialized),
-                AssetType::Shader => _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<Shader>>("", &serialized),
-                AssetType::ComputeShader => {
-                    _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<ComputeShader>>("", &serialized)
-                }
-                AssetType::MaterialTemplate => {
-                    _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<MaterialTemplate>>("", &serialized)
-                }
-            };
-        },
-    )
-    .is_some()
-}
-
 pub fn load_asset_to_world_res(
     res: ResourcesHolderMut,
     asset_key: &str,
@@ -129,25 +77,4 @@ pub fn enrich_serialized_with_asset_type(serialized: &mut SerializedValue, asset
             serialized.values = map;
         }
     }
-}
-
-pub fn are_components_slices_similar(
-    l: &FfiIndexMap<FfiString, SerializedValue>,
-    r: &FfiIndexMap<FfiString, SerializedValue>,
-) -> bool {
-    if l.len() != r.len() {
-        return false;
-    }
-
-    for (key, l_value) in l.iter() {
-        let Some(r_value) = r.get(key) else {
-            return false;
-        };
-
-        if !l_value.similar(r_value) {
-            return false;
-        }
-    }
-
-    true
 }

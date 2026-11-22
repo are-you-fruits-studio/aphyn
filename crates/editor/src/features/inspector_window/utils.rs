@@ -1,6 +1,8 @@
 use aphyn::{ChildComponent, EntityId, WorldQuery};
 
+pub mod assets;
 pub mod entries;
+pub mod reflection;
 pub mod serialization;
 
 pub fn subsequence_match_ignore_case(src: &str, pattern: &str) -> bool {

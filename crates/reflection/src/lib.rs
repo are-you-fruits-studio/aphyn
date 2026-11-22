@@ -1,9 +1,9 @@
 //! # aphyn_reflection
 //!
 //! Runtime reflection for engine types: reach into a type-erased value's fields, enum variants and
-//! collection elements by name or index, without knowing the concrete type at compile time. It is
-//! the groundwork for animations (which resolve a field once and then read/write it every frame)
-//! and for other tooling that operates over arbitrary types.
+//! collection elements by name or index, create default values and variants, and clone values,
+//! without knowing the concrete type at compile time. The editor's inspector edits through it, and
+//! animations can resolve a field once and then read/write it every frame.
 //!
 //! # How to use
 //!
@@ -130,6 +130,77 @@
 //! assert_eq!(reflector.len(FfiAnyRef::new(&map)), Some(0));
 //! ```
 //!
+//! #### Creating and cloning values
+//!
+//! A reflector may carry a default factory and a clone factory. The derive adds them when the type
+//! implements `Default` / `Clone`. [`reflect_clone`] uses the clone factory, or else fills the
+//! type's default with clones of its reflected parts; with neither it returns `None`.
+//! [`reflect_construct_variant`] builds an enum variant from its fields' defaults.
+//!
+//! ```
+//! use aphyn_ffi::FfiAnyRef;
+//! use aphyn_reflection::*;
+//!
+//! #[derive(Default, Reflectable)] // no Clone: cloned as default + fill
+//! struct Stats {
+//!     health: u32,
+//!     shield: Option<u32>,
+//! }
+//!
+//! #[derive(Reflectable)]
+//! enum Target {
+//!     Nobody,
+//!     Point { x: f32, y: f32 },
+//! }
+//!
+//! let mut builder = ReflectionRegistryBuilder::new();
+//! builder.register::<Stats>().register::<Target>().register::<u32>().register::<f32>().register::<Option<u32>>();
+//! let registry = builder.build();
+//!
+//! let stats = Stats { health: 30, shield: Some(5) };
+//! let cloned = reflect_clone(&registry, FfiAnyRef::new(&stats)).unwrap();
+//! let cloned = cloned.downcast_ref::<Stats>().unwrap();
+//! assert_eq!((cloned.health, cloned.shield), (30, Some(5)));
+//!
+//! let target = registry.get_of::<Target>().unwrap().as_enum().unwrap();
+//! assert!(!registry.get_of::<Target>().unwrap().has_default());
+//! let point = reflect_construct_variant(&registry, target.variant("Point").unwrap()).unwrap();
+//! assert!(matches!(point.downcast_ref::<Target>(), Some(Target::Point { x: 0.0, y: 0.0 })));
+//! ```
+//!
+//! Generic impls can't name `Default`/`Clone` of their parameters, so concrete instantiations
+//! get their factories at registration:
+//! [`register_with_factories`](ReflectionRegistryBuilder::register_with_factories) (or
+//! `register_with_default` / `register_with_clone`).
+//!
+//! #### Paths
+//!
+//! A [`ReflectPath`] addresses a nested value: struct (or active variant) fields by name, list
+//! elements and map entries by index. [`resolve`] / [`resolve_mut`] follow it through the registry.
+//!
+//! ```
+//! use aphyn_ffi::{FfiAny, FfiAnyMut};
+//! use aphyn_reflection::*;
+//!
+//! #[derive(Reflectable)]
+//! struct Inventory {
+//!     items: Vec<u32>,
+//! }
+//!
+//! let mut builder = ReflectionRegistryBuilder::new();
+//! builder.register::<Inventory>().register::<Vec<u32>>().register::<u32>();
+//! let registry = builder.build();
+//!
+//! let mut inventory = Inventory { items: vec![1, 2] };
+//! let path = ReflectPath::new()
+//!     .join(ReflectPathSegment::Field("items".into()))
+//!     .join(ReflectPathSegment::Index(1));
+//!
+//! let mut item = resolve_mut(&registry, FfiAnyMut::new(&mut inventory), path.segments()).unwrap();
+//! item.replace(FfiAny::new(7_u32)).ok().unwrap();
+//! assert_eq!(inventory.items, [1, 7]);
+//! ```
+//!
 //! #### Hand-written reflectors
 //!
 //! The builders take non-capturing closures, which coerce to plain `fn` pointers.
@@ -177,7 +248,9 @@
 //! property path) and use it without borrowing the registry. The registry never changes after
 //! [`ReflectionRegistryBuilder::build`]. Registering a type that is already registered keeps the
 //! first reflector; [`register`](ReflectionRegistryBuilder::register) does not even build the
-//! second one.
+//! second one. [`to_builder`](ReflectionRegistry::to_builder) copies every reflector (they are
+//! `Clone`) into a new builder, which is how a registry gets extended; the old registry and
+//! everything cloned out of it stay valid.
 //!
 //! #### Erased accessors
 //!
@@ -189,7 +262,21 @@
 //! UB. Rust-side `Option`/`Result` cross the trampolines as `FfiOption`; a rejected list insert
 //! hands the element back, a rejected map insert the key and value. A list's or map's insert and
 //! remove are stored together in one `FfiOption`: either both exist or the reflector is rigid.
-//! Map keys are returned as a freshly collected `FfiVec` snapshot on every call.
+//! Map keys are returned as a freshly collected `FfiVec` snapshot on every call. The default and
+//! clone factories (`factories.rs`, one optional pair per reflector) and enum variant constructors
+//! are erased the same way; a constructor takes the variant's fields as an `FfiVec<FfiAny>` in
+//! field order and fails on a count or type mismatch. [`FfiAnyMut::replace`](aphyn_ffi::FfiAnyMut::replace)
+//! is how [`reflect_clone`] and the users of [`resolve_mut`] write a whole value into a place.
+//!
+//! #### Clone, default and paths
+//!
+//! [`reflect_clone`] prefers the clone factory. Otherwise it starts from the default factory and
+//! fills it: struct fields are replaced by clones, a rigid list must have the source's length and
+//! gets its elements replaced, a resizable list or a map gets clones appended/inserted (a key the
+//! default already holds gets its value replaced). An enum is rebuilt from clones of its active
+//! variant's fields, so it needs no default. Hidden state (a field the reflector does not list)
+//! keeps its default. [`resolve_mut`] clones map keys before looking an entry up mutably, because
+//! the key snapshot borrows the map; a map entry index is a position in that snapshot.
 //!
 //! #### Built-in impls and the derive
 //!
@@ -198,15 +285,26 @@
 //! `Option`, `FfiOption` (enums) and `Vec2`/`Vec3`/`Vec4`/`Quat` (structs). Generic impls only
 //! require `T: 'static` (plus what the map itself needs of its key): a field's target is referenced
 //! by name, so its reflectability is checked by the registry, not by the type system.
+//! Values get both factories; the collections and options get a default factory (it needs no bound
+//! on `T`); `Option`/`FfiOption` get variant constructors. The rest comes from
+//! `register_with_factories` on concrete instantiations.
 //! The derive lives in `aphyn_reflection_macros` and generates the same builder calls as the
-//! hand-written example above; its generated code names this crate's items unqualified.
+//! hand-written example above; its generated code names this crate's items unqualified, including
+//! the hidden `__reflect_default_fn!` / `__reflect_clone_fn!` macros (autoref specialization over
+//! [`ReflectProbe`]) and [`__reflect_take`].
 
+mod factories;
 mod field;
 mod impls;
+mod ops;
 mod reflector;
 mod registry;
 
+pub use factories::{
+    ReflectProbe, ReflectProbeClone, ReflectProbeCloneFallback, ReflectProbeDefault, ReflectProbeDefaultFallback, __reflect_take,
+};
 pub use field::*;
+pub use ops::*;
 pub use reflector::*;
 pub use registry::*;
 

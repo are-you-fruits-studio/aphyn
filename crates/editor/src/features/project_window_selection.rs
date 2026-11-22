@@ -569,6 +569,7 @@ pub fn apply_project_path_change(
             *inspected_asset = InspectedAssetResource {
                 asset_key: get_potential_asset_key(&path, open_project),
                 path,
+                edited: None,
             }
         }
     }

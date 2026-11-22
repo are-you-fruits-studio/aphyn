@@ -2,10 +2,13 @@ use std::marker::PhantomData;
 
 use aphyn_ffi::{FfiAny, FfiAnyMut, FfiAnyRef, FfiArc, FfiIndexMap, FfiOption, FfiShortTypeInfo, FfiString, FfiVec};
 
-use crate::{ReflectField, any_mut_into, any_ref_into};
+use crate::{
+    ReflectField, any_mut_into, any_ref_into,
+    factories::{ErasedFn, ReflectFactories},
+};
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Reflector {
     Value(ValueReflector),
     Struct(StructReflector),
@@ -27,6 +30,43 @@ impl Reflector {
 
     pub fn type_name(&self) -> &'static str {
         self.type_info().name()
+    }
+
+    fn factories(&self) -> &ReflectFactories {
+        match self {
+            Reflector::Value(r) => &r.factories,
+            Reflector::Struct(r) => &r.factories,
+            Reflector::Enum(r) => &r.factories,
+            Reflector::List(r) => &r.factories,
+            Reflector::Map(r) => &r.factories,
+        }
+    }
+
+    pub(crate) fn factories_mut(&mut self) -> &mut ReflectFactories {
+        match self {
+            Reflector::Value(r) => &mut r.factories,
+            Reflector::Struct(r) => &mut r.factories,
+            Reflector::Enum(r) => &mut r.factories,
+            Reflector::List(r) => &mut r.factories,
+            Reflector::Map(r) => &mut r.factories,
+        }
+    }
+
+    pub fn has_default(&self) -> bool {
+        self.factories().has_default()
+    }
+
+    pub fn has_clone(&self) -> bool {
+        self.factories().has_clone()
+    }
+
+    // only the type's own factory; see `reflect_clone` for the default + fill fallback
+    pub fn default_value(&self) -> Option<FfiAny> {
+        self.factories().default_value()
+    }
+
+    pub fn clone_value(&self, value: FfiAnyRef) -> Option<FfiAny> {
+        self.factories().clone_value(value)
     }
 
     pub fn as_value(&self) -> Option<&ValueReflector> {
@@ -67,18 +107,16 @@ impl Reflector {
 
 //
 
-// todo: remove value-reflector. It seems useless
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Clone)]
 pub struct ValueReflector {
     type_info: FfiShortTypeInfo,
+    factories: ReflectFactories,
 }
 
 impl ValueReflector {
     pub fn of<T: 'static>() -> Reflector {
-        Reflector::Value(Self {
-            type_info: FfiShortTypeInfo::of::<T>(),
-        })
+        ValueReflectorBuilder::<T>::new().build()
     }
 
     pub fn type_info(&self) -> &FfiShortTypeInfo {
@@ -86,13 +124,59 @@ impl ValueReflector {
     }
 }
 
+impl std::fmt::Debug for ValueReflector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ValueReflector")
+            .field("type", &self.type_info.name())
+            .finish()
+    }
+}
+
+pub struct ValueReflectorBuilder<T> {
+    factories: ReflectFactories,
+    _phantom: PhantomData<fn() -> T>,
+}
+
+impl<T: 'static> ValueReflectorBuilder<T> {
+    pub fn new() -> Self {
+        Self {
+            factories: ReflectFactories::none(),
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn default_fn(mut self, default: Option<fn() -> T>) -> Self {
+        self.factories.set_optional(default, None);
+        self
+    }
+
+    pub fn clone_fn(mut self, clone: Option<fn(&T) -> T>) -> Self {
+        self.factories.set_optional(None, clone);
+        self
+    }
+
+    pub fn build(self) -> Reflector {
+        Reflector::Value(ValueReflector {
+            type_info: FfiShortTypeInfo::of::<T>(),
+            factories: self.factories,
+        })
+    }
+}
+
+impl<T: 'static> Default for ValueReflectorBuilder<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 //
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Clone)]
 pub struct StructReflector {
     type_info: FfiShortTypeInfo,
     fields: FfiIndexMap<FfiString, FfiArc<ReflectField>>,
+    factories: ReflectFactories,
 }
 
 impl StructReflector {
@@ -117,8 +201,18 @@ impl StructReflector {
     }
 }
 
+impl std::fmt::Debug for StructReflector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StructReflector")
+            .field("type", &self.type_info.name())
+            .field("fields", &self.fields)
+            .finish()
+    }
+}
+
 pub struct StructReflectorBuilder<T> {
     fields: FfiIndexMap<FfiString, FfiArc<ReflectField>>,
+    factories: ReflectFactories,
     _phantom: PhantomData<fn() -> T>,
 }
 
@@ -126,6 +220,7 @@ impl<T: 'static> StructReflectorBuilder<T> {
     pub fn new() -> Self {
         Self {
             fields: FfiIndexMap::new(),
+            factories: ReflectFactories::none(),
             _phantom: PhantomData,
         }
     }
@@ -136,10 +231,21 @@ impl<T: 'static> StructReflectorBuilder<T> {
         self
     }
 
+    pub fn default_fn(mut self, default: Option<fn() -> T>) -> Self {
+        self.factories.set_optional(default, None);
+        self
+    }
+
+    pub fn clone_fn(mut self, clone: Option<fn(&T) -> T>) -> Self {
+        self.factories.set_optional(None, clone);
+        self
+    }
+
     pub fn build(self) -> Reflector {
         Reflector::Struct(StructReflector {
             type_info: FfiShortTypeInfo::of::<T>(),
             fields: self.fields,
+            factories: self.factories,
         })
     }
 }
@@ -153,13 +259,15 @@ impl<T: 'static> Default for StructReflectorBuilder<T> {
 //
 
 type FnIsActiveErased = unsafe extern "C-unwind" fn(*const (), FfiAnyRef) -> bool;
+type FnConstructErased = unsafe extern "C-unwind" fn(*const (), FfiVec<FfiAny>) -> FfiOption<FfiAny>;
 
 #[repr(C)]
+#[derive(Clone)]
 pub struct EnumVariantReflector {
     name: FfiString,
     fields: StructReflector,
-    is_active: *const (),
-    fn_is_active: FnIsActiveErased,
+    is_active: ErasedFn<FnIsActiveErased>,
+    construct: ErasedFn<FnConstructErased>,
 }
 
 unsafe impl Send for EnumVariantReflector {}
@@ -171,7 +279,12 @@ impl EnumVariantReflector {
     }
 
     pub fn is_active(&self, value: FfiAnyRef) -> bool {
-        unsafe { (self.fn_is_active)(self.is_active, value) }
+        unsafe { (self.is_active.trampoline)(self.is_active.func, value) }
+    }
+
+    // builds the variant from its field values in field order; None on a count or type mismatch
+    pub fn construct(&self, fields: FfiVec<FfiAny>) -> Option<FfiAny> {
+        unsafe { (self.construct.trampoline)(self.construct.func, fields) }.into_option()
     }
 
     pub fn field(&self, name: &str) -> Option<&FfiArc<ReflectField>> {
@@ -201,10 +314,11 @@ impl std::fmt::Debug for EnumVariantReflector {
 }
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Clone)]
 pub struct EnumReflector {
     type_info: FfiShortTypeInfo,
     variants: FfiIndexMap<FfiString, FfiArc<EnumVariantReflector>>,
+    factories: ReflectFactories,
 }
 
 impl EnumReflector {
@@ -233,8 +347,18 @@ impl EnumReflector {
     }
 }
 
+impl std::fmt::Debug for EnumReflector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EnumReflector")
+            .field("type", &self.type_info.name())
+            .field("variants", &self.variants)
+            .finish()
+    }
+}
+
 pub struct EnumReflectorBuilder<T> {
     variants: FfiIndexMap<FfiString, FfiArc<EnumVariantReflector>>,
+    factories: ReflectFactories,
     _phantom: PhantomData<fn() -> T>,
 }
 
@@ -242,6 +366,7 @@ impl<T: 'static> EnumReflectorBuilder<T> {
     pub fn new() -> Self {
         Self {
             variants: FfiIndexMap::new(),
+            factories: ReflectFactories::none(),
             _phantom: PhantomData,
         }
     }
@@ -251,11 +376,17 @@ impl<T: 'static> EnumReflectorBuilder<T> {
         name: &str,
         is_active: fn(&T) -> bool,
         fields: impl FnOnce(StructReflectorBuilder<T>) -> StructReflectorBuilder<T>,
+        construct: fn(FfiVec<FfiAny>) -> Option<T>,
     ) -> Self {
         unsafe extern "C-unwind" fn ffi_is_active<T: 'static>(is_active: *const (), value: FfiAnyRef) -> bool {
             let is_active: fn(&T) -> bool = unsafe { std::mem::transmute(is_active) };
 
             any_ref_into::<T>(value).is_some_and(is_active)
+        }
+        unsafe extern "C-unwind" fn ffi_construct<T: 'static>(construct: *const (), fields: FfiVec<FfiAny>) -> FfiOption<FfiAny> {
+            let construct: fn(FfiVec<FfiAny>) -> Option<T> = unsafe { std::mem::transmute(construct) };
+
+            construct(fields).map(FfiAny::new).into()
         }
 
         let Reflector::Struct(fields) = fields(StructReflectorBuilder::new()).build() else {
@@ -265,11 +396,27 @@ impl<T: 'static> EnumReflectorBuilder<T> {
         let variant = EnumVariantReflector {
             name: name.into(),
             fields,
-            is_active: is_active as *const (),
-            fn_is_active: ffi_is_active::<T>,
+            is_active: ErasedFn {
+                func: is_active as *const (),
+                trampoline: ffi_is_active::<T>,
+            },
+            construct: ErasedFn {
+                func: construct as *const (),
+                trampoline: ffi_construct::<T>,
+            },
         };
 
         self.variants.insert(name.into(), FfiArc::new(variant));
+        self
+    }
+
+    pub fn default_fn(mut self, default: Option<fn() -> T>) -> Self {
+        self.factories.set_optional(default, None);
+        self
+    }
+
+    pub fn clone_fn(mut self, clone: Option<fn(&T) -> T>) -> Self {
+        self.factories.set_optional(None, clone);
         self
     }
 
@@ -277,6 +424,7 @@ impl<T: 'static> EnumReflectorBuilder<T> {
         Reflector::Enum(EnumReflector {
             type_info: FfiShortTypeInfo::of::<T>(),
             variants: self.variants,
+            factories: self.factories,
         })
     }
 }
@@ -290,13 +438,6 @@ impl<T: 'static> Default for EnumReflectorBuilder<T> {
 //
 
 type FnLenErased = unsafe extern "C-unwind" fn(*const (), FfiAnyRef) -> FfiOption<u64>;
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct ErasedFn<F> {
-    func: *const (),
-    trampoline: F,
-}
 
 fn erased_len<C: 'static>(len: fn(&C) -> usize) -> ErasedFn<FnLenErased> {
     unsafe extern "C-unwind" fn ffi_len<C: 'static>(len: *const (), value: FfiAnyRef) -> FfiOption<u64> {
@@ -327,6 +468,7 @@ struct ListResizeFns {
 }
 
 #[repr(C)]
+#[derive(Clone)]
 pub struct ListReflector {
     type_info: FfiShortTypeInfo,
     element_type_info: FfiShortTypeInfo,
@@ -334,6 +476,7 @@ pub struct ListReflector {
     get: ErasedFn<FnElementErased>,
     get_mut: ErasedFn<FnElementMutErased>,
     resize: FfiOption<ListResizeFns>,
+    factories: ReflectFactories,
 }
 
 unsafe impl Send for ListReflector {}
@@ -406,6 +549,7 @@ pub struct ListReflectorBuilder<C, E> {
     get: ErasedFn<FnElementErased>,
     get_mut: ErasedFn<FnElementMutErased>,
     resize: FfiOption<ListResizeFns>,
+    factories: ReflectFactories,
     _phantom: PhantomData<fn() -> (C, E)>,
 }
 
@@ -497,8 +641,19 @@ impl<C: 'static, E: 'static> ListReflectorBuilder<C, E> {
                     },
                 })
                 .into(),
+            factories: ReflectFactories::none(),
             _phantom: PhantomData,
         }
+    }
+
+    pub fn default_fn(mut self, default: Option<fn() -> C>) -> Self {
+        self.factories.set_optional(default, None);
+        self
+    }
+
+    pub fn clone_fn(mut self, clone: Option<fn(&C) -> C>) -> Self {
+        self.factories.set_optional(None, clone);
+        self
     }
 
     pub fn build(self) -> Reflector {
@@ -509,6 +664,7 @@ impl<C: 'static, E: 'static> ListReflectorBuilder<C, E> {
             get: self.get,
             get_mut: self.get_mut,
             resize: self.resize,
+            factories: self.factories,
         })
     }
 }
@@ -536,6 +692,7 @@ struct MapResizeFns {
 }
 
 #[repr(C)]
+#[derive(Clone)]
 pub struct MapReflector {
     type_info: FfiShortTypeInfo,
     key_type_info: FfiShortTypeInfo,
@@ -545,6 +702,7 @@ pub struct MapReflector {
     get: ErasedFn<FnValueErased>,
     get_mut: ErasedFn<FnValueMutErased>,
     resize: FfiOption<MapResizeFns>,
+    factories: ReflectFactories,
 }
 
 unsafe impl Send for MapReflector {}
@@ -631,6 +789,7 @@ pub struct MapReflectorBuilder<M, K, V> {
     get: ErasedFn<FnValueErased>,
     get_mut: ErasedFn<FnValueMutErased>,
     resize: FfiOption<MapResizeFns>,
+    factories: ReflectFactories,
     _phantom: PhantomData<fn() -> (M, K, V)>,
 }
 
@@ -745,8 +904,19 @@ impl<M: 'static, K: 'static, V: 'static> MapReflectorBuilder<M, K, V> {
                     },
                 })
                 .into(),
+            factories: ReflectFactories::none(),
             _phantom: PhantomData,
         }
+    }
+
+    pub fn default_fn(mut self, default: Option<fn() -> M>) -> Self {
+        self.factories.set_optional(default, None);
+        self
+    }
+
+    pub fn clone_fn(mut self, clone: Option<fn(&M) -> M>) -> Self {
+        self.factories.set_optional(None, clone);
+        self
     }
 
     pub fn build(self) -> Reflector {
@@ -759,6 +929,7 @@ impl<M: 'static, K: 'static, V: 'static> MapReflectorBuilder<M, K, V> {
             get: self.get,
             get_mut: self.get_mut,
             resize: self.resize,
+            factories: self.factories,
         })
     }
 }

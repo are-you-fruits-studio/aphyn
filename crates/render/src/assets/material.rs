@@ -741,13 +741,36 @@ mod tests {
 
 impl Reflectable for MaterialData {
     fn reflector() -> Reflector {
-        ValueReflector::of::<Self>()
+        MapReflectorBuilder::<Self, FfiString, MaterialDataEntry>::new(
+            |m| m.0.len() as usize,
+            |m| m.0.keys().collect(),
+            |m, k| m.0.get(k),
+            |m, k| m.0.get_mut(k),
+            Some((
+                |m, k, v| {
+                    if m.0.contains_key(&k) {
+                        return Err((k, v));
+                    }
+                    m.0.insert(k, v);
+                    Ok(())
+                },
+                |m, k| m.0.remove_shift(k),
+            )),
+        )
+        .default_fn(Some(Self::default))
+        .clone_fn(Some(Self::clone))
+        .build()
     }
 }
 
+// a mutable access to `value` bumps the snapshot, so the gpu data is rewritten
 impl Reflectable for MaterialDataEntry {
     fn reflector() -> Reflector {
-        ValueReflector::of::<Self>()
+        StructReflectorBuilder::<Self>::new()
+            .field("value", |v| Some(&v.value), |v| Some(v.get_mut()))
+            .default_fn(Some(Self::default))
+            .clone_fn(Some(Self::clone))
+            .build()
     }
 }
 
@@ -757,6 +780,7 @@ impl Reflectable for Material {
         StructReflectorBuilder::<Self>::new()
             .field("template", |v| Some(&v.template), |v| Some(&mut v.template))
             .field("data", |v| Some(&v.data), |v| Some(&mut v.data))
+            .default_fn(Some(Self::default))
             .build()
     }
 }

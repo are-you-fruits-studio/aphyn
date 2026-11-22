@@ -20,6 +20,32 @@ impl ReflectionRegistryBuilder {
         self
     }
 
+    // for generic instantiations whose generic impl can't name a default; keeps an existing factory
+    pub fn register_with_default<T: Reflectable + Default>(&mut self) -> &mut Self {
+        self.register::<T>();
+        if let Some(reflector) = self.reflectors.get_mut(std::any::type_name::<T>())
+            && !reflector.has_default()
+        {
+            reflector.factories_mut().set_default::<T>(T::default);
+        }
+        self
+    }
+
+    // for generic instantiations whose generic impl can't name a clone; keeps an existing factory
+    pub fn register_with_clone<T: Reflectable + Clone>(&mut self) -> &mut Self {
+        self.register::<T>();
+        if let Some(reflector) = self.reflectors.get_mut(std::any::type_name::<T>())
+            && !reflector.has_clone()
+        {
+            reflector.factories_mut().set_clone::<T>(T::clone);
+        }
+        self
+    }
+
+    pub fn register_with_factories<T: Reflectable + Default + Clone>(&mut self) -> &mut Self {
+        self.register_with_default::<T>().register_with_clone::<T>()
+    }
+
     pub fn register_reflector(&mut self, reflector: Reflector) -> &mut Self {
         self.reflectors.entry(reflector.type_name().into()).or_insert(reflector);
         self
@@ -65,6 +91,13 @@ impl ReflectionRegistry {
 
     pub fn is_empty(&self) -> bool {
         self.reflectors.is_empty()
+    }
+
+    // a builder holding copies of every reflector, to register more types and build a new registry
+    pub fn to_builder(&self) -> ReflectionRegistryBuilder {
+        ReflectionRegistryBuilder {
+            reflectors: self.reflectors.iter().map(|(k, v)| (k.clone(), (**v).clone())).collect(),
+        }
     }
 
     pub fn missing_dst_types(&self) -> Vec<&'static str> {

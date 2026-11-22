@@ -42,6 +42,9 @@ impl<S: Copy> Serializable<S> for CollisionLayer {
 
 impl aphyn_reflection::Reflectable for CollisionLayer {
     fn reflector() -> aphyn_reflection::Reflector {
-        aphyn_reflection::ValueReflector::of::<Self>()
+        aphyn_reflection::ValueReflectorBuilder::<Self>::new()
+            .default_fn(Some(Self::default))
+            .clone_fn(Some(Self::clone))
+            .build()
     }
 }

@@ -3,6 +3,7 @@ use crate::{
         InputFieldComponent, InputFieldSelectionChangedEvent, SelectedInputFieldResource, highlight_selected_input_field_system,
         select_input_field_system,
     },
+    features::inspector_window::utils::reflection::InspectorLeafKind,
     *,
 };
 
@@ -55,8 +56,8 @@ pub fn drag_number_input_field_system(
     mut selected_input_res: ResMut<SelectedInputFieldResource>,
     mut selected_input_changed_evt: EvtMut<InputFieldSelectionChangedEvent>,
     mut dragged_evt: EvtMut<NumberInputFieldDraggedEvent>,
-    input_field_q: WorldQuery<(EntityId, &InputFieldComponent, &SerializedValueComponent)>,
-    field_q: WorldQuery<&SerializedFieldComponent>,
+    input_field_q: WorldQuery<(EntityId, &InputFieldComponent, &InspectorValueComponent)>,
+    field_q: WorldQuery<&InspectorFieldComponent>,
     button_q: WorldQuery<&ButtonComponent>,
     child_q: WorldQuery<&ChildComponent>,
     parent_q: WorldQuery<&ParentComponent>,
@@ -121,7 +122,7 @@ pub fn drag_number_input_field_system(
             }
 
             let start = match ty {
-                SerializedValuePrimitiveType::Int => SerializedPrimitive::Int(text_c.text.as_str().parse().unwrap_or(0)),
+                InspectorLeafKind::Int => SerializedPrimitive::Int(text_c.text.as_str().parse().unwrap_or(0)),
                 _ => SerializedPrimitive::Float(text_c.text.as_str().parse().unwrap_or(0.0)),
             };
             drag.start = Some(start.clone());
@@ -172,12 +173,12 @@ pub fn drag_number_input_field_system(
     });
 }
 
-fn get_numeric_type(serialized_value_c: &SerializedValueComponent) -> Option<SerializedValuePrimitiveType> {
-    match serialized_value_c.ty {
-        SerializedValueComponentTy::Primitive {
-            ty: ty @ (SerializedValuePrimitiveType::Int | SerializedValuePrimitiveType::Float),
+fn get_numeric_type(value_c: &InspectorValueComponent) -> Option<InspectorLeafKind> {
+    match value_c.ty {
+        InspectorValueComponentTy::Leaf {
+            kind: kind @ (InspectorLeafKind::Int | InspectorLeafKind::Float),
             ..
-        } => Some(ty),
+        } => Some(kind),
         _ => None,
     }
 }

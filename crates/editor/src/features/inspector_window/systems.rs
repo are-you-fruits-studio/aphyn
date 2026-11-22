@@ -4,7 +4,7 @@ use aphyn::tree::{TreeBuilder, TreeNode};
 
 use crate::{
     features::{
-        asset_serialization::{InspectedAsset, get_asset_type},
+        asset_serialization::get_asset_type,
         clipboard::{EditorClipboard, EditorClipboardResource},
         foldout::{FOLDOUT_WIDTH, FoldoutButtonComponent, FoldoutKey, FoldoutResource, FoldoutToggledEvent, spawn_foldout_arrow},
         game_window::GameViewFocusResource,
@@ -17,11 +17,11 @@ use crate::{
             FIELD_HEIGHT,
             data::*,
             utils::{
-                entries::{
-                    parse_serialized, spawn_default_layout_ent, spawn_hierarchy_window_entry, spawn_serialized, spawn_text_ent,
-                },
+                assets::{clone_asset_for_inspection, reload_asset_from_inspected_copy},
+                entries::{spawn_default_layout_ent, spawn_hierarchy_window_entry, spawn_inspector_value, spawn_text_ent},
                 find_in_parents,
-                serialization::{deserialize_asset_to_world_res, save_asset_from_world_res},
+                reflection::*,
+                serialization::save_asset_from_world_res,
                 subsequence_match_ignore_case,
             },
         },
@@ -72,7 +72,7 @@ pub fn update_hierarchy_entries_selection(
 }
 
 fn get_inspected_component_id(ent: EntitiesHolderRef, ent_component: EntityId) -> Option<FfiString> {
-    let serialized_component_c = ent.get_component::<SerializedComponentComponent>(ent_component)?;
+    let serialized_component_c = ent.get_component::<InspectorComponentComponent>(ent_component)?;
     let component_id_text_c = ent.get_component::<TextComponent>(serialized_component_c.component_id_text)?;
     Some(component_id_text_c.text.clone())
 }
@@ -161,18 +161,24 @@ pub fn apply_component_context_menu_system(
     let is_edited = match context_menu.actions[idx as usize] {
         ComponentContextAction::Copy => {
             let sim_data = simulated_world.data.as_ref();
-            let mut components = record_entity_components(
-                sim_data.resources(),
+            return_if_not!(Some(registry) = sim_data.resources().get::<ReflectionRegistryResource>());
+
+            let value = with_component(
                 sim_data.entities(),
                 inspected_entity.selected_entity,
-                EntityIdEncoder::World(sim_data.entities()),
-            );
+                &context_menu.component_id,
+                |c| reflect_clone(registry, c),
+            )
+            .flatten();
 
-            if let Some(value) = components.remove_swap(context_menu.component_id.as_str()) {
-                clipboard.0 = Some(EditorClipboard::Component {
-                    component_id: context_menu.component_id.clone(),
-                    value,
-                });
+            match value {
+                Some(value) => {
+                    clipboard.0 = Some(EditorClipboard::Component {
+                        component_id: context_menu.component_id.clone(),
+                        value: EditorValue(value),
+                    })
+                }
+                None => println!("{} can't be cloned through reflection", context_menu.component_id),
             }
 
             false
@@ -199,7 +205,7 @@ pub fn open_field_value_context_menu_system(
     mut context_menu_res: ResMut<FieldValueContextMenuResource>,
 ) {
     let value_ent = ent
-        .query::<&SerializedFieldComponent>()
+        .query::<&InspectorFieldComponent>()
         .iter()
         .filter(|field_c| {
             ent.get_component::<ChildComponent>(field_c.key_text)
@@ -212,7 +218,7 @@ pub fn open_field_value_context_menu_system(
                 .first()
                 .copied()
         })
-        .find(|&value_ent| ent.get_component::<SerializedValueComponent>(value_ent).is_some());
+        .find(|&value_ent| ent.get_component::<InspectorValueComponent>(value_ent).is_some());
     return_if_not!(Some(value_ent) = value_ent);
 
     let mut actions = vec![FieldValueContextAction::Copy];
@@ -234,7 +240,7 @@ pub fn apply_field_value_context_menu_system(
     mut context_menu_res: ResMut<FieldValueContextMenuResource>,
     mut simulated_world: ResMut<SimulatedWorldResource>,
     inspected_entity: Res<InspectedEntityResource>,
-    inspected_asset: Res<InspectedAssetResource>,
+    mut inspected_asset: ResMut<InspectedAssetResource>,
     open_project: Res<OpenProjectResource>,
     mut clipboard: ResMut<EditorClipboardResource>,
     mut asset_edited_evt: EvtMut<AssetEditedEvent>,
@@ -243,7 +249,7 @@ pub fn apply_field_value_context_menu_system(
 
     return_if_not!(Some(idx) = generic_dropdown_res.take_selected(&mut context_menu.request_id));
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
-    return_if_not!(Some(serialized_value_c) = ent.get_component::<SerializedValueComponent>(context_menu.value_ent));
+    return_if_not!(Some(value_c) = ent.get_component::<InspectorValueComponent>(context_menu.value_ent));
     return_if_not!(
         Some(target) = get_inspected_target(
             ent,
@@ -254,29 +260,47 @@ pub fn apply_field_value_context_menu_system(
         )
     );
 
-    let path = serialized_value_c.path.as_str();
+    let path = &value_c.path;
 
     match context_menu.actions[idx as usize] {
         FieldValueContextAction::Copy => {
-            if let Some(value) = serialize_from_simulated_world(&target, path, simulated_world, &inspected_entity, &inspected_asset)
-            {
-                clipboard.0 = Some(EditorClipboard::Value(value));
+            let value = with_inspected_value(
+                &target,
+                simulated_world,
+                &inspected_entity,
+                &mut inspected_asset,
+                |registry, _, root| reflect_clone(registry, resolve(registry, root.as_any_ref(), path.segments())?),
+            )
+            .flatten();
+
+            match value {
+                Some(value) => clipboard.0 = Some(EditorClipboard::Value(EditorValue(value))),
+                None => println!("the value at {path} can't be cloned through reflection"),
             }
         }
         FieldValueContextAction::Paste => {
             return_if_not!(Some(value) = clipboard.value());
+            return_if_not!(
+                Some(registry) = simulated_world
+                    .data
+                    .as_ref()
+                    .resources()
+                    .get::<ReflectionRegistryResource>()
+                    .cloned()
+            );
+            return_if_not!(Some(value) = reflect_clone(&registry, value));
 
-            let did_asset_load = deserialize_to_simulated_world(
+            let is_edited = edit_inspected_target(
                 &target,
                 path,
-                value,
+                InspectorEdit::Replace(value),
                 simulated_world,
                 &inspected_entity,
-                &inspected_asset,
+                &mut inspected_asset,
                 &open_project,
             );
 
-            if did_asset_load {
+            if is_edited {
                 asset_edited_evt.push(target.edited_event());
             }
         }
@@ -297,18 +321,15 @@ pub fn add_component_system(
     for button_click_evt in button_click_evt.iter() {
         continue_if_not!(Some(add_component_variant_c) = ent.get_component::<AddComponentVariantComponent>(button_click_evt.entity));
 
-        let (sim_res, sim_ent, _) = simulated_world.data.as_mut().into_tuple_mut();
+        let (sim_res, mut sim_ent, _) = simulated_world.data.as_mut().into_tuple_mut();
+        let sim_res = sim_res.as_ref();
+        continue_if_not!(Some(registry) = sim_res.get::<ReflectionRegistryResource>());
 
-        let did_add = deserialize_entity_component_at_path(
-            sim_res.as_ref(),
-            sim_ent,
-            inspected_entity.selected_entity,
-            &add_component_variant_c.component_id,
-            "",
-            &SerializedValue::Null,
-        );
+        let component_id = add_component_variant_c.component_id.as_str();
+        continue_if!(with_component(sim_ent.as_ref(), inspected_entity.selected_entity, component_id, |_| ()).is_some());
+        continue_if_not!(Some(component) = reflect_default(registry, component_id));
 
-        if did_add {
+        if sim_ent.add_component_any(inspected_entity.selected_entity, component).is_ok() {
             asset_edited_evt.push(AssetEditedEvent::OpenedEntitiesAsset);
         }
     }
@@ -338,7 +359,7 @@ pub fn update_add_component_variants_system(
         return;
     }
 
-    let Some(serializers) = simulated_world.data.as_ref().resources().get::<SerializersResource>() else {
+    let Some(registry) = simulated_world.data.as_ref().resources().get::<ReflectionRegistryResource>() else {
         return;
     };
 
@@ -359,7 +380,12 @@ pub fn update_add_component_variants_system(
 
     let searched_text = text_c.text.clone();
 
-    let mut keys = serializers.0.keys().map(FfiString::from).collect::<Vec<_>>();
+    // reflection doesn't know which types are components: every struct or enum that can be created is offered
+    let mut keys = registry
+        .iter()
+        .filter(|r| r.has_default() && (r.as_struct().is_some() || r.as_enum().is_some()))
+        .map(|r| FfiString::from(r.type_name()))
+        .collect::<Vec<_>>();
     keys.sort();
 
     for component_id in keys {
@@ -613,17 +639,28 @@ fn paste_entities(
     Some(root)
 }
 
+// pasted onto the same component type if the entity has one, otherwise added
 fn paste_component(
     sim_res: ResourcesHolderRef,
-    sim_ent: EntitiesHolderMut,
+    mut sim_ent: EntitiesHolderMut,
     entity: EntityId,
     clipboard: &EditorClipboardResource,
 ) -> bool {
     let Some((component_id, value)) = clipboard.component() else {
         return false;
     };
+    let Some(registry) = sim_res.get::<ReflectionRegistryResource>() else {
+        return false;
+    };
+    let Some(value) = reflect_clone(registry, value) else {
+        return false;
+    };
 
-    deserialize_entity_component_at_path(sim_res, sim_ent, entity, component_id, "", value)
+    if with_component(sim_ent.as_ref(), entity, component_id, |_| ()).is_none() {
+        return sim_ent.add_component_any(entity, value).is_ok();
+    }
+
+    with_component_mut(sim_ent, entity, component_id, |mut c| c.replace(value).is_ok()).unwrap_or(false)
 }
 
 pub fn copy_selected_entity_hotkey_system(
@@ -696,19 +733,19 @@ pub fn apply_inspector_field_text_change_to_simulated_world_system(
     ent: EntitiesHolderRef,
     mut simulated_world: ResMut<SimulatedWorldResource>,
     inspected_entity: Res<InspectedEntityResource>,
-    inspected_asset: Res<InspectedAssetResource>,
+    mut inspected_asset: ResMut<InspectedAssetResource>,
     open_project: Res<OpenProjectResource>,
     mut asset_edited_evt: EvtMut<AssetEditedEvent>,
 ) {
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
 
     for text_changed_evt in text_changed_evt.iter() {
-        let edited = apply_inspector_serialized_value_to_simulated_world(
+        let edited = apply_inspector_leaf_to_simulated_world(
             ent,
             text_changed_evt.input_field,
             simulated_world,
             &inspected_entity,
-            &inspected_asset,
+            &mut inspected_asset,
             &open_project,
         );
 
@@ -723,19 +760,19 @@ pub fn apply_inspector_number_drag_to_simulated_world_system(
     ent: EntitiesHolderRef,
     mut simulated_world: ResMut<SimulatedWorldResource>,
     inspected_entity: Res<InspectedEntityResource>,
-    inspected_asset: Res<InspectedAssetResource>,
+    mut inspected_asset: ResMut<InspectedAssetResource>,
     open_project: Res<OpenProjectResource>,
     mut asset_edited_evt: EvtMut<AssetEditedEvent>,
 ) {
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
 
     for dragged_evt in dragged_evt.iter() {
-        let edited = apply_inspector_serialized_value_to_simulated_world(
+        let edited = apply_inspector_leaf_to_simulated_world(
             ent,
             dragged_evt.input_field,
             simulated_world,
             &inspected_entity,
-            &inspected_asset,
+            &mut inspected_asset,
             &open_project,
         );
 
@@ -749,14 +786,14 @@ pub fn open_inspector_enum_dropdown_system(
     input_res: Res<InputResource>,
     mut generic_dropdown_res: ResMut<GenericDropdownResource>,
     button_q: WorldQuery<&ButtonComponent>,
-    mut enum_metadata_q: WorldQuery<&mut SerializedEnumMetadataComponent>,
+    mut enum_q: WorldQuery<&mut InspectorEnumComponent>,
 ) {
-    for enum_metadata_c in enum_metadata_q.iter_mut() {
-        continue_if_not!(Some(button_c) = button_q.get(enum_metadata_c.value_button));
+    for enum_c in enum_q.iter_mut() {
+        continue_if_not!(Some(button_c) = button_q.get(enum_c.value_button));
         continue_if!(!button_c.was_clicked_this_frame);
 
         let position = Vec2::from_array(input_res.mouse.position.map(|v| v as f32));
-        enum_metadata_c.dropdown_request_id = generic_dropdown_res.request(enum_metadata_c.variants.clone(), position);
+        enum_c.dropdown_request_id = generic_dropdown_res.request(enum_c.variants.clone(), position);
     }
 }
 
@@ -765,48 +802,44 @@ pub fn apply_inspector_dropdown_change_to_simulated_world_system(
     generic_dropdown_res: Res<GenericDropdownResource>,
     mut simulated_world: ResMut<SimulatedWorldResource>,
     inspected_entity: Res<InspectedEntityResource>,
-    inspected_asset: Res<InspectedAssetResource>,
+    mut inspected_asset: ResMut<InspectedAssetResource>,
     open_project: Res<OpenProjectResource>,
     mut asset_edited_evt: EvtMut<AssetEditedEvent>,
 ) {
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
 
     let selections = ent
-        .query::<(EntityId, &SerializedEnumMetadataComponent)>()
+        .query::<(EntityId, &InspectorEnumComponent)>()
         .iter()
-        .filter_map(|(ent_enum_meta, enum_metadata_c)| {
-            let state = generic_dropdown_res.get_state(enum_metadata_c.dropdown_request_id);
+        .filter_map(|(ent_enum, enum_c)| {
+            let state = generic_dropdown_res.get_state(enum_c.dropdown_request_id);
             let GenericDropdownStateTy::Selected { idx } = state.ty else {
                 return None;
             };
-            Some((ent_enum_meta, state.variants.get(idx)?.clone()))
+            Some((ent_enum, state.variants.get(idx)?.clone()))
         })
         .collect::<Vec<_>>();
 
-    for (ent_enum_meta, variant) in selections {
-        let enum_metadata_c = ent
-            .get_component_mut::<SerializedEnumMetadataComponent>(ent_enum_meta)
-            .unwrap();
-        enum_metadata_c.dropdown_request_id = 0;
-        let ent_value_text = enum_metadata_c.value_text;
-
-        continue_if_not!(Some(text_c) = ent.get_component_mut::<TextComponent>(ent_value_text));
-        text_c.text = variant;
+    for (ent_enum, variant) in selections {
+        ent.get_component_mut::<InspectorEnumComponent>(ent_enum)
+            .unwrap()
+            .dropdown_request_id = 0;
 
         let ent = ent.as_ref();
 
         continue_if_not!(
-            Some(ent_composite) = find_in_parents(ent.query::<&ChildComponent>(), ent_enum_meta, |e| {
-                ent.get_component::<SerializedValueComponent>(e).map(|_| e)
+            Some(ent_composite) = find_in_parents(ent.query::<&ChildComponent>(), ent_enum, |e| {
+                ent.get_component::<InspectorValueComponent>(e).map(|_| e)
             })
         );
 
-        let edited = apply_inspector_serialized_value_to_simulated_world(
+        let edited = apply_inspector_edit_to_simulated_world(
             ent,
             ent_composite,
+            InspectorEdit::Variant(variant),
             simulated_world,
             &inspected_entity,
-            &inspected_asset,
+            &mut inspected_asset,
             &open_project,
         );
 
@@ -821,82 +854,33 @@ pub fn adjust_non_rigid_composite_system(
     ent: EntitiesHolderRef,
     mut simulated_world: ResMut<SimulatedWorldResource>,
     inspected_entity: Res<InspectedEntityResource>,
-    inspected_asset: Res<InspectedAssetResource>,
+    mut inspected_asset: ResMut<InspectedAssetResource>,
     open_project: Res<OpenProjectResource>,
     mut asset_edited_evt: EvtMut<AssetEditedEvent>,
 ) {
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
 
     for click_evt in click_evt.iter() {
-        let (ent_composite, is_add) = if let Some(btn_add_c) = ent.get_component::<SerializedCompositeAddButton>(click_evt.entity) {
-            (btn_add_c.composite, true)
-        } else if let Some(btn_remove_c) = ent.get_component::<SerializedCompositeRemoveButton>(click_evt.entity) {
-            (btn_remove_c.composite, false)
+        let (ent_composite, edit) = if let Some(btn_add_c) = ent.get_component::<InspectorCompositeAddButton>(click_evt.entity) {
+            (btn_add_c.composite, InspectorEdit::AddElement)
+        } else if let Some(btn_remove_c) = ent.get_component::<InspectorCompositeRemoveButton>(click_evt.entity) {
+            (btn_remove_c.composite, InspectorEdit::RemoveLastElement)
         } else {
             continue;
         };
 
-        continue_if_not!(Some(serialized_value_c) = ent.get_component::<SerializedValueComponent>(ent_composite));
-        continue_if_not!(
-            Some(target) = get_inspected_target(ent, ent_composite, simulated_world, &inspected_entity, &inspected_asset)
-        );
-
-        let path = serialized_value_c.path.as_str();
-
-        continue_if_not!(Some(SerializedValue::Composite(mut composite)) = serialize_from_simulated_world(
-            &target,
-            path,
+        let edited = apply_inspector_edit_to_simulated_world(
+            ent,
+            ent_composite,
+            edit,
             simulated_world,
             &inspected_entity,
-            &inspected_asset,
-        ));
+            &mut inspected_asset,
+            &open_project,
+        );
 
-        let did_asset_load = if is_add {
-            let new_key = match &composite.values {
-                SerializedCompositeValues::List(list) => list.len().to_string(),
-                SerializedCompositeValues::Map(map) => (0u64..)
-                    .map(|i| i.to_string())
-                    .find(|key| map.values.get(key.as_str()).is_none())
-                    .unwrap(),
-            };
-
-            deserialize_to_simulated_world(
-                &target,
-                &format!("{path}/{new_key}"),
-                &SerializedValue::Null,
-                simulated_world,
-                &inspected_entity,
-                &inspected_asset,
-                &open_project,
-            )
-        } else {
-            // todo: think about changing the serializing api:
-            // path writes can't remove elements, so the whole collection is rewritten without its last one
-            let did_remove = match &mut composite.values {
-                SerializedCompositeValues::List(list) => list.pop().is_some(),
-                SerializedCompositeValues::Map(map) => match map.values.len().checked_sub(1) {
-                    Some(idx_last) => {
-                        let key_last = map.values.get_by_idx(idx_last).unwrap().0.clone();
-                        map.values.remove_shift(&key_last).is_some()
-                    }
-                    None => false,
-                },
-            };
-
-            did_remove
-                && deserialize_to_simulated_world(
-                    &target,
-                    path,
-                    &SerializedValue::Composite(composite),
-                    simulated_world,
-                    &inspected_entity,
-                    &inspected_asset,
-                    &open_project,
-                )
-        };
-
-        if did_asset_load {
-            asset_edited_evt.push(target.edited_event());
+        if let Some(edited) = edited {
+            asset_edited_evt.push(edited);
         };
     }
 }
@@ -917,17 +901,17 @@ impl InspectedTarget {
 
 fn get_inspected_target(
     ent: EntitiesHolderRef,
-    ent_serialized: EntityId,
+    ent_value: EntityId,
     simulated_world: &SimulatedWorld,
     inspected_entity: &InspectedEntityResource,
     inspected_asset: &InspectedAssetResource,
 ) -> Option<InspectedTarget> {
     if is_inspected_entity_shown(simulated_world, inspected_entity) {
-        let serialized_component_c = find_in_parents(ent.query::<&ChildComponent>(), ent_serialized, |e| {
-            ent.get_component::<SerializedComponentComponent>(e)
+        let component_c = find_in_parents(ent.query::<&ChildComponent>(), ent_value, |e| {
+            ent.get_component::<InspectorComponentComponent>(e)
         })?;
 
-        let component_id_text_c = ent.get_component::<TextComponent>(serialized_component_c.component_id_text)?;
+        let component_id_text_c = ent.get_component::<TextComponent>(component_c.component_id_text)?;
 
         return Some(InspectedTarget::PrefabComponent {
             component_id: component_id_text_c.text.clone(),
@@ -943,88 +927,125 @@ fn get_inspected_target(
     Some(InspectedTarget::Asset(asset_type))
 }
 
-fn serialize_from_simulated_world(
+// the component on the selected simulated entity, or the inspected asset's reflected copy
+fn with_inspected_value<R>(
     target: &InspectedTarget,
-    path: &str,
-    simulated_world: &SimulatedWorld,
-    inspected_entity: &InspectedEntityResource,
-    inspected_asset: &InspectedAssetResource,
-) -> Option<SerializedValue> {
-    let res = simulated_world.data.as_ref().resources();
-
-    match target {
-        InspectedTarget::Asset(_) => save_asset_from_world_res(res, inspected_asset.asset_key.as_str())?
-            .get_by_path(path)
-            .cloned(),
-        InspectedTarget::PrefabComponent { component_id } => record_entity_components(
-            res,
-            simulated_world.data.as_ref().entities(),
-            inspected_entity.selected_entity,
-            EntityIdEncoder::World(simulated_world.data.as_ref().entities()),
-        )
-        .get(component_id)?
-        .get_by_path(path)
-        .cloned(),
-    }
-}
-
-fn deserialize_to_simulated_world(
-    target: &InspectedTarget,
-    path: &str,
-    serialized: &SerializedValue,
     simulated_world: &mut SimulatedWorld,
     inspected_entity: &InspectedEntityResource,
-    inspected_asset: &InspectedAssetResource,
-    open_project: &OpenProjectResource,
-) -> bool {
+    inspected_asset: &mut InspectedAssetResource,
+    f: impl FnOnce(&ReflectionRegistry, TransSerializerCtxState, FfiAnyMut) -> R,
+) -> Option<R> {
     match target {
-        InspectedTarget::Asset(asset_type) => deserialize_asset_to_world_res(
-            simulated_world.data.as_mut().resources_mut(),
-            inspected_asset.asset_key.as_str(),
-            path,
-            serialized,
-            *asset_type,
-            &(open_project.dir_path.to_string() + PROJECT_ASSETS_SUBPATH),
-        ),
+        InspectedTarget::Asset(_) => {
+            let res = simulated_world.data.as_ref().resources();
+            let registry = res.get::<ReflectionRegistryResource>()?;
+            let edited = inspected_asset.edited.as_mut()?;
+
+            save_load_with_asset_serializers_from_world(res, EntityIdCtx::default(), |state| {
+                f(registry, state, edited.0.as_any_mut())
+            })
+        }
         InspectedTarget::PrefabComponent { component_id } => {
             let (sim_res, sim_ent, _) = simulated_world.data.as_mut().into_tuple_mut();
+            let sim_res = sim_res.as_ref();
+            let registry = sim_res.get::<ReflectionRegistryResource>()?;
+            let (id_to_ent, ent_to_id) = entity_ids_of(sim_ent.as_ref());
+            let entity_ids = EntityIdCtx::new(
+                EntityIdDecoder::Restricted(&id_to_ent),
+                EntityIdEncoder::Restricted(&ent_to_id),
+            );
 
-            // todo: react to result?
-            deserialize_entity_component_at_path(
-                sim_res.as_ref(),
-                sim_ent,
-                inspected_entity.selected_entity,
-                component_id,
-                path,
-                serialized,
-            )
+            save_load_with_asset_serializers_from_world(sim_res, entity_ids, |state| {
+                with_component_mut(sim_ent, inspected_entity.selected_entity, component_id, |c| {
+                    f(registry, state, c)
+                })
+            })
+            .flatten()
         }
     }
 }
 
-fn apply_inspector_serialized_value_to_simulated_world(
-    ent: EntitiesHolderRef,
-    ent_serialized: EntityId,
+fn edit_inspected_target(
+    target: &InspectedTarget,
+    path: &ReflectPath,
+    edit: InspectorEdit,
     simulated_world: &mut SimulatedWorld,
     inspected_entity: &InspectedEntityResource,
-    inspected_asset: &InspectedAssetResource,
+    inspected_asset: &mut InspectedAssetResource,
+    open_project: &OpenProjectResource,
+) -> bool {
+    let is_edited = with_inspected_value(
+        target,
+        simulated_world,
+        inspected_entity,
+        inspected_asset,
+        |registry, state, root| apply_inspector_edit(registry, state, root, path, edit),
+    )
+    .unwrap_or(false);
+
+    if let InspectedTarget::Asset(asset_type) = target
+        && is_edited
+        && let Some(edited) = &inspected_asset.edited
+    {
+        return reload_asset_from_inspected_copy(
+            simulated_world.data.as_mut().resources_mut(),
+            inspected_asset.asset_key.as_str(),
+            *asset_type,
+            edited.0.as_any_ref(),
+            &(open_project.dir_path.to_string() + PROJECT_ASSETS_SUBPATH),
+        );
+    }
+
+    is_edited
+}
+
+fn apply_inspector_edit_to_simulated_world(
+    ent: EntitiesHolderRef,
+    ent_value: EntityId,
+    edit: InspectorEdit,
+    simulated_world: &mut SimulatedWorld,
+    inspected_entity: &InspectedEntityResource,
+    inspected_asset: &mut InspectedAssetResource,
     open_project: &OpenProjectResource,
 ) -> Option<AssetEditedEvent> {
-    let serialized_value_c = ent.get_component::<SerializedValueComponent>(ent_serialized)?;
+    let value_c = ent.get_component::<InspectorValueComponent>(ent_value)?;
+    let target = get_inspected_target(ent, ent_value, simulated_world, inspected_entity, inspected_asset)?;
 
-    let target = get_inspected_target(ent, ent_serialized, simulated_world, inspected_entity, inspected_asset)?;
-
-    let did_asset_load = deserialize_to_simulated_world(
+    edit_inspected_target(
         &target,
-        &serialized_value_c.path,
-        &parse_serialized(ent, ent_serialized),
+        &value_c.path,
+        edit,
         simulated_world,
         inspected_entity,
         inspected_asset,
         open_project,
-    );
+    )
+    .then(|| target.edited_event())
+}
 
-    did_asset_load.then(|| target.edited_event())
+fn apply_inspector_leaf_to_simulated_world(
+    ent: EntitiesHolderRef,
+    ent_input: EntityId,
+    simulated_world: &mut SimulatedWorld,
+    inspected_entity: &InspectedEntityResource,
+    inspected_asset: &mut InspectedAssetResource,
+    open_project: &OpenProjectResource,
+) -> Option<AssetEditedEvent> {
+    let InspectorValueComponentTy::Leaf { kind, .. } = ent.get_component::<InspectorValueComponent>(ent_input)?.ty else {
+        return None;
+    };
+    let input_c = ent.get_component::<InputFieldComponent>(ent_input)?;
+    let text = ent.get_component::<TextComponent>(input_c.text)?.text.clone();
+
+    apply_inspector_edit_to_simulated_world(
+        ent,
+        ent_input,
+        InspectorEdit::Leaf { kind, text },
+        simulated_world,
+        inspected_entity,
+        inspected_asset,
+        open_project,
+    )
 }
 
 pub fn save_simulated_entities_to_asset_system(
@@ -1349,18 +1370,50 @@ fn spawn_hierarchy_window_entries_recursively(
     }
 }
 
-pub fn change_inspected_asset_system(selected_file: Res<SelectedFileResource>, mut inspected_asset: ResMut<InspectedAssetResource>) {
+pub fn change_inspected_asset_system(
+    selected_file: Res<SelectedFileResource>,
+    simulated_world: Res<SimulatedWorldResource>,
+    mut inspected_asset: ResMut<InspectedAssetResource>,
+) {
     if inspected_asset.asset_key.as_str() != selected_file.potential_asset_key.as_str() {
         inspected_asset.asset_key = selected_file.potential_asset_key.clone();
         inspected_asset.path = selected_file.path.clone();
+        inspected_asset.edited = None;
     }
+
+    return_if!(inspected_asset.edited.is_some() || inspected_asset.asset_key.is_empty());
+    return_if_not!(Some(simulated_world) = &simulated_world.0);
+
+    inspected_asset.edited =
+        clone_asset_for_inspection(simulated_world.data.as_ref().resources(), inspected_asset.asset_key.as_str()).map(EditorValue);
+}
+
+fn record_inspected_components(simulated_world: &SimulatedWorld, entity: EntityId) -> Vec<(FfiString, InspectorValue)> {
+    let res = simulated_world.data.as_ref().resources();
+    let ent = simulated_world.data.as_ref().entities();
+    let registry = res.get::<ReflectionRegistryResource>().cloned().unwrap_or_default();
+    let entity_ids = EntityIdCtx::new(EntityIdDecoder::Empty, EntityIdEncoder::World(ent));
+
+    save_load_with_asset_serializers_from_world(res, entity_ids, |state| {
+        let mut components = Vec::new();
+
+        ent.get_all_components(entity, |c| {
+            components.push((
+                FfiString::from(c.type_info().short().name()),
+                build_inspector_value(&registry, state, c),
+            ))
+        });
+
+        components
+    })
+    .unwrap_or_default()
 }
 
 pub fn update_inspector_window_system(
     mut ent: EntitiesHolderMut,
     selected_input_field: Res<SelectedInputFieldResource>,
     mut inspected_entity: ResMut<InspectedEntityResource>,
-    selected_file: Res<SelectedFileResource>,
+    inspected_asset: Res<InspectedAssetResource>,
     simulated_world: Res<SimulatedWorldResource>,
     assets: Res<StandardAssetsResource>,
     file_selected_evt: Evt<FileSelectedEvent>,
@@ -1372,16 +1425,10 @@ pub fn update_inspector_window_system(
 ) {
     return_if_not!(Some(simulated_world) = &simulated_world.0);
 
-    let shown_components = is_inspected_entity_shown(simulated_world, &inspected_entity).then(|| {
-        record_entity_components(
-            simulated_world.data.as_ref().resources(),
-            simulated_world.data.as_ref().entities(),
-            inspected_entity.selected_entity,
-            EntityIdEncoder::World(simulated_world.data.as_ref().entities()),
-        )
-    });
+    let shown_components = is_inspected_entity_shown(simulated_world, &inspected_entity)
+        .then(|| record_inspected_components(simulated_world, inspected_entity.selected_entity));
 
-    let is_entity_changed = !same_shown_components(&shown_components, &inspected_entity.shown_components);
+    let is_entity_changed = shown_components != inspected_entity.shown_components;
     inspected_entity.shown_components = shown_components;
 
     // todo
@@ -1421,10 +1468,9 @@ pub fn update_inspector_window_system(
             continue;
         }
 
-        let Some(asset_type) = get_asset_type(
-            simulated_world.data.as_ref().resources(),
-            selected_file.potential_asset_key.as_str(),
-        ) else {
+        let res = simulated_world.data.as_ref().resources();
+
+        let Some(asset_type) = get_asset_type(res, inspected_asset.asset_key.as_str()) else {
             destroy_entity_children(ent.as_mut(), window_c.content_container);
             continue;
         };
@@ -1437,22 +1483,13 @@ pub fn update_inspector_window_system(
             continue;
         }
 
-        let inspected_asset = InspectedAsset {
-            asset_key: selected_file.potential_asset_key.clone().into(),
-            asset_type,
-        };
-
-        // todo
-        let mut err_handler = |err| println!("[{}:{}] {err}", file!(), line!());
-        // let mut err_handler = |_| ();
-
-        let serialized =
-            save_load_with_asset_serializers_from_world(
-                simulated_world.data.as_ref().resources(),
-                EntityIdCtx::default(),
-                |serializer_ctx_state| inspected_asset.to_serialized(serializer_ctx_state.into_ctx(&mut err_handler)),
-            )
-            .unwrap();
+        let value = match (&inspected_asset.edited, res.get::<ReflectionRegistryResource>()) {
+            (Some(edited), Some(registry)) => save_load_with_asset_serializers_from_world(res, EntityIdCtx::default(), |state| {
+                build_inspector_value(registry, state, edited.0.as_any_ref())
+            }),
+            _ => None,
+        }
+        .unwrap_or_else(|| InspectorValue::read_only("not inspectable through reflection"));
 
         let ent_last = ent
             .get_component::<ParentComponent>(window_c.content_container)
@@ -1468,13 +1505,13 @@ pub fn update_inspector_window_system(
             }
         }
 
-        spawn_serialized(
+        spawn_inspector_value(
             ent.as_mut(),
             ent_last,
             window_c.content_container,
             ent_selected_input,
-            "".into(),
-            &serialized,
+            ReflectPath::new(),
+            &value,
             assets.material_panel.clone(),
             assets.material_text.clone(),
             assets.font.clone(),
@@ -1482,28 +1519,11 @@ pub fn update_inspector_window_system(
     }
 }
 
-fn same_shown_components(
-    lhs: &Option<FfiIndexMap<FfiString, SerializedValue>>,
-    rhs: &Option<FfiIndexMap<FfiString, SerializedValue>>,
-) -> bool {
-    match (lhs, rhs) {
-        (None, None) => true,
-        (Some(lhs), Some(rhs)) => {
-            lhs.len() == rhs.len()
-                && lhs
-                    .iter()
-                    .zip(rhs.iter())
-                    .all(|((lhs_id, lhs_val), (rhs_id, rhs_val))| lhs_id == rhs_id && lhs_val.similar(rhs_val))
-        }
-        _ => false,
-    }
-}
-
 fn update_prefab_components_ent(
     mut ent: EntitiesHolderMut,
     ent_parent: EntityId,
     ent_selected_input: EntityId,
-    components: &FfiIndexMap<FfiString, SerializedValue>,
+    components: &[(FfiString, InspectorValue)],
     foldout_res: &FoldoutResource,
     material_panel: AssetHandle<Material>,
     material_text: AssetHandle<Material>,
@@ -1514,7 +1534,7 @@ fn update_prefab_components_ent(
             .children()
             .iter()
             .copied()
-            .filter(|&e| ent.get_component::<SerializedComponentComponent>(e).is_none())
+            .filter(|&e| ent.get_component::<InspectorComponentComponent>(e).is_none())
             .collect::<Vec<_>>();
         for e in foreign {
             destroy_entity_and_children(ent.as_mut(), e);
@@ -1562,7 +1582,7 @@ fn update_prefab_component_ent(
     ent_parent: EntityId,
     ent_selected_input: EntityId,
     component_id: &str,
-    component_value: &SerializedValue,
+    component_value: &InspectorValue,
     foldout_res: &FoldoutResource,
     material_panel: AssetHandle<Material>,
     material_text: AssetHandle<Material>,
@@ -1573,7 +1593,7 @@ fn update_prefab_component_ent(
     };
     let is_expanded = foldout_res.is_expanded(&key);
 
-    if let Some(&serialized_component_c) = ent.get_component::<SerializedComponentComponent>(ent_last)
+    if let Some(&serialized_component_c) = ent.get_component::<InspectorComponentComponent>(ent_last)
         && let Some(container_parent_c) = ent.get_component::<ParentComponent>(serialized_component_c.component_data_container)
         && let data_ents = container_parent_c.children().to_vec()
         && let Some(text_c) = ent.get_component_mut::<TextComponent>(serialized_component_c.component_id_text)
@@ -1596,12 +1616,12 @@ fn update_prefab_component_ent(
 
         return_if!(!is_expanded);
 
-        spawn_serialized(
+        spawn_inspector_value(
             ent.as_mut(),
             data_ent,
             serialized_component_c.component_data_container,
             ent_selected_input,
-            "".into(),
+            ReflectPath::new(),
             component_value,
             material_panel.clone(),
             material_text.clone(),
@@ -1655,7 +1675,7 @@ fn update_prefab_component_ent(
 
     ent.set_component(
         comp_ent,
-        SerializedComponentComponent {
+        InspectorComponentComponent {
             component_id_text: componet_id_text_ent,
             component_data_container: comp_data_container,
             foldout_arrow,
@@ -1664,12 +1684,12 @@ fn update_prefab_component_ent(
 
     return_if!(!is_expanded);
 
-    spawn_serialized(
+    spawn_inspector_value(
         ent.as_mut(),
         EntityId::EMPTY,
         comp_data_container,
         ent_selected_input,
-        "".into(),
+        ReflectPath::new(),
         component_value,
         material_panel.clone(),
         material_text.clone(),

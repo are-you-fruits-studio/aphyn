@@ -192,6 +192,23 @@
 //! assert_eq!(fns.call(c, 0), None);
 //! ```
 //!
+//! #### Overwriting a type-erased value
+//!
+//! [`FfiAnyMut::replace`] moves an [`FfiAny`] of the same type into the borrowed place and
+//! returns the previous value; a value of another type is handed back as `Err`.
+//!
+//! ```
+//! use aphyn_ffi::{FfiAny, FfiAnyMut, FfiString};
+//!
+//! let mut name = FfiString::from("old");
+//! let mut place = FfiAnyMut::new(&mut name);
+//!
+//! let previous = place.replace(FfiAny::new(FfiString::from("new"))).ok().unwrap();
+//! assert_eq!(previous.downcast_ref::<FfiString>().unwrap().as_str(), "old");
+//! assert!(place.replace(FfiAny::new(5_u32)).is_err());
+//! assert_eq!(name.as_str(), "new");
+//! ```
+//!
 //! #### Passing an optional reference as a nullable pointer
 //!
 //! [`ref_into_nullable_ptr`] / [`mut_into_nullable_ptr`] turn an `Option<&T>` into a
@@ -248,7 +265,9 @@
 //! [`FfiAnyPtr`] pair a pointer with a `&'static FfiExtendedTypeInfo`; downcasts check
 //! size, align, and `std::any::type_name` through
 //! [`FfiShortTypeInfo::does_match`] rather than `TypeId`, because the type name is what
-//! both sides of the boundary can agree on. [`FfiOpaqueRef`] / [`FfiOpaqueMut`] are bare
+//! both sides of the boundary can agree on. [`FfiAnyMut::replace`] compares two type infos
+//! the same way ([`FfiShortTypeInfo::matches`]) and swaps the bytes of the place and the
+//! boxed value, so the `FfiAny` it returns owns, and later drops, the previous value. [`FfiOpaqueRef`] / [`FfiOpaqueMut`] are bare
 //! lifetime-carrying pointers with no type information at all.
 //!
 //! [`FfiDroppable`] boxes a value behind a single opaque pointer whose allocation
