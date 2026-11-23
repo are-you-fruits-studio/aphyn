@@ -7,8 +7,15 @@ const PRIME_Z: i64 = 0x5BCC226E9FA0BACB;
 const HASH_MULTIPLIER: i64 = 0x53A3F72DEEC546F5;
 const SEED_FLIP_3D: i64 = -0x52D547B2E96ED629;
 const FALLBACK_ROTATE_3D: f64 = 2.0 / 3.0;
-const NORMALIZER_3D: f64 = 0.07969837668935331;
-const RSQUARED_3D: f32 = 0.6;
+// The reference uses r^2 = 0.6, but the fast variant only evaluates the closest and the
+// second-closest point of each lattice copy, and a point it skips can be as close as d^2 = 0.5
+// (two axes tying for the second-closest at |offset| = 0.5). With 0.6 such a point still
+// contributes, so the value jumps where the choice flips (up to ~0.006, along whole planes).
+// 0.5 makes every skipped point contribute exactly 0. The normalizer is the reference's scaled by
+// the measured maximum of the smaller kernel (a search that reproduces the reference normalizer
+// at 0.6).
+const NORMALIZER_3D: f64 = 0.030485949123;
+const RSQUARED_3D: f32 = 0.5;
 const GRADIENTS_3D: [[f32; 3]; 48] = build_gradients_3d();
 const SKEW_2D: f64 = 0.366025403784439;
 const UNSKEW_2D: f64 = -0.21132486540518713;
@@ -338,6 +345,26 @@ mod tests {
             let step = noise.sample(p + Vec3::new(1e-3, -1e-3, 1e-3)) - noise.sample(p);
             assert!(step.abs() < 0.02, "jump {step} at {p:?}");
         }
+    }
+
+    // Where two axes tie for the second-closest point of a lattice copy (here |xr| and |yr| have
+    // equal fractions: integer x at y = 0), the fast variant picks one of two vertices. Every vertex
+    // it leaves out must already contribute 0, or the value jumps across the tie.
+    #[test]
+    fn continuous_3d_across_second_closest_ties() {
+        let noise = OpenSimplex3D::new(7);
+        let delta = 2e-6;
+        let mut worst = 0.0f32;
+        for k in -8i16..=8 {
+            for j in 0u8..64 {
+                let z = f32::from(j) * 0.123 - 4.0;
+                let x = f32::from(k);
+                let jump = unclamped(&noise, Vec3::new(x + delta, 0.0, z)) - unclamped(&noise, Vec3::new(x - delta, 0.0, z));
+                worst = worst.max(jump.abs());
+            }
+        }
+        // the noise's steepest slope over 2 * delta stays far below this
+        assert!(worst < 2e-4, "jump {worst} across a tie");
     }
 
     fn points_2d() -> impl Iterator<Item = Vec2<f32>> {

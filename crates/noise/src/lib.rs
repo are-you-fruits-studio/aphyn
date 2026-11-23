@@ -33,7 +33,9 @@
 //! #### OpenSimplex2
 //!
 //! [`OpenSimplex2D::sample`] and [`OpenSimplex3D::sample`] return `[-1, 1]` with a mean near 0. They are ports of
-//! KdotJPG's OpenSimplex2 (fast variant): 2D `noise2` and 3D `noise3_Fallback`.
+//! KdotJPG's OpenSimplex2 (fast variant): 2D `noise2` and 3D `noise3_Fallback`. 3D uses a kernel radius of
+//! r² = 0.5 instead of the reference's 0.6, which makes it continuous (the reference jumps slightly where its
+//! choice of second-closest lattice point flips); its features are a little smaller than the reference's.
 //!
 //! #### Worley
 //!
