@@ -18,7 +18,7 @@ use crate::{
                 open_component_context_menu_system, open_entities_asset_system, open_field_value_context_menu_system,
                 open_hierarchy_context_menu_system, open_inspector_enum_dropdown_system, paste_entities_hotkey_system,
                 save_inspected_asset_from_simulated_world_to_file_system, save_simulated_entities_to_asset_system,
-                select_entity_system, update_add_component_input_visibility_system, update_add_component_variants_system,
+                select_entity_system, toggle_inspector_checkbox_system, update_add_component_input_visibility_system, update_add_component_variants_system,
                 update_hierarchy_entries_selection, update_hierarchy_window_system, update_inspector_window_system,
             },
         },
@@ -40,7 +40,6 @@ pub mod utils;
 
 // todo: asset references as asset picker
 // todo: improve scroll (scroll handle auto-hide)
-// todo: bool as a checkbox
 // todo: float short form
 // todo: better text editing
 // todo: fancier visuals
@@ -81,6 +80,7 @@ pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuild
         .insert_child_system(select_entity_system)
         .insert_child_system(update_hierarchy_entries_selection)
         .insert_child_system(adjust_non_rigid_composite_system)
+        .insert_child_system(toggle_inspector_checkbox_system)
         .insert_child_system(add_component_system)
         .insert_child_system(update_add_component_variants_system)
         .insert_child_system(update_add_component_input_visibility_system)
@@ -270,6 +270,20 @@ pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuild
     update
         .order_system(check_ui_interaction_system)
         .before_system(adjust_non_rigid_composite_system);
+
+    update
+        .order_system(check_ui_interaction_system)
+        .before_system(toggle_inspector_checkbox_system);
+
+    update
+        .order_system(select_file_system)
+        .before_system(toggle_inspector_checkbox_system);
+
+    update
+        .order_system(toggle_inspector_checkbox_system)
+        .before_system(save_simulated_entities_to_asset_system)
+        .before_system(save_inspected_asset_from_simulated_world_to_file_system)
+        .before_system(update_inspector_window_system);
 
     //
 }

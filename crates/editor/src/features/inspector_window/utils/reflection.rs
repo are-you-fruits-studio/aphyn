@@ -1,4 +1,8 @@
-use std::collections::HashMap;
+use std::{
+    any::type_name,
+    collections::{HashMap, HashSet},
+    sync::LazyLock,
+};
 
 use crate::*;
 
@@ -9,6 +13,8 @@ pub enum InspectorLeafKind {
     Int,
     Float,
     String,
+    // a float quaternion's Euler angle in degrees; its path is the quaternion's component of the same axis
+    Euler(u8),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -33,6 +39,7 @@ pub enum InspectorValue {
     Container {
         kind: InspectorContainerKind,
         is_rigid: bool,
+        is_inline: bool,
         enum_variants: Option<InspectorEnum>,
         entries: Vec<(FfiString, InspectorValue)>,
     },
@@ -46,9 +53,31 @@ impl InspectorValue {
         }
     }
 
-    pub fn is_leaf(&self) -> bool {
-        matches!(self, Self::Leaf { .. })
+    pub fn is_single_line(&self) -> bool {
+        matches!(self, Self::Leaf { .. } | Self::Container { is_inline: true, .. })
     }
+}
+
+static INLINE_VECTOR_TYPE_NAMES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+    macro_rules! vectors_of {
+        ($($t:ty),*) => {
+            [$([type_name::<Vec2<$t>>(), type_name::<Vec3<$t>>(), type_name::<Vec4<$t>>()]),*]
+        };
+    }
+
+    vectors_of!(
+        f32, f64, i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize, bool, char
+    )
+    .into_iter()
+    .flatten()
+    .collect()
+});
+
+const EULER_ORDER: RotationOrder3D = RotationOrder3D::Zxy;
+const QUAT_FIELDS: [&str; 4] = ["x", "y", "z", "w"];
+
+fn is_float_quat(name: &str) -> bool {
+    name == type_name::<Quat<f32>>() || name == type_name::<Quat<f64>>()
 }
 
 pub enum InspectorEdit {
@@ -77,9 +106,34 @@ pub fn build_inspector_value(registry: &ReflectionRegistry, state: TransSerializ
             let (text, kind) = leaf_text(state, value);
             InspectorValue::Leaf { text, kind }
         }
+        Reflector::Struct(r) if is_float_quat(type_name) => match read_float_quat(r, state, value) {
+            Some(quat) => InspectorValue::Container {
+                kind: InspectorContainerKind::Fields,
+                is_rigid: true,
+                is_inline: true,
+                enum_variants: None,
+                entries: quat
+                    .to_euler_angles(EULER_ORDER)
+                    .into_array()
+                    .into_iter()
+                    .zip(QUAT_FIELDS)
+                    .enumerate()
+                    .map(|(axis, (angle, name))| {
+                        let text = format!("{}", (angle.to_degrees() * 1e4).round() / 1e4 + 0.0);
+                        let leaf = InspectorValue::Leaf {
+                            text: text.into(),
+                            kind: InspectorLeafKind::Euler(axis as u8),
+                        };
+                        (FfiString::from(name), leaf)
+                    })
+                    .collect(),
+            },
+            None => InspectorValue::read_only("<inaccessible>"),
+        },
         Reflector::Struct(r) => InspectorValue::Container {
             kind: InspectorContainerKind::Fields,
             is_rigid: true,
+            is_inline: INLINE_VECTOR_TYPE_NAMES.contains(type_name),
             enum_variants: None,
             entries: r.fields().map(|f| (f.name().into(), build(f.get(value)))).collect(),
         },
@@ -89,6 +143,7 @@ pub fn build_inspector_value(registry: &ReflectionRegistry, state: TransSerializ
             InspectorValue::Container {
                 kind: InspectorContainerKind::Fields,
                 is_rigid: true,
+                is_inline: false,
                 enum_variants: Some(InspectorEnum {
                     variant: active.map(|v| FfiString::from(v.name())).unwrap_or_default(),
                     variants: r.variants().map(|v| FfiString::from(v.name())).collect(),
@@ -101,6 +156,7 @@ pub fn build_inspector_value(registry: &ReflectionRegistry, state: TransSerializ
         Reflector::List(r) => InspectorValue::Container {
             kind: InspectorContainerKind::List,
             is_rigid: r.is_rigid(),
+            is_inline: false,
             enum_variants: None,
             entries: (0..r.len(value).unwrap_or(0))
                 .map(|i| (FfiString::from(i.to_string()), build(r.get(value, i))))
@@ -109,6 +165,7 @@ pub fn build_inspector_value(registry: &ReflectionRegistry, state: TransSerializ
         Reflector::Map(r) => InspectorValue::Container {
             kind: InspectorContainerKind::Map,
             is_rigid: r.is_rigid(),
+            is_inline: false,
             enum_variants: None,
             entries: r
                 .keys(value)
@@ -138,7 +195,9 @@ pub fn parse_leaf_text(kind: InspectorLeafKind, text: &str) -> Option<Serialized
         InspectorLeafKind::ReadOnly => None,
         InspectorLeafKind::Bool => Some(SerializedPrimitive::Bool(text.trim().eq_ignore_ascii_case("true"))),
         InspectorLeafKind::Int => Some(SerializedPrimitive::Int(text.trim().parse().unwrap_or(0))),
-        InspectorLeafKind::Float => Some(SerializedPrimitive::Float(text.trim().parse().unwrap_or(0.0))),
+        InspectorLeafKind::Float | InspectorLeafKind::Euler(_) => {
+            Some(SerializedPrimitive::Float(text.trim().parse().unwrap_or(0.0)))
+        }
         InspectorLeafKind::String => Some(SerializedPrimitive::String(text.into())),
     }
 }
@@ -157,6 +216,14 @@ pub fn apply_inspector_edit(
     path: &ReflectPath,
     edit: InspectorEdit,
 ) -> bool {
+    if let InspectorEdit::Leaf {
+        kind: InspectorLeafKind::Euler(axis),
+        text,
+    } = &edit
+    {
+        return apply_euler_edit(registry, state, root, path, *axis as usize, text);
+    }
+
     let Some(mut value) = resolve_mut(registry, root, path.segments()) else {
         return false;
     };
@@ -226,6 +293,50 @@ pub fn apply_inspector_edit(
         },
         InspectorEdit::Replace(new_value) => value.replace(new_value).is_ok(),
     }
+}
+
+fn read_float_quat(r: &StructReflector, state: TransSerializerCtxState, value: FfiAnyRef) -> Option<Quat<f64>> {
+    let [x, y, z, w] = QUAT_FIELDS.map(|name| {
+        let field = r.field(name)?.get(value)?;
+        leaf_text(state, field).0.as_str().parse::<f64>().ok()
+    });
+    Some(Quat::new(x?, y?, z?, w?))
+}
+
+fn apply_euler_edit(
+    registry: &ReflectionRegistry,
+    state: TransSerializerCtxState,
+    root: FfiAnyMut,
+    path: &ReflectPath,
+    axis: usize,
+    text: &str,
+) -> bool {
+    let Some(mut quat_value) = path.parent().and_then(|p| resolve_mut(registry, root, p.segments())) else {
+        return false;
+    };
+    let Some(reflector) = registry.get(quat_value.type_info().short().name()).cloned() else {
+        return false;
+    };
+    let (Some(r), Ok(angle)) = (reflector.as_struct(), text.trim().parse::<f64>()) else {
+        return false;
+    };
+    let Some(quat) = read_float_quat(r, state, quat_value.as_any_ref()) else {
+        return false;
+    };
+
+    let mut angles = quat.to_euler_angles(EULER_ORDER).into_array();
+    let Some(edited) = angles.get_mut(axis) else {
+        return false;
+    };
+    *edited = angle.to_radians();
+    let quat = Quat::<f64>::from_euler_angles(Vec3::from_array(angles), EULER_ORDER);
+
+    for (name, component) in QUAT_FIELDS.into_iter().zip(quat.into_array()) {
+        if let Some(field) = r.field(name).and_then(|f| f.get_mut(quat_value.reborrow())) {
+            write_leaf(state, field, SerializedPrimitive::Float(component));
+        }
+    }
+    true
 }
 
 // the key type's default, or else the first of "0", "1", ... the key type deserializes to that is still free

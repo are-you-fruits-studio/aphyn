@@ -355,18 +355,63 @@ fn update_masked_batched_mesh_subtree(
         let min = rect.center - rect.scale * 0.5;
         let max = rect.center + rect.scale * 0.5;
 
-        // todo: Use proper masking.
         if let Some(mesh) = mesh_q.get_mut(e) {
-            for vertex in &mut mesh.vertices {
-                let mut pos = Vec3::from_array(vertex.position).xy();
-
-                pos = pos.zip_copied(min, f32::max);
-                pos = pos.zip_copied(max, f32::min);
-
-                vertex.position = [pos.x, pos.y, vertex.position[2]];
-            }
+            crop_mesh_to_rect(mesh, min, max);
         }
 
         Some(rect)
     });
+}
+
+// clamps positions into the rect and moves uvs along through each triangle's position-to-uv mapping:
+// exact for axis-aligned quads (images, glyphs), approximate for other triangles
+fn crop_mesh_to_rect(mesh: &mut BatchedMeshComponent, min: Vec2<f32>, max: Vec2<f32>) {
+    let original = mesh.vertices.as_slice().to_vec();
+    let mut is_cropped = vec![false; original.len()];
+
+    let pos_of = |v: &StandardVertex| Vec3::from_array(v.position).xy();
+    let uv_of = |v: &StandardVertex| Vec2::from_array(v.uv);
+    let clamp = |pos: Vec2<f32>| pos.zip_copied(min, f32::max).zip_copied(max, f32::min);
+
+    for triangle in mesh.indices.as_slice().chunks_exact(3) {
+        let [a, b, c] = [triangle[0], triangle[1], triangle[2]].map(|i| i as usize);
+        let (Some(va), Some(vb), Some(vc)) = (original.get(a), original.get(b), original.get(c)) else {
+            continue;
+        };
+
+        let (pa, e1, e2) = (pos_of(va), pos_of(vb) - pos_of(va), pos_of(vc) - pos_of(va));
+        let det = e1.x * e2.y - e1.y * e2.x;
+        if det.abs() < f32::EPSILON {
+            continue;
+        }
+
+        for i in [a, b, c] {
+            if is_cropped[i] {
+                continue;
+            }
+            is_cropped[i] = true;
+
+            let pos = pos_of(&original[i]);
+            let clamped = clamp(pos);
+            if clamped == pos {
+                continue;
+            }
+
+            let d = clamped - pa;
+            let s = (d.x * e2.y - d.y * e2.x) / det;
+            let t = (e1.x * d.y - e1.y * d.x) / det;
+            let uv = uv_of(va) + (uv_of(vb) - uv_of(va)) * s + (uv_of(vc) - uv_of(va)) * t;
+
+            let vertex = &mut mesh.vertices[i as u64];
+            vertex.position = [clamped.x, clamped.y, vertex.position[2]];
+            vertex.uv = uv.into_array();
+        }
+    }
+
+    for (i, vertex) in mesh.vertices.iter_mut().enumerate() {
+        if !is_cropped[i] {
+            let pos = clamp(Vec3::from_array(vertex.position).xy());
+            vertex.position = [pos.x, pos.y, vertex.position[2]];
+        }
+    }
 }

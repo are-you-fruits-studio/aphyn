@@ -127,6 +127,7 @@ pub fn spawn_inspector_value(
         InspectorValue::Container {
             kind,
             is_rigid,
+            is_inline,
             enum_variants,
             entries,
         } => spawn_inspector_container(
@@ -137,6 +138,7 @@ pub fn spawn_inspector_value(
             path,
             *kind,
             *is_rigid,
+            *is_inline,
             enum_variants.as_ref(),
             entries,
             material_panel,
@@ -158,6 +160,10 @@ fn spawn_inspector_leaf(
     material_text: AssetHandle<Material>,
     font: AssetHandle<Font>,
 ) -> EntityId {
+    if kind == InspectorLeafKind::Bool {
+        return spawn_inspector_checkbox(ent, ent_last, ent_parent, path, text.as_str() == "true", material_panel);
+    }
+
     let is_read_only = kind == InspectorLeafKind::ReadOnly;
 
     if let Some(InspectorValueComponent {
@@ -214,6 +220,125 @@ fn spawn_inspector_leaf(
     ent_text
 }
 
+fn spawn_inspector_checkbox(
+    mut ent: EntitiesHolderMut,
+    ent_last: EntityId,
+    ent_parent: EntityId,
+    path: ReflectPath,
+    is_checked: bool,
+    material_panel: AssetHandle<Material>,
+) -> EntityId {
+    if let Some(value_c) = ent.get_component_mut::<InspectorValueComponent>(ent_last)
+        && let InspectorValueComponentTy::Checkbox {
+            mark,
+            is_checked: last_is_checked,
+            ..
+        } = &mut value_c.ty
+    {
+        *last_is_checked = is_checked;
+        let mark = *mark;
+        value_c.path = path;
+
+        if let Some(disableable_c) = ent.get_component_mut::<LocalDisableableComponent>(mark) {
+            disableable_c.is_disabled = !is_checked;
+        }
+        return ent_last;
+    }
+
+    destroy_entity_and_children(ent.as_mut(), ent_last);
+
+    let ent_root = ent.create_entity();
+    let ent_box = ent.create_entity();
+    let ent_background = ent.create_entity();
+    let ent_mark = ent.create_entity();
+
+    ent.set_components(
+        ent_root,
+        (
+            GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
+            LocalRectComponent {
+                scale: Vec2::new(UiVal::pd(1.0).into(), FIELD_HEIGHT.into()),
+                ..Default::default()
+            },
+            InspectorValueComponent {
+                path,
+                ty: InspectorValueComponentTy::Checkbox {
+                    button: ent_box,
+                    mark: ent_mark,
+                    is_checked,
+                },
+            },
+        ),
+    );
+    set_parent(ent.as_mut(), ent_root, ent_parent);
+
+    let panel = |color: &str| {
+        (
+            MaterialComponent {
+                material: material_panel.clone(),
+            },
+            BatchedMeshComponent::default(),
+            ImageComponent {
+                color: Vec4::from_array(parse_color_rgba_f32(color).unwrap()),
+                ..Default::default()
+            },
+        )
+    };
+
+    ent.set_components(
+        ent_box,
+        (
+            GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
+            LocalRectComponent {
+                anchor: Vec2::new(0.0, 0.5),
+                pivot: Vec2::new(0.0, 0.5),
+                scale: Vec2::new(FIELD_HEIGHT, FIELD_HEIGHT).map(Into::into),
+                ..Default::default()
+            },
+            ButtonComponent::default(),
+        ),
+    );
+    ent.set_components(ent_box, panel("#a7a7a7ff"));
+    set_parent(ent.as_mut(), ent_box, ent_root);
+
+    let padded = |padding: f32| LocalRectComponent {
+        parent_padding_min: Vec2::splat(UiVal::px(padding)),
+        parent_padding_max: Vec2::splat(UiVal::px(padding)),
+        ..Default::default()
+    };
+
+    ent.set_components(
+        ent_background,
+        (
+            GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
+            padded(1.0),
+        ),
+    );
+    ent.set_components(ent_background, panel("#272727ff"));
+    set_parent(ent.as_mut(), ent_background, ent_box);
+
+    ent.set_components(
+        ent_mark,
+        (
+            GlobalRectComponent::default(),
+            GlobalDisableableComponent {
+                is_disabled: !is_checked,
+            },
+            LocalDisableableComponent {
+                is_disabled: !is_checked,
+            },
+            padded(3.0),
+        ),
+    );
+    ent.set_components(ent_mark, panel("#d0d0d0ff"));
+    set_parent(ent.as_mut(), ent_mark, ent_background);
+
+    ent_root
+}
+
 fn spawn_inspector_container(
     mut ent: EntitiesHolderMut,
     ent_last: EntityId,
@@ -222,6 +347,7 @@ fn spawn_inspector_container(
     path: ReflectPath,
     kind: InspectorContainerKind,
     is_rigid: bool,
+    is_inline: bool,
     enum_variants: Option<&InspectorEnum>,
     entries: &[(FfiString, InspectorValue)],
     material_panel: AssetHandle<Material>,
@@ -232,6 +358,7 @@ fn spawn_inspector_container(
         ty:
             InspectorValueComponentTy::Container {
                 kind: last_kind,
+                is_inline: last_is_inline,
                 container_enum_metadata: ent_enum_meta_container,
                 container_fields: ent_fields_container,
                 container_buttons: ent_container_buttons,
@@ -243,6 +370,7 @@ fn spawn_inspector_container(
         && ent.get_component::<ParentComponent>(*ent_enum_meta_container).is_some()
         && ent.get_component::<ParentComponent>(*ent_container_buttons).is_some()
         && *last_kind == kind
+        && *last_is_inline == is_inline
     {
         let containers = (
             ent_last,
@@ -257,11 +385,18 @@ fn spawn_inspector_container(
 
         let ent_root = spawn_default_layout_ent(ent.as_mut(), ent_parent, false);
         let ent_enum_meta_container = spawn_default_layout_ent(ent.as_mut(), ent_root, true);
-        let ent_fields_container = spawn_default_layout_ent(ent.as_mut(), ent_root, true);
+        let ent_fields_container = spawn_default_layout_ent(ent.as_mut(), ent_root, !is_inline);
         let ent_container_buttons = spawn_default_layout_ent(ent.as_mut(), ent_root, true);
 
         if let Some(align_c) = ent.get_component_mut::<RectChildAlignComponent>(ent_container_buttons) {
             align_c.direction = UiDirection::Horizontal;
+        }
+
+        if is_inline {
+            ent.get_component_mut::<RectChildAlignComponent>(ent_root).unwrap().min_gap = UiVal::px(0.0);
+            ent.get_component_mut::<RectChildAlignComponent>(ent_fields_container)
+                .unwrap()
+                .direction = UiDirection::Horizontal;
         }
 
         ent.add_component(
@@ -269,6 +404,7 @@ fn spawn_inspector_container(
             InspectorValueComponent {
                 ty: InspectorValueComponentTy::Container {
                     kind,
+                    is_inline,
                     container_fields: ent_fields_container,
                     container_enum_metadata: ent_enum_meta_container,
                     container_buttons: ent_container_buttons,
@@ -381,7 +517,35 @@ fn spawn_inspector_container(
         );
     }
 
+    if is_inline {
+        set_inline_fields_layout(ent.as_mut(), ent_fields_container);
+    }
+
     ent_root
+}
+
+// axis cells share the row evenly; inside a cell the label is narrow so the input gets most of the width
+fn set_inline_fields_layout(mut ent: EntitiesHolderMut, ent_fields_container: EntityId) {
+    let fields = ent
+        .get_component::<ParentComponent>(ent_fields_container)
+        .map(|p| p.children().to_vec())
+        .unwrap_or_default();
+    let cell_width = 1.0 / fields.len().max(1) as f32;
+
+    for ent_field in fields {
+        ent.get_component_mut::<LocalRectComponent>(ent_field).unwrap().scale.x = UiVal::pd(cell_width).into();
+
+        let Some(field_c) = ent.get_component::<InspectorFieldComponent>(ent_field).copied() else {
+            continue;
+        };
+        let ent_key = ent.get_component::<ChildComponent>(field_c.key_text).map(|c| c.parent());
+
+        for (ent_child, width) in [(ent_key, 0.25), (Some(field_c.value_container), 0.75)] {
+            if let Some(rect_c) = ent_child.and_then(|e| ent.get_component_mut::<LocalRectComponent>(e)) {
+                rect_c.scale.x = UiVal::pd(width).into();
+            }
+        }
+    }
 }
 
 fn spawn_inspector_enum(
@@ -493,7 +657,7 @@ pub fn spawn_inspector_field(
         && let Some(parent_c) = ent.get_component::<ParentComponent>(field_c.value_container)
         && parent_c.children().len() == 1
     {
-        set_field_direction(ent.as_mut(), ent_field, value.is_leaf());
+        set_field_direction(ent.as_mut(), ent_field, value.is_single_line());
 
         let ent_child = ent
             .get_component::<ParentComponent>(field_c.value_container)
@@ -539,7 +703,7 @@ pub fn spawn_inspector_field(
 
     let ent_value_container = spawn_default_layout_ent(ent.as_mut(), ent_field, false);
 
-    if value.is_leaf() {
+    if value.is_single_line() {
         set_field_direction(ent.as_mut(), ent_field, true);
     }
 
@@ -862,6 +1026,7 @@ pub fn spawn_input_area_ent(
     ent.add_component(ent_background, BatchedMeshComponent::default())
         .ok()
         .unwrap();
+    ent.add_component(ent_background, ChildrenRectMaskComponent).ok().unwrap();
     ent.add_component(
         ent_background,
         ImageComponent {

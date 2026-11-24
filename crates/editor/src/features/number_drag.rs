@@ -176,7 +176,7 @@ pub fn drag_number_input_field_system(
 fn get_numeric_type(value_c: &InspectorValueComponent) -> Option<InspectorLeafKind> {
     match value_c.ty {
         InspectorValueComponentTy::Leaf {
-            kind: kind @ (InspectorLeafKind::Int | InspectorLeafKind::Float),
+            kind: kind @ (InspectorLeafKind::Int | InspectorLeafKind::Float | InspectorLeafKind::Euler(_)),
             ..
         } => Some(kind),
         _ => None,

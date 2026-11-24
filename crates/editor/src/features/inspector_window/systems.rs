@@ -218,7 +218,18 @@ pub fn open_field_value_context_menu_system(
                 .first()
                 .copied()
         })
-        .find(|&value_ent| ent.get_component::<InspectorValueComponent>(value_ent).is_some());
+        // an Euler angle's path is a raw quaternion component, so it has no value of its own to copy
+        .find(|&value_ent| {
+            ent.get_component::<InspectorValueComponent>(value_ent).is_some_and(|value_c| {
+                !matches!(
+                    value_c.ty,
+                    InspectorValueComponentTy::Leaf {
+                        kind: InspectorLeafKind::Euler(_),
+                        ..
+                    }
+                )
+            })
+        });
     return_if_not!(Some(value_ent) = value_ent);
 
     let mut actions = vec![FieldValueContextAction::Copy];
@@ -873,6 +884,51 @@ pub fn adjust_non_rigid_composite_system(
             ent,
             ent_composite,
             edit,
+            simulated_world,
+            &inspected_entity,
+            &mut inspected_asset,
+            &open_project,
+        );
+
+        if let Some(edited) = edited {
+            asset_edited_evt.push(edited);
+        };
+    }
+}
+
+pub fn toggle_inspector_checkbox_system(
+    ent: EntitiesHolderRef,
+    mut simulated_world: ResMut<SimulatedWorldResource>,
+    inspected_entity: Res<InspectedEntityResource>,
+    mut inspected_asset: ResMut<InspectedAssetResource>,
+    open_project: Res<OpenProjectResource>,
+    mut asset_edited_evt: EvtMut<AssetEditedEvent>,
+) {
+    return_if_not!(Some(simulated_world) = &mut simulated_world.0);
+
+    let toggled = ent
+        .query::<(EntityId, &InspectorValueComponent)>()
+        .iter()
+        .filter_map(|(ent_value, value_c)| match value_c.ty {
+            InspectorValueComponentTy::Checkbox { button, is_checked, .. }
+                if ent
+                    .get_component::<ButtonComponent>(button)
+                    .is_some_and(|button_c| button_c.was_clicked_this_frame) =>
+            {
+                Some((ent_value, is_checked))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    for (ent_value, is_checked) in toggled {
+        let edited = apply_inspector_edit_to_simulated_world(
+            ent,
+            ent_value,
+            InspectorEdit::Leaf {
+                kind: InspectorLeafKind::Bool,
+                text: (!is_checked).to_string().into(),
+            },
             simulated_world,
             &inspected_entity,
             &mut inspected_asset,

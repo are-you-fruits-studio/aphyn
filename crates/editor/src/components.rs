@@ -34,6 +34,7 @@ pub struct HierarchyWindowEmptyAreaComponent;
 pub enum InspectorValueComponentTy {
     Container {
         kind: InspectorContainerKind,
+        is_inline: bool,
         container_enum_metadata: EntityId,
         container_fields: EntityId,
         container_buttons: EntityId,
@@ -41,6 +42,11 @@ pub enum InspectorValueComponentTy {
     Leaf {
         text: EntityId,
         kind: InspectorLeafKind,
+    },
+    Checkbox {
+        button: EntityId,
+        mark: EntityId,
+        is_checked: bool,
     },
 }
 

@@ -9,10 +9,11 @@
 - screen-space effects (SSR, SSAO, SSGI)
 - rename current scene into multi-prefab and create a new scene asset that contains both entities and resources. It's used as a game bootstrap
 - implement animation (infrastructure and window)
-- Time as engine-side shader input
+- implement animator and state (infrastructure and window)
 
 # Prioritized
 
+- optimize hierarchy window (when there are too many entities)
 - implement custom inspector
 - refactor serialization (optimize)
     - register serializers at app loading, build it and use as immutable in systems and render-features
@@ -68,22 +69,16 @@
 
 # Queue
 
-- SSR
 - SSGI
-- SSAO
-- make sure skybox affects SSGI and SSR (skybox is a single shader, but its usage in scene-background, SSR is different).
-    - One Fullscreen pass renders the skybox fullres on the scene background every frame
-    - Another fullscreen pass keeps the low-res skybox cubemap up-tp-date (every couple of frames).
-    - SSR uses screen-space skybox from the screen buffer initially and falls back to cubemap on fail.
-- optional Deferred rendering
 - instantiate prefabs in editor (probably need to support prefabs as part of other prefabs and overrides)
 - convenient LayerMask inspector
 - console window
-- frustum culling
 - turn Disableable (both local and global) bool into Disabled (both local and global) marker component 
 
 # Not prioritized yet
 
+- subsurface scattering
+- scroll while RMB pressed changes camera movement speed
 - cubemaps support
 - occlusion culling (visibility passes&buffers)
 - stencil buffer?
@@ -93,6 +88,7 @@
 - undo in editor
 - compact vector visualization in inspector
 - when interacting with scene window, stop editing input fields
+- separate render world+thread that only shortly sync with the simulation world to pass data, so that rendering and simulation can happen at the same time
 
 # Low-prio
 
