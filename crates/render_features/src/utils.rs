@@ -58,6 +58,7 @@ pub fn render_wgsl_composer() -> WgslComposer {
     let mut composer = WgslComposer::with_engine_libraries();
     composer.add_library("aphyn/bloom.wgsl", include_str!("./assets/bloom.wgsl"));
     composer.add_library("aphyn/cluster_compute.wgsl", include_str!("./assets/cluster_compute.wgsl"));
+    composer.add_library("aphyn/ssao.wgsl", include_str!("./assets/ssao.wgsl"));
     composer
 }
 
@@ -139,6 +140,8 @@ mod tests {
                 include_str!("./assets/shader_color_grading_aces.wgsl"),
             ),
             ("shader_gizmo.wgsl", include_str!("./assets/shader_gizmo.wgsl")),
+            ("shader_ssao.wgsl", include_str!("./assets/shader_ssao.wgsl")),
+            ("shader_ssao_blur.wgsl", include_str!("./assets/shader_ssao_blur.wgsl")),
         ];
 
         for (name, source) in shaders {

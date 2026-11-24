@@ -169,7 +169,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         color = vec4<f32>(color.xyz + shade_light(light_index, in, geometric_normal, normal_world, view_dir, diffuse_color, metallic, roughness), color.w);
     }
 
-    color = vec4<f32>(color.xyz + global_data.ambient_color * diffuse_color * (1.0 - metallic), color.w);
+#ifdef TRANSPARENT
+    let ambient_occlusion_factor = 1.0;
+#else
+    // clamped: the texture is 1x1 when ambient occlusion is off
+    let ambient_occlusion_pixel = min(vec2<u32>(in.position_clip.xy), textureDimensions(ambient_occlusion) - 1u);
+    let ambient_occlusion_factor = textureLoad(ambient_occlusion, ambient_occlusion_pixel, 0).x;
+#endif
+
+    color = vec4<f32>(color.xyz + global_data.ambient_color * diffuse_color * (1.0 - metallic) * ambient_occlusion_factor, color.w);
 #endif
 
     return color;

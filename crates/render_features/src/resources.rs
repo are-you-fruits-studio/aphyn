@@ -2,6 +2,7 @@ use aphyn_ecs::Resource;
 use aphyn_ffi::*;
 use aphyn_math::{Vec3, Vec4};
 use aphyn_render::{CLUSTER_PAIRS_CAPACITY_DEFAULT, RenderSpace, StandardGlobalBindings, StandardTexture};
+use aphyn_render_core::GpuTexture;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -72,6 +73,12 @@ pub struct TransparentTargetResource {
 
 #[repr(C)]
 #[derive(Resource)]
+pub struct AmbientOcclusionTextureResource {
+    pub texture: GpuTexture,
+}
+
+#[repr(C)]
+#[derive(Resource)]
 pub struct ExposureResource {
     pub exposure: f32,
     pub is_enabled: bool,
@@ -114,6 +121,33 @@ impl Default for BloomResource {
             threshold: 3.0,
             threshold_softening: 2.0,
             intensity: 0.7,
+        }
+    }
+}
+
+pub const SSAO_SAMPLES_MAX: u32 = 64;
+
+#[repr(C)]
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct SsaoResource {
+    pub is_enabled: bool,
+    // view-space radius of the sampled hemisphere
+    pub radius: f32,
+    pub intensity: f32,
+    // how far in view-space depth the scene must be in front of a sample to occlude it
+    pub bias: f32,
+    // clamped to SSAO_SAMPLES_MAX
+    pub sample_count: u32,
+}
+
+impl Default for SsaoResource {
+    fn default() -> Self {
+        Self {
+            is_enabled: false,
+            radius: 0.5,
+            intensity: 1.0,
+            bias: 0.025,
+            sample_count: 16,
         }
     }
 }

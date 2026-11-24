@@ -6,7 +6,7 @@
 //! feature for its passes, sorts them by an absolute `u64` order, and runs them one after another
 //! on the calling thread. Everything the engine draws is such a feature: [`GlobalsRenderFeature`]
 //! (camera, lights, depth, scene normals and transparent targets), [`ClusteringRenderFeature`] (assigns lights to
-//! view clusters), [`MaterialRenderFeature`] (every entity with a material), [`ExposureRenderFeature`], [`BloomRenderFeature`], [`ColorGradingRenderFeature`] and
+//! view clusters), [`SsaoRenderFeature`] (screen-space ambient occlusion), [`MaterialRenderFeature`] (every entity with a material), [`ExposureRenderFeature`], [`BloomRenderFeature`], [`ColorGradingRenderFeature`] and
 //! [`GizmosRenderFeature`].
 //!
 //! # How to use
@@ -94,6 +94,29 @@
 //! template.passes.push(depth_normals_template_pass(prepass));
 //! ```
 //!
+//! #### Ambient occlusion
+//!
+//! Screen-space ambient occlusion (SSAO) is off by default. When [`SsaoResource::is_enabled`] is set, every
+//! view computes it from the depth-normals prepass and opaque lit materials multiply their ambient term
+//! by it; direct light, emission, unlit, UI and transparent materials are unaffected. So it shows only
+//! with a nonzero ambient color ([`AmbientLightResource`] or the view's override). `radius` is the
+//! view-space size of the sampled hemisphere, `bias` the view-space depth a sample must be behind the
+//! scene to count, `intensity` scales the darkening and `sample_count` (at most [`SSAO_SAMPLES_MAX`])
+//! trades quality for speed:
+//!
+//! ```ignore
+//! use aphyn::*;
+//!
+//! fn enable_ssao(mut ssao: ResMut<SsaoResource>, mut ambient: ResMut<AmbientLightResource>) {
+//!     ambient.color = Vec3::splat(0.3);
+//!     ssao.is_enabled = true;
+//!     ssao.radius = 0.5;
+//! }
+//! ```
+//!
+//! A custom shader reads the result from `ambient_occlusion` (group 0 binding 8 in
+//! `aphyn/standard_bindings.wgsl`), which holds a 1x1 white texture while SSAO is off.
+//!
 //! #### Materials
 //!
 //! A `Material` (`aphyn_render`) references a `MaterialTemplate` asset and stores a value for every
@@ -165,7 +188,7 @@
 //! #### Orders
 //!
 //! Orders are absolute. The stages are [`RENDER_ORDER_PREPARE`], [`RENDER_ORDER_DEPTH_PREPASS`],
-//! [`RENDER_ORDER_SHADOW`], [`RENDER_ORDER_LIGHT_CULLING`], [`RENDER_ORDER_OPAQUE`], [`RENDER_ORDER_SKYBOX`],
+//! [`RENDER_ORDER_AMBIENT_OCCLUSION`], [`RENDER_ORDER_SHADOW`], [`RENDER_ORDER_LIGHT_CULLING`], [`RENDER_ORDER_OPAQUE`], [`RENDER_ORDER_SKYBOX`],
 //! [`RENDER_ORDER_TRANSPARENT`], [`RENDER_ORDER_TRANSPARENT_COMPOSITE`] and
 //! [`RENDER_ORDER_POST_PROCESSING`], followed by the engine's [`RENDER_ORDER_EXPOSURE`],
 //! [`RENDER_ORDER_BLOOM`], [`RENDER_ORDER_COLOR_GRADING`] and [`RENDER_ORDER_GIZMOS`]. Passes with
@@ -245,6 +268,25 @@
 //! box's bounding sphere. Every 120th frame, until it has printed once, the pass reads the dropped
 //! pairs back (a blocking GPU wait).
 //!
+//! #### SSAO feature
+//!
+//! [`SsaoRenderFeature`] is registered before the material feature, because its `add_passes` sets
+//! [`AmbientOcclusionTextureResource`], which every material draw binds at group 0 binding 8: a 1x1
+//! texture cleared to white once when [`SsaoResource`] is off or missing (no pass is added), else the
+//! feature's target-size `Rgba8Unorm` texture (only `.x` is used), recreated when the size changes. The
+//! standard shader clamps its pixel to the texture's size, so both read correctly. The pass at
+//! [`RENDER_ORDER_AMBIENT_OCCLUSION`] runs after the depth-normals prepass and draws three fullscreen
+//! triangles sharing `aphyn/ssao.wgsl` and one `SsaoUniform` (camera matrices, target size, settings):
+//!
+//! 1. `shader_ssao.wgsl` rebuilds the view-space position from depth through `clip_to_view` (so both
+//!    projections work; view space looks down `+z`) and the normal from the scene normals, rotates a
+//!    fixed 64-sample hemisphere kernel (generated once on the CPU, denser near the center) by a
+//!    per-pixel interleaved-gradient-noise angle, and counts the samples the scene's depth is in front of,
+//!    faded by distance against `radius`. Pixels no prepass covered (depth 0) stay 1,
+//! 2. `shader_ssao_blur.wgsl` blurs horizontally into the feature's temp texture (instance 0), then
+//!    vertically back (instance 1), weighting 9 taps by view-depth difference so occlusion doesn't
+//!    bleed across edges.
+//!
 //! #### Material feature
 //!
 //! [`MaterialRenderFeature::add_passes`]:
@@ -274,7 +316,7 @@
 //!
 //! A draw binds group 0 to the globals (uniform at 0, lights at 1, shadow views at 2, shadow atlas at
 //! 3, its comparison sampler at 4, cluster grid at 5, cluster light indices at 6, scene normals at 7 except
-//! for `DepthNormals` passes, which render into them), the material's uniform buffers
+//! for `DepthNormals` passes, which render into them, and [`AmbientOcclusionTextureResource`] at 8), the material's uniform buffers
 //! at their mapped `(group, binding)`, and every texture input resolved from
 //! `AssetStorageResource<StandardTexture>` on each draw, falling back to the input's
 //! `MaterialTextureFallback` texture of `RenderApiResource`. It draws into the view's target
@@ -337,7 +379,7 @@
 //! The entry list, the closure vec, the material feature's items, geometry, shadow frusta and ranges, matrix scratch and draws, the globals
 //! feature's light lists and the atlas's shadow views are cleared, not dropped, so they keep their capacity. Known exceptions: the ECS queries of the
 //! material and globals features allocate every frame (`// todo` at the queries), the material
-//! feature allocates its bind group lists per draw (`// todo`), and `render_view`, the globals and
+//! feature allocates its bind group lists per draw (`// todo`), and `render_view`, the globals, SSAO and
 //! the material features clone `RenderApiResource` once per view.
 //!
 //! #### Dynamic library drop order
@@ -359,6 +401,7 @@ mod post_processing;
 mod registry;
 mod resources;
 mod shadows;
+mod ssao;
 mod utils;
 
 pub use builtins::*;
@@ -374,6 +417,7 @@ pub use post_processing::*;
 pub use registry::*;
 pub use resources::*;
 pub use shadows::ShadowAtlasResource;
+pub use ssao::SsaoRenderFeature;
 pub use utils::*;
 
 use aphyn_asset_storage::AssetStorageResource;
@@ -384,6 +428,7 @@ pub const SYSTEM_GROUP_RENDER: &str = "aphyn_render";
 
 pub const RENDER_FEATURE_GLOBALS: &str = "globals";
 pub const RENDER_FEATURE_CLUSTERING: &str = "clustering";
+pub const RENDER_FEATURE_SSAO: &str = "ssao";
 pub const RENDER_FEATURE_MATERIAL: &str = "material";
 pub const RENDER_FEATURE_EXPOSURE: &str = "exposure";
 pub const RENDER_FEATURE_BLOOM: &str = "bloom";
@@ -412,6 +457,7 @@ pub fn add_render_features_module_to(
     resources.insert(BloomResource::default());
     resources.insert(ColorGradingResource::default());
     resources.insert(ClusteredLightingResource::default());
+    resources.insert(SsaoResource::default());
 
     behavior
         .get_mut(Schedule::Start)
@@ -424,6 +470,7 @@ pub fn add_render_features_module_to(
 
     render.add_feature(RENDER_FEATURE_GLOBALS, GlobalsRenderFeature::default());
     render.add_feature(RENDER_FEATURE_CLUSTERING, ClusteringRenderFeature::default());
+    render.add_feature(RENDER_FEATURE_SSAO, SsaoRenderFeature::default());
     render.add_feature(RENDER_FEATURE_MATERIAL, MaterialRenderFeature::default());
     render.add_feature(RENDER_FEATURE_EXPOSURE, ExposureRenderFeature::default());
     render.add_feature(RENDER_FEATURE_BLOOM, BloomRenderFeature::default());

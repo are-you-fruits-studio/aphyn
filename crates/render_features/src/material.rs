@@ -15,8 +15,8 @@ use aphyn_render_core::{
 use aphyn_transform::{GlobalDisableableComponent, GlobalTransform};
 
 use crate::{
-    BatchedMeshComponent, DepthTextureResource, GlobalBindingsResource, MaterialComponent, MeshComponent,
-    RENDER_ORDER_TRANSPARENT_COMPOSITE, RenderFeature, RenderPassCtx, RenderPassWriter, SceneNormalsTextureResource,
+    AmbientOcclusionTextureResource, BatchedMeshComponent, DepthTextureResource, GlobalBindingsResource, MaterialComponent,
+    MeshComponent, RENDER_ORDER_TRANSPARENT_COMPOSITE, RenderFeature, RenderPassCtx, RenderPassWriter, SceneNormalsTextureResource,
     ShadowAtlasResource, TransparentTargetResource, create_engine_shader, draw_fullscreen, fullscreen_shader_desc, texture_binding,
 };
 
@@ -398,6 +398,7 @@ impl MaterialRenderFeature {
             Some(textures),
             Some(atlas),
             Some(normals),
+            Some(ambient_occlusion),
         ) = (
             resources.get::<CurrentRenderingResource>(),
             resources.get::<DepthTextureResource>(),
@@ -409,6 +410,7 @@ impl MaterialRenderFeature {
             resources.get::<AssetStorageResource<StandardTexture>>(),
             resources.get::<ShadowAtlasResource>(),
             resources.get::<SceneNormalsTextureResource>(),
+            resources.get::<AmbientOcclusionTextureResource>(),
         )
         else {
             return;
@@ -464,6 +466,8 @@ impl MaterialRenderFeature {
                     if !is_depth_normals {
                         groups[0].push((7, texture_binding(normals.texture.texture())));
                     }
+
+                    groups[0].push((8, texture_binding(&ambient_occlusion.texture)));
                 }
 
                 for uniform in gpu_pass.uniforms() {

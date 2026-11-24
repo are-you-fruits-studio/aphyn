@@ -1,5 +1,6 @@
 # Immediate
 
+- shader runtime define switching and recompilation
 - fix collection reflection
 - implement custom inspector
 - move serialization, reflection, inspecting to being builder at app-init stage and immutable at runtime (probably store them separately from the ECS world and somewhere near the TypesRegistry)
@@ -7,10 +8,10 @@
 - finish shaders, materials, material templates
     - including materials having inputs affect shader compilation directives
     - also, check with nsight
-- frustum culling and other types of culling (occlusion culling with visibility passes&buffers)
 - screen-space effects (SSR, SSAO, SSGI)
 - rename current scene into multi-prefab and create a new scene asset that contains both entities and resources. It's used as a game bootstrap
 - implement animation (infrastructure and window)
+- Time as engine-side shader input
 
 # Prioritized
 
@@ -72,7 +73,10 @@
 - SSR
 - SSGI
 - SSAO
-- make sure skybox affects SSGI and SSR
+- make sure skybox affects SSGI and SSR (skybox is a single shader, but its usage in scene-background, SSR is different).
+    - One Fullscreen pass renders the skybox fullres on the scene background every frame
+    - Another fullscreen pass keeps the low-res skybox cubemap up-tp-date (every couple of frames).
+    - SSR uses screen-space skybox from the screen buffer initially and falls back to cubemap on fail.
 - optional Deferred rendering
 - instantiate prefabs in editor (probably need to support prefabs as part of other prefabs and overrides)
 - convenient LayerMask inspector
@@ -82,6 +86,7 @@
 
 # Not prioritized yet
 
+- occlusion culling (visibility passes&buffers)
 - stencil buffer?
 - figure out the destinction between standard mesh and gpu mesh (and other similar assets). Potentially remove one of them.
 - Materials that have configurations that change render pipeline configuration (e.g. culling)

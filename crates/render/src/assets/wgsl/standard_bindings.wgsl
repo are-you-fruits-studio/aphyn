@@ -10,6 +10,7 @@
 #ifndef DEPTH_NORMALS
 @group(0) @binding(7) var scene_normals: texture_2d<f32>;
 #endif
+@group(0) @binding(8) var ambient_occlusion: texture_2d<f32>;
 
 @group(1) @binding(0) var<uniform> material_data: MaterialData;
 @group(1) @binding(1) var color_texture: texture_2d<f32>;

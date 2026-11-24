@@ -281,10 +281,13 @@
 //!   shader multiplies by whichever fits the space its geometry is in.
 //! - `aphyn/standard_bindings.wgsl`: the standard bind groups (`global_data`, `lights`, `shadow_views`,
 //!   `shadow_atlas`, `shadow_sampler`, `cluster_grid`, `cluster_light_indices`, `scene_normals`,
-//!   `material_data`, and the five material texture/sampler pairs). `scene_normals` (group 0 binding 7)
+//!   `ambient_occlusion`, `material_data`, and the five material texture/sampler pairs). `scene_normals` (group 0 binding 7)
 //!   holds the octahedral-encoded world normals the depth-normals prepass wrote; read it with
 //!   `textureLoad` at the fragment's pixel. It is left out when the `DEPTH_NORMALS` define is set,
-//!   because a prepass renders into it. Includes `standard_types`.
+//!   because a prepass renders into it. `ambient_occlusion` (group 0 binding 8) holds the view's
+//!   screen-space ambient occlusion in `.x` (1 = unoccluded); it is a 1x1 white texture when ambient
+//!   occlusion is off, so clamp the pixel to `textureDimensions` before `textureLoad`. The opaque lit
+//!   standard variant multiplies its ambient term by it. Includes `standard_types`.
 //! - `aphyn/pbr.wgsl`: `PI`, `FragmentLight`, `light_generic_to_fragment` (point and spot lights fall
 //!   off as `1/d²` times `light_range_window`, `saturate(1 - (d/range)^4)^2`, which eases to 0 at
 //!   `range`), `cook_torrance_brdf` and its terms, and `create_matrix_tbn`. Includes
