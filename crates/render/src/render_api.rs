@@ -3,7 +3,7 @@ use std::sync::Arc;
 use aphyn_asset_storage::{AssetHandle, AssetStorageResource};
 use aphyn_ecs::Resource;
 use aphyn_math::Mat4;
-use aphyn_render_core::{GpuCullMode, GpuSampler, GpuShader, GpuShaderDesc, RenderApi};
+use aphyn_render_core::{GpuCullMode, GpuSampler, GpuShader, GpuShaderDesc, GpuTexture, RenderApi};
 use winit::window::Window;
 
 use crate::{
@@ -124,6 +124,10 @@ impl RenderApiResource {
             data,
             meta,
         )
+    }
+
+    pub fn generate_mipmaps(&self, texture: &GpuTexture) {
+        crate::assets::generate_mipmaps(&self.core, &self.mip_fill_shader, &self.mip_fill_sampler, texture);
     }
 
     pub fn create_mesh(

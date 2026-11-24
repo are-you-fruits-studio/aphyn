@@ -5,14 +5,16 @@ use aphyn_math::Vec4;
 use aphyn_render::{
     Material, MaterialData, MaterialDataValue, MaterialInput, MaterialPassTarget, MaterialTemplate, MaterialTemplatePass,
     MaterialTextureBinding, MaterialTextureFallback, MaterialValueBinding, RenderApiResource, SHADOW_CASTER_SHADER_WGSL,
-    STANDARD_SHADER_WGSL, Shader, WgslComposer,
+    SKYBOX_GRADIENT_SHADER_WGSL, STANDARD_SHADER_WGSL, Shader, WgslComposer,
 };
 use aphyn_render_core::{
     GpuBlendComponent, GpuBlendFactor, GpuBlendOperation, GpuBlendState, GpuColorWrites, GpuCompareFunction, GpuCullMode,
     GpuFrontFace, GpuPrimitiveTopology, GpuShaderDesc,
 };
 
-use crate::{RENDER_ORDER_DEPTH_PREPASS, RENDER_ORDER_OPAQUE, RENDER_ORDER_SHADOW, RENDER_ORDER_TRANSPARENT};
+use crate::{
+    RENDER_ORDER_DEPTH_PREPASS, RENDER_ORDER_OPAQUE, RENDER_ORDER_SHADOW, RENDER_ORDER_TRANSPARENT, fullscreen_shader_desc,
+};
 
 pub const BUILTIN_TEMPLATE_OPAQUE_UNLIT: &str = "aphyn/templates/opaque_unlit";
 pub const BUILTIN_TEMPLATE_OPAQUE_LIT: &str = "aphyn/templates/opaque_lit";
@@ -22,6 +24,7 @@ pub const BUILTIN_TEMPLATE_UI_OPAQUE_UNLIT: &str = "aphyn/templates/ui_opaque_un
 pub const BUILTIN_TEMPLATE_UI_TRANSPARENT_UNLIT: &str = "aphyn/templates/ui_transparent_unlit";
 pub const BUILTIN_SHADER_SHADOW_CASTER: &str = "aphyn/shaders/shadow_caster";
 pub const BUILTIN_SHADER_DEPTH_NORMALS: &str = "aphyn/shaders/depth_normals";
+pub const BUILTIN_SHADER_SKYBOX_GRADIENT: &str = "aphyn/shaders/skybox_gradient";
 
 struct StandardVariant {
     name: &'static str,
@@ -233,6 +236,13 @@ pub fn insert_builtin_render_assets_to(mut res: ResourcesHolderMut) {
     ) else {
         return;
     };
+    register_builtin_shader(
+        &mut res,
+        &render_api,
+        BUILTIN_SHADER_SKYBOX_GRADIENT,
+        ("shader_skybox_gradient.wgsl", SKYBOX_GRADIENT_SHADER_WGSL, &[]),
+        fullscreen_shader_desc(GpuBlendState::REPLACE),
+    );
 
     for variant in &STANDARD_VARIANTS {
         let template_key = format!("aphyn/templates/{}", variant.name);

@@ -86,6 +86,7 @@
 
 # Not prioritized yet
 
+- cubemaps support
 - occlusion culling (visibility passes&buffers)
 - stencil buffer?
 - figure out the destinction between standard mesh and gpu mesh (and other similar assets). Potentially remove one of them.

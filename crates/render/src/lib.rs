@@ -67,7 +67,9 @@
 //! A [`StandardTexture`] is a core texture plus its own sampler; [`texture`](StandardTexture::texture)
 //! and [`sampler`](StandardTexture::sampler) return them for binding in custom passes. [`Clone`] is
 //! shallow: the clone names the same GPU texture and has the same [`id`](StandardTexture::id).
-//! [`clear_color_target`] clears a color texture to a color.
+//! [`clear_color_target`] clears a color texture to a color, and
+//! [`generate_mipmaps`](RenderApiResource::generate_mipmaps) refills mip levels `1..` of any color
+//! core texture from its level 0 (e.g. after drawing into it).
 //!
 //! #### Shaders
 //!
@@ -275,8 +277,9 @@
 //! [`with_engine_libraries`](WgslComposer::with_engine_libraries) registers the engine ones:
 //!
 //! - `aphyn/standard_types.wgsl`: `GlobalData`, `MaterialData`, `GenericLight`, `ShadowView`, `VertexAttributes`,
-//!   `InstanceRawAttributes`, `InstanceAttributes`, `map_instance_data`, and `octahedral_encode` /
-//!   `octahedral_decode` (a unit vector to and from `[-1, 1]²`, the scene normals encoding). `GlobalData` carries
+//!   `InstanceRawAttributes`, `InstanceAttributes`, `map_instance_data`, `octahedral_encode` /
+//!   `octahedral_decode` (a unit vector to and from `[-1, 1]²`, the scene normals encoding) and
+//!   `octahedral_environment_uv` (the uv of a direction in an octahedral environment map). `GlobalData` carries
 //!   both `matrix_world_to_clip` (the camera) and `matrix_window_to_clip` (window pixels); a custom
 //!   shader multiplies by whichever fits the space its geometry is in.
 //! - `aphyn/standard_bindings.wgsl`: the standard bind groups (`global_data`, `lights`, `shadow_views`,
@@ -287,11 +290,15 @@
 //!   because a prepass renders into it. `ambient_occlusion` (group 0 binding 8) holds the view's
 //!   screen-space ambient occlusion in `.x` (1 = unoccluded); it is a 1x1 white texture when ambient
 //!   occlusion is off, so clamp the pixel to `textureDimensions` before `textureLoad`. The opaque lit
-//!   standard variant multiplies its ambient term by it. Includes `standard_types`.
+//!   standard variant multiplies its ambient term by it. `environment` and `environment_sampler`
+//!   (group 0 bindings 9 and 10) are the view's mipmapped octahedral environment map (look it up with
+//!   `octahedral_environment_uv` and `textureSampleLevel`); the lit standard variants take their
+//!   ambient light from it: diffuse from a low mip along the normal, specular along the reflection at
+//!   `roughness * (levels - 1)`, weighted by `environment_brdf_approx`. Includes `standard_types`.
 //! - `aphyn/pbr.wgsl`: `PI`, `FragmentLight`, `light_generic_to_fragment` (point and spot lights fall
 //!   off as `1/d²` times `light_range_window`, `saturate(1 - (d/range)^4)^2`, which eases to 0 at
-//!   `range`), `cook_torrance_brdf` and its terms, and `create_matrix_tbn`. Includes
-//!   `standard_types`.
+//!   `range`), `cook_torrance_brdf` and its terms, `environment_brdf_approx` (analytic split-sum
+//!   weight of environment specular) and `create_matrix_tbn`. Includes `standard_types`.
 //! - `aphyn/clusters.wgsl`: the light-cluster math: `cluster_index_world(global_data, frag_coord,
 //!   position_world)` gives a fragment's cluster, whose `cluster_grid` cell lists its point and spot
 //!   lights in `cluster_light_indices`; `cluster_aabb`, `cluster_light` and `cluster_light_intersects`
@@ -301,6 +308,25 @@
 //!   factor of a light (1 without shadows). Includes `standard_bindings`.
 //! - `aphyn/fullscreen.wgsl`: `fullscreen_triangle_position(vertex_index)` and `fullscreen_uv(position)`
 //!   for drawing a fullscreen triangle with 3 vertices and no vertex buffer.
+//! - `aphyn/skybox.wgsl`: what a skybox shader (`SkyboxResource` of `aphyn_render_features`) builds
+//!   on: the `skybox_data` uniform at group 0 binding 0 (its only binding), `SkyboxVertex`,
+//!   `skybox_vertex(vertex_index)` (a fullscreen triangle on the far plane) and
+//!   `skybox_direction(ndc)`, the world direction a pixel looks along, both on screen and in the
+//!   octahedral environment map. [`SKYBOX_GRADIENT_SHADER_WGSL`] is a complete example:
+//!
+//! ```wgsl
+//! #include "aphyn/skybox.wgsl"
+//!
+//! @vertex
+//! fn vs_main(@builtin(vertex_index) vertex_index: u32) -> SkyboxVertex {
+//!     return skybox_vertex(vertex_index);
+//! }
+//!
+//! @fragment
+//! fn fs_main(in: SkyboxVertex) -> @location(0) vec4<f32> {
+//!     return vec4<f32>(skybox_direction(in.ndc) * 0.5 + 0.5, 1.0);
+//! }
+//! ```
 //!
 //! [`compose`](WgslComposer::compose) resolves `#include "<path>"` and the conditional blocks
 //! `#ifdef` / `#ifndef` / `#else` / `#endif` against the defines passed in, and returns plain WGSL:
@@ -434,7 +460,8 @@
 //! core's `GpuFilterMode`. With `should_generate_mipmaps` it allocates the full mip chain and fills
 //! each level `n` by drawing a fullscreen triangle with `mip_fill_shader.wgsl` into level `n` while
 //! sampling level `n - 1` (instance `n - 1`), with the `Linear` mip fill sampler and no culling. The
-//! fill keeps alpha.
+//! fill keeps alpha. That loop is `assets::texture::generate_mipmaps`, which
+//! [`generate_mipmaps`](RenderApiResource::generate_mipmaps) exposes for any core texture.
 //!
 //! The world-to-clip and window-to-clip matrices live in [`StandardUniformGlobal`] (written by the
 //! globals feature of `aphyn_render_features` once per view), and a shader decides which one to use.
@@ -443,7 +470,8 @@
 //! point, `1` spot, `2` directional. [`StandardGlobalBindings`] holds the [`StandardUniformGlobal`]
 //! buffer and a storage buffer of [`LIGHTS_COUNT_MAX`] [`StandardGenericLight`]s; `write_lights_with`
 //! only uploads the first `count`, and the shader reads `lights_count` from the uniform. The uniform
-//! also carries the ambient color the lit standard shader adds, the camera forward (for picking a
+//! also carries the view's ambient color (the standard shader no longer reads it: it gets ambient
+//! light from the environment map, which falls back to that color), the camera forward (for picking a
 //! cascade by view depth) and the global shadow bias and normal offset; every `vec3` is followed by
 //! a scalar so the Rust layout matches WGSL's 16-byte `vec3` alignment, and the explicit `_padding`
 //! fields round the structs up the same way. A third buffer holds up to [`SHADOW_VIEWS_MAX`]
@@ -560,8 +588,12 @@
 //! its own. `shader_shadow_caster.wgsl` ([`SHADOW_CASTER_SHADER_WGSL`]) is
 //! the depth-only caster: its own `ShadowCasterData` uniform at group 0 binding 0, `standard_types`
 //! for the vertex layout, an empty `fs_main`.
+//! `skybox.wgsl` places its uniform at group 0 binding 0 like `standard_bindings`, so no shader can
+//! include both; `octahedral_environment_uv` therefore lives in `standard_types`, and must stay the
+//! inverse of the octahedral branch of `skybox_direction` (`fullscreen_uv` of the encoded direction).
+//! `shader_skybox_gradient.wgsl` ([`SKYBOX_GRADIENT_SHADER_WGSL`]) is the built-in gradient sky.
 //! `mip_fill_shader.wgsl` uses `aphyn/fullscreen.wgsl`. The `engine_shaders_are_valid` unit test
-//! composes every library, `mip_fill_shader.wgsl`, `shader_shadow_caster.wgsl`, and the seven `shader_standard.wgsl` define sets,
+//! composes every library, `mip_fill_shader.wgsl`, `shader_shadow_caster.wgsl`, `shader_skybox_gradient.wgsl`, and the seven `shader_standard.wgsl` define sets,
 //! and `custom_shader_with_user_library_is_valid` composes a custom standard shader with a user
 //! library; both validate with `naga`, so no GPU is needed. The composer uses std types because it
 //! runs at shader creation and is not stored in the world.

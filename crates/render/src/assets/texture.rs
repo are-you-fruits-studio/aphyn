@@ -123,34 +123,7 @@ impl StandardTexture {
 
         let sampler = core.create_sampler(label, filter_mode);
 
-        for mip_level in 1..mip_level_count {
-            core.draw(
-                &GpuRenderPass {
-                    shader: mip_fill_shader,
-                    target: Some(GpuRenderPassTarget {
-                        view: &texture,
-                        mip_level,
-                        ops: GpuPassOps::Load,
-                    }),
-                    depth: None,
-                    bind_groups: &[&[
-                        (
-                            0,
-                            GpuBinding::Texture {
-                                texture: &texture,
-                                mip_level: Some(mip_level - 1),
-                            },
-                        ),
-                        (1, GpuBinding::Sampler(mip_fill_sampler)),
-                    ]],
-                    vertex_buffers: &[],
-                    viewport: None,
-                    scissor: None,
-                },
-                0..3,
-                (mip_level - 1)..mip_level,
-            );
-        }
+        generate_mipmaps(core, mip_fill_shader, mip_fill_sampler, &texture);
 
         Self {
             texture,
@@ -177,6 +150,37 @@ impl StandardTexture {
 
     pub fn id(&self) -> GpuResourceId {
         self.texture.id()
+    }
+}
+
+pub(crate) fn generate_mipmaps(core: &RenderApi, mip_fill_shader: &GpuShader, mip_fill_sampler: &GpuSampler, texture: &GpuTexture) {
+    for mip_level in 1..texture.mip_level_count() {
+        core.draw(
+            &GpuRenderPass {
+                shader: mip_fill_shader,
+                target: Some(GpuRenderPassTarget {
+                    view: texture,
+                    mip_level,
+                    ops: GpuPassOps::Load,
+                }),
+                depth: None,
+                bind_groups: &[&[
+                    (
+                        0,
+                        GpuBinding::Texture {
+                            texture,
+                            mip_level: Some(mip_level - 1),
+                        },
+                    ),
+                    (1, GpuBinding::Sampler(mip_fill_sampler)),
+                ]],
+                vertex_buffers: &[],
+                viewport: None,
+                scissor: None,
+            },
+            0..3,
+            (mip_level - 1)..mip_level,
+        );
     }
 }
 

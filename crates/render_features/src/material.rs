@@ -15,9 +15,10 @@ use aphyn_render_core::{
 use aphyn_transform::{GlobalDisableableComponent, GlobalTransform};
 
 use crate::{
-    AmbientOcclusionTextureResource, BatchedMeshComponent, DepthTextureResource, GlobalBindingsResource, MaterialComponent,
-    MeshComponent, RENDER_ORDER_TRANSPARENT_COMPOSITE, RenderFeature, RenderPassCtx, RenderPassWriter, SceneNormalsTextureResource,
-    ShadowAtlasResource, TransparentTargetResource, create_engine_shader, draw_fullscreen, fullscreen_shader_desc, texture_binding,
+    AmbientOcclusionTextureResource, BatchedMeshComponent, DepthTextureResource, EnvironmentTextureResource, GlobalBindingsResource,
+    MaterialComponent, MeshComponent, RENDER_ORDER_TRANSPARENT_COMPOSITE, RenderFeature, RenderPassCtx, RenderPassWriter,
+    SceneNormalsTextureResource, ShadowAtlasResource, TransparentTargetResource, create_engine_shader, draw_fullscreen,
+    fullscreen_shader_desc, texture_binding,
 };
 
 #[repr(C, u8)]
@@ -399,6 +400,7 @@ impl MaterialRenderFeature {
             Some(atlas),
             Some(normals),
             Some(ambient_occlusion),
+            Some(environment),
         ) = (
             resources.get::<CurrentRenderingResource>(),
             resources.get::<DepthTextureResource>(),
@@ -411,6 +413,7 @@ impl MaterialRenderFeature {
             resources.get::<ShadowAtlasResource>(),
             resources.get::<SceneNormalsTextureResource>(),
             resources.get::<AmbientOcclusionTextureResource>(),
+            resources.get::<EnvironmentTextureResource>(),
         )
         else {
             return;
@@ -468,6 +471,8 @@ impl MaterialRenderFeature {
                     }
 
                     groups[0].push((8, texture_binding(&ambient_occlusion.texture)));
+                    groups[0].push((9, texture_binding(&environment.texture)));
+                    groups[0].push((10, GpuBinding::Sampler(&environment.sampler)));
                 }
 
                 for uniform in gpu_pass.uniforms() {

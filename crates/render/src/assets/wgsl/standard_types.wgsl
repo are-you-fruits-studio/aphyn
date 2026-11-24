@@ -95,3 +95,10 @@ fn octahedral_decode(encoded: vec2<f32>) -> vec3<f32> {
 
     return normalize(n);
 }
+
+// the uv of a direction in an octahedral environment map, matching the skybox's octahedral render
+fn octahedral_environment_uv(direction: vec3<f32>) -> vec2<f32> {
+    let encoded = octahedral_encode(direction);
+
+    return vec2<f32>(encoded.x * 0.5 + 0.5, 0.5 - encoded.y * 0.5);
+}

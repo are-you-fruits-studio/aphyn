@@ -1,8 +1,9 @@
+use aphyn_asset_storage::AssetHandle;
 use aphyn_ecs::Resource;
 use aphyn_ffi::*;
 use aphyn_math::{Vec3, Vec4};
-use aphyn_render::{CLUSTER_PAIRS_CAPACITY_DEFAULT, RenderSpace, StandardGlobalBindings, StandardTexture};
-use aphyn_render_core::GpuTexture;
+use aphyn_render::{CLUSTER_PAIRS_CAPACITY_DEFAULT, RenderSpace, Shader, StandardGlobalBindings, StandardTexture};
+use aphyn_render_core::{GpuSampler, GpuTexture};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -75,6 +76,29 @@ pub struct TransparentTargetResource {
 #[derive(Resource)]
 pub struct AmbientOcclusionTextureResource {
     pub texture: GpuTexture,
+}
+
+#[repr(C)]
+#[derive(Resource)]
+pub struct EnvironmentTextureResource {
+    pub texture: GpuTexture,
+    pub sampler: GpuSampler,
+}
+
+#[repr(C)]
+#[derive(Resource, Clone)]
+pub struct SkyboxResource {
+    pub shader: AssetHandle<Shader>,
+    pub octahedral_size: u32,
+}
+
+impl Default for SkyboxResource {
+    fn default() -> Self {
+        Self {
+            shader: AssetHandle::EMPTY,
+            octahedral_size: 128,
+        }
+    }
 }
 
 #[repr(C)]

@@ -6,6 +6,7 @@ use std::{
 
 pub const STANDARD_SHADER_WGSL: &str = include_str!("./assets/wgsl/shader_standard.wgsl");
 pub const SHADOW_CASTER_SHADER_WGSL: &str = include_str!("./assets/wgsl/shader_shadow_caster.wgsl");
+pub const SKYBOX_GRADIENT_SHADER_WGSL: &str = include_str!("./assets/wgsl/shader_skybox_gradient.wgsl");
 
 const ENGINE_LIBRARIES: &[(&str, &str)] = &[
     ("aphyn/fullscreen.wgsl", include_str!("./assets/wgsl/fullscreen.wgsl")),
@@ -17,6 +18,7 @@ const ENGINE_LIBRARIES: &[(&str, &str)] = &[
     ("aphyn/pbr.wgsl", include_str!("./assets/wgsl/pbr.wgsl")),
     ("aphyn/shadows.wgsl", include_str!("./assets/wgsl/shadows.wgsl")),
     ("aphyn/clusters.wgsl", include_str!("./assets/wgsl/clusters.wgsl")),
+    ("aphyn/skybox.wgsl", include_str!("./assets/wgsl/skybox.wgsl")),
 ];
 
 #[derive(Default, Clone)]
@@ -239,6 +241,7 @@ mod tests {
         );
 
         validate(&composer, "shader_shadow_caster.wgsl", super::SHADOW_CASTER_SHADER_WGSL);
+        validate(&composer, "shader_skybox_gradient.wgsl", super::SKYBOX_GRADIENT_SHADER_WGSL);
 
         let standard_defs: &[&[&str]] = &[
             &[],

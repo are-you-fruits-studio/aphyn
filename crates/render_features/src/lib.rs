@@ -6,7 +6,7 @@
 //! feature for its passes, sorts them by an absolute `u64` order, and runs them one after another
 //! on the calling thread. Everything the engine draws is such a feature: [`GlobalsRenderFeature`]
 //! (camera, lights, depth, scene normals and transparent targets), [`ClusteringRenderFeature`] (assigns lights to
-//! view clusters), [`SsaoRenderFeature`] (screen-space ambient occlusion), [`MaterialRenderFeature`] (every entity with a material), [`ExposureRenderFeature`], [`BloomRenderFeature`], [`ColorGradingRenderFeature`] and
+//! view clusters), [`SsaoRenderFeature`] (screen-space ambient occlusion), [`SkyboxRenderFeature`] (sky and environment map), [`MaterialRenderFeature`] (every entity with a material), [`ExposureRenderFeature`], [`BloomRenderFeature`], [`ColorGradingRenderFeature`] and
 //! [`GizmosRenderFeature`].
 //!
 //! # How to use
@@ -31,9 +31,34 @@
 //! transform's position, spot and directional lights point along their local `-Y` axis. Point and spot
 //! lights fall off with `1/d²`, eased smoothly to zero at their `range` (most of the easing happens in
 //! the outer part of the range, so nothing is cut off at a cluster's edge). On top of
-//! that every lit fragment receives `color * albedo * (1 - metallic)` from [`AmbientLightResource`]
-//! (linear, zero by default), so surfaces no light reaches are not pitch black. A view can override
-//! that color with `CurrentRenderingResource::ambient_light` (the editor's scene view does).
+//! that every lit fragment receives ambient light from the view's environment map (see Skybox below):
+//! diffuse along its normal and specular reflections blurred by its roughness. Without a skybox the
+//! map is the single color of [`AmbientLightResource`] (linear, zero by default), so surfaces no light
+//! reaches are not pitch black. A view can override that color with
+//! `CurrentRenderingResource::ambient_light` (the editor's scene view does).
+//!
+//! #### Skybox
+//!
+//! [`SkyboxResource::shader`] names a `Shader` asset that draws the sky (empty by default: no sky).
+//! It fills every pixel that opaque and alpha-tested geometry left empty, before transparents are
+//! drawn, and also renders an `octahedral_size`² (128 by default) octahedral environment map with a
+//! full mip chain, which lit materials sample for their ambient light. Both are redrawn for every
+//! view, so an animated sky lights the scene as it changes. The shader builds on
+//! `aphyn/skybox.wgsl` (see `aphyn_render`): it returns a color for `skybox_direction(in.ndc)`. The
+//! engine ships a gradient sky as [`BUILTIN_SHADER_SKYBOX_GRADIENT`]:
+//!
+//! ```ignore
+//! use aphyn::*;
+//!
+//! fn use_gradient_sky(mut skybox: ResMut<SkyboxResource>, shaders: Res<AssetStorageResource<Shader>>) {
+//!     skybox.shader = shaders.get_registered(BUILTIN_SHADER_SKYBOX_GRADIENT).unwrap().clone();
+//! }
+//! ```
+//!
+//! Order such a `Start` system after [`SYSTEM_GROUP_RENDER`]. While the shader is missing or not
+//! loaded, the screen is left as is and the ambient color stands in for the environment map; with a
+//! sky, the ambient color is ignored by the standard materials. A custom shader reads the map from
+//! `environment` / `environment_sampler` (group 0 bindings 9 and 10 in `aphyn/standard_bindings.wgsl`).
 //!
 //! #### Clustered lighting
 //!
@@ -187,7 +212,7 @@
 //!
 //! #### Orders
 //!
-//! Orders are absolute. The stages are [`RENDER_ORDER_PREPARE`], [`RENDER_ORDER_DEPTH_PREPASS`],
+//! Orders are absolute. The stages are [`RENDER_ORDER_PREPARE`], [`RENDER_ORDER_ENVIRONMENT`], [`RENDER_ORDER_DEPTH_PREPASS`],
 //! [`RENDER_ORDER_AMBIENT_OCCLUSION`], [`RENDER_ORDER_SHADOW`], [`RENDER_ORDER_LIGHT_CULLING`], [`RENDER_ORDER_OPAQUE`], [`RENDER_ORDER_SKYBOX`],
 //! [`RENDER_ORDER_TRANSPARENT`], [`RENDER_ORDER_TRANSPARENT_COMPOSITE`] and
 //! [`RENDER_ORDER_POST_PROCESSING`], followed by the engine's [`RENDER_ORDER_EXPOSURE`],
@@ -287,6 +312,27 @@
 //!    vertically back (instance 1), weighting 9 taps by view-depth difference so occlusion doesn't
 //!    bleed across edges.
 //!
+//! #### Skybox feature
+//!
+//! [`SkyboxRenderFeature`] is registered before the material feature and, like SSAO, sets a resource
+//! every material draw binds: [`EnvironmentTextureResource`] (texture plus a `Linear` sampler, whose
+//! mipmap filter is linear too). When [`SkyboxResource::shader`] resolves in `AssetStorageResource<Shader>`
+//! it is the feature's `Rgba16Float` octahedral texture (recreated when `octahedral_size` changes, full
+//! mip chain), and two passes are added:
+//!
+//! 1. at [`RENDER_ORDER_ENVIRONMENT`] (right after `PREPARE`, before anything samples it) the shader
+//!    draws mip 0 with `is_octahedral = 1` and no depth, then `RenderApiResource::generate_mipmaps`
+//!    box-filters the chain (no GGX prefilter; small seams at the octahedral folds are accepted),
+//! 2. at [`RENDER_ORDER_SKYBOX`] it draws into the view's target with [`DepthTextureResource`] loaded,
+//!    `is_octahedral = 0` and the view's clip-to-world. `skybox_vertex` puts the triangle at depth 0,
+//!    the cleared (reversed) far value, so the shader's own `GreaterEqual` test passes exactly where
+//!    nothing was drawn; no special `GpuShaderDesc` is needed.
+//!
+//! Each pass has its own small `SkyboxUniform` buffer. Otherwise (no resource, empty handle, not
+//! loaded) the resource gets a 1x1 texture cleared every view to the view's ambient color (the same
+//! rule as the globals feature) and no pass is added; a single level samples the same at any lod, so
+//! the standard shader's IBL reduces to that flat color.
+//!
 //! #### Material feature
 //!
 //! [`MaterialRenderFeature::add_passes`]:
@@ -316,7 +362,7 @@
 //!
 //! A draw binds group 0 to the globals (uniform at 0, lights at 1, shadow views at 2, shadow atlas at
 //! 3, its comparison sampler at 4, cluster grid at 5, cluster light indices at 6, scene normals at 7 except
-//! for `DepthNormals` passes, which render into them, and [`AmbientOcclusionTextureResource`] at 8), the material's uniform buffers
+//! for `DepthNormals` passes, which render into them, [`AmbientOcclusionTextureResource`] at 8, and [`EnvironmentTextureResource`] at 9 (texture) and 10 (sampler)), the material's uniform buffers
 //! at their mapped `(group, binding)`, and every texture input resolved from
 //! `AssetStorageResource<StandardTexture>` on each draw, falling back to the input's
 //! `MaterialTextureFallback` texture of `RenderApiResource`. It draws into the view's target
@@ -337,7 +383,8 @@
 //! registers them as `aphyn/shaders/<variant>`, then registers [`standard_material_template`] for
 //! each as `aphyn/templates/<variant>`. Before that it registers the depth-only
 //! `aphyn_render::SHADOW_CASTER_SHADER_WGSL` as [`BUILTIN_SHADER_SHADOW_CASTER`] and the standard shader
-//! composed with `DEPTH_NORMALS` as [`BUILTIN_SHADER_DEPTH_NORMALS`] (each once), and the opaque,
+//! composed with `DEPTH_NORMALS` as [`BUILTIN_SHADER_DEPTH_NORMALS`], and `aphyn_render::SKYBOX_GRADIENT_SHADER_WGSL`
+//! as [`BUILTIN_SHADER_SKYBOX_GRADIENT`] with the fullscreen desc (each once), and the opaque,
 //! non-UI templates get a pass with each, at [`RENDER_ORDER_SHADOW`] and [`RENDER_ORDER_DEPTH_PREPASS`].
 //! The standard pass and [`depth_normals_template_pass`] share one input-to-binding mapping
 //! (`standard_template_pass`), so the prepass sees the same material data. It needs the `RenderApiResource`, so it runs in `Start`; asset
@@ -401,6 +448,7 @@ mod post_processing;
 mod registry;
 mod resources;
 mod shadows;
+mod skybox;
 mod ssao;
 mod utils;
 
@@ -417,6 +465,7 @@ pub use post_processing::*;
 pub use registry::*;
 pub use resources::*;
 pub use shadows::ShadowAtlasResource;
+pub use skybox::SkyboxRenderFeature;
 pub use ssao::SsaoRenderFeature;
 pub use utils::*;
 
@@ -429,6 +478,7 @@ pub const SYSTEM_GROUP_RENDER: &str = "aphyn_render";
 pub const RENDER_FEATURE_GLOBALS: &str = "globals";
 pub const RENDER_FEATURE_CLUSTERING: &str = "clustering";
 pub const RENDER_FEATURE_SSAO: &str = "ssao";
+pub const RENDER_FEATURE_SKYBOX: &str = "skybox";
 pub const RENDER_FEATURE_MATERIAL: &str = "material";
 pub const RENDER_FEATURE_EXPOSURE: &str = "exposure";
 pub const RENDER_FEATURE_BLOOM: &str = "bloom";
@@ -458,6 +508,7 @@ pub fn add_render_features_module_to(
     resources.insert(ColorGradingResource::default());
     resources.insert(ClusteredLightingResource::default());
     resources.insert(SsaoResource::default());
+    resources.insert(SkyboxResource::default());
 
     behavior
         .get_mut(Schedule::Start)
@@ -471,6 +522,7 @@ pub fn add_render_features_module_to(
     render.add_feature(RENDER_FEATURE_GLOBALS, GlobalsRenderFeature::default());
     render.add_feature(RENDER_FEATURE_CLUSTERING, ClusteringRenderFeature::default());
     render.add_feature(RENDER_FEATURE_SSAO, SsaoRenderFeature::default());
+    render.add_feature(RENDER_FEATURE_SKYBOX, SkyboxRenderFeature::default());
     render.add_feature(RENDER_FEATURE_MATERIAL, MaterialRenderFeature::default());
     render.add_feature(RENDER_FEATURE_EXPOSURE, ExposureRenderFeature::default());
     render.add_feature(RENDER_FEATURE_BLOOM, BloomRenderFeature::default());

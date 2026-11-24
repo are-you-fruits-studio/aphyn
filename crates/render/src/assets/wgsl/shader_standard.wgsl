@@ -128,6 +128,21 @@ fn shade_light(
 
     return color_lit * light_shadow(lights[light_index], in.position_world, geometric_normal_world);
 }
+
+fn shade_environment(normal_world: vec3<f32>, view_dir: vec3<f32>, diffuse_color: vec3<f32>, metallic: f32, roughness: f32) -> vec3<f32> {
+    let max_lod = f32(textureNumLevels(environment) - 1u);
+    let nv = max(dot(normal_world, view_dir), 0.0);
+    let f0 = mix(vec3<f32>(0.04), diffuse_color, metallic);
+    let specular_weight = environment_brdf_approx(f0, roughness, nv);
+
+    let irradiance = textureSampleLevel(environment, environment_sampler, octahedral_environment_uv(normal_world), max(max_lod - 2.0, 0.0)).xyz;
+    let reflection_dir = reflect(-view_dir, normal_world);
+    let radiance = textureSampleLevel(environment, environment_sampler, octahedral_environment_uv(reflection_dir), roughness * max_lod).xyz;
+
+    let diffuse = irradiance * diffuse_color * (1.0 - metallic) * (vec3<f32>(1.0) - specular_weight);
+
+    return diffuse + radiance * specular_weight;
+}
 #endif
 
 @fragment
@@ -177,7 +192,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let ambient_occlusion_factor = textureLoad(ambient_occlusion, ambient_occlusion_pixel, 0).x;
 #endif
 
-    color = vec4<f32>(color.xyz + global_data.ambient_color * diffuse_color * (1.0 - metallic) * ambient_occlusion_factor, color.w);
+    color = vec4<f32>(color.xyz + shade_environment(normal_world, view_dir, diffuse_color, metallic, roughness) * ambient_occlusion_factor, color.w);
 #endif
 
     return color;
