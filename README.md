@@ -35,7 +35,7 @@
 
 **In development:** the editor, built on the engine itself. Release builds ship it as the `aphyn` binary.
 
-**Not yet:** joints · animation · point-light shadows · skybox · screen-space reflections · profiler · editor docking · live reload for assets and scripts.
+**Not yet:** joints · animation · point-light shadows · skybox · profiler · editor docking · live reload for assets and scripts.
 
 The working list lives in [`todos.md`](todos.md).
 

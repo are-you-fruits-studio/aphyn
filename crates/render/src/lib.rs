@@ -294,7 +294,9 @@
 //!   (group 0 bindings 9 and 10) are the view's mipmapped octahedral environment map (look it up with
 //!   `octahedral_environment_uv` and `textureSampleLevel`); the lit standard variants take their
 //!   ambient light from it: diffuse from a low mip along the normal, specular along the reflection at
-//!   `roughness * (levels - 1)`, weighted by `environment_brdf_approx`. Includes `standard_types`.
+//!   `roughness * (levels - 1)`, weighted by `environment_brdf_approx`. `ssr_data`, `ssr_depth`,
+//!   `ssr_history` and `ssr_sampler` (group 0 bindings 11 to 14) are the screen-space reflection inputs
+//!   `aphyn/ssr.wgsl` reads. Includes `standard_types`.
 //! - `aphyn/pbr.wgsl`: `PI`, `FragmentLight`, `light_generic_to_fragment` (point and spot lights fall
 //!   off as `1/d²` times `light_range_window`, `saturate(1 - (d/range)^4)^2`, which eases to 0 at
 //!   `range`), `cook_torrance_brdf` and its terms, `environment_brdf_approx` (analytic split-sum
@@ -306,6 +308,12 @@
 //!   the standard one: the first `directional_lights_count` lights plus its cluster's lights.
 //! - `aphyn/shadows.wgsl`: `light_shadow(light, position_world, normal_world)`, the 0..1 shadow
 //!   factor of a light (1 without shadows). Includes `standard_bindings`.
+//! - `aphyn/ssr.wgsl`: `ssr_trace(position_world, normal_world, view_dir, roughness, pixel)`, the
+//!   screen-space reflection of a lit fragment: `.xyz` is the reflected color, `.w` how much of it
+//!   replaces the environment map's specular radiance (0 when [`StandardSsrUniform`] is off, the
+//!   material's `reflections` is 0, or the ray hit nothing). The lit standard variants mix their
+//!   radiance with it. It reads `material_data` and `scene_normals`, so it can't be used with
+//!   `DEPTH_NORMALS`. Includes `standard_bindings`.
 //! - `aphyn/fullscreen.wgsl`: `fullscreen_triangle_position(vertex_index)` and `fullscreen_uv(position)`
 //!   for drawing a fullscreen triangle with 3 vertices and no vertex buffer.
 //! - `aphyn/skybox.wgsl`: what a skybox shader (`SkyboxResource` of `aphyn_render_features`) builds
@@ -486,7 +494,12 @@
 //! world-to-view, clip-to-view, the cluster dims, the target size, the slicing depth range,
 //! `directional_lights_count` (lights are uploaded directional first) and the index capacity. The
 //! cluster passes themselves live in `aphyn_render_features`.
-//! [`StandardUniformGlobal`], [`StandardGenericLight`], [`StandardShadowView`], [`StandardClusterCell`], and [`StandardVertex`] are `#[repr(C)]` and
+//!
+//! The bindings also own a small [`StandardSsrUniform`] buffer (`ssr_data` in WGSL), written per view
+//! by the SSR feature of `aphyn_render_features` through
+//! [`write_ssr_uniform`](RenderApiResource::write_ssr_uniform); its default (written at creation) has
+//! `is_enabled = 0`, so shaders skip reflections until a feature turns them on.
+//! [`StandardUniformGlobal`], [`StandardSsrUniform`], [`StandardGenericLight`], [`StandardShadowView`], [`StandardClusterCell`], and [`StandardVertex`] are `#[repr(C)]` and
 //! marked [`AllBitsInit`](aphyn_utils::mem::AllBitsInit) /
 //! [`AllBitVariationsValid`](aphyn_utils::mem::AllBitVariationsValid) so they can be uploaded as raw
 //! bytes.
@@ -576,11 +589,11 @@
 //!
 //! The engine libraries live in `src/assets/wgsl/` and are embedded with `include_str!`. The
 //! structs in `standard_types.wgsl` and the bindings in `standard_bindings.wgsl` must stay in
-//! sync with [`StandardUniformGlobal`], [`StandardGenericLight`], [`StandardShadowView`], [`StandardVertex::desc`],
+//! sync with [`StandardUniformGlobal`], [`StandardSsrUniform`] (`SsrData`), [`StandardGenericLight`], [`StandardShadowView`], [`StandardVertex::desc`],
 //! [`StandardInstance::desc`], the group 0 bindings the material feature of `aphyn_render_features`
 //! passes, and that crate's built-in standard templates. `shader_standard.wgsl` sits next to them
 //! but is not a library ([`STANDARD_SHADER_WGSL`]); it includes `aphyn/standard_bindings.wgsl`,
-//! `aphyn/pbr.wgsl`, `aphyn/shadows.wgsl` and `aphyn/clusters.wgsl`. Its defines are `LIT`,
+//! `aphyn/pbr.wgsl`, `aphyn/shadows.wgsl` and `aphyn/clusters.wgsl`, plus `aphyn/ssr.wgsl` in the `LIT` variants. Its defines are `LIT`,
 //! `TRANSPARENT`, `UI`, and `DEPTH_NORMALS`, which replaces everything else with the depth-normals prepass:
 //! the same alpha cutout as the opaque variants, writing the octahedral-encoded interpolated vertex
 //! normal. The opaque lit variant reads that normal back from `scene_normals` (for the TBN and the

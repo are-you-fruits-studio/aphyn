@@ -142,6 +142,10 @@ mod tests {
             ("shader_gizmo.wgsl", include_str!("./assets/shader_gizmo.wgsl")),
             ("shader_ssao.wgsl", include_str!("./assets/shader_ssao.wgsl")),
             ("shader_ssao_blur.wgsl", include_str!("./assets/shader_ssao_blur.wgsl")),
+            (
+                "shader_ssr_depth_copy.wgsl",
+                include_str!("./assets/shader_ssr_depth_copy.wgsl"),
+            ),
         ];
 
         for (name, source) in shaders {

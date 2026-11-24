@@ -104,6 +104,8 @@ fn customer_vertex(vertex: VertexAttributes, instance: InstanceAttributes) -> Ve
 #endif
 
 #ifdef LIT
+#include "aphyn/ssr.wgsl"
+
 fn shade_light(
     light_index: u32,
     in: VertexOutput,
@@ -129,7 +131,14 @@ fn shade_light(
     return color_lit * light_shadow(lights[light_index], in.position_world, geometric_normal_world);
 }
 
-fn shade_environment(normal_world: vec3<f32>, view_dir: vec3<f32>, diffuse_color: vec3<f32>, metallic: f32, roughness: f32) -> vec3<f32> {
+fn shade_environment(
+    in: VertexOutput,
+    normal_world: vec3<f32>,
+    view_dir: vec3<f32>,
+    diffuse_color: vec3<f32>,
+    metallic: f32,
+    roughness: f32
+) -> vec3<f32> {
     let max_lod = f32(textureNumLevels(environment) - 1u);
     let nv = max(dot(normal_world, view_dir), 0.0);
     let f0 = mix(vec3<f32>(0.04), diffuse_color, metallic);
@@ -137,7 +146,9 @@ fn shade_environment(normal_world: vec3<f32>, view_dir: vec3<f32>, diffuse_color
 
     let irradiance = textureSampleLevel(environment, environment_sampler, octahedral_environment_uv(normal_world), max(max_lod - 2.0, 0.0)).xyz;
     let reflection_dir = reflect(-view_dir, normal_world);
-    let radiance = textureSampleLevel(environment, environment_sampler, octahedral_environment_uv(reflection_dir), roughness * max_lod).xyz;
+    let environment_radiance = textureSampleLevel(environment, environment_sampler, octahedral_environment_uv(reflection_dir), roughness * max_lod).xyz;
+    let reflection = ssr_trace(in.position_world, normal_world, view_dir, roughness, in.position_clip.xy);
+    let radiance = mix(environment_radiance, reflection.xyz, reflection.w);
 
     let diffuse = irradiance * diffuse_color * (1.0 - metallic) * (vec3<f32>(1.0) - specular_weight);
 
@@ -192,7 +203,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let ambient_occlusion_factor = textureLoad(ambient_occlusion, ambient_occlusion_pixel, 0).x;
 #endif
 
-    color = vec4<f32>(color.xyz + shade_environment(normal_world, view_dir, diffuse_color, metallic, roughness) * ambient_occlusion_factor, color.w);
+    color = vec4<f32>(color.xyz + shade_environment(in, normal_world, view_dir, diffuse_color, metallic, roughness) * ambient_occlusion_factor, color.w);
 #endif
 
     return color;

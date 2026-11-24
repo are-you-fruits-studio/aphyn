@@ -17,8 +17,8 @@ use aphyn_transform::{GlobalDisableableComponent, GlobalTransform};
 use crate::{
     AmbientOcclusionTextureResource, BatchedMeshComponent, DepthTextureResource, EnvironmentTextureResource, GlobalBindingsResource,
     MaterialComponent, MeshComponent, RENDER_ORDER_TRANSPARENT_COMPOSITE, RenderFeature, RenderPassCtx, RenderPassWriter,
-    SceneNormalsTextureResource, ShadowAtlasResource, TransparentTargetResource, create_engine_shader, draw_fullscreen,
-    fullscreen_shader_desc, texture_binding,
+    SceneNormalsTextureResource, ShadowAtlasResource, SsrTexturesResource, TransparentTargetResource, create_engine_shader,
+    draw_fullscreen, fullscreen_shader_desc, texture_binding,
 };
 
 #[repr(C, u8)]
@@ -401,6 +401,7 @@ impl MaterialRenderFeature {
             Some(normals),
             Some(ambient_occlusion),
             Some(environment),
+            Some(ssr),
         ) = (
             resources.get::<CurrentRenderingResource>(),
             resources.get::<DepthTextureResource>(),
@@ -414,6 +415,7 @@ impl MaterialRenderFeature {
             resources.get::<SceneNormalsTextureResource>(),
             resources.get::<AmbientOcclusionTextureResource>(),
             resources.get::<EnvironmentTextureResource>(),
+            resources.get::<SsrTexturesResource>(),
         )
         else {
             return;
@@ -473,6 +475,10 @@ impl MaterialRenderFeature {
                     groups[0].push((8, texture_binding(&ambient_occlusion.texture)));
                     groups[0].push((9, texture_binding(&environment.texture)));
                     groups[0].push((10, GpuBinding::Sampler(&environment.sampler)));
+                    groups[0].push((11, GpuBinding::Buffer(globals.bindings.ssr_buffer())));
+                    groups[0].push((12, texture_binding(&ssr.depth)));
+                    groups[0].push((13, texture_binding(&ssr.history)));
+                    groups[0].push((14, GpuBinding::Sampler(&ssr.sampler)));
                 }
 
                 for uniform in gpu_pass.uniforms() {

@@ -13,6 +13,10 @@
 @group(0) @binding(8) var ambient_occlusion: texture_2d<f32>;
 @group(0) @binding(9) var environment: texture_2d<f32>;
 @group(0) @binding(10) var environment_sampler: sampler;
+@group(0) @binding(11) var<uniform> ssr_data: SsrData;
+@group(0) @binding(12) var ssr_depth: texture_depth_2d;
+@group(0) @binding(13) var ssr_history: texture_2d<f32>;
+@group(0) @binding(14) var ssr_sampler: sampler;
 
 @group(1) @binding(0) var<uniform> material_data: MaterialData;
 @group(1) @binding(1) var color_texture: texture_2d<f32>;

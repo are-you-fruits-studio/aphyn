@@ -17,6 +17,19 @@ struct GlobalData {
     cluster_index_capacity: u32,
 }
 
+struct SsrData {
+    matrix_world_to_clip_previous: mat4x4<f32>,
+    max_distance: f32,
+    max_steps: u32,
+    thickness: f32,
+    max_roughness: f32,
+    intensity: f32,
+    edge_fade: f32,
+    is_enabled: u32,
+    has_history: u32,
+    depth_bias: f32,
+}
+
 struct ClusterCell {
     index: u32,
     count: u32,
@@ -28,6 +41,7 @@ struct MaterialData {
     metallic: f32,
     roughness: f32,
     alpha_threshold: f32,
+    reflections: f32,
 }
 
 struct GenericLight {

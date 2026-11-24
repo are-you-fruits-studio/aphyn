@@ -6,7 +6,7 @@
 //! feature for its passes, sorts them by an absolute `u64` order, and runs them one after another
 //! on the calling thread. Everything the engine draws is such a feature: [`GlobalsRenderFeature`]
 //! (camera, lights, depth, scene normals and transparent targets), [`ClusteringRenderFeature`] (assigns lights to
-//! view clusters), [`SsaoRenderFeature`] (screen-space ambient occlusion), [`SkyboxRenderFeature`] (sky and environment map), [`MaterialRenderFeature`] (every entity with a material), [`ExposureRenderFeature`], [`BloomRenderFeature`], [`ColorGradingRenderFeature`] and
+//! view clusters), [`SsaoRenderFeature`] (screen-space ambient occlusion), [`SkyboxRenderFeature`] (sky and environment map), [`SsrRenderFeature`] (screen-space reflections), [`MaterialRenderFeature`] (every entity with a material), [`ExposureRenderFeature`], [`BloomRenderFeature`], [`ColorGradingRenderFeature`] and
 //! [`GizmosRenderFeature`].
 //!
 //! # How to use
@@ -142,6 +142,36 @@
 //! A custom shader reads the result from `ambient_occlusion` (group 0 binding 8 in
 //! `aphyn/standard_bindings.wgsl`), which holds a 1x1 white texture while SSAO is off.
 //!
+//! #### Screen-space reflections
+//!
+//! Screen-space reflections (SSR) are off by default. When [`SsrResource::is_enabled`] is set, lit
+//! materials (opaque and transparent) trace their reflection ray against the view's depth and,
+//! where it hits on screen, replace the environment map's specular reflection with the scene's color
+//! there, blurred by roughness. The color is the view's image after opaques and the sky, before
+//! transparents, so transparents never show up in reflections, but transparent lit surfaces (water)
+//! do reflect. Opaques reflect the previous frame's image (reprojected), transparents the current
+//! one. `max_distance` is the ray's view-space length, `max_steps` the march's sample count,
+//! `thickness` how far behind the scene a ray still hits, `depth_bias` how far behind it a ray must
+//! be to hit at all (so a ray doesn't hit the surface it starts on; raise it if surfaces reflect
+//! themselves, at the cost of missing contact reflections), surfaces rougher than `max_roughness` keep
+//! the environment reflection, and `edge_fade` fades reflections out near the screen's edges. The
+//! standard templates' `reflections` input (1 by default) scales a material's SSR; set it to 0 for
+//! materials that shouldn't reflect the scene, like smoke:
+//!
+//! ```ignore
+//! use aphyn::*;
+//!
+//! fn enable_ssr(mut ssr: ResMut<SsrResource>) {
+//!     ssr.is_enabled = true;
+//!     ssr.max_roughness = 0.5;
+//! }
+//!
+//! *smoke_material.data.get_f32_mut("reflections").unwrap() = 0.0;
+//! ```
+//!
+//! Only what's on screen reflects: off-screen and occluded content, and rays toward the camera, fall
+//! back to the environment map. A custom shader reflects through `ssr_trace` (`aphyn/ssr.wgsl`).
+//!
 //! #### Materials
 //!
 //! A `Material` (`aphyn_render`) references a `MaterialTemplate` asset and stores a value for every
@@ -151,7 +181,7 @@
 //! standard shader, registered under [`BUILTIN_TEMPLATE_OPAQUE_UNLIT`], [`BUILTIN_TEMPLATE_OPAQUE_LIT`],
 //! [`BUILTIN_TEMPLATE_TRANSPARENT_UNLIT`], [`BUILTIN_TEMPLATE_TRANSPARENT_LIT`],
 //! [`BUILTIN_TEMPLATE_UI_OPAQUE_UNLIT`] and [`BUILTIN_TEMPLATE_UI_TRANSPARENT_UNLIT`]. Their inputs are
-//! `color`, `emission_color` (`Vec4`, linear), `metallic`, `roughness`, `alpha_threshold` (`F32`) and
+//! `color`, `emission_color` (`Vec4`, linear), `metallic`, `roughness`, `alpha_threshold`, `reflections` (`F32`) and
 //! the textures `color_tex`, `roughness_tex`, `metallic_tex`, `normal_tex`, `emission_tex`. The UI
 //! variants draw geometry given in window pixels:
 //!
@@ -213,8 +243,8 @@
 //! #### Orders
 //!
 //! Orders are absolute. The stages are [`RENDER_ORDER_PREPARE`], [`RENDER_ORDER_ENVIRONMENT`], [`RENDER_ORDER_DEPTH_PREPASS`],
-//! [`RENDER_ORDER_AMBIENT_OCCLUSION`], [`RENDER_ORDER_SHADOW`], [`RENDER_ORDER_LIGHT_CULLING`], [`RENDER_ORDER_OPAQUE`], [`RENDER_ORDER_SKYBOX`],
-//! [`RENDER_ORDER_TRANSPARENT`], [`RENDER_ORDER_TRANSPARENT_COMPOSITE`] and
+//! [`RENDER_ORDER_REFLECTIONS_DEPTH`], [`RENDER_ORDER_AMBIENT_OCCLUSION`], [`RENDER_ORDER_SHADOW`], [`RENDER_ORDER_LIGHT_CULLING`], [`RENDER_ORDER_OPAQUE`], [`RENDER_ORDER_SKYBOX`],
+//! [`RENDER_ORDER_REFLECTIONS_HISTORY`], [`RENDER_ORDER_TRANSPARENT`], [`RENDER_ORDER_TRANSPARENT_COMPOSITE`] and
 //! [`RENDER_ORDER_POST_PROCESSING`], followed by the engine's [`RENDER_ORDER_EXPOSURE`],
 //! [`RENDER_ORDER_BLOOM`], [`RENDER_ORDER_COLOR_GRADING`] and [`RENDER_ORDER_GIZMOS`]. Passes with
 //! equal order run in no defined relative order.
@@ -333,6 +363,39 @@
 //! rule as the globals feature) and no pass is added; a single level samples the same at any lod, so
 //! the standard shader's IBL reduces to that flat color.
 //!
+//! #### SSR feature
+//!
+//! [`SsrRenderFeature`] is registered after the globals feature (it writes the
+//! `StandardSsrUniform` of [`GlobalBindingsResource`]) and before the material feature, because its
+//! `add_passes` sets [`SsrTexturesResource`], which every material draw binds at group 0 bindings 12
+//! (depth), 13 (history) and 14 (a `Linear` sampler); binding 11 is the uniform. When
+//! [`SsrResource`] is off or missing it writes the default uniform (`is_enabled = 0`), binds 1x1
+//! fallbacks, drops every history and adds no pass. Otherwise:
+//!
+//! - it keeps one history per view target, keyed by the target texture's `GpuResourceId`: a texture
+//!   of the target's size and format with a full mip chain, plus the world-to-clip it was captured
+//!   with. A history is recreated (and marked invalid) when the target's size or format changes, and
+//!   dropped after `HISTORY_UNUSED_CALLS_MAX` `add_passes` calls without its target,
+//! - the uniform carries the settings, the history's world-to-clip as `world_to_clip_previous` and
+//!   `has_history`,
+//! - at [`RENDER_ORDER_REFLECTIONS_DEPTH`] (after the prepass) `shader_ssr_depth_copy.wgsl` copies
+//!   [`DepthTextureResource`] into the feature's own `Depth32Float` texture through `frag_depth`
+//!   (`copy_texture` refuses depth formats), because the original stays attached while the lit
+//!   passes that sample it draw,
+//! - at [`RENDER_ORDER_REFLECTIONS_HISTORY`] (after the skybox, before transparents) it copies the
+//!   target into the history, generates its mips and stores the view's world-to-clip. The uniform
+//!   already uploaded still holds the previous matrix, which is what the opaque pass (run before the
+//!   copy) needs; the `TRANSPARENT` variants instead reproject with the current `world_to_clip`, since
+//!   they draw after the copy.
+//!
+//! `ssr_trace` (in `aphyn_render`) marches the ray in steps uniform on screen (perspective-correct
+//! `t`, IGN-jittered) from the fragment up to `max_distance` or the near plane, counts a hit where the
+//! ray's depth is behind the copied depth by more than `depth_bias` and less than `thickness` in view
+//! space (pixels with depth 0 never hit), refines it with 5 bisection steps, rejects hits on surfaces facing away from the ray
+//! (scene normals), and samples the history at lod `roughness * (levels - 1)`. Confidence fades with
+//! the screen edges (of both the hit and its reprojection), the ray's length, roughness toward
+//! `max_roughness` and rays facing the camera.
+//!
 //! #### Material feature
 //!
 //! [`MaterialRenderFeature::add_passes`]:
@@ -362,7 +425,7 @@
 //!
 //! A draw binds group 0 to the globals (uniform at 0, lights at 1, shadow views at 2, shadow atlas at
 //! 3, its comparison sampler at 4, cluster grid at 5, cluster light indices at 6, scene normals at 7 except
-//! for `DepthNormals` passes, which render into them, [`AmbientOcclusionTextureResource`] at 8, and [`EnvironmentTextureResource`] at 9 (texture) and 10 (sampler)), the material's uniform buffers
+//! for `DepthNormals` passes, which render into them, [`AmbientOcclusionTextureResource`] at 8, [`EnvironmentTextureResource`] at 9 (texture) and 10 (sampler), the SSR uniform at 11 and [`SsrTexturesResource`] at 12 to 14), the material's uniform buffers
 //! at their mapped `(group, binding)`, and every texture input resolved from
 //! `AssetStorageResource<StandardTexture>` on each draw, falling back to the input's
 //! `MaterialTextureFallback` texture of `RenderApiResource`. It draws into the view's target
@@ -450,6 +513,7 @@ mod resources;
 mod shadows;
 mod skybox;
 mod ssao;
+mod ssr;
 mod utils;
 
 pub use builtins::*;
@@ -467,6 +531,7 @@ pub use resources::*;
 pub use shadows::ShadowAtlasResource;
 pub use skybox::SkyboxRenderFeature;
 pub use ssao::SsaoRenderFeature;
+pub use ssr::SsrRenderFeature;
 pub use utils::*;
 
 use aphyn_asset_storage::AssetStorageResource;
@@ -479,6 +544,7 @@ pub const RENDER_FEATURE_GLOBALS: &str = "globals";
 pub const RENDER_FEATURE_CLUSTERING: &str = "clustering";
 pub const RENDER_FEATURE_SSAO: &str = "ssao";
 pub const RENDER_FEATURE_SKYBOX: &str = "skybox";
+pub const RENDER_FEATURE_SSR: &str = "ssr";
 pub const RENDER_FEATURE_MATERIAL: &str = "material";
 pub const RENDER_FEATURE_EXPOSURE: &str = "exposure";
 pub const RENDER_FEATURE_BLOOM: &str = "bloom";
@@ -509,6 +575,7 @@ pub fn add_render_features_module_to(
     resources.insert(ClusteredLightingResource::default());
     resources.insert(SsaoResource::default());
     resources.insert(SkyboxResource::default());
+    resources.insert(SsrResource::default());
 
     behavior
         .get_mut(Schedule::Start)
@@ -523,6 +590,7 @@ pub fn add_render_features_module_to(
     render.add_feature(RENDER_FEATURE_CLUSTERING, ClusteringRenderFeature::default());
     render.add_feature(RENDER_FEATURE_SSAO, SsaoRenderFeature::default());
     render.add_feature(RENDER_FEATURE_SKYBOX, SkyboxRenderFeature::default());
+    render.add_feature(RENDER_FEATURE_SSR, SsrRenderFeature::default());
     render.add_feature(RENDER_FEATURE_MATERIAL, MaterialRenderFeature::default());
     render.add_feature(RENDER_FEATURE_EXPOSURE, ExposureRenderFeature::default());
     render.add_feature(RENDER_FEATURE_BLOOM, BloomRenderFeature::default());

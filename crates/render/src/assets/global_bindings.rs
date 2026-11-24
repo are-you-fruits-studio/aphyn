@@ -114,6 +114,43 @@ impl Default for StandardUniformGlobal {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq)]
+pub struct StandardSsrUniform {
+    pub world_to_clip_previous: Mat4<f32>,
+    pub max_distance: f32,
+    pub max_steps: u32,
+    pub thickness: f32,
+    pub max_roughness: f32,
+    pub intensity: f32,
+    pub edge_fade: f32,
+    pub is_enabled: u32,
+    pub has_history: u32,
+    pub depth_bias: f32,
+    pub _padding: [u32; 3],
+}
+
+unsafe impl AllBitVariationsValid for StandardSsrUniform {}
+unsafe impl AllBitsInit for StandardSsrUniform {}
+
+impl Default for StandardSsrUniform {
+    fn default() -> Self {
+        Self {
+            world_to_clip_previous: Mat4::IDENTITY,
+            max_distance: 0.0,
+            max_steps: 0,
+            thickness: 0.0,
+            max_roughness: 0.0,
+            intensity: 0.0,
+            edge_fade: 0.0,
+            is_enabled: 0,
+            has_history: 0,
+            depth_bias: 0.0,
+            _padding: [0; 3],
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct StandardShadowView {
     pub world_to_clip: Mat4<f32>,
     // uv offset in xy, uv scale in zw
@@ -222,6 +259,7 @@ impl Default for StandardLight {
 #[repr(C)]
 pub struct StandardGlobalBindings {
     uniform_buffer: GpuUniformStorageBuffer,
+    ssr_buffer: GpuUniformStorageBuffer,
     lights_buffer: GpuUniformStorageBuffer,
     shadow_views_buffer: GpuUniformStorageBuffer,
     cluster_grid_buffer: GpuUniformStorageBuffer,
@@ -233,6 +271,7 @@ pub struct StandardGlobalBindings {
 impl StandardGlobalBindings {
     pub(crate) fn new(core: &RenderApi) -> Self {
         let uniform_buffer = core.create_uniform_storage_buffer(Some("standard global uniform"), size_of::<StandardUniformGlobal>());
+        let ssr_buffer = core.create_uniform_storage_buffer(Some("standard ssr uniform"), size_of::<StandardSsrUniform>());
         let lights_buffer =
             core.create_uniform_storage_buffer(Some("standard lights"), LIGHTS_COUNT_MAX * size_of::<StandardGenericLight>());
         let shadow_views_buffer = core.create_uniform_storage_buffer(
@@ -249,6 +288,7 @@ impl StandardGlobalBindings {
 
         let this = Self {
             uniform_buffer,
+            ssr_buffer,
             lights_buffer,
             shadow_views_buffer,
             cluster_grid_buffer,
@@ -257,6 +297,7 @@ impl StandardGlobalBindings {
             cluster_pairs_capacity: CLUSTER_PAIRS_CAPACITY_DEFAULT,
         };
         this.write_uniform(core, StandardUniformGlobal::default());
+        this.write_ssr_uniform(core, StandardSsrUniform::default());
 
         this
     }
@@ -294,6 +335,10 @@ impl StandardGlobalBindings {
         crate::write_buffer_bytes(core, &self.uniform_buffer, 0, aphyn_utils::mem::as_bytes(&uniform));
     }
 
+    pub(crate) fn write_ssr_uniform(&self, core: &RenderApi, uniform: StandardSsrUniform) {
+        crate::write_buffer_bytes(core, &self.ssr_buffer, 0, aphyn_utils::mem::as_bytes(&uniform));
+    }
+
     pub(crate) fn write_lights_with(&self, core: &RenderApi, count: u32, f: impl FnMut(usize) -> StandardGenericLight) {
         let count = (count as usize).min(LIGHTS_COUNT_MAX);
 
@@ -308,6 +353,10 @@ impl StandardGlobalBindings {
 
     pub fn uniform_buffer(&self) -> &GpuUniformStorageBuffer {
         &self.uniform_buffer
+    }
+
+    pub fn ssr_buffer(&self) -> &GpuUniformStorageBuffer {
+        &self.ssr_buffer
     }
 
     pub fn lights_buffer(&self) -> &GpuUniformStorageBuffer {

@@ -177,6 +177,47 @@ impl Default for SsaoResource {
 }
 
 #[repr(C)]
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct SsrResource {
+    pub is_enabled: bool,
+    // view-space length of a reflected ray
+    pub max_distance: f32,
+    pub max_steps: u32,
+    // how far behind the scene's depth a ray still counts as a hit, in view space
+    pub thickness: f32,
+    // how far behind the scene's depth a ray must be to count as a hit, in view space; keeps rays from hitting the surface they start on
+    pub depth_bias: f32,
+    // rougher surfaces keep the environment map's reflection
+    pub max_roughness: f32,
+    pub intensity: f32,
+    // the part of the screen (in uv) over which reflections fade out towards its edges
+    pub edge_fade: f32,
+}
+
+impl Default for SsrResource {
+    fn default() -> Self {
+        Self {
+            is_enabled: false,
+            max_distance: 50.0,
+            max_steps: 48,
+            thickness: 0.3,
+            depth_bias: 0.05,
+            max_roughness: 0.6,
+            intensity: 1.0,
+            edge_fade: 0.1,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Resource)]
+pub struct SsrTexturesResource {
+    pub depth: GpuTexture,
+    pub history: GpuTexture,
+    pub sampler: GpuSampler,
+}
+
+#[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub enum ColorGradingType {
     Aces,

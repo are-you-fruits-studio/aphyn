@@ -1,8 +1,6 @@
 # Immediate
 
 - shader runtime define switching and recompilation
-- fix collection reflection
-- implement custom inspector
 - move serialization, reflection, inspecting to being builder at app-init stage and immutable at runtime (probably store them separately from the ECS world and somewhere near the TypesRegistry)
 - allow using cached TypesRegistry key to avoid string lookup and even hashmap lookup where possible.
 - finish shaders, materials, material templates
@@ -15,6 +13,7 @@
 
 # Prioritized
 
+- implement custom inspector
 - refactor serialization (optimize)
     - register serializers at app loading, build it and use as immutable in systems and render-features
     - implement inspector
@@ -53,7 +52,6 @@
 
 - make sure prefab root entity is the first one serialized
 
-- implement Skybox (probably need separation of vertex/fragment shaders in assets)
 - implement animation
 - implement engine assets (like in Unity they have Assets folder and Packages folder in the Project window).
 - show opened asset with different kind of selection

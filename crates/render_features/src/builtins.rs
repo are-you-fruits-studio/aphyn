@@ -116,12 +116,13 @@ pub fn shadow_caster_template_pass(shadow_caster: AssetHandle<Shader>) -> Materi
     }
 }
 
-const STANDARD_VALUES: [(&str, MaterialDataValue); 5] = [
+const STANDARD_VALUES: [(&str, MaterialDataValue); 6] = [
     ("color", MaterialDataValue::Vec4(Vec4::splat(1.0))),
     ("emission_color", MaterialDataValue::Vec4(Vec4::splat(0.0))),
     ("metallic", MaterialDataValue::F32(0.0)),
     ("roughness", MaterialDataValue::F32(0.5)),
     ("alpha_threshold", MaterialDataValue::F32(0.5)),
+    ("reflections", MaterialDataValue::F32(1.0)),
 ];
 
 // binding indices follow `standard_bindings.wgsl`
@@ -345,7 +346,7 @@ mod tests {
 
         assert_eq!(texture_bindings, (1..=10).collect::<Vec<_>>());
         assert!(pass.values.iter().all(|value| value.group == 1 && value.binding == 0));
-        assert_eq!(template.inputs.len(), 10);
+        assert_eq!(template.inputs.len(), 11);
     }
 
     #[test]
