@@ -15,6 +15,11 @@ struct GlobalData {
     cluster_near: f32,
     cluster_far: f32,
     cluster_index_capacity: u32,
+    time: f32,
+    delta_time: f32,
+    frame_number: u32,
+    time_sin: vec4<f32>,
+    time_cos: vec4<f32>,
 }
 
 struct SsrData {

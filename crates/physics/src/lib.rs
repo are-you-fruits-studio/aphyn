@@ -11,7 +11,7 @@
 //!
 //! `aphyn_modules::add_defult_modules_to` registers the module (through
 //! [`add_physics_module_to`]), which inserts [`PhysicsResource`] and [`PhysicsWorldResource`] and adds
-//! the step system. The step reads `fixed_delta_time` from `aphyn_app`'s `TimeResource`, so the world
+//! the step system. The step reads `fixed_delta_time` from `aphyn_time`'s `TimeResource`, so the world
 //! must contain one (the app and the editor insert it).
 //!
 //! #### Bodies and colliders
@@ -58,7 +58,7 @@
 //! [`add_torque`]: RigidbodyComponent::add_torque
 //!
 //! ```
-//! use aphyn_app::TimeResource;
+//! use aphyn_time::TimeResource;
 //! use aphyn_collision::{ColliderComponent, CollisionBox};
 //! use aphyn_ecs::*;
 //! use aphyn_math::Vec3;
@@ -102,7 +102,7 @@
 //! render in uneven jumps. Add a [`RigidbodyInterpolationComponent`] to a body to opt in to
 //! interpolation: every step records the body's previous and current `LocalTransform` pose, and in
 //! `Update` the [`SYSTEM_GROUP_PHYSICS_INTERPOLATION`] group writes the blend of the two by
-//! [`TimeResource::fixed_step_alpha`](aphyn_app::TimeResource::fixed_step_alpha) into the body's
+//! [`TimeResource::fixed_step_alpha`](aphyn_time::TimeResource::fixed_step_alpha) into the body's
 //! `LocalTransform` and its own `GlobalTransform`. The [`SYSTEM_GROUP_PHYSICS_RESTORE`] group puts the
 //! simulated pose back into `LocalTransform`, so `FixedUpdate` code and the next step never see the
 //! shown one. `aphyn_modules` orders interpolation before the transform pass and the restore after it,
@@ -113,7 +113,8 @@
 //! code counts as a teleport: the history restarts at the new pose instead of blending towards it.
 //!
 //! ```
-//! use aphyn_app::{TimeResource, run_frame_schedules};
+//! use aphyn_app::run_frame_schedules;
+//! use aphyn_time::TimeResource;
 //! use aphyn_collision::{ColliderComponent, CollisionSphere};
 //! use aphyn_ecs::*;
 //! use aphyn_math::Vec3;
@@ -193,7 +194,7 @@
 //! #### Stepping a world by hand
 //!
 //! ```
-//! use aphyn_app::TimeResource;
+//! use aphyn_time::TimeResource;
 //! use aphyn_collision::{ColliderComponent, CollisionBox, CollisionSphere};
 //! use aphyn_ecs::*;
 //! use aphyn_math::Vec3;

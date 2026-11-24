@@ -82,7 +82,11 @@ pub struct StandardUniformGlobal {
     pub cluster_near: f32,
     pub cluster_far: f32,
     pub cluster_index_capacity: u32,
-    pub _padding: [u32; 3],
+    pub time: f32,
+    pub delta_time: f32,
+    pub frame_number: u32,
+    pub time_sin: Vec4<f32>,
+    pub time_cos: Vec4<f32>,
 }
 
 unsafe impl AllBitVariationsValid for StandardUniformGlobal {}
@@ -107,7 +111,11 @@ impl Default for StandardUniformGlobal {
             cluster_near: 0.1,
             cluster_far: 1000.0,
             cluster_index_capacity: 0,
-            _padding: [0; 3],
+            time: 0.0,
+            delta_time: 0.0,
+            frame_number: 0,
+            time_sin: Vec4::splat(0.0),
+            time_cos: Vec4::splat(1.0),
         }
     }
 }

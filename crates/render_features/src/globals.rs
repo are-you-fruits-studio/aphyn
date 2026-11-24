@@ -1,10 +1,11 @@
 use aphyn_ecs::{ThreadPoolAccess, WorldDataMut};
 use aphyn_ffi::FfiVec;
-use aphyn_math::{Mat4, Vec3};
+use aphyn_math::{Mat4, Vec3, Vec4};
 use aphyn_render::{
     CLUSTER_DIMS, CurrentRenderingResource, FilterMode, LIGHTS_COUNT_MAX, RenderApiResource, StandardGenericLight, StandardLight,
     StandardTextureAssetMetadata, StandardTextureFormat, StandardUniformGlobal,
 };
+use aphyn_time::TimeResource;
 use aphyn_transform::GlobalTransform;
 
 use crate::{
@@ -54,6 +55,8 @@ impl RenderFeature for GlobalsRenderFeature {
             .get::<ScreenSpaceResource>()
             .map_or((-10_000.0, 10_000.0), |screen_space| (screen_space.near, screen_space.far));
         let shadow_settings = res.get::<ShadowSettingsResource>().copied().unwrap_or_default();
+        let time = res.get::<TimeResource>().cloned().unwrap_or_default();
+        let time_phases = [8.0, 4.0, 2.0, 1.0].map(|divisor| time.frame_time / divisor);
 
         if res.get::<GlobalBindingsResource>().is_none() {
             res.insert(GlobalBindingsResource {
@@ -135,7 +138,12 @@ impl RenderFeature for GlobalsRenderFeature {
             cluster_near,
             cluster_far: camera.far.max(cluster_near * 1.01),
             cluster_index_capacity: globals.cluster_pairs_capacity() as u32,
-            _padding: [0; 3],
+            // todo: f32 time loses precision in long sessions, making shader animation stutter after hours
+            time: time.frame_time as f32,
+            delta_time: time.delta_time,
+            frame_number: time.frame_number as u32,
+            time_sin: Vec4::from_array(time_phases.map(|phase| phase.sin() as f32)),
+            time_cos: Vec4::from_array(time_phases.map(|phase| phase.cos() as f32)),
         };
 
         render_api.write_lights_with(globals, lights.len() as u32, |i| lights[i as u64]);

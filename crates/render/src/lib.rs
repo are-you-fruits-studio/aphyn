@@ -480,7 +480,9 @@
 //! only uploads the first `count`, and the shader reads `lights_count` from the uniform. The uniform
 //! also carries the view's ambient color (the standard shader no longer reads it: it gets ambient
 //! light from the environment map, which falls back to that color), the camera forward (for picking a
-//! cascade by view depth) and the global shadow bias and normal offset; every `vec3` is followed by
+//! cascade by view depth), the global shadow bias and normal offset, and the frame time (`time`, `delta_time`,
+//! `frame_number`, and `time_sin`/`time_cos` holding the sine and cosine of `(time / 8, time / 4, time / 2, time)`,
+//! for shader animation); every `vec3` is followed by
 //! a scalar so the Rust layout matches WGSL's 16-byte `vec3` alignment, and the explicit `_padding`
 //! fields round the structs up the same way. A third buffer holds up to [`SHADOW_VIEWS_MAX`]
 //! [`StandardShadowView`]s; a light uses the `shadow_count` views from `shadow_start` (cascades in

@@ -283,8 +283,10 @@
 //! target. Its pass at [`RENDER_ORDER_PREPARE`] clears all three (depth, like the shadow atlas, to 0: depth is reversed, 1 is
 //! near and 0 is far, so every engine shader tests with `GreaterEqual`). The uploads are queued writes that land at the next
 //! submit, which is before any draw. Lights are uploaded directional first; the uniform's
-//! `directional_lights_count` marks where the clustered (point and spot) lights start. It also
-//! applies [`ClusteredLightingResource::max_light_cluster_pairs`] to the bindings before writing the
+//! `directional_lights_count` marks where the clustered (point and spot) lights start. The uniform
+//! also carries the frame time from `aphyn_time::TimeResource` (default when absent): `time`, `delta_time`, `frame_number`,
+//! and `time_sin`/`time_cos` computed in `f64` from `(t / 8, t / 4, t / 2, t)` so they stay smooth after `time` itself
+//! loses `f32` precision. It also applies [`ClusteredLightingResource::max_light_cluster_pairs`] to the bindings before writing the
 //! uniform, which carries the resulting index capacity.
 //!
 //! It also lays out the view's shadows (`shadows.rs`): it inserts [`ShadowAtlasResource`] on first

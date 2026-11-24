@@ -142,44 +142,9 @@
 //!
 //! #### Time and fixed updates
 //!
-//! [`TimeResource`] is inserted before the `Start` pass and advanced outside the ECS once per frame.
-//! `delta_time`/`frame_time`/`frame_number` describe the frame (`Update`), while
-//! `fixed_delta_time`/`fixed_frame_time`/`fixed_frame_number` describe the current
-//! [`FixedUpdate`](aphyn_ecs::Schedule::FixedUpdate) step. Every frame the real elapsed time multiplied
-//! by `time_scale` is accumulated, and one `FixedUpdate` pass runs per whole `fixed_time_step` in the
-//! accumulator (zero, one or several per frame), always before that frame's `Update` pass. Systems may
-//! write `time_scale` and `fixed_time_step`; they take effect from the next frame / step:
-//!
-//! ```
-//! use aphyn_app::TimeResource;
-//!
-//! let mut time = TimeResource::default();
-//! time.fixed_time_step = 0.02;
-//!
-//! assert_eq!(time.begin_frame(0.005), 0);
-//! assert_eq!(time.begin_frame(0.1), 5);
-//! for _ in 0..5 {
-//!     time.begin_fixed_step();
-//! }
-//! assert_eq!(time.fixed_frame_number, 5);
-//!
-//! time.time_scale = 0.5;
-//! assert_eq!(time.begin_frame(0.1), 2);
-//! ```
-//!
-//! [`fixed_step_alpha`](TimeResource::fixed_step_alpha) is the time left in the accumulator after the
-//! frame's fixed steps, as a fraction of `fixed_time_step` (0..=1). `Update` code uses it to blend
-//! between the last two fixed steps:
-//!
-//! ```
-//! use aphyn_app::TimeResource;
-//!
-//! let mut time = TimeResource::default();
-//! time.fixed_time_step = 0.02;
-//! assert_eq!(time.begin_frame(0.025), 1);
-//! time.begin_fixed_step();
-//! assert!((time.fixed_step_alpha() - 0.25).abs() < 1e-4);
-//! ```
+//! The frame clock is [`TimeResource`](aphyn_time::TimeResource) from `aphyn_time`; its crate docs describe the fields,
+//! `time_scale`, fixed steps and `fixed_step_alpha`. The app inserts it before the `Start` pass and advances it outside
+//! the ECS once per frame.
 //!
 //! [`run_frame_schedules`] performs one frame (advance time, the due `FixedUpdate` passes, then
 //! `Update`); the app and the editor's simulated world both use it so their order stays identical.
@@ -274,7 +239,7 @@
 //! exclusive fullscreen uses the primary monitor's first video mode, else borderless), applies
 //! cursor grab and visibility to the created window (no creation attributes exist for them),
 //! re-reads fullscreen mode and size from it, builds the renderer's `RenderApiResource`, inserts
-//! [`InputResource`], [`TimeResource`] and [`WindowResource`](aphyn_window::WindowResource) into the world,
+//! [`InputResource`], [`TimeResource`](aphyn_time::TimeResource) and [`WindowResource`](aphyn_window::WindowResource) into the world,
 //! builds the behavior, runs the [`Schedule::Start`](aphyn_ecs::Schedule) pass once, applies the
 //! window state it requested, and initializes `gilrs` for gamepad support. A `gilrs` failure is
 //! logged and leaves gamepads disabled rather than aborting.
@@ -285,7 +250,7 @@
 //! the real window, and every gamepad `gilrs` currently reports gets an entry in
 //! [`InputResource`], then pending `gilrs` events are drained into it: connect/disconnect
 //! maintain the per-id gamepad map, and button/axis events update the matching
-//! [`GamepadInputStorage`]. Then [`run_frame_schedules`] advances [`TimeResource`] by the real time
+//! [`GamepadInputStorage`]. Then [`run_frame_schedules`] advances [`TimeResource`](aphyn_time::TimeResource) by the real time
 //! since the previous redraw (measured by the handler's `last_frame` instant) and runs the due
 //! `FixedUpdate` passes and one `Update` pass. Fixed catch-up steps are not clamped yet, so a very long
 //! frame runs many fixed steps. Then the render core system runs, after which the handler clears the frame's events, calls

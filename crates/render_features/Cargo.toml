@@ -17,6 +17,7 @@ aphyn_math = { path = "../math" }
 aphyn_serialization = { path = "../serialization" }
 aphyn_reflection = { path = "../reflection" }
 aphyn_utils = { path = "../utils" }
+aphyn_time = { path = "../time" }
 
 
 [dev-dependencies]

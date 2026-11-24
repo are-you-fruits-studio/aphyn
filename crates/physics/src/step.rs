@@ -1,11 +1,11 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use aphyn_app::TimeResource;
 use aphyn_collision::{
     ColliderBvh, ColliderComponent, ColliderShape, CollisionLayer, CollisionShape, ContactManifold, LineBoundType, collide,
 };
 use aphyn_ecs::{EntitiesHolderMut, EntitiesHolderRef, EntityId, WorldDataMut, WorldQuery};
 use aphyn_math::{Mat, Mat3, Mat4, Quat, Vec3};
+use aphyn_time::TimeResource;
 use aphyn_transform::{ChildComponent, GlobalTransform, LocalTransform};
 
 use crate::{

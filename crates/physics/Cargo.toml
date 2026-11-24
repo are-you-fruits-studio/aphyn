@@ -8,7 +8,7 @@ license.workspace = true
 crate-type = ["lib"]
 
 [dependencies]
-aphyn_app = { path = "../app" }
+aphyn_time = { path = "../time" }
 aphyn_collision = { path = "../collision" }
 aphyn_ecs = { path = "../ecs" }
 aphyn_ffi = { path = "../ffi" }
@@ -17,3 +17,6 @@ aphyn_render_features = { path = "../render_features" }
 aphyn_serialization = { path = "../serialization" }
 aphyn_reflection = { path = "../reflection" }
 aphyn_transform = { path = "../transform" }
+
+[dev-dependencies]
+aphyn_app = { path = "../app" }

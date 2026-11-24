@@ -19,3 +19,4 @@ aphyn_render_features = { path = "../render_features" }
 aphyn_transform = { path = "../transform" }
 aphyn_ffi = { path = "../ffi" }
 aphyn_window = { path = "../window" }
+aphyn_time = { path = "../time" }

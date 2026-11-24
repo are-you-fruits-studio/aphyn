@@ -1,0 +1,12 @@
+[package]
+name = "aphyn_time"
+version.workspace = true
+edition = "2024"
+license.workspace = true
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+aphyn_ecs = { path = "../ecs" }
+aphyn_ffi = { path = "../ffi" }

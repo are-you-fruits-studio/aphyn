@@ -16,8 +16,10 @@ use winit::{
     window::{Window, WindowId},
 };
 
+use aphyn_time::TimeResource;
+
 use crate::{
-    GamepadInputStorage, InputResource, KeyPressedEvent, TextInputEvent, TimeResource, WindowFocusChangedEvent,
+    GamepadInputStorage, InputResource, KeyPressedEvent, TextInputEvent, WindowFocusChangedEvent,
     render_target::RenderTarget,
     run_frame_schedules,
     window_resources::{
