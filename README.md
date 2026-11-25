@@ -95,72 +95,19 @@ fn main() {
 }
 ```
 
-It opens an empty window: add a camera and a mesh to see something — see the `cubes` example in [aphyn.examples](https://github.com/are-you-fruits-studio/aphyn.examples).
+It opens an empty window: add a camera and a mesh to see something — see the `cubes` example in [aphyn.examples](https://github.com/are-you-fruits-studio/aphyn.examples). The [Quick start](https://docs.aphyn.org/docs/getting-started) guide walks through it.
 
 To ship a game as a launcher plus a game library, see [Build a game](#build-a-game).
 
 ## Build a game
 
-A shipped game is one crate, `scripts/`, in the project folder. It has two targets: your game as a `cdylib` named `aphynapp`, and a small binary named `launcher` that loads it.
-
-`scripts/Cargo.toml`:
-
-```toml
-[package]
-name = "lib_app"
-version = "0.1.0"
-edition = "2024"
-
-[lib]
-name = "aphynapp"
-crate-type = ["cdylib"]
-
-[[bin]]
-name = "launcher"
-path = "src/main.rs"
-
-[dependencies]
-aphyn = { git = "https://github.com/are-you-fruits-studio/aphyn", tag = "v0.23.0" }
-```
-
-Use the same tag as the `aphyn` binary you build with. Tags before `v0.18.0` still use the old package name. The library must be named `aphynapp` and the binary `launcher`: `aphyn build` looks for these names. Projects without `name = "aphynapp"` under `[lib]` build `lib_app.dll` / `liblib_app.so`, which the launcher no longer finds.
-
-`scripts/src/lib.rs` exports the setup function:
-
-```rust
-use aphyn::*;
-
-fn setup(ctx: AppInitCtx) {
-    // Register your components, systems and resources on `ctx.data` and `ctx.behavior`.
-    ctx.window.title = "My game".into();
-}
-
-aphyn::aphyn_entry_point!(setup);
-```
-
-`scripts/src/main.rs` loads your library. You can add your own startup code here:
-
-```rust
-fn main() {
-    aphyn::launch_app_dynamically();
-}
-```
-
-`aphyn build` stops with an error if `src/main.rs` or the `[[bin]]` section is missing. Older projects had a separate `launcher/` folder. It is no longer used, so you can delete it.
-
-Then build with the `aphyn` binary. Download it from [GitHub Releases](https://github.com/are-you-fruits-studio/aphyn/releases) (`v0.18.0` or newer):
+A shipped game is a small launcher, your game compiled as a dynamic library, and its `assets/`. The `aphyn` binary from [GitHub Releases](https://github.com/are-you-fruits-studio/aphyn/releases) packs them:
 
 ```bash
 aphyn build path/to/my_game
 ```
 
-or run it from source:
-
-```bash
-cargo run --release -p aphyn_editor -- build path/to/my_game
-```
-
-This compiles `scripts/` and copies the launcher, the `aphynapp` library and `assets/` into `path/to/my_game/builds/`. The executable is named after the project folder (`my_game`). It needs `cargo` in your `PATH`. On Windows, keep the project path short (MSVC's 260-character path limit) and without spaces.
+The project layout, the game crate and how the launcher loads it: [Build a game](https://docs.aphyn.org/docs/build-a-game) on docs.aphyn.org.
 
 ## Examples
 

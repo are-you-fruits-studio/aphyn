@@ -1,35 +1,6 @@
 import React from 'react';
-import Link from '@docusaurus/Link';
-import Layout from '@theme/Layout';
+import {Redirect} from '@docusaurus/router';
 
 export default function Home() {
-  return (
-    <Layout
-      title="aphyn"
-      description="Rust game engine documentation"
-    >
-      <main className="home">
-        <section className="home__hero">
-          <div className="container">
-            <p className="home__eyebrow">Are You Fruits?</p>
-            <h1>aphyn</h1>
-            <p className="home__intro">
-              Documentation for engine concepts and API reference.
-            </p>
-            <div className="home__actions">
-              <Link className="button button--primary" to="/docs/getting-started">
-                Open Docs
-              </Link>
-              <a
-                className="button button--secondary"
-                href="/api-reference/aphyn/index.html"
-              >
-                View API Reference
-              </a>
-            </div>
-          </div>
-        </section>
-      </main>
-    </Layout>
-  );
+  return <Redirect to="/docs/getting-started" />;
 }

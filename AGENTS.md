@@ -99,12 +99,15 @@ Important paths:
 - `docs/scripts/serve-build.mjs` - GitHub Pages-faithful static server for local preview
 - `docs/scripts/build-and-serve.ps1` - local full docs build and foreground server
 - `docs/scripts/clean-docs-artifacts.ps1` - cleanup for generated docs artifacts
-- `docs/docusaurus.config.js` - Docusaurus configuration (baseUrl, navbar)
+- `docs/docusaurus.config.js` - Docusaurus configuration (baseUrl, navbar, local search); reads the engine version from `[workspace.package] version` in the root `Cargo.toml` for the navbar badge and `customFields.engineVersion`
+- `docs/src/components/AphynDependency.js` - the `aphyn = { git, tag }` dependency block with the current version; use it instead of hard-coding a tag in pages
 - `.github/workflows/docs.yml` - GitHub Pages build/deploy workflow
 
 Guides and tutorials should be placed under `docs/docs/` and linked through `docs/sidebars.js`. API reference content should be produced from Rust doc comments instead of hand-editing generated rustdoc files.
 
-Keep pages focused and scoped.
+Keep pages focused and scoped. Every ` ```rust ` block in a page must compile against the current API.
+
+Search is `@easyops-cn/docusaurus-search-local`: the index is built by `npm run build` and does not work under `npm start`. It covers the Markdown pages, not the rustdoc API reference.
 
 ## Documentation Build Workflow
 For local verification on Windows, prefer:
