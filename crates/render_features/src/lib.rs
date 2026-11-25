@@ -257,6 +257,13 @@
 //! schedules run on, or `ThreadPoolAccess::single_threaded()`), any number of times per frame.
 //! Passes read the camera and target from that resource, which exists only during the call.
 //!
+//! The last argument is an optional `ProfileRecorder` (`aphyn_profiling`). With `Some`, each feature's
+//! `add_passes` records a `ProfileSpanKind::RenderCollect` span and each executed pass a
+//! `ProfileSpanKind::RenderPass` span with the pass order as `tag`, both named after the feature's
+//! registration name. These are CPU times of encoding and submitting, not GPU times. The `ThreadPoolAccess` handed
+//! to `add_passes` and to every pass carries a `ProfileCtx` named after the feature, so pool work they start is
+//! recorded as job spans.
+//!
 //! #### Post-processing and gizmos
 //!
 //! Exposure, bloom and color grading are off by default; enable them through [`ExposureResource`],
@@ -270,7 +277,9 @@
 //! Insert the view as `CurrentRenderingResource`, clone the world's `RenderApiResource` (one boxed
 //! `Arc` per call), `collect_passes` (clear the list, call every slot's `add_passes` in registration
 //! order, unstable-sort by order), call every entry's closure, clear the closures, remove the
-//! resource. Without a `RenderApiResource` nothing is collected or run.
+//! resource. Without a `RenderApiResource` nothing is collected or run. With a recorder, `add_passes`
+//! and every closure call are wrapped in `ProfileRecorder::measure`; the feature name is looked up as
+//! `names.get_by_idx(slot)`, which holds because names are inserted in slot order and never removed.
 //!
 //! #### Globals feature
 //!

@@ -864,7 +864,7 @@ mod tests {
         assert!(render.add_feature(RENDER_FEATURE_MATERIAL, MaterialRenderFeature::default()));
 
         for _ in 0..2 {
-            render.collect_passes(&mut world, ThreadPoolAccess::single_threaded());
+            render.collect_passes(&mut world, ThreadPoolAccess::single_threaded(), None);
             assert!(render.pass_entries().is_empty());
             assert!(feature(&render).items().is_empty());
         }

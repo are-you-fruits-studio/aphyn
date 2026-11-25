@@ -6,6 +6,7 @@ use std::{
 };
 
 use aphyn_ffi::{FfiArc, FfiDroppable, FfiOption};
+use aphyn_profiling::{ProfileCtx, ProfileSpanKind};
 
 mod ffi;
 mod graph;
@@ -30,6 +31,7 @@ struct ThreadPoolInner {
     threads_count_fn: unsafe extern "C-unwind" fn(*const c_void) -> u64,
     background_threads_count_fn: unsafe extern "C-unwind" fn(*const c_void) -> u64,
     did_panic_fn: unsafe extern "C-unwind" fn(*const c_void) -> bool,
+    current_worker_index_fn: unsafe extern "C-unwind" fn(*const c_void) -> u32,
 }
 
 #[repr(C)]
@@ -68,6 +70,10 @@ impl ThreadPool {
             unsafe { native(this).did_panic() }
         }
 
+        unsafe extern "C-unwind" fn ffi_current_worker_index(this: *const c_void) -> u32 {
+            unsafe { native(this).current_worker_index() }
+        }
+
         Self {
             inner: FfiArc::new(ThreadPoolInner {
                 native: FfiDroppable::new(ThreadPoolNative::new(threads_count, background_threads_count)),
@@ -77,6 +83,7 @@ impl ThreadPool {
                 threads_count_fn: ffi_threads_count,
                 background_threads_count_fn: ffi_background_threads_count,
                 did_panic_fn: ffi_did_panic,
+                current_worker_index_fn: ffi_current_worker_index,
             }),
         }
     }
@@ -99,6 +106,10 @@ impl ThreadPool {
 
     pub fn background_threads_count(&self) -> usize {
         unsafe { (self.inner.background_threads_count_fn)(self.inner.native.get()) as usize }
+    }
+
+    pub fn current_worker_index(&self) -> u32 {
+        unsafe { (self.inner.current_worker_index_fn)(self.inner.native.get()) }
     }
 
     pub fn access(&self) -> ThreadPoolAccess<'_> {
@@ -139,22 +150,44 @@ unsafe impl Sync for ThreadPool {}
 #[derive(Copy, Clone)]
 pub struct ThreadPoolAccess<'p> {
     pool: FfiOption<&'p ThreadPool>,
+    profile: FfiOption<ProfileCtx<'p>>,
 }
 
 impl ThreadPoolAccess<'static> {
     pub const fn single_threaded() -> Self {
-        Self { pool: FfiOption::None }
+        Self {
+            pool: FfiOption::None,
+            profile: FfiOption::None,
+        }
     }
 }
 
 impl<'p> ThreadPoolAccess<'p> {
-    // Safety: the pool (if any) must outlive every use of the returned access.
+    // Safety: the pool (if any) and the profile context (if any) must outlive every use of the returned access.
     pub unsafe fn extend_lifetime<'l>(self) -> ThreadPoolAccess<'l> {
         unsafe { std::mem::transmute::<ThreadPoolAccess<'p>, ThreadPoolAccess<'l>>(self) }
     }
 
+    pub fn with_profile<'l>(self, profile: Option<ProfileCtx<'l>>) -> ThreadPoolAccess<'l>
+    where
+        'p: 'l,
+    {
+        ThreadPoolAccess {
+            pool: self.pool,
+            profile: profile.into(),
+        }
+    }
+
+    pub fn profile(&self) -> Option<ProfileCtx<'p>> {
+        self.profile.into_option()
+    }
+
     pub fn is_single_threaded(&self) -> bool {
         self.pool().is_none()
+    }
+
+    pub fn current_worker_index(&self) -> u32 {
+        self.pool().map_or(0, ThreadPool::current_worker_index)
     }
 
     pub fn parallelism(&self) -> usize {
@@ -162,6 +195,15 @@ impl<'p> ThreadPoolAccess<'p> {
     }
 
     pub fn execute_graph<I: GraphIter, F: Sync + Fn(I::Item)>(self, iter: I, f: F) {
+        match self.profile() {
+            None => self.execute_graph_unprofiled(iter, f),
+            Some(profile) => self.execute_graph_unprofiled(iter, |task: I::Item| {
+                profile.measure(ProfileSpanKind::BatchTask, self.current_worker_index(), task.into_u64(), || f(task))
+            }),
+        }
+    }
+
+    fn execute_graph_unprofiled<I: GraphIter, F: Sync + Fn(I::Item)>(self, iter: I, f: F) {
         let Some(pool) = self.pool() else {
             execute_graph_inline(iter, f);
             return;
@@ -209,7 +251,10 @@ impl<'p> ThreadPoolAccess<'p> {
         }
 
         if self.is_single_threaded() {
-            f(0..len);
+            match self.profile() {
+                None => f(0..len),
+                Some(profile) => profile.measure(ProfileSpanKind::BatchTask, 0, 0, || f(0..len)),
+            }
             return;
         }
 
@@ -241,6 +286,8 @@ impl<'p> ThreadPoolAccess<'p> {
     }
 
     pub fn push_job_unhandled<F: 'static + Send + FnOnce()>(self, f: F) {
+        let f = self.profile_background_job(f);
+
         match self.pool() {
             Some(pool) => pool.push_background_job(FfiJob::new(f)),
             None => f(),
@@ -248,7 +295,7 @@ impl<'p> ThreadPoolAccess<'p> {
     }
 
     pub fn push_job_handled<F: 'static + Send + FnOnce() -> T, T: 'static + Send>(self, f: F) -> JobHandle<T> {
-        let (handle, executor) = job::create_job(f);
+        let (handle, executor) = job::create_job(self.profile_background_job(f));
 
         match self.pool() {
             Some(pool) => pool.push_background_job(FfiJob::new(executor)),
@@ -262,7 +309,20 @@ impl<'p> ThreadPoolAccess<'p> {
     where
         F: for<'scope> FnOnce(&'scope Scope<'scope, 'env>) -> R,
     {
-        scope::scope(self.pool(), f)
+        scope::scope(self.pool(), self.profile(), f)
+    }
+
+    // the job may outlive the pushing code, so it owns the recorder and a pool handle for the worker index
+    fn profile_background_job<F: 'static + Send + FnOnce() -> T, T>(self, f: F) -> impl 'static + Send + FnOnce() -> T {
+        let profile = self.profile().map(|p| (p.to_owned(), self.pool().cloned()));
+
+        move || match profile {
+            None => f(),
+            Some((profile, pool)) => {
+                let thread = pool.as_ref().map_or(0, ThreadPool::current_worker_index);
+                profile.measure(ProfileSpanKind::BackgroundJob, thread, 0, f)
+            }
+        }
     }
 
     fn pool(&self) -> Option<&'p ThreadPool> {
@@ -274,13 +334,17 @@ impl<'p> From<&'p ThreadPool> for ThreadPoolAccess<'p> {
     fn from(pool: &'p ThreadPool) -> Self {
         Self {
             pool: FfiOption::Some(pool),
+            profile: FfiOption::None,
         }
     }
 }
 
 impl<'p> From<Option<&'p ThreadPool>> for ThreadPoolAccess<'p> {
     fn from(pool: Option<&'p ThreadPool>) -> Self {
-        Self { pool: pool.into() }
+        Self {
+            pool: pool.into(),
+            profile: FfiOption::None,
+        }
     }
 }
 

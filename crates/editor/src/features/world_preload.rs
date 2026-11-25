@@ -50,6 +50,7 @@ pub struct SimulatedWorld {
     pub threading: ThreadingMode,
     pub is_started: bool,
     pub last_tick: Option<Instant>,
+    pub profiler: Option<ProfileRecorder>,
 }
 impl SimulatedWorld {
     pub fn new(
@@ -70,13 +71,14 @@ impl SimulatedWorld {
             threading,
             is_started: false,
             last_tick: None,
+            profiler: None,
         }
     }
 
     pub fn start_if_needed(&mut self, thread_pool: ThreadPoolAccess) {
         if !self.is_started {
             self.behavior
-                .execute_iteration(Schedule::Start, self.data.as_mut(), thread_pool);
+                .execute_iteration(Schedule::Start, self.data.as_mut(), thread_pool, self.profiler.as_ref());
             self.is_started = true;
         }
     }
@@ -89,6 +91,13 @@ pub struct SimulatedWorldResource(pub Option<SimulatedWorld>, Option<ThreadPool>
 impl SimulatedWorldResource {
     pub fn is_playing(&self) -> bool {
         self.0.as_ref().is_some_and(|w| w.mode == SimulationMode::Play)
+    }
+
+    pub fn frame_threads_count(&self) -> usize {
+        match self.0.as_ref().map(|w| w.threading) {
+            Some(ThreadingMode::ThreadPool) => self.1.as_ref().map_or(0, ThreadPool::threads_count),
+            _ => 0,
+        }
     }
 
     pub fn world_and_thread_pool(&mut self) -> Option<(&mut SimulatedWorld, ThreadPoolAccess<'_>)> {
@@ -378,6 +387,7 @@ pub fn tick_simulated_world_system(mut simulated_world: ResMut<SimulatedWorldRes
         simulated_world.data.as_mut(),
         real_delta_time,
         thread_pool,
+        simulated_world.profiler.as_ref(),
     );
 
     simulated_world.data.events_mut().clear();

@@ -300,6 +300,7 @@ pub fn render_scene_window_system(
         &mut simulated_world.render,
         Some(camera),
         thread_pool,
+        None,
     );
 
     simulated_world.data.resources_mut().remove::<TransformGizmoMeshResource>();
@@ -326,6 +327,7 @@ pub fn render_simulated_view(
     render: &mut RenderFeatureRegistry,
     camera: Option<ViewCamera>,
     thread_pool: ThreadPoolAccess,
+    profiler: Option<&ProfileRecorder>,
 ) {
     let size = view_size(rect_c);
 
@@ -387,5 +389,6 @@ pub fn render_simulated_view(
             target,
         },
         thread_pool,
+        profiler,
     );
 }

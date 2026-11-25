@@ -1,5 +1,7 @@
 # Immediate
 
+- optimize prefab spawning after all the reflection refactor
+- custom names for serialized components
 - shader runtime define switching and recompilation
 - move serialization, reflection, inspecting to being builder at app-init stage and immutable at runtime (probably store them separately from the ECS world and somewhere near the TypesRegistry)
 - allow using cached TypesRegistry key to avoid string lookup and even hashmap lookup where possible.
@@ -8,8 +10,7 @@
     - also, check with nsight
 - screen-space effects (SSR, SSAO, SSGI)
 - rename current scene into multi-prefab and create a new scene asset that contains both entities and resources. It's used as a game bootstrap
-- implement animation (infrastructure and window)
-- implement animator and state (infrastructure and window)
+- implement animator and state (infrastructure and window). Also, add events to animation, not only keyframes (events just write the data as the keyframes do, but they don't interpolate and don't hold (repeatedly update) the value).
 
 # Prioritized
 
@@ -77,6 +78,7 @@
 
 # Not prioritized yet
 
+- SPD (Single Pass Downsampling)
 - subsurface scattering
 - scroll while RMB pressed changes camera movement speed
 - cubemaps support

@@ -1,4 +1,4 @@
-use aphyn_ecs::{ThreadPoolAccess, WorldData};
+use aphyn_ecs::{ProfileCtx, ProfileRecorder, ProfileSpanKind, ThreadPoolAccess, WorldData};
 use aphyn_ffi::{FfiIndexMap, FfiString, FfiVec};
 use aphyn_render::{CurrentRenderingResource, RenderApiResource};
 
@@ -30,29 +30,47 @@ impl RenderFeatureRegistry {
         true
     }
 
-    pub fn render_view(&mut self, world: &mut WorldData, view: CurrentRenderingResource, thread_pool: ThreadPoolAccess) {
+    pub fn render_view(
+        &mut self,
+        world: &mut WorldData,
+        view: CurrentRenderingResource,
+        thread_pool: ThreadPoolAccess,
+        profiler: Option<&ProfileRecorder>,
+    ) {
         world.resources_mut().insert(view);
 
         let render_api = world.resources().get::<RenderApiResource>().map(RenderApiResource::clone);
 
         if let Some(render_api) = render_api {
-            self.collect_passes(world, thread_pool);
+            self.collect_passes(world, thread_pool, profiler);
 
             let data = world.as_mut();
             let world_ffi = data.ffi();
 
             for i in 0..self.entries.len() {
                 let entry = self.entries[i];
+                let name = self.names.get_by_idx(entry.slot as u64).map(|(name, _)| &**name);
+                let profile = profiler.zip(name).map(|(recorder, parent)| ProfileCtx { recorder, parent: parent.into() });
+
                 let input = RenderPassInput {
                     this: self.slots[entry.slot as u64].state(),
                     world: world_ffi,
                     types: unsafe { (*world_ffi).types() },
                     render_api: &render_api,
-                    // the pass runs before `render_view` returns, so the pool outlives it
-                    thread_pool: unsafe { thread_pool.extend_lifetime() },
+                    // the pass runs before `render_view` returns, so the pool and the profile context outlive it
+                    thread_pool: unsafe { thread_pool.with_profile(profile).extend_lifetime() },
                 };
 
-                self.passes.call(entry.index as usize, input);
+                match profile {
+                    None => _ = self.passes.call(entry.index as usize, input),
+                    Some(profile) => {
+                        let thread = thread_pool.current_worker_index();
+                        let passes = &mut self.passes;
+                        profile.measure(ProfileSpanKind::RenderPass, thread, entry.order, || {
+                            _ = passes.call(entry.index as usize, input);
+                        });
+                    }
+                }
             }
 
             self.passes.clear();
@@ -61,16 +79,31 @@ impl RenderFeatureRegistry {
         world.resources_mut().remove::<CurrentRenderingResource>();
     }
 
-    pub(crate) fn collect_passes(&mut self, world: &mut WorldData, thread_pool: ThreadPoolAccess) {
+    pub(crate) fn collect_passes(
+        &mut self,
+        world: &mut WorldData,
+        thread_pool: ThreadPoolAccess,
+        profiler: Option<&ProfileRecorder>,
+    ) {
         self.entries.clear();
         self.passes.clear();
 
         let world_ffi = world.as_mut().ffi();
+        let thread = thread_pool.current_worker_index();
 
         for i in 0..self.slots.len() {
-            unsafe {
+            let name = self.names.get_by_idx(i).map(|(name, _)| &**name);
+            let profile = profiler.zip(name).map(|(recorder, parent)| ProfileCtx { recorder, parent: parent.into() });
+            let feature_pool = thread_pool.with_profile(profile);
+
+            let mut add_passes = || unsafe {
                 let types = (*world_ffi).types();
-                self.slots[i].add_passes(i as u32, world_ffi, types, thread_pool, &mut self.passes, &mut self.entries);
+                self.slots[i].add_passes(i as u32, world_ffi, types, feature_pool, &mut self.passes, &mut self.entries);
+            };
+
+            match profile {
+                None => add_passes(),
+                Some(profile) => profile.measure(ProfileSpanKind::RenderCollect, thread, 0, add_passes),
             }
         }
 
@@ -157,7 +190,7 @@ mod tests {
         assert!(registry.add_feature("a", FixedOrders::new("a", &[9_000_000, 1_000_000])));
         assert!(registry.add_feature("b", FixedOrders::new("b", &[5_000_000])));
 
-        registry.collect_passes(&mut world, ThreadPoolAccess::single_threaded());
+        registry.collect_passes(&mut world, ThreadPoolAccess::single_threaded(), None);
 
         assert_eq!(orders(&registry), [1_000_000, 5_000_000, 9_000_000]);
 
@@ -183,7 +216,7 @@ mod tests {
         registry.add_feature("a", FixedOrders::new("a", &[]));
         registry.add_feature("b", FixedOrders::new("b", &[]));
 
-        registry.collect_passes(&mut world, ThreadPoolAccess::single_threaded());
+        registry.collect_passes(&mut world, ThreadPoolAccess::single_threaded(), None);
 
         let log = world.as_mut().resources_mut().remove::<CallLog>().unwrap();
         assert_eq!(log.0, ["a", "b"]);
@@ -198,7 +231,7 @@ mod tests {
         assert!(!registry.add_feature("a", FixedOrders::new("a2", &[2])));
         assert_eq!(registry.slots_len(), 1);
 
-        registry.collect_passes(&mut world, ThreadPoolAccess::single_threaded());
+        registry.collect_passes(&mut world, ThreadPoolAccess::single_threaded(), None);
 
         assert_eq!(orders(&registry), [1]);
     }
@@ -209,12 +242,12 @@ mod tests {
         let mut registry = RenderFeatureRegistry::default();
         registry.add_feature("a", FixedOrders::new("a", &[3, 2, 1, 4, 5]));
 
-        registry.collect_passes(&mut world, ThreadPoolAccess::single_threaded());
+        registry.collect_passes(&mut world, ThreadPoolAccess::single_threaded(), None);
 
         let snapshot = |registry: &RenderFeatureRegistry| (registry.pass_entries().as_ptr(), registry.pass_entries_capacity());
         let before = snapshot(&registry);
 
-        registry.collect_passes(&mut world, ThreadPoolAccess::single_threaded());
+        registry.collect_passes(&mut world, ThreadPoolAccess::single_threaded(), None);
 
         assert_eq!(snapshot(&registry), before);
         assert_eq!(orders(&registry), [1, 2, 3, 4, 5]);
@@ -231,8 +264,28 @@ mod tests {
         let mut world = WorldData::default();
         let mut registry = RenderFeatureRegistry::default();
 
-        registry.collect_passes(&mut world, ThreadPoolAccess::single_threaded());
+        registry.collect_passes(&mut world, ThreadPoolAccess::single_threaded(), None);
 
         assert!(registry.pass_entries().is_empty());
+    }
+
+    #[test]
+    fn profiled_collect_records_a_span_per_feature() {
+        let mut world = WorldData::default();
+        let mut registry = RenderFeatureRegistry::default();
+        registry.add_feature("a", FixedOrders::new("a", &[1]));
+        registry.add_feature("b", FixedOrders::new("b", &[]));
+
+        let profiler = ProfileRecorder::new();
+        registry.collect_passes(&mut world, ThreadPoolAccess::single_threaded(), Some(&profiler));
+
+        let spans = profiler.take_spans();
+        let names: Vec<&str> = spans.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["a", "b"]);
+        assert!(
+            spans
+                .iter()
+                .all(|s| s.kind == ProfileSpanKind::RenderCollect && s.thread == 0)
+        );
     }
 }

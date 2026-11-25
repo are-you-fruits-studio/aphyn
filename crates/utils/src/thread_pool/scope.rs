@@ -6,10 +6,13 @@ use std::{
     sync::{Arc, Condvar, Mutex, MutexGuard},
 };
 
+use aphyn_profiling::{ProfileCtx, ProfileSpanKind};
+
 use super::{FfiJob, ThreadPool};
 
 pub struct Scope<'scope, 'env: 'scope> {
     pool: Option<&'scope ThreadPool>,
+    profile: Option<ProfileCtx<'scope>>,
     state: Arc<ScopeState>,
     _scope: PhantomData<&'scope mut &'scope ()>,
     _env: PhantomData<&'env mut &'env ()>,
@@ -77,7 +80,16 @@ impl ScopeState {
 
 impl<'scope, 'env> Scope<'scope, 'env> {
     pub fn push_job_unhandled<F: 'scope + Send + FnOnce()>(&'scope self, f: F) {
-        let Some(pool) = self.pool else {
+        let (pool, profile) = (self.pool, self.profile);
+        let f = move || match profile {
+            None => f(),
+            Some(profile) => {
+                let thread = pool.map_or(0, ThreadPool::current_worker_index);
+                profile.measure(ProfileSpanKind::ScopeJob, thread, 0, f)
+            }
+        };
+
+        let Some(pool) = pool else {
             f();
             return;
         };
@@ -95,12 +107,13 @@ impl<'scope, 'env> Scope<'scope, 'env> {
     }
 }
 
-pub(super) fn scope<'env, F, R>(pool: Option<&ThreadPool>, f: F) -> R
+pub(super) fn scope<'env, F, R>(pool: Option<&ThreadPool>, profile: Option<ProfileCtx>, f: F) -> R
 where
     F: for<'scope> FnOnce(&'scope Scope<'scope, 'env>) -> R,
 {
     let scope = Scope {
         pool,
+        profile,
         state: Arc::new(ScopeState {
             jobs: Mutex::new(ScopeJobs {
                 queue: VecDeque::new(),

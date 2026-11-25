@@ -307,7 +307,7 @@ pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
 }
 
 // sized for the longest text the button shows
-fn spawn_button<C: 'static>(
+pub(crate) fn spawn_button<C: 'static>(
     mut ent: EntitiesHolderMut,
     assets: &StandardAssetsResource,
     ent_parent: EntityId,
@@ -377,7 +377,7 @@ fn spawn_thumb(mut ent: EntitiesHolderMut, assets: &StandardAssetsResource, ent_
     ent_thumb
 }
 
-fn spawn_row(mut ent: EntitiesHolderMut, ent_parent: EntityId, top: f32) -> EntityId {
+pub(crate) fn spawn_row(mut ent: EntitiesHolderMut, ent_parent: EntityId, top: f32) -> EntityId {
     let ent_row = ent.create_entity();
 
     ent.set_components(
@@ -407,7 +407,7 @@ fn spawn_row(mut ent: EntitiesHolderMut, ent_parent: EntityId, top: f32) -> Enti
 }
 
 // a background area filling the parent minus `padding_min` / `padding_max`, or `width` wide from the left
-fn spawn_area(
+pub(crate) fn spawn_area(
     mut ent: EntitiesHolderMut,
     assets: &StandardAssetsResource,
     ent_parent: EntityId,
@@ -453,7 +453,7 @@ fn spawn_area(
     ent_area
 }
 
-fn spawn_lines(
+pub(crate) fn spawn_lines(
     mut ent: EntitiesHolderMut,
     assets: &StandardAssetsResource,
     ent_parent: EntityId,
@@ -485,7 +485,7 @@ fn spawn_lines(
     ent_lines
 }
 
-fn spawn_text(
+pub(crate) fn spawn_text(
     mut ent: EntitiesHolderMut,
     assets: &StandardAssetsResource,
     ent_parent: EntityId,
@@ -521,7 +521,7 @@ fn spawn_text(
     ent_text
 }
 
-fn spawn_label(
+pub(crate) fn spawn_label(
     mut ent: EntitiesHolderMut,
     assets: &StandardAssetsResource,
     ent_parent: EntityId,

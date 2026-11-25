@@ -15,3 +15,5 @@ mod project_window;
 pub use project_window::*;
 mod animation_window;
 pub use animation_window::*;
+mod profiler_window;
+pub use profiler_window::*;

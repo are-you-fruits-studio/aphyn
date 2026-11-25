@@ -1,6 +1,6 @@
 use std::{
     any::Any,
-    cell::UnsafeCell,
+    cell::{Cell, UnsafeCell},
     collections::VecDeque,
     panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
     sync::{
@@ -13,6 +13,11 @@ use std::{
 use super::{FfiBatch, FfiJob};
 
 type PanicPayload = Box<dyn Any + Send>;
+
+thread_local! {
+    // (address of the owning pool's `Shared`, 1-based worker index: frame workers first, then background workers)
+    static WORKER: Cell<(usize, u32)> = const { Cell::new((0, 0)) };
+}
 
 pub(super) struct ThreadPoolNative {
     shared: Arc<Shared>,
@@ -40,16 +45,24 @@ impl ThreadPoolNative {
         });
 
         let frame_threads = (0..frame_threads_count)
-            .map(|_| {
+            .map(|i| {
                 let shared = Arc::clone(&shared);
-                thread::spawn(move || shared.run_frame_worker())
+                let index = u32::try_from(i + 1).expect("too many frame threads");
+                thread::spawn(move || {
+                    WORKER.set((Arc::as_ptr(&shared) as usize, index));
+                    shared.run_frame_worker()
+                })
             })
             .collect();
 
         let background_threads = (0..background_threads_count)
-            .map(|_| {
+            .map(|i| {
                 let shared = Arc::clone(&shared);
-                thread::spawn(move || shared.run_background_worker())
+                let index = u32::try_from(frame_threads_count + i + 1).expect("too many background threads");
+                thread::spawn(move || {
+                    WORKER.set((Arc::as_ptr(&shared) as usize, index));
+                    shared.run_background_worker()
+                })
             })
             .collect();
 
@@ -66,6 +79,13 @@ impl ThreadPoolNative {
 
     pub fn background_threads_count(&self) -> usize {
         self.background_threads.len()
+    }
+
+    pub fn current_worker_index(&self) -> u32 {
+        match WORKER.get() {
+            (pool, index) if pool == Arc::as_ptr(&self.shared) as usize => index,
+            _ => 0,
+        }
     }
 
     pub fn did_panic(&self) -> bool {

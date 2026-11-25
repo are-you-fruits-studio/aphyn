@@ -1191,7 +1191,7 @@ pub fn preview_animation_system(mut window: ResMut<AnimationWindowResource>, mut
 
 // drawing
 
-fn set_text(ent: &mut EntitiesHolderMut, entity: EntityId, text: &str, color: Vec4<f32>) {
+pub(crate) fn set_text(ent: &mut EntitiesHolderMut, entity: EntityId, text: &str, color: Vec4<f32>) {
     if let Some(text_c) = ent.get_component_mut::<TextComponent>(entity) {
         if text_c.text.as_str() != text {
             text_c.text.clear();
@@ -1201,13 +1201,13 @@ fn set_text(ent: &mut EntitiesHolderMut, entity: EntityId, text: &str, color: Ve
     }
 }
 
-fn set_field_text(ent: &mut EntitiesHolderMut, selected_input: &SelectedInputFieldResource, field: EntityId, text: &str) {
+pub(crate) fn set_field_text(ent: &mut EntitiesHolderMut, selected_input: &SelectedInputFieldResource, field: EntityId, text: &str) {
     return_if!(selected_input.selected == field);
     return_if_not!(Some(text_entity) = ent.get_component::<InputFieldComponent>(field).map(|f| f.text));
     set_text(ent, text_entity, text, TEXT_COLOR);
 }
 
-fn set_points(ent: &mut EntitiesHolderMut, entity: EntityId, points: Vec<Vec2<f32>>) {
+pub(crate) fn set_points(ent: &mut EntitiesHolderMut, entity: EntityId, points: Vec<Vec2<f32>>) {
     if let Some(line_c) = ent.get_component_mut::<UiLineComponent>(entity) {
         line_c.points = points.into();
     }
@@ -1217,7 +1217,7 @@ fn button_entities<C: 'static + Component>(ent: &EntitiesHolderMut) -> Vec<Entit
     ent.query_filtered::<EntityId, WithFilter<C>>().iter().collect()
 }
 
-fn style_buttons<C: 'static + Component>(ent: &mut EntitiesHolderMut, color: Vec4<f32>, text: Option<&str>) {
+pub(crate) fn style_buttons<C: 'static + Component>(ent: &mut EntitiesHolderMut, color: Vec4<f32>, text: Option<&str>) {
     for ent_button in button_entities::<C>(ent) {
         if let Some(image_c) = ent.get_component_mut::<ImageComponent>(ent_button) {
             image_c.color = color;
@@ -1557,7 +1557,7 @@ fn set_thumb(ent: &mut EntitiesHolderMut, bar: EntityId, thumb: EntityId, (start
     }
 }
 
-fn clicked<C: 'static + Component>(q: &WorldQuery<&ButtonComponent, WithFilter<C>>) -> bool {
+pub(crate) fn clicked<C: 'static + Component>(q: &WorldQuery<&ButtonComponent, WithFilter<C>>) -> bool {
     q.iter().any(|b| b.was_clicked_this_frame)
 }
 

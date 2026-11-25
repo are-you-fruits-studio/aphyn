@@ -27,7 +27,20 @@ impl<'a, T> FfiSliceMut<'a, T> {
     }
 }
 
+unsafe impl<'a, T> Send for FfiSliceMut<'a, T>
+    where &'a mut [T]: Send {}
+
+unsafe impl<'a, T> Sync for FfiSliceMut<'a, T>
+    where &'a mut [T]: Sync {}
+
+impl<'a, T> From<&'a mut [T]> for FfiSliceMut<'a, T> {
+    fn from(value: &'a mut [T]) -> Self {
+        Self::from_slice(value)
+    }
+}
+
 #[repr(C)]
+#[derive(Copy, Clone)]
 pub struct FfiSliceRef<'a, T> {
     ptr: *const T,
     len: u64,
@@ -46,6 +59,18 @@ impl<'a, T> FfiSliceRef<'a, T> {
             ptr: (&raw const *slice) as *const T,
             _phantom: PhantomData,
         }
+    }
+}
+
+unsafe impl<'a, T> Send for FfiSliceRef<'a, T>
+    where &'a [T]: Send {}
+
+unsafe impl<'a, T> Sync for FfiSliceRef<'a, T>
+    where &'a [T]: Sync {}
+
+impl<'a, T> From<&'a [T]> for FfiSliceRef<'a, T> {
+    fn from(value: &'a [T]) -> Self {
+        Self::from_slice(value)
     }
 }
 
@@ -76,7 +101,14 @@ impl<'a> FfiStrSliceMut<'a> {
     }
 }
 
+impl<'a> From<&'a mut str> for FfiStrSliceMut<'a> {
+    fn from(value: &'a mut str) -> Self {
+        Self::from_slice(value)
+    }
+}
+
 #[repr(C)]
+#[derive(Copy, Clone)]
 pub struct FfiStrSliceRef<'a> {
     bytes: FfiSliceRef<'a, u8>,
 }
@@ -94,4 +126,8 @@ impl<'a> FfiStrSliceRef<'a> {
     }
 }
 
-// todo: From, Send, Sync
+impl<'a> From<&'a str> for FfiStrSliceRef<'a> {
+    fn from(value: &'a str) -> Self {
+        Self::from_slice(value)
+    }
+}

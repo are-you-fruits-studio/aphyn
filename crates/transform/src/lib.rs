@@ -142,12 +142,12 @@
 //! };
 //! let position = |data: &mut WorldData, e| data.entities_mut().get_component::<GlobalTransform>(e).unwrap().position;
 //!
-//! behavior.execute_iteration(Schedule::Update, data.as_mut(), ThreadPoolAccess::single_threaded());
+//! behavior.execute_iteration(Schedule::Update, data.as_mut(), ThreadPoolAccess::single_threaded(), None);
 //! assert_eq!(position(&mut data, parent), Vec3::new(5.0, 0.0, 0.0)); // kept
 //! assert_eq!(position(&mut data, child), Vec3::new(5.0, 1.0, 0.0)); // follows the stored value
 //!
 //! data.resources_mut().insert(TransformSettingsResource { recalculate_static: true });
-//! behavior.execute_iteration(Schedule::Update, data.as_mut(), ThreadPoolAccess::single_threaded());
+//! behavior.execute_iteration(Schedule::Update, data.as_mut(), ThreadPoolAccess::single_threaded(), None);
 //! assert_eq!(position(&mut data, parent), Vec3::new(1.0, 0.0, 0.0));
 //! assert_eq!(position(&mut data, child), Vec3::new(1.0, 1.0, 0.0));
 //! ```
@@ -245,7 +245,9 @@
 //!
 //! The only frame-time repair is [`update_parents_remove_invalid_children`], a linear pass that
 //! drops list entries whose child is gone, points at itself, or no longer names this parent
-//! (e.g. after a plain `destroy_entity`). It never adds entries, so a [`ChildComponent`] written
+//! (e.g. after a plain `destroy_entity`), keeping the order of the rest. It runs in parallel
+//! over parents (`par_for_each_mut`): each task compacts only its own parent's list and only
+//! reads `ChildComponent`s. It never adds entries, so a [`ChildComponent`] written
 //! without the matching list entry stays unlisted and is not traversed as that parent's child.
 //!
 //! The fields are private so links cannot drift by accident. The raw escape hatches

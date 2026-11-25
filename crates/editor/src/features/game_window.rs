@@ -88,7 +88,7 @@ fn forward_game_input_system(
     };
 }
 
-fn render_game_window_system(
+pub fn render_game_window_system(
     render_api: Res<RenderApiResource>,
     mut view_res: ResMut<GameViewResource>,
     mut simulated_world: ResMut<SimulatedWorldResource>,
@@ -136,5 +136,6 @@ fn render_game_window_system(
         &mut simulated_world.render,
         camera,
         thread_pool,
+        simulated_world.profiler.as_ref(),
     );
 }

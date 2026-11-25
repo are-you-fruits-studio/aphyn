@@ -186,6 +186,59 @@
 //! pool.access().execute_work_stealing_parallel_ref(&items, |&x| assert!(x > 0));
 //! ```
 //!
+//! [`current_worker_index`](thread_pool::ThreadPoolAccess::current_worker_index) tells which thread a task runs on,
+//! stable across frames: `1..=threads_count()` on the pool's frame workers, `threads_count() + 1..` on its background
+//! workers, and 0 on any other thread (the caller that takes part in a batch, another pool's worker) and without a
+//! pool. Profilers use it as a lane id.
+//!
+//! ```
+//! use aphyn_utils::thread_pool::{ThreadPool, ThreadPoolAccess};
+//! use std::sync::Mutex;
+//!
+//! let pool = ThreadPool::new(3, 1);
+//! let seen = Mutex::new(Vec::new());
+//!
+//! pool.access()
+//!     .execute_work_stealing_ranges(64, |_| seen.lock().unwrap().push(pool.access().current_worker_index()));
+//!
+//! assert!(seen.into_inner().unwrap().iter().all(|&i| i <= 3));
+//! assert_eq!(pool.access().current_worker_index(), 0);
+//! assert_eq!(ThreadPoolAccess::single_threaded().current_worker_index(), 0);
+//!
+//! let job_pool = pool.clone();
+//! assert_eq!(pool.access().push_job_handled(move || job_pool.current_worker_index()).block_and_take(), 4);
+//! ```
+//!
+//! #### Profiling jobs
+//!
+//! [`with_profile`](thread_pool::ThreadPoolAccess::with_profile) attaches an `aphyn_profiling::ProfileCtx` (a
+//! recorder plus the parent span's name) to an access. Work started through such an access is recorded: one
+//! `BatchTask` span per graph task / work-stealing chunk (tagged with the task id), one `ScopeJob` span per scope job
+//! and one `BackgroundJob` span per background job, each named after the parent and carrying the worker index. The
+//! ECS scheduler and `render_view` attach it to the access they give each system and render feature while profiling.
+//!
+//! ```
+//! use aphyn_ffi::FfiString;
+//! use aphyn_profiling::{ProfileCtx, ProfileRecorder, ProfileSpanKind};
+//! use aphyn_utils::thread_pool::ThreadPool;
+//!
+//! let pool = ThreadPool::new(3, 1);
+//! let recorder = ProfileRecorder::new();
+//! let parent = FfiString::from("my_system");
+//! let access = pool.access().with_profile(Some(ProfileCtx { recorder: &recorder, parent: &parent }));
+//!
+//! access.execute_work_stealing_ranges(1000, |_| {});
+//! access.scope(|scope| scope.push_job_unhandled(|| {}));
+//! access.push_job_handled(|| {}).block_and_take();
+//!
+//! let spans = recorder.take_spans();
+//! let count = |kind| spans.iter().filter(|s| s.kind == kind).count();
+//! assert!(count(ProfileSpanKind::BatchTask) > 1);
+//! assert_eq!(count(ProfileSpanKind::ScopeJob), 1);
+//! assert_eq!(count(ProfileSpanKind::BackgroundJob), 1);
+//! assert!(spans.iter().all(|s| s.name.as_str() == "my_system"));
+//! ```
+//!
 //! [`push_job_handled`](thread_pool::ThreadPoolAccess::push_job_handled) runs a
 //! `'static` job on a background thread and returns a
 //! [`JobHandle`](thread_pool::JobHandle) to poll (`try_take`) or wait for
@@ -387,6 +440,16 @@
 //! released its last slot. `next` is only called under the batch's iterator lock
 //! (lock order: iterator lock, then frame mutex), so a `GraphIter` needs `Send`,
 //! not `Sync`.
+//!
+//! Each worker stores `(address of its pool's shared state, 1-based index)` in a thread-local at spawn, frame
+//! workers first, then background workers; `current_worker_index` goes through the vtable so the thread-local of the
+//! pool's own binary is read, and returns 0 when the stored address is not this pool's.
+//!
+//! `ThreadPoolAccess` carries an `FfiOption<ProfileCtx>` next to the pool, so its layout is part of the
+//! dynamic-library ABI. Profiling wraps the user closure before it reaches the pool (`execute_graph` wraps the task
+//! function, `Scope` and the background job paths wrap the job), so the native pool knows nothing about it. A
+//! background job may outlive the code that pushed it, so it captures an `OwnedProfileCtx` (a recorder clone and the
+//! parent name) and a `ThreadPool` clone for the worker index instead of the borrowed context.
 //!
 //! A thread that finishes a task pulls the newly ready tasks, keeps one for itself
 //! and queues the rest. While waiting, a batch's caller runs only queued tasks of

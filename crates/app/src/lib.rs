@@ -152,7 +152,9 @@
 //! the one its [`ThreadingMode`] selected. The editor itself runs single-threaded; its simulated
 //! world runs on a separate pool the editor creates on first need and keeps across world rebuilds,
 //! used only when the game library's setup leaves `ctx.threading` at
-//! [`ThreadingMode::ThreadPool`].
+//! [`ThreadingMode::ThreadPool`]. Its last argument, an optional
+//! [`ProfileRecorder`](aphyn_ecs::ProfileRecorder), is forwarded to every pass: [`App`] always passes
+//! `None`, the editor passes its Profiler window's recorder while playing.
 //!
 //! #### Reacting to typed text
 //!

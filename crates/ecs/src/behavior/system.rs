@@ -161,6 +161,10 @@ impl SystemFfi {
     pub fn data_usage(&self) -> &DataUsage {
         &self.data_usage
     }
+
+    pub fn name(&self) -> &str {
+        self.system_name.as_str()
+    }
     // todo:
 
     // /// # Safety

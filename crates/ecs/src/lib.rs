@@ -57,8 +57,39 @@
 //!
 //! let pool = ThreadPool::default();
 //! let mut behavior = behavior.build();
-//! behavior.execute_iteration(Schedule::Update, data.as_mut(), pool.access());
-//! behavior.execute_iteration(Schedule::Update, data.as_mut(), ThreadPoolAccess::single_threaded());
+//! behavior.execute_iteration(Schedule::Update, data.as_mut(), pool.access(), None);
+//! behavior.execute_iteration(Schedule::Update, data.as_mut(), ThreadPoolAccess::single_threaded(), None);
+//! ```
+//!
+//! #### Profiling a schedule pass
+//!
+//! The last argument of `execute_iteration` is an optional [`ProfileRecorder`] (from `aphyn_profiling`).
+//! With `Some`, every system run in the pass records a [`ProfileSpan`] of kind [`ProfileSpanKind::System`]
+//! named after the system's type name, with the pool worker index it ran on as `thread` and the
+//! [`Schedule`] index as `tag`. The app passes `None`; the editor passes a recorder in play mode while
+//! its Profiler window records. Each system also receives a `ThreadPoolAccess` carrying a `ProfileCtx` named after
+//! it, so the batch tasks, scope jobs and background jobs it starts are recorded as job spans (see `aphyn_utils`).
+//! The scheduler runs the systems themselves through an access without that context, so they are not also
+//! recorded as batch tasks.
+//!
+//! ```
+//! use aphyn_ecs::*;
+//!
+//! fn empty_system() {}
+//!
+//! let mut data = WorldData::default();
+//! let mut behavior = WorldBehaviorBuilder::new(data.types().clone());
+//! behavior.as_mut().get_mut(Schedule::Update).insert_system(empty_system);
+//! let mut behavior = behavior.build();
+//!
+//! let recorder = ProfileRecorder::new();
+//! behavior.execute_iteration(Schedule::Update, data.as_mut(), ThreadPoolAccess::single_threaded(), Some(&recorder));
+//!
+//! let spans = recorder.take_spans();
+//! assert_eq!(spans.len(), 1);
+//! assert!(spans[0].name.as_str().ends_with("empty_system"));
+//! assert_eq!(spans[0].kind, ProfileSpanKind::System);
+//! assert_eq!(spans[0].tag, Schedule::Update.index() as u64);
 //! ```
 //!
 //! #### Parallel work inside a system
@@ -264,7 +295,10 @@
 //! these structures cross the FFI boundary, which is why type identity is carried as a runtime `u64`
 //! rather than a Rust generic. Schedule builders are driven through `SystemsHolderBuilderFfiVTable`
 //! (insert, order, group, clear, build); changing that vtable changes its layout, so game libraries
-//! must be rebuilt against the same engine version as the host.
+//! must be rebuilt against the same engine version as the host. A built schedule runs through
+//! `SystemsHolderFfi::execute_iteration_fn`, which takes the data pointer, the `ThreadPoolAccess`, an
+//! `FfiOption<&ProfileRecorder>` and the profile tag (the schedule index). Without a recorder a system
+//! runs exactly as before; with one it is wrapped in `ProfileRecorder::measure`.
 //!
 //! #### Runtime type identity
 //!
@@ -351,5 +385,6 @@ pub use types_registry::*;
 
 pub use aphyn_ecs_macros::*;
 pub use aphyn_utils::thread_pool::{GraphIter, JobHandle, TaskId, ThreadPool, ThreadPoolAccess};
+pub use aphyn_profiling::{OwnedProfileCtx, ProfileCtx, ProfileRecorder, ProfileSpan, ProfileSpanKind};
 
 // todo: fix mods use in the whole crate

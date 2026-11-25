@@ -1,4 +1,4 @@
-use aphyn_ecs::{EntityId, OrFilter, QueryFilter, Res, WithFilter, WithoutFilter, WorldDataMut, WorldQuery};
+use aphyn_ecs::{EntityId, OrFilter, QueryFilter, Res, ThreadPoolAccess, WithFilter, WithoutFilter, WorldDataMut, WorldQuery};
 use aphyn_math::Vec2;
 use aphyn_window::WindowResource;
 
@@ -117,32 +117,29 @@ pub fn adjust_component_sets(world: WorldDataMut) {
 pub fn update_parents_remove_invalid_children(
     mut parents: WorldQuery<(EntityId, &mut ParentComponent)>,
     children: WorldQuery<&ChildComponent>,
+    thread_pool: ThreadPoolAccess,
 ) {
-    let mut indices_to_remove = Vec::new();
-
-    for (parent_entity, parent) in parents.iter_mut() {
+    parents.par_for_each_mut(thread_pool, |(parent_entity, parent)| {
         let parent_children = ParentComponent::children_mut(parent);
+        let mut invalid_count = 0;
 
-        for (index, &child_entity) in parent_children.as_slice().iter().enumerate().rev() {
-            if child_entity == parent_entity {
-                indices_to_remove.push(index);
+        for i in 0..parent_children.len() {
+            let child = parent_children[i];
+
+            let is_child_valid = child != parent_entity && children.get(child).is_some_and(|c| c.parent() == parent_entity);
+
+            if !is_child_valid {
+                invalid_count += 1;
                 continue;
             }
-            let Some(child_child_c) = children.get(child_entity) else {
-                indices_to_remove.push(index);
-                continue;
-            };
-            if child_child_c.parent() != parent_entity {
-                indices_to_remove.push(index);
+
+            if invalid_count != 0 {
+                parent_children[i - invalid_count] = child;
             }
         }
 
-        for &index in indices_to_remove.iter() {
-            parent_children.remove(index as u64);
-        }
-
-        indices_to_remove.clear();
-    }
+        parent_children.truncate(parent_children.len() - invalid_count);
+    });
 }
 
 // - Calculate GlobalTransform from LocalTransform and child-parent relation with tree-ordering from a root parent to all the child leaves.

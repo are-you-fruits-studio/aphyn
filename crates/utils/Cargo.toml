@@ -11,3 +11,4 @@ crate-type = ["lib"]
 
 [dependencies]
 aphyn_ffi = { path = "../ffi" }
+aphyn_profiling = { path = "../profiling" }

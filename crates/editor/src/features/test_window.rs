@@ -7,6 +7,7 @@ use crate::{
         animation_window::AnimationWindowComponent,
         generic_dropdown::{GenericDropdownResource, select_generic_dropdown_system},
         inspector_window::data::InspectorWindowComponent,
+        profiler_window::ProfilerWindowComponent,
         ui_interaction::ButtonComponent,
         ui_window::{attach_panel, find_group_of_panel, set_active_panel},
     },
@@ -50,14 +51,16 @@ pub const WINDOW_KIND_INSPECTOR: &str = "Inspector Window";
 pub const WINDOW_KIND_SCENE: &str = "Scene Window";
 pub const WINDOW_KIND_GAME: &str = "Game Window";
 pub const WINDOW_KIND_ANIMATION: &str = "Animation Window";
+pub const WINDOW_KIND_PROFILER: &str = "Profiler Window";
 
-const WINDOW_KINDS: [&str; 6] = [
+const WINDOW_KINDS: [&str; 7] = [
     WINDOW_KIND_PROJECT,
     WINDOW_KIND_HIERARCHY,
     WINDOW_KIND_INSPECTOR,
     WINDOW_KIND_SCENE,
     WINDOW_KIND_GAME,
     WINDOW_KIND_ANIMATION,
+    WINDOW_KIND_PROFILER,
 ];
 
 fn open_windows_dropdown_system(
@@ -140,6 +143,7 @@ pub fn open_panel_by_kind(world: WorldDataMut, kind: &str) -> Option<EntityId> {
         WINDOW_KIND_SCENE => open_specific_window(world, kind, SceneWindowComponent, prefabs::init_window_as_scene),
         WINDOW_KIND_GAME => open_specific_window(world, kind, GameWindowComponent, prefabs::init_window_as_game),
         WINDOW_KIND_ANIMATION => open_specific_window(world, kind, AnimationWindowComponent, prefabs::init_window_as_animation),
+        WINDOW_KIND_PROFILER => open_specific_window(world, kind, ProfilerWindowComponent, prefabs::init_window_as_profiler),
         _ => None,
     }
 }

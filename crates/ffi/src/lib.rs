@@ -16,7 +16,7 @@
 //! #### Holding a growable list
 //!
 //! [`FfiVec<T>`] is the stable-layout counterpart of [`Vec<T>`]. It pushes, pops,
-//! indexes, iterates, and converts to and from a `Vec`.
+//! truncates, indexes, iterates, and converts to and from a `Vec`.
 //!
 //! ```
 //! use aphyn_ffi::FfiVec;
@@ -29,6 +29,9 @@
 //! assert_eq!(v.len(), 3);
 //! assert_eq!(v.as_slice(), &[1, 2, 3]);
 //! assert_eq!(v.pop(), Some(3));
+//!
+//! v.truncate(1);
+//! assert_eq!(v.as_slice(), &[1]);
 //!
 //! // Convert to and from a std Vec at the edges.
 //! let from_std: FfiVec<i32> = vec![10, 20].into();

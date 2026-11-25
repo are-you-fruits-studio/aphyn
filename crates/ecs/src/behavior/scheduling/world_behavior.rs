@@ -92,8 +92,16 @@ pub struct WorldBehavior {
 }
 
 impl WorldBehavior {
-    pub fn execute_iteration(&mut self, schedule: Schedule, data: WorldDataMut, thread_pool: ThreadPoolAccess) {
-        self.behavior.get_mut(schedule).execute_iteration(data.ffi(), thread_pool);
+    pub fn execute_iteration(
+        &mut self,
+        schedule: Schedule,
+        data: WorldDataMut,
+        thread_pool: ThreadPoolAccess,
+        profiler: Option<&ProfileRecorder>,
+    ) {
+        self.behavior
+            .get_mut(schedule)
+            .execute_iteration(data.ffi(), thread_pool, profiler, schedule.index() as u64);
     }
 }
 

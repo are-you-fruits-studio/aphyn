@@ -413,6 +413,27 @@ impl<T> FfiVec<T> {
 
         *self.vec.len_mut() = 0;
     }
+
+    pub fn truncate(&mut self, len: u64) {
+        let old_len = self.vec.len();
+
+        if len >= old_len {
+            return;
+        }
+
+        let ptr = if std::mem::size_of::<T>() == 0 {
+            std::ptr::NonNull::dangling().as_ptr()
+        } else {
+            self.vec.ptr()
+        };
+
+        // Length is shortened before dropping so a panicking drop cannot cause a double drop.
+        *self.vec.len_mut() = len;
+
+        unsafe {
+            std::ptr::drop_in_place(std::ptr::slice_from_raw_parts_mut(ptr.add(len as usize), (old_len - len) as usize));
+        }
+    }
 }
 
 impl<T: Clone> FfiVec<T> {

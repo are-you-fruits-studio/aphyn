@@ -23,22 +23,44 @@ impl SystemsHolderNative {
         }
     }
 
-    pub fn execute_iteration(&self, data: *mut WorldDataUnsafeFfi, thread_pool: ThreadPoolAccess) {
+    pub fn execute_iteration(
+        &self,
+        data: *mut WorldDataUnsafeFfi,
+        thread_pool: ThreadPoolAccess,
+        profiler: Option<&ProfileRecorder>,
+        profile_tag: u64,
+    ) {
         let data = WorldDataPtr(data);
 
-        thread_pool.execute_graph(OrderGraphTasks(self.execution_graph.iter()), |system_index: u64| {
+        // the systems themselves are recorded as systems, not as batch tasks
+        let scheduler_pool = thread_pool.with_profile(None);
+
+        scheduler_pool.execute_graph(OrderGraphTasks(self.execution_graph.iter()), |system_index: u64| {
             let system = &self.systems[system_index];
             let system_data = &mut *self.system_datas[system_index as usize].try_lock().ok().unwrap();
+
+            let profile = profiler.map(|recorder| ProfileCtx {
+                recorder,
+                parent: system.name().into(),
+            });
 
             let system_ctx = SystemCtxFfi {
                 world_mut: data.get(),
                 system_data: &mut *system_data,
-                // Safety. The access outlives this call.
-                thread_pool: unsafe { thread_pool.extend_lifetime() },
+                // Safety. The access and the profile context outlive this call; background jobs own their context.
+                thread_pool: unsafe { scheduler_pool.with_profile(profile).extend_lifetime() },
             };
 
-            // Safety. Access is managed by OrderGraph and data usage.
-            unsafe { system.execute(system_ctx) };
+            let Some(profiler) = profiler else {
+                // Safety. Access is managed by OrderGraph and data usage.
+                unsafe { system.execute(system_ctx) };
+                return;
+            };
+
+            let thread = scheduler_pool.current_worker_index();
+            profiler.measure(ProfileSpanKind::System, system.name(), thread, profile_tag, || unsafe {
+                system.execute(system_ctx)
+            });
         });
     }
 }

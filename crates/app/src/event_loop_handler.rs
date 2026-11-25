@@ -116,7 +116,12 @@ impl ApplicationHandler for EventLoopHandler {
         data.resources_mut().insert(TimeResource::default());
         data.resources_mut().insert(WindowResource::new(window_state));
         let mut behavior = behavior.build();
-        behavior.execute_iteration(Schedule::Start, data.as_mut(), ThreadPoolAccess::from(thread_pool.as_ref()));
+        behavior.execute_iteration(
+            Schedule::Start,
+            data.as_mut(),
+            ThreadPoolAccess::from(thread_pool.as_ref()),
+            None,
+        );
         core_system_update_window(data.as_mut(), &window);
 
         let gamepad_host = Gilrs::new();
@@ -258,6 +263,7 @@ impl ApplicationHandler for EventLoopHandler {
                     data.as_mut(),
                     real_delta_time,
                     ThreadPoolAccess::from(thread_pool.as_ref()),
+                    None,
                 );
 
                 core_system_render(data, render_target, render, ThreadPoolAccess::from(thread_pool.as_ref()));
@@ -340,6 +346,7 @@ fn core_system_render(
                 target: render_target.texture.clone(),
             },
             thread_pool,
+            None,
         );
     }
 
