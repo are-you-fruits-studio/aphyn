@@ -195,23 +195,6 @@
 //! assert_eq!(fns.call(c, 0), None);
 //! ```
 //!
-//! #### Overwriting a type-erased value
-//!
-//! [`FfiAnyMut::replace`] moves an [`FfiAny`] of the same type into the borrowed place and
-//! returns the previous value; a value of another type is handed back as `Err`.
-//!
-//! ```
-//! use aphyn_ffi::{FfiAny, FfiAnyMut, FfiString};
-//!
-//! let mut name = FfiString::from("old");
-//! let mut place = FfiAnyMut::new(&mut name);
-//!
-//! let previous = place.replace(FfiAny::new(FfiString::from("new"))).ok().unwrap();
-//! assert_eq!(previous.downcast_ref::<FfiString>().unwrap().as_str(), "old");
-//! assert!(place.replace(FfiAny::new(5_u32)).is_err());
-//! assert_eq!(name.as_str(), "new");
-//! ```
-//!
 //! #### Passing an optional reference as a nullable pointer
 //!
 //! [`ref_into_nullable_ptr`] / [`mut_into_nullable_ptr`] turn an `Option<&T>` into a
@@ -247,7 +230,7 @@
 //!   own — a slice view is a pointer plus a [`u64`] length, an option is a tagged
 //!   union — so a fixed layout is all they need.
 //! - **Owning types that carry their behavior as embedded `extern "C-unwind"` function
-//!   pointers.** [`FfiAny`], [`FfiArc`], [`FfiBox`], [`FfiDroppable`],
+//!   pointers.** [`FfiArc`], [`FfiBox`], [`FfiDroppable`],
 //!   [`FfiIndexMap`], and [`FfiAllocator`]
 //!   store the operations they need (drop, deallocate, insert, look up) as function
 //!   pointers alongside the data, because the consuming side cannot monomorphize
@@ -259,18 +242,16 @@
 //! [`FfiBox<T>`] is a raw pointer plus a `&'static` [`FfiBoxVtable`] holding the
 //! `drop_in_place` and `dealloc` functions for `T`; [`into_inner`](FfiBox::into_inner)
 //! reads the value out and then deallocates the storage *without* running its
-//! destructor, so the value is moved rather than dropped. [`FfiAny`] is the type-erased
-//! owned value: a raw pointer plus a `&'static` metadata table combining the value's
-//! [`FfiExtendedTypeInfo`] (size, align, type name, drop and conversion functions) with
-//! its `FfiBoxVtable`. Both tables are built in a `const` block per `T`, so each type gets
-//! one promoted-`'static` table, and [`downcast`](FfiAny::downcast) hands the same pointer
-//! and vtable over to an `FfiBox<T>`. The borrowed views [`FfiAnyRef`], [`FfiAnyMut`], and
-//! [`FfiAnyPtr`] pair a pointer with a `&'static FfiExtendedTypeInfo`; downcasts check
-//! size, align, and `std::any::type_name` through
-//! [`FfiShortTypeInfo::does_match`] rather than `TypeId`, because the type name is what
-//! both sides of the boundary can agree on. [`FfiAnyMut::replace`] compares two type infos
-//! the same way ([`FfiShortTypeInfo::matches`]) and swaps the bytes of the place and the
-//! boxed value, so the `FfiAny` it returns owns, and later drops, the previous value. [`FfiOpaqueRef`] / [`FfiOpaqueMut`] are bare
+//! destructor, so the value is moved rather than dropped. Allocation goes through a
+//! private helper that hands out a dangling pointer for zero-sized types (the global
+//! allocator rejects zero-sized layouts), and the matching dealloc skips them.
+//! [`FfiExtendedTypeInfo`] is the type-erased description of a type: its
+//! [`FfiShortTypeInfo`] (size, align, `std::any::type_name`), its drop function, a
+//! `move_to_box` primitive that moves a value into memory allocated by the binary that built
+//! the info, and the `FfiBoxVtable` that frees it (`dealloc_box`). Type-erased values built on
+//! it live in `aphyn_any`. [`FfiShortTypeInfo::does_match`] / [`FfiShortTypeInfo::matches`]
+//! compare size, align and type name rather than `TypeId`, because the type name is what both
+//! sides of the boundary can agree on. [`FfiOpaqueRef`] / [`FfiOpaqueMut`] are bare
 //! lifetime-carrying pointers with no type information at all.
 //!
 //! [`FfiDroppable`] boxes a value behind a single opaque pointer whose allocation
@@ -364,7 +345,6 @@ mod string;
 mod small_string;
 mod vec;
 mod vec_deque;
-mod any;
 mod closure;
 mod type_info;
 mod return_val;
@@ -383,7 +363,6 @@ pub use string::*;
 pub use small_string::*;
 pub use vec::*;
 pub use vec_deque::*;
-pub use any::*;
 pub use closure::*;
 pub use type_info::*;
 pub use return_val::*;

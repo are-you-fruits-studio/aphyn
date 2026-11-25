@@ -13,8 +13,8 @@
 //! use aphyn::*;
 //!
 //! let mut app = App::new();
-//! let ctx = app.init_ctx_mut();
-//! add_defult_modules_to(ctx.data, ctx.behavior, ctx.render);
+//! let mut ctx = app.init_ctx_mut();
+//! add_default_modules_to(ctx.feature_ctx());
 //! ```
 //!
 //! Once registered, attach the components below to entities. The matching `Global*` companions

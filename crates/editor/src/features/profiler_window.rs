@@ -56,8 +56,10 @@ const MIN_LABEL_ROW_PX: f32 = 11.0;
 const GLYPH_RATIO: f32 = 0.7;
 const NS_PER_MS: f64 = 1_000_000.0;
 
-// todo: bundle registration params
-pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+pub fn register_feature(ctx: FeatureInitCtx) {
+    let FeatureInitCtx {
+        mut data, mut behavior, ..
+    } = ctx;
     data.resources_mut().insert(ProfilerResource::default());
 
     let mut update = behavior.get_mut(Schedule::Update);

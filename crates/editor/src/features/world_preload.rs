@@ -18,8 +18,10 @@ use crate::{
     },
 };
 
-// todo: bundle registration params
-pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+pub fn register_feature(ctx: FeatureInitCtx) {
+    let FeatureInitCtx {
+        mut data, mut behavior, ..
+    } = ctx;
     data.resources_mut().insert(SimulatedWorldResource(None, None));
 
     let mut update = behavior.get_mut(Schedule::Update);
@@ -212,24 +214,26 @@ fn build_simulated_world(
     let assets_dir = project_dir.to_string() + PROJECT_ASSETS_SUBPATH;
 
     let mut data = WorldData::default();
+    let types = data.types().clone();
     let mut behavior = WorldBehaviorBuilder::new(data.types().clone());
     let mut render = RenderFeatureRegistry::default();
+    let mut serializers = TransSerializerRegistryBuilder::new();
+    let mut reflection = ReflectionRegistryBuilder::new();
 
     match mode {
         SimulationMode::Edit => {
-            _ = data.resources_mut().insert({
-                let mut serializers = SerializersResource::default();
-                register_common_transserializers(&mut *serializers);
-                serializers
-            });
+            register_common_transserializers(&types, &mut serializers);
             // the inspector edits through it; the scripts lib extends it with its own types
-            _ = data.resources_mut().insert({
-                let mut reflectors = ReflectionRegistryBuilder::new();
-                register_common_reflectors(&mut reflectors);
-                ReflectionRegistryResource(reflectors.build())
-            });
+            register_common_reflectors(&types, &mut reflection);
         }
-        SimulationMode::Play => add_defult_modules_to(data.as_mut(), behavior.as_mut(), &mut render),
+        SimulationMode::Play => add_default_modules_to(FeatureInitCtx {
+            data: data.as_mut(),
+            types: &types,
+            behavior: behavior.as_mut(),
+            render: &mut render,
+            serializers: &mut serializers,
+            reflection: &mut reflection,
+        }),
     }
 
     let mut window_state = WindowState {
@@ -245,10 +249,13 @@ fn build_simulated_world(
             init_app_from_library(
                 AppInitCtx {
                     data: data.as_mut(),
+                    types: &types,
                     behavior: behavior.as_mut(),
                     window: &mut window_state,
                     render: &mut render,
                     threading: &mut threading,
+                    serializers: &mut serializers,
+                    reflection: &mut reflection,
                 },
                 lib,
             )
@@ -297,37 +304,104 @@ fn build_simulated_world(
     let behavior = behavior.build();
 
     {
-        let mut res = data.resources_mut();
+        let serializer = &mut serializers;
 
-        let serializer = res.get_mut::<SerializersResource>().unwrap();
-        let serializer = &mut serializer.0;
-
-        serializer.register(StandardSerializer::<SerializedValue>::default());
-        serializer.register(StandardSerializer::<RenderSpace>::default());
-        serializer.register(StandardSerializer::<StandardTextureFormat>::default());
-        serializer.register(StandardSerializer::<f32>::default());
-        serializer.register(StandardSerializer::<bool>::default());
-        serializer.register(StandardSerializer::<FfiString>::default());
-        serializer.register(StandardSerializer::<FfiSmallString>::default());
-        serializer.register(StandardSerializer::<CoordinateSpaceType>::default());
-        serializer.register(StandardSerializer::<Vec4<f32>>::default());
-        serializer.register(StandardSerializer::<FfiOption<f32>>::default());
-        serializer.register(StandardSerializer::<Option<f32>>::default());
-        serializer.register(StandardSerializer::<StandardTextureAssetMetadata>::default());
-        serializer.register(StandardSerializer::<ShaderAssetMetadata>::default());
-        serializer.register(StandardSerializer::<ComputeShaderAssetMetadata>::default());
-        serializer.register(StandardSerializer::<StandardMeshAssetMetadata>::default());
-        serializer.register(StandardSerializer::<AudioClipAssetMetadata>::default());
-        serializer.register(StandardSerializer::<AnimationClipAssetMetadata>::default());
+        serializer.register(
+            &types,
+            "aphyn::SerializedValue",
+            StandardSerializer::<SerializedValue>::default(),
+        );
+        serializer.register(&types, "aphyn::RenderSpace", StandardSerializer::<RenderSpace>::default());
+        serializer.register(
+            &types,
+            "aphyn::StandardTextureFormat",
+            StandardSerializer::<StandardTextureFormat>::default(),
+        );
+        serializer.register(&types, "f32", StandardSerializer::<f32>::default());
+        serializer.register(&types, "bool", StandardSerializer::<bool>::default());
+        serializer.register(&types, "aphyn::FfiString", StandardSerializer::<FfiString>::default());
+        serializer.register(
+            &types,
+            "aphyn::FfiSmallString",
+            StandardSerializer::<FfiSmallString>::default(),
+        );
+        serializer.register(
+            &types,
+            "aphyn::CoordinateSpaceType",
+            StandardSerializer::<CoordinateSpaceType>::default(),
+        );
+        serializer.register(&types, "aphyn::Vec4<f32>", StandardSerializer::<Vec4<f32>>::default());
+        serializer.register(
+            &types,
+            "aphyn::FfiOption<f32>",
+            StandardSerializer::<FfiOption<f32>>::default(),
+        );
+        serializer.register(&types, "Option<f32>", StandardSerializer::<Option<f32>>::default());
+        serializer.register(
+            &types,
+            "aphyn::StandardTextureAssetMetadata",
+            StandardSerializer::<StandardTextureAssetMetadata>::default(),
+        );
+        serializer.register(
+            &types,
+            "aphyn::ShaderAssetMetadata",
+            StandardSerializer::<ShaderAssetMetadata>::default(),
+        );
+        serializer.register(
+            &types,
+            "aphyn::ComputeShaderAssetMetadata",
+            StandardSerializer::<ComputeShaderAssetMetadata>::default(),
+        );
+        serializer.register(
+            &types,
+            "aphyn::StandardMeshAssetMetadata",
+            StandardSerializer::<StandardMeshAssetMetadata>::default(),
+        );
+        serializer.register(
+            &types,
+            "aphyn::AudioClipAssetMetadata",
+            StandardSerializer::<AudioClipAssetMetadata>::default(),
+        );
+        serializer.register(
+            &types,
+            "aphyn::AnimationClipAssetMetadata",
+            StandardSerializer::<AnimationClipAssetMetadata>::default(),
+        );
         // todo
         // serializer.register(StandardTransSerializer::<Prefab>::default());
-        serializer.register(StandardSerializer::<FfiOption<AssetHandle<StandardTexture>>>::default());
-        serializer.register(StandardSerializer::<NameComponent>::default());
-        serializer.register(StandardSerializer::<ChildComponent>::default());
-        serializer.register(StandardSerializer::<ParentComponent>::default());
-        serializer.register(StandardSerializer::<StaticComponent>::default());
-        serializer.register(StandardSerializer::<FfiVec<EntityId>>::default());
+        serializer.register(
+            &types,
+            "aphyn::FfiOption<aphyn::AssetHandle<aphyn::StandardTexture>>",
+            StandardSerializer::<FfiOption<AssetHandle<StandardTexture>>>::default(),
+        );
+        serializer.register(&types, "aphyn::NameComponent", StandardSerializer::<NameComponent>::default());
+        serializer.register(
+            &types,
+            "aphyn::ChildComponent",
+            StandardSerializer::<ChildComponent>::default(),
+        );
+        serializer.register(
+            &types,
+            "aphyn::ParentComponent",
+            StandardSerializer::<ParentComponent>::default(),
+        );
+        serializer.register(
+            &types,
+            "aphyn::StaticComponent",
+            StandardSerializer::<StaticComponent>::default(),
+        );
+        serializer.register(
+            &types,
+            "aphyn::FfiVec<aphyn::EntityId>",
+            StandardSerializer::<FfiVec<EntityId>>::default(),
+        );
+    }
 
+    {
+        let mut res = data.resources_mut();
+
+        res.insert(SerializersResource(serializers.build()));
+        res.insert(ReflectionRegistryResource(reflection.build()));
         res.insert(render_api.clone());
         res.insert(WindowResource::new(window_state));
         res.insert(TimeResource::default());

@@ -33,7 +33,7 @@ pub struct OpenedEntitiesAssetResource {
 #[derive(Resource, Default)]
 pub struct InspectedEntityResource {
     pub selected_entity: EntityId,
-    pub shown_components: Option<Vec<(FfiString, InspectorValue)>>,
+    pub shown_components: Option<Vec<(AnyTypeId, FfiString, InspectorValue)>>,
 }
 
 #[derive(Component, Default, Copy, Clone)]
@@ -79,7 +79,7 @@ impl ComponentContextAction {
 #[derive(Resource, Default)]
 pub struct ComponentContextMenuResource {
     pub request_id: u64,
-    pub component_id: FfiString,
+    pub component_id: AnyTypeId,
     pub actions: Vec<ComponentContextAction>,
 }
 
@@ -145,6 +145,7 @@ pub struct InspectorCompositeRemoveButton {
 
 #[derive(Component, Default, Copy, Clone)]
 pub struct InspectorComponentComponent {
+    pub component_type: AnyTypeId,
     pub component_id_text: EntityId,
     pub component_data_container: EntityId,
     pub foldout_arrow: EntityId,
@@ -157,7 +158,7 @@ pub struct AddComponentInputComponent {
 
 #[derive(Component, Default, Clone)]
 pub struct AddComponentVariantComponent {
-    pub component_id: FfiString,
+    pub component_id: AnyTypeId,
 }
 
 #[derive(Event, Copy, Clone, PartialEq, Eq)]
@@ -173,6 +174,6 @@ pub struct EntitySelectedEvent;
 #[derive(Event, Clone)]
 pub struct EntityFieldEditedEvent {
     pub entity: EntityId,
-    pub component: FfiString,
+    pub component: AnyTypeId,
     pub path: ReflectPath,
 }

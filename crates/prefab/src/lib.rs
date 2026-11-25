@@ -10,10 +10,10 @@
 //!
 //! #### Opting a component into prefabs
 //!
-//! Prefab components are (de)serialized by type name through the world's
+//! Prefab components are (de)serialized by their serialized name through the world's
 //! `SerializersResource` (`aphyn_serialization_ecs`), so a component type only round-trips once a serializer for it is
-//! registered there. Without one, the component is recorded with a `Null` payload (and a
-//! `MissingSerializer` error is reported) and skipped when the prefab is instantiated:
+//! registered there during app init. Without one, the component is recorded with a `Null` payload
+//! (and a `MissingSerializer` error is reported) and skipped when the prefab is instantiated:
 //!
 //! ```ignore
 //! use aphyn::*;
@@ -21,11 +21,8 @@
 //! #[derive(Component, Serializable, Default)]
 //! struct Health(f32);
 //!
-//! fn register_serializers(mut data: WorldDataMut) {
-//!     let mut res = data.resources_mut();
-//!     let serializers = res.get_mut::<SerializersResource>().unwrap();
-//!
-//!     serializers.register(StandardSerializer::<Health>::default());
+//! fn setup(ctx: AppInitCtx) {
+//!     ctx.serializers.register(ctx.types, "my_game::Health", StandardSerializer::<Health>::default());
 //! }
 //! ```
 //!
@@ -64,7 +61,7 @@
 //! let serializers = res.get::<SerializersResource>().unwrap();
 //! let mut on_err = |err| println!("{err}");
 //! let context = ContextData::new();
-//! let mut ctx = serializers.to_ctx(&context, &mut on_err);
+//! let mut ctx = serializers.to_ctx(&context, res.types(), &mut on_err);
 //!
 //! let components = serialize_components(source, ctx.as_mut(), ent.as_ref());
 //! deserialize_entity_components(&components, target, ctx, ent.as_mut());
@@ -87,14 +84,16 @@
 //! asset keys and are resolved against the world's asset storages on instantiation (see
 //! `aphyn_asset_loading`); precaching them is a `todo`.
 //!
-//! #### The component id is the type name
+//! #### The component id is the serialized name
 //!
 //! [`serialize_components`] walks the entity's components with `get_all_components`, stores
-//! each one's type-info name (its `std::any::type_name`) as the `component_id`, serializes it
-//! with [`SerializerCtx::serialize_any`], and sorts the result by `component_id` so the output
-//! is stable. [`deserialize_component`] goes the other way: if the entity already has a
-//! component with that id, it deserializes the payload into it in place at the given path;
-//! otherwise [`SerializerCtx::deserialize_default_any`] looks the serializer up by the id,
+//! each one's serialized name (the name its serializer was registered with, found by the
+//! component's `AnyTypeId`) as the `component_id`, serializes it with
+//! [`SerializerCtx::serialize_any`], and sorts the result by `component_id` so the output is
+//! stable; a component without a serializer is reported and left out. [`deserialize_component`]
+//! goes the other way: it resolves the name to a type id, and if the entity already has that
+//! component it deserializes the payload into it in place at the given path; otherwise
+//! [`SerializerCtx::deserialize_default_any_by_id`] looks the serializer up,
 //! creates the component from the serializer's default, fills it from the payload, and it is
 //! attached with `add_component_any`. It returns `false` if no serializer matches or the
 //! component cannot be added; [`deserialize_entity_components`] logs such components and
@@ -226,11 +225,13 @@ pub fn serialize_components(
 ) -> FfiIndexMap<FfiString, SerializedValue> {
     let mut components: Vec<(FfiString, SerializedValue)> = Vec::new();
 
-    entities.get_all_components(entity, |component| {
-        components.push((
-            component.type_info().short().name().into(),
-            serializer_ctx.serialize_any(component, ""),
-        ));
+    let registry = serializer_ctx.registry();
+
+    entities.get_all_components(entity, |component| match registry.name_of(component.type_id()) {
+        Some(name) => components.push((name.into(), serializer_ctx.serialize_any(component, ""))),
+        None => serializer_ctx.report_err(SerializationError::MissingSerializer {
+            type_name: component.type_info().short().name().into(),
+        }),
     });
 
     // todo: implement sorting directly on FfiIndexMap
@@ -241,15 +242,20 @@ pub fn serialize_components(
 pub fn deserialize_component(
     mut entities: EntitiesHolderMut,
     entity: EntityId,
-    id: &str,
+    name: &str,
     mut serializer_ctx: SerializerCtx<TransSerializerCtxState>,
     path: &str,
     serialized: &SerializedValue,
 ) -> bool {
+    let Some(id) = serializer_ctx.registry().type_id_of_name(name) else {
+        serializer_ctx.report_err(SerializationError::MissingSerializer { type_name: name.into() });
+        return false;
+    };
+
     let mut component = None;
 
     entities.get_all_components_mut(entity, |entity_component| {
-        if component.is_some() || entity_component.type_info().short().name() != id {
+        if component.is_some() || entity_component.type_id() != id {
             return;
         }
 
@@ -261,7 +267,7 @@ pub fn deserialize_component(
         return true;
     }
 
-    let Some(component) = serializer_ctx.deserialize_default_any(id, path, serialized) else {
+    let Some(component) = serializer_ctx.deserialize_default_any_by_id(id, path, serialized) else {
         return false;
     };
 

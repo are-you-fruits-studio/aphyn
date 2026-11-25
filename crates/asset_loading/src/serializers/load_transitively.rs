@@ -3,7 +3,7 @@ use std::{path::Path, sync::Mutex};
 use aphyn_animation::{AnimationClip, AnimationClipAssetMetadata};
 use aphyn_asset_storage::AssetStorageResource;
 use aphyn_audio::{AudioClip, AudioStateResource};
-use aphyn_ecs::ResourcesHolderMut;
+use aphyn_ecs::{ResourcesHolderMut, TypesRegistryCache};
 use aphyn_prefab::{Prefab, Scene};
 use aphyn_render::{
     ComputeShader, ComputeShaderAssetMetadata, Material, MaterialTemplate, RenderApiResource, Shader, ShaderAssetMetadata,
@@ -31,6 +31,7 @@ pub fn load_asset_transitively_from_world<R>(
             material_loader,
             &mut *res.get_ptr::<AudioStateResource>()?,
             &*res.get_ptr::<SerializersResource>()?,
+            res.types(),
             &mut *res.get_ptr::<AssetStorageResource<Prefab>>()?,
             &mut *res.get_ptr::<AssetStorageResource<Scene>>()?,
             &mut *res.get_ptr::<AssetStorageResource<StandardTexture>>()?,
@@ -53,6 +54,7 @@ pub fn load_asset_transitively<R>(
     material_loader: MaterialLoader,
     audio_state: &mut AudioStateResource,
     serializers: &TransSerializerRegistry,
+    local_types: &TypesRegistryCache,
     prefabs: &mut AssetStorageResource<Prefab>,
     scenes: &mut AssetStorageResource<Scene>,
     textures: &mut AssetStorageResource<StandardTexture>,
@@ -190,5 +192,5 @@ pub fn load_asset_transitively<R>(
         .with::<AssetHandleCtxKey<Scene>>(&entries.8)
         .with::<AssetHandleCtxKey<AnimationClip>>(&entries.9);
 
-    f(serializers.to_ctx_state(&context))
+    f(serializers.to_ctx_state(&context, local_types))
 }

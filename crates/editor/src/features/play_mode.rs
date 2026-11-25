@@ -24,8 +24,10 @@ const BUTTON_COLOR_DISABLED: Vec4<f32> = Vec4::new(0.15, 0.15, 0.15, 1.0);
 const TEXT_COLOR: Vec4<f32> = Vec4::splat(1.0);
 const TEXT_COLOR_DISABLED: Vec4<f32> = Vec4::splat(0.5);
 
-// todo: bundle registration params
-pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+pub fn register_feature(ctx: FeatureInitCtx) {
+    let FeatureInitCtx {
+        mut data, mut behavior, ..
+    } = ctx;
     data.resources_mut().insert(PlayModeResource::default());
 
     let mut update = behavior.get_mut(Schedule::Update);

@@ -1,0 +1,11 @@
+[package]
+name = "aphyn_any"
+version.workspace = true
+edition = "2024"
+license.workspace = true
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+aphyn_ffi = { path = "../ffi" }

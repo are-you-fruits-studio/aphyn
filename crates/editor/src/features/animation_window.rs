@@ -1,4 +1,4 @@
-use std::{any::type_name, time::Instant};
+use std::time::Instant;
 
 use aphyn::*;
 
@@ -48,8 +48,10 @@ const TANGENT_HANDLE_LENGTH: f32 = 40.0;
 const CURVE_SAMPLES: usize = 160;
 const TIME_SNAP: f32 = 0.01;
 
-// todo: bundle registration params
-pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+pub fn register_feature(ctx: FeatureInitCtx) {
+    let FeatureInitCtx {
+        mut data, mut behavior, ..
+    } = ctx;
     data.resources_mut().insert(AnimationWindowResource::default());
 
     let mut update = behavior.get_mut(Schedule::Update);
@@ -468,8 +470,14 @@ pub fn update_animation_window_root_system(
     }
 
     if window.view_fit != ViewFit::None {
-        let tracks = curve_tracks(clip, window.selected_track);
-        fit_view(&mut window.view, std::mem::take(&mut window.view_fit), clip, &tracks);
+        let tracks = curve_tracks(clip, window.selected_track, Some(&anim_types(world)));
+        fit_view(
+            &mut window.view,
+            std::mem::take(&mut window.view_fit),
+            clip,
+            &tracks,
+            Some(&anim_types(world)),
+        );
     }
     window.view.first_row = window.view.first_row.min(track_count.saturating_sub(1));
 
@@ -562,21 +570,23 @@ pub fn click_animation_window_buttons_system(
     }
 
     if clicked(&auto_q) && !selected.is_empty() {
+        let anim = anim_types(world);
         edit_clip(world, root, &open_project, |clip| {
             let enable = !clip.tracks[selected[0].0 as u64].keys[selected[0].1 as u64].auto_tangent;
             for (track, key) in &selected {
                 clip.tracks[*track as u64].keys[*key as u64].auto_tangent = enable;
-                clip.recompute_auto_tangents(*track);
+                clip.recompute_auto_tangents(&anim, *track);
             }
         });
     }
 
     if clicked(&delete_q) && !selected.is_empty() {
+        let anim = anim_types(world);
         edit_clip(world, root, &open_project, |clip| {
             let mut sorted = selected.clone();
             sorted.sort_by(|a, b| b.cmp(a));
             for (track, key) in sorted {
-                clip.remove_key(track, key);
+                clip.remove_key(&anim, track, key);
             }
         });
         window.selected_keys.clear();
@@ -618,11 +628,12 @@ pub fn apply_animation_window_fields_system(
         continue_if_not!(Some((track, key)) = window.primary_key());
         continue_if_not!(Some(world) = &mut simulated_world.0);
         let root = window.root;
+        let anim = anim_types(world);
 
         match field_c.field {
             AnimationField::KeyTime => {
                 continue_if_not!(Ok(time) = text.parse::<f32>());
-                let moved = edit_clip(world, root, &open_project, |clip| clip.move_key(track, key, time)).flatten();
+                let moved = edit_clip(world, root, &open_project, |clip| clip.move_key(&anim, track, key, time)).flatten();
                 if let Some(new_key) = moved {
                     window.selected_keys = vec![(track, new_key)];
                 }
@@ -631,7 +642,7 @@ pub fn apply_animation_window_fields_system(
                 continue_if_not!(Some(value) = parse_key_value(world, root, track, key, text));
                 edit_clip(world, root, &open_project, |clip| {
                     clip.tracks[track as u64].keys[key as u64].value = value;
-                    clip.recompute_auto_tangents(track);
+                    clip.recompute_auto_tangents(&anim, track);
                 });
             }
             AnimationField::KeyInTangent | AnimationField::KeyOutTangent => {
@@ -653,8 +664,31 @@ pub fn apply_animation_window_fields_system(
     }
 }
 
+// a track's component as the editor shows it: its serialized name, or its type name
+fn track_component_label(world: Option<&SimulatedWorld>, component: AnyTypeId) -> String {
+    let Some(world) = world else {
+        return String::new();
+    };
+    let res = world.data.as_ref().resources();
+    if let Some(name) = res.get::<SerializersResource>().and_then(|s| s.name_of(component)) {
+        return name.to_string();
+    }
+    world
+        .data
+        .types()
+        .ffi()
+        .get(component.id())
+        .map(|info| info.short().name().to_string())
+        .unwrap_or_default()
+}
+
+// the simulated world in edit mode has no animation module, so the ids are looked up on demand
+fn anim_types(world: &SimulatedWorld) -> AnimationTypes {
+    AnimationTypes::new(world.data.types())
+}
+
 // the key's value parsed from text through the serializers, like an inspector leaf
-fn parse_key_value(world: &SimulatedWorld, root: EntityId, track: usize, key: usize, text: &str) -> Option<FfiAny> {
+fn parse_key_value(world: &SimulatedWorld, root: EntityId, track: usize, key: usize, text: &str) -> Option<AnyBox> {
     let clip = clip_of(world, root)?;
     let track = clip.tracks.get(track as u64)?;
     let current = track.keys.get(key as u64)?;
@@ -665,13 +699,13 @@ fn parse_key_value(world: &SimulatedWorld, root: EntityId, track: usize, key: us
         let primitive = parse_leaf_text(kind, text)?;
         state
             .into_ctx(&mut |_| ())
-            .deserialize_default_any(&track.value_type, "", &SerializedValue::Primitive(primitive))
+            .deserialize_default_any_by_id(track.value_type, "", &SerializedValue::Primitive(primitive))
     })
     .flatten()
 }
 
-fn key_value_text(world: &SimulatedWorld, value: FfiAnyRef) -> String {
-    if let Some(v) = numeric_to_f64(value) {
+fn key_value_text(world: &SimulatedWorld, value: AnyRef) -> String {
+    if let Some(v) = anim_types(world).numeric_to_f64(value) {
         return format_number(v);
     }
     let res = world.data.as_ref().resources();
@@ -716,14 +750,14 @@ enum ViewFit {
     All,
 }
 
-fn fit_view(view: &mut AnimationView, fit: ViewFit, clip: Option<&AnimationClip>, tracks: &[usize]) {
+fn fit_view(view: &mut AnimationView, fit: ViewFit, clip: Option<&AnimationClip>, tracks: &[usize], anim: Option<&AnimationTypes>) {
     if fit == ViewFit::All {
         view.time_start = 0.0;
         view.time_end = clip.map_or(0.0, AnimationClip::duration).max(1.0) * 1.15;
         view.first_row = 0;
     }
 
-    let (value_min, value_max) = value_bounds(clip, tracks, view.time_start, view.time_end).unwrap_or((-1.0, 1.0));
+    let (value_min, value_max) = value_bounds(clip, tracks, view.time_start, view.time_end, anim).unwrap_or((-1.0, 1.0));
     let (value_min, value_max) = if value_max - value_min < 1e-6 {
         (value_min - 1.0, value_max + 1.0)
     } else {
@@ -734,15 +768,22 @@ fn fit_view(view: &mut AnimationView, fit: ViewFit, clip: Option<&AnimationClip>
     view.value_max = value_max + margin;
 }
 
-fn value_bounds(clip: Option<&AnimationClip>, tracks: &[usize], time_start: f32, time_end: f32) -> Option<(f64, f64)> {
+fn value_bounds(
+    clip: Option<&AnimationClip>,
+    tracks: &[usize],
+    time_start: f32,
+    time_end: f32,
+    anim: Option<&AnimationTypes>,
+) -> Option<(f64, f64)> {
     let clip = clip?;
+    let anim = anim?;
     let mut bounds: Option<(f64, f64)> = None;
 
     for &idx in tracks {
         let track = &clip.tracks[idx as u64];
         for i in 0..=CURVE_SAMPLES {
             let t = time_start + (time_end - time_start) * i as f32 / CURVE_SAMPLES as f32;
-            if let Some(v) = sample_numeric(&track.keys, t) {
+            if let Some(v) = sample_numeric(anim, &track.keys, t) {
                 bounds = Some(bounds.map_or((v, v), |(min, max)| (min.min(v), max.max(v))));
             }
         }
@@ -817,10 +858,16 @@ impl TimelineView {
         Vec2::new(self.inner().x / self.time_span(), self.inner().y / self.value_span() as f32)
     }
 
-    fn key_position(&self, tab: AnimationWindowTab, track_idx: usize, key: &AnimationKey) -> Option<Vec2<f32>> {
+    fn key_position(
+        &self,
+        tab: AnimationWindowTab,
+        track_idx: usize,
+        key: &AnimationKey,
+        anim: &AnimationTypes,
+    ) -> Option<Vec2<f32>> {
         let y = match tab {
             AnimationWindowTab::DopeSheet => self.row_y(track_idx),
-            AnimationWindowTab::Curves => self.y(numeric_to_f64(key.value.as_any_ref())?),
+            AnimationWindowTab::Curves => self.y(anim.numeric_to_f64(key.value.as_any_ref())?),
         };
         Some(Vec2::new(self.x(key.time), y))
     }
@@ -841,9 +888,14 @@ struct ScrollExtents {
     rows: usize,
 }
 
-fn scroll_extents(view: &AnimationView, clip: Option<&AnimationClip>, tracks: &[usize]) -> ScrollExtents {
+fn scroll_extents(
+    view: &AnimationView,
+    clip: Option<&AnimationClip>,
+    tracks: &[usize],
+    anim: Option<&AnimationTypes>,
+) -> ScrollExtents {
     let duration = clip.map_or(0.0, AnimationClip::duration).max(1.0) * 1.15;
-    let keys = value_bounds(clip, tracks, 0.0, duration).unwrap_or((view.value_min, view.value_max));
+    let keys = value_bounds(clip, tracks, 0.0, duration, anim).unwrap_or((view.value_min, view.value_max));
 
     ScrollExtents {
         time: (view.time_start.min(0.0), view.time_end.max(duration)),
@@ -853,11 +905,11 @@ fn scroll_extents(view: &AnimationView, clip: Option<&AnimationClip>, tracks: &[
 }
 
 // the numeric tracks drawn in the curves tab: the selected one, or all
-fn curve_tracks(clip: Option<&AnimationClip>, selected_track: Option<usize>) -> Vec<usize> {
-    let Some(clip) = clip else {
+fn curve_tracks(clip: Option<&AnimationClip>, selected_track: Option<usize>, anim: Option<&AnimationTypes>) -> Vec<usize> {
+    let (Some(clip), Some(anim)) = (clip, anim) else {
         return Vec::new();
     };
-    let numeric = |idx: &usize| clip.tracks.get(*idx as u64).is_some_and(AnimationTrack::is_numeric);
+    let numeric = |idx: &usize| clip.tracks.get(*idx as u64).is_some_and(|t| t.is_numeric(anim));
 
     match selected_track.filter(numeric) {
         Some(track) => vec![track],
@@ -891,13 +943,14 @@ pub fn animation_window_mouse_system(
     return_if_not!(Some((h_rect, h_hover)) = area_q.get(ui.h_scroll));
     return_if_not!(Some((v_rect, v_hover)) = area_q.get(ui.v_scroll));
     return_if_not!(Some(world) = &mut simulated_world.0);
+    let anim = anim_types(world);
 
     let mouse = Vec2::from_array(input.mouse.position.map(|v| v as f32));
     let root = window.root;
     let clip = clip_of(world, root);
-    let tracks = curve_tracks(clip, window.selected_track);
+    let tracks = curve_tracks(clip, window.selected_track, Some(&anim));
     let view = TimelineView::new(content_rect, &window.view);
-    let extents = scroll_extents(&window.view, clip, &tracks);
+    let extents = scroll_extents(&window.view, clip, &tracks, Some(&anim));
     let snap = |t: f32| (t / TIME_SNAP).round() * TIME_SNAP;
 
     // wheel: tracks / values, Shift: time, Ctrl: zoom time (Ctrl+Shift: zoom values)
@@ -957,7 +1010,7 @@ pub fn animation_window_mouse_system(
         } else if ruler_hover.is_hovered {
             window.drag = Some(AnimationWindowDrag::Scrub);
         } else if content_hover.is_hovered && !simulated_world_is_playing(world) {
-            window.drag = pick(window, &view, clip, mouse);
+            window.drag = pick(window, &view, clip, mouse, &anim);
 
             if let Some(AnimationWindowDrag::Key { track, key }) = window.drag {
                 let is_shift = input.keyboard.is_pressed(KeyCode::ShiftLeft) || input.keyboard.is_pressed(KeyCode::ShiftRight);
@@ -1012,11 +1065,11 @@ pub fn animation_window_mouse_system(
             let moved = edit_clip(world, root, &open_project, |clip| {
                 let t = clip.tracks.get_mut(track as u64)?;
                 if tab == AnimationWindowTab::Curves
-                    && let Some(new_value) = numeric_from_f64(&t.value_type, value)
+                    && let Some(new_value) = anim.numeric_from_f64(t.value_type, value)
                 {
                     t.keys.get_mut(key as u64)?.value = new_value;
                 }
-                clip.move_key(track, key, time)
+                clip.move_key(&anim, track, key, time)
             })
             .flatten();
 
@@ -1031,7 +1084,7 @@ pub fn animation_window_mouse_system(
         Some(AnimationWindowDrag::Tangent { track, key }) if is_editable => {
             return_if_not!(Some(clip) = clip);
             return_if_not!(Some(k) = clip.tracks.get(track as u64).and_then(|t| t.keys.get(key as u64)));
-            return_if_not!(Some(value) = numeric_to_f64(k.value.as_any_ref()));
+            return_if_not!(Some(value) = anim.numeric_to_f64(k.value.as_any_ref()));
 
             let key_pos = Vec2::new(view.x(k.time), view.y(value));
             let scale = view.scale();
@@ -1060,13 +1113,14 @@ fn pick(
     view: &TimelineView,
     clip: Option<&AnimationClip>,
     mouse: Vec2<f32>,
+    anim: &AnimationTypes,
 ) -> Option<AnimationWindowDrag> {
     let clip = clip?;
 
     if window.tab == AnimationWindowTab::Curves
         && let Some((track, key)) = window.primary_key()
         && let Some(k) = clip.tracks.get(track as u64).and_then(|t| t.keys.get(key as u64))
-        && let Some(pos) = view.key_position(window.tab, track, k)
+        && let Some(pos) = view.key_position(window.tab, track, k, anim)
     {
         let out_handle = view.tangent_handle(pos, k.out_tangent);
         let in_handle = pos * 2.0 - view.tangent_handle(pos, k.in_tangent);
@@ -1077,14 +1131,14 @@ fn pick(
 
     let tracks: Vec<usize> = match window.tab {
         AnimationWindowTab::DopeSheet => view.row_tracks(clip.tracks.len() as usize).collect(),
-        AnimationWindowTab::Curves => curve_tracks(Some(clip), window.selected_track),
+        AnimationWindowTab::Curves => curve_tracks(Some(clip), window.selected_track, Some(anim)),
     };
 
     let mut best: Option<(f32, usize, usize)> = None;
     for track_idx in tracks {
         let track = &clip.tracks[track_idx as u64];
         for (key_idx, key) in track.keys.iter().enumerate() {
-            continue_if_not!(Some(pos) = view.key_position(window.tab, track_idx, key));
+            continue_if_not!(Some(pos) = view.key_position(window.tab, track_idx, key, anim));
             let d = distance(pos, mouse);
             if d < PICK_RADIUS && best.is_none_or(|(b, ..)| d < b) {
                 best = Some((d, track_idx, key_idx));
@@ -1106,6 +1160,7 @@ pub fn record_animation_keys_system(
     return_if_not!(Some(world) = &mut simulated_world.0);
 
     let root = window.root;
+    let anim = anim_types(world);
     let time = window.time;
 
     let mut recorded = Vec::new();
@@ -1115,14 +1170,14 @@ pub fn record_animation_keys_system(
         return_if_not!(Some(registry) = data.resources().get::<ReflectionRegistryResource>());
 
         for evt in field_edited_evt.iter() {
-            continue_if!(evt.component.as_str() == type_name::<AnimationComponent>());
+            continue_if!(evt.component == world.data.types().type_id_of::<AnimationComponent>().any_type_id());
             continue_if_not!(Some(entity_path) = entity_path_from(ent, root, evt.entity));
-            continue_if_not!(Some(component) = ent.get_component_any(evt.entity, &evt.component));
+            continue_if_not!(Some(component) = ent.get_component_any(evt.entity, evt.component));
 
-            for leaf in collect_leaves(registry, component, &evt.path) {
+            for leaf in collect_leaves(registry, &anim, component, &evt.path) {
                 let path = AnimationPath {
                     entity: entity_path.clone(),
-                    component: evt.component.clone(),
+                    component: evt.component,
                     field: leaf.field,
                     leaf: leaf.leaf,
                 };
@@ -1137,12 +1192,12 @@ pub fn record_animation_keys_system(
         for (path, value_type, mut value) in recorded {
             if matches!(path.leaf, AnimatedLeaf::QuatEuler(_))
                 && let Some(track) = clip.track_index(&path).map(|idx| &clip.tracks[idx as u64])
-                && let Some(reference) = sample_numeric(&track.keys, time)
-                && let Some(angle) = numeric_to_f64(value.as_any_ref())
+                && let Some(reference) = sample_numeric(&anim, &track.keys, time)
+                && let Some(angle) = anim.numeric_to_f64(value.as_any_ref())
             {
-                value = FfiAny::new(unwrap_degrees_near(angle, reference));
+                value = anim.f64_value(unwrap_degrees_near(angle, reference));
             }
-            clip.set_key(path, &value_type, time, value);
+            clip.set_key(&anim, path, value_type, time, value);
         }
     });
 }
@@ -1157,6 +1212,7 @@ pub fn preview_animation_system(mut window: ResMut<AnimationWindowResource>, mut
     let delta_time = window.last_tick.map_or(0.0, |last| now.duration_since(last).as_secs_f32());
     window.last_tick = Some(now);
 
+    let anim_ids = anim_types(world);
     let (res, mut ent, _) = world.data.as_mut().into_tuple_mut();
     let res = res.as_ref();
     let (Some(registry), Some(clips)) = (
@@ -1166,7 +1222,7 @@ pub fn preview_animation_system(mut window: ResMut<AnimationWindowResource>, mut
         return;
     };
 
-    animate_entity(ent.as_mut(), registry, clips, window.root, |anim, duration| {
+    animate_entity(ent.as_mut(), registry, &anim_ids, clips, window.root, |anim, duration| {
         if window.is_playing && duration > 0.0 {
             window.time += delta_time;
             if window.time > duration {
@@ -1271,6 +1327,7 @@ pub fn draw_animation_window_system(
     let is_playing = simulated_world.is_playing();
     let world = simulated_world.0.as_ref();
     let clip = world.and_then(|w| clip_of(w, window.root));
+    let anim = world.map(anim_types);
 
     // toolbar
     let is_recording = window.mode == AnimationWindowMode::Record;
@@ -1339,12 +1396,12 @@ pub fn draw_animation_window_system(
         (Some((track, key)), Some(w)) => [
             format_number(key.time as f64),
             key_value_text(w, key.value.as_any_ref()),
-            if track.is_numeric() {
+            if track.is_numeric(&anim_types(w)) {
                 format_number(key.in_tangent as f64)
             } else {
                 String::new()
             },
-            if track.is_numeric() {
+            if track.is_numeric(&anim_types(w)) {
                 format_number(key.out_tangent as f64)
             } else {
                 String::new()
@@ -1383,7 +1440,7 @@ pub fn draw_animation_window_system(
         return;
     };
 
-    let tracks = curve_tracks(clip, window.selected_track);
+    let tracks = curve_tracks(clip, window.selected_track, anim.as_ref());
     let view = TimelineView::new(&content_rect, &window.view);
     let track_count = clip.map_or(0, |c| c.tracks.len() as usize);
     let row_tracks = view.row_tracks(track_count);
@@ -1396,7 +1453,7 @@ pub fn draw_animation_window_system(
         let track_idx = window.view.first_row + row;
         let text = clip
             .and_then(|c| c.tracks.get(track_idx as u64))
-            .map(|t| t.path.to_string())
+            .map(|t| t.path.label(&track_component_label(world, t.path.component)))
             .unwrap_or_default();
         let color = if window.selected_track == Some(track_idx) {
             TEXT_COLOR_SELECTED
@@ -1446,7 +1503,7 @@ pub fn draw_animation_window_system(
     let mut selected_curve = Vec::new();
     let mut tangents = Vec::new();
 
-    if let Some(clip) = clip {
+    if let (Some(clip), Some(anim)) = (clip, anim.as_ref()) {
         let visible: Vec<usize> = match window.tab {
             AnimationWindowTab::DopeSheet => row_tracks.clone().collect(),
             AnimationWindowTab::Curves => tracks.clone(),
@@ -1464,7 +1521,7 @@ pub fn draw_animation_window_system(
                 let mut prev = None;
                 for i in 0..=CURVE_SAMPLES {
                     let t = window.view.time_start + view.time_span() * i as f32 / CURVE_SAMPLES as f32;
-                    continue_if_not!(Some(v) = sample_numeric(&track.keys, t));
+                    continue_if_not!(Some(v) = sample_numeric(anim, &track.keys, t));
                     let p = to_content(Vec2::new(view.x(t), view.y(v)));
                     if let Some(prev) = prev {
                         target.push(prev);
@@ -1475,7 +1532,7 @@ pub fn draw_animation_window_system(
             }
 
             for (key_idx, key) in track.keys.iter().enumerate() {
-                continue_if_not!(Some(pos) = view.key_position(window.tab, track_idx, key));
+                continue_if_not!(Some(pos) = view.key_position(window.tab, track_idx, key, anim));
                 let is_selected = window.selected_keys.contains(&(track_idx, key_idx));
                 let target = if is_selected { &mut selected_keys } else { &mut keys };
                 target.push(to_content(pos - half_key));
@@ -1513,7 +1570,7 @@ pub fn draw_animation_window_system(
     set_points(&mut ent, lines.ruler_cursor, ruler_cursor);
 
     // scrollbar thumbs: the visible part of the scroll extents
-    let extents = scroll_extents(&window.view, clip, &tracks);
+    let extents = scroll_extents(&window.view, clip, &tracks, anim.as_ref());
     let (time_min, time_max) = extents.time;
     let h_range = (
         (window.view.time_start - time_min) / (time_max - time_min).max(1e-4),
@@ -1592,6 +1649,7 @@ pub fn copy_paste_animation_keys_system(
     let is_playing = simulated_world.is_playing();
     return_if_not!(Some(world) = &mut simulated_world.0);
     let root = window.root;
+    let anim = anim_types(world);
 
     if is_copy {
         return_if_not!(Some(clip) = clip_of(world, root));
@@ -1646,7 +1704,7 @@ pub fn copy_paste_animation_keys_system(
 
         for (copied, value) in values {
             let key_time = (time + copied.time).max(0.0);
-            let (track, key) = clip.set_key(copied.path.clone(), &copied.value_type, key_time, value);
+            let (track, key) = clip.set_key(&anim, copied.path.clone(), copied.value_type, key_time, value);
 
             let k = &mut clip.tracks[track as u64].keys[key as u64];
             k.interpolation = copied.interpolation;
@@ -1660,7 +1718,7 @@ pub fn copy_paste_animation_keys_system(
         let mut selection = Vec::new();
         for (path, key_time) in touched {
             if let Some(track) = clip.track_index(&path) {
-                clip.recompute_auto_tangents(track);
+                clip.recompute_auto_tangents(&anim, track);
                 if let Some(key) = clip.tracks[track as u64].key_index_at(key_time) {
                     selection.push((track, key));
                 }

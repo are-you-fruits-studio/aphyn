@@ -1,6 +1,8 @@
 use std::{ffi::c_void, mem::MaybeUninit};
 
-use aphyn_ffi::{FfiAny, FfiAnyMut, FfiAnyRef, FfiExtendedTypeInfo, FfiFnMutMut, FfiOpaqueMut, FfiOpaqueRef, FfiSliceRef, FfiVec};
+use aphyn_any::{AnyBox, AnyBoxCtx, AnyMut, AnyRef, AnyTypeId};
+
+use aphyn_ffi::{FfiFnMutMut, FfiSliceRef, FfiVec};
 
 use crate::*;
 
@@ -51,22 +53,20 @@ fn entities_holder_set_component<C: 'static>(
     }
 }
 
-fn entities_holder_component_any_type_id(types: &TypesRegistryCache, component: &FfiAny) -> u64 {
-    let types_registry = unsafe { types.registry() };
-
-    if let Some(type_info) = types_registry.get_by_name(component.type_info().short().name()) {
-        type_info.id
-    } else {
-        types_registry.try_register(component.type_info()).unwrap()
+fn entities_holder_component_any_type_id(types: &TypesRegistryCache, component: &AnyBox) -> u64 {
+    if component.type_id().tag() == types.tag() {
+        return component.type_id().id();
     }
+
+    types.ffi().get_or_register(component.type_info())
 }
 
 fn entities_holder_add_component_any(
     entities: &mut EntitiesHolderUnsafeFfi,
     types: &TypesRegistryCache,
     entity: EntityId,
-    component: FfiAny,
-) -> Result<(), FfiAny> {
+    component: AnyBox,
+) -> Result<(), AnyBox> {
     unsafe {
         let type_id = entities_holder_component_any_type_id(types, &component);
 
@@ -83,7 +83,7 @@ fn entities_holder_set_components_any(
     entities: &mut EntitiesHolderUnsafeFfi,
     types: &TypesRegistryCache,
     entity: EntityId,
-    components: FfiVec<FfiAny>,
+    components: FfiVec<AnyBox>,
 ) -> bool {
     unsafe {
         let components_ptrs = components
@@ -128,15 +128,25 @@ fn entities_holder_remove_component_any(
     entities: &mut EntitiesHolderUnsafeFfi,
     types: &TypesRegistryCache,
     entity: EntityId,
-    type_name: &str,
-) -> Option<FfiAny> {
+    id: AnyTypeId,
+) -> Option<AnyBox> {
+    if id.tag() != types.tag() {
+        return None;
+    }
+
     unsafe {
-        let mut component = Option::<FfiAny>::None;
+        let mut component = Option::<AnyBox>::None;
 
         entities.remove_component(
             entity,
-            |ptr, info| component = Some(info.move_to_any(ptr as *const c_void)),
-            types.registry().get_by_name(type_name).unwrap().id,
+            |ptr, info| {
+                component = Some(AnyBox::from_moved(
+                    ptr as *const c_void,
+                    info,
+                    AnyBoxCtx::new(id, types.ffi()),
+                ))
+            },
+            id.id(),
         );
 
         component
@@ -165,20 +175,26 @@ fn entities_holder_get_component_any_ptr(
     entities: &EntitiesHolderUnsafeFfi,
     types: &TypesRegistryCache,
     entity: EntityId,
-    type_name: &str,
-) -> Option<(*mut u8, &'static FfiExtendedTypeInfo)> {
-    let info = unsafe { types.registry() }.get_by_name(type_name)?;
-    entities.get_component_ptr(entity, info.id).map(|ptr| (ptr, info.data))
+    id: AnyTypeId,
+) -> Option<AnyPtr> {
+    if id.tag() != types.tag() {
+        return None;
+    }
+
+    let info = types.ffi().get(id.id())?;
+    let ptr = entities.get_component_ptr(entity, id.id())?;
+    let any_ptr = unsafe { AnyPtr::from_raw(ptr as *mut c_void, info, id) };
+    Some(any_ptr)
 }
 
 fn entities_holder_get_all_components<'r>(
     entities: &'r EntitiesHolderUnsafeFfi,
+    types: &TypesRegistryCache,
     entity: EntityId,
-    mut handler: impl FnMut(FfiAnyRef<'r>),
+    mut handler: impl FnMut(AnyRef<'r>),
 ) {
     unsafe {
-        let mut handler =
-            |i: (*mut u8, &'static FfiExtendedTypeInfo)| handler(i.1.as_any(FfiOpaqueRef::from_raw(i.0 as *const c_void)));
+        let mut handler = |ptr: AnyPtr| handler(ptr.as_any_ref());
         let handler = FfiFnMutMut::new(&mut handler);
         entities.get_all_components_ptrs(entity, handler)
     }
@@ -186,12 +202,12 @@ fn entities_holder_get_all_components<'r>(
 
 fn entities_holder_get_all_components_mut<'r>(
     entities: &'r mut EntitiesHolderUnsafeFfi,
+    types: &TypesRegistryCache,
     entity: EntityId,
-    mut handler: impl FnMut(FfiAnyMut<'r>),
+    mut handler: impl FnMut(AnyMut<'r>),
 ) {
     unsafe {
-        let mut handler =
-            |i: (*mut u8, &'static FfiExtendedTypeInfo)| handler(i.1.as_any_mut(FfiOpaqueMut::from_raw(i.0 as *mut c_void)));
+        let mut handler = |ptr: AnyPtr| handler(ptr.as_any_mut());
         let handler = FfiFnMutMut::new(&mut handler);
         entities.get_all_components_ptrs(entity, handler)
     }
@@ -235,6 +251,10 @@ pub struct EntitiesHolderMut<'e> {
 impl<'e> EntitiesHolderMut<'e> {
     pub unsafe fn new(entities: *mut EntitiesHolderUnsafeFfi, types: &'e TypesRegistryCache) -> Self {
         Self { entities, types }
+    }
+
+    pub fn types(&self) -> &'e TypesRegistryCache {
+        self.types
     }
 
     pub fn query<'r, A: ArchetypeIteratorItem>(&'r self) -> EntitiesHolderQuery<'r, A::ReadOnlyItem<'r>>
@@ -317,11 +337,11 @@ impl<'e> EntitiesHolderMut<'e> {
         T::set_as_components_into_entities_holder(self.as_mut(), entity, components)
     }
 
-    pub fn add_component_any(&mut self, entity: EntityId, component: FfiAny) -> Result<(), FfiAny> {
+    pub fn add_component_any(&mut self, entity: EntityId, component: AnyBox) -> Result<(), AnyBox> {
         unsafe { entities_holder_add_component_any(&mut *self.entities, self.types, entity, component) }
     }
 
-    pub fn set_components_any(&mut self, entity: EntityId, components: FfiVec<FfiAny>) -> bool {
+    pub fn set_components_any(&mut self, entity: EntityId, components: FfiVec<AnyBox>) -> bool {
         unsafe { entities_holder_set_components_any(&mut *self.entities, self.types, entity, components) }
     }
 
@@ -329,8 +349,8 @@ impl<'e> EntitiesHolderMut<'e> {
         unsafe { entities_holder_remove_component(&mut *self.entities, self.types, entity) }
     }
 
-    pub fn remove_component_any(&mut self, entity: EntityId, type_name: &str) -> Option<FfiAny> {
-        unsafe { entities_holder_remove_component_any(&mut *self.entities, self.types, entity, type_name) }
+    pub fn remove_component_any(&mut self, entity: EntityId, id: AnyTypeId) -> Option<AnyBox> {
+        unsafe { entities_holder_remove_component_any(&mut *self.entities, self.types, entity, id) }
     }
 
     pub fn get_component_ptr<C: 'static>(&self, entity: EntityId) -> Option<*mut C> {
@@ -351,34 +371,32 @@ impl<'e> EntitiesHolderMut<'e> {
         unsafe { entities_holder_get_component_mut(&mut *self.entities, self.types, entity) }
     }
 
-    pub fn get_component_any<'r>(&'r self, entity: EntityId, type_name: &str) -> Option<FfiAnyRef<'r>>
+    pub fn get_component_any<'r>(&'r self, entity: EntityId, id: AnyTypeId) -> Option<AnyRef<'r>>
     where
         'e: 'r,
     {
-        let (ptr, info) = unsafe { entities_holder_get_component_any_ptr(&*self.entities, self.types, entity, type_name) }?;
-        Some(unsafe { info.as_any(FfiOpaqueRef::from_raw(ptr as *const c_void)) })
+        unsafe { entities_holder_get_component_any_ptr(&*self.entities, self.types, entity, id).map(|p| p.as_any_ref()) }
     }
 
-    pub fn get_component_any_mut<'r>(&'r mut self, entity: EntityId, type_name: &str) -> Option<FfiAnyMut<'r>>
+    pub fn get_component_any_mut<'r>(&'r mut self, entity: EntityId, id: AnyTypeId) -> Option<AnyMut<'r>>
     where
         'e: 'r,
     {
-        let (ptr, info) = unsafe { entities_holder_get_component_any_ptr(&*self.entities, self.types, entity, type_name) }?;
-        Some(unsafe { info.as_any_mut(FfiOpaqueMut::from_raw(ptr as *mut c_void)) })
+        unsafe { entities_holder_get_component_any_ptr(&*self.entities, self.types, entity, id).map(|p| p.as_any_mut()) }
     }
 
-    pub fn get_all_components<'r>(&'r self, entity: EntityId, handler: impl FnMut(FfiAnyRef<'r>))
+    pub fn get_all_components<'r>(&'r self, entity: EntityId, handler: impl FnMut(AnyRef<'r>))
     where
         'e: 'r,
     {
-        unsafe { entities_holder_get_all_components(&*self.entities, entity, handler) }
+        unsafe { entities_holder_get_all_components(&*self.entities, self.types, entity, handler) }
     }
 
-    pub fn get_all_components_mut<'r>(&'r mut self, entity: EntityId, handler: impl FnMut(FfiAnyMut<'r>))
+    pub fn get_all_components_mut<'r>(&'r mut self, entity: EntityId, handler: impl FnMut(AnyMut<'r>))
     where
         'e: 'r,
     {
-        unsafe { entities_holder_get_all_components_mut(&mut *self.entities, entity, handler) }
+        unsafe { entities_holder_get_all_components_mut(&mut *self.entities, self.types, entity, handler) }
     }
 
     pub fn as_mut<'r>(&'r mut self) -> EntitiesHolderMut<'r>
@@ -416,6 +434,10 @@ pub struct EntitiesHolderRef<'e> {
 impl<'e> EntitiesHolderRef<'e> {
     pub unsafe fn new(entities: *const EntitiesHolderUnsafeFfi, types: &'e TypesRegistryCache) -> Self {
         Self { entities, types }
+    }
+
+    pub fn types(self) -> &'e TypesRegistryCache {
+        self.types
     }
 
     pub unsafe fn unsafe_query<A: ArchetypeIteratorItem, F: QueryFilter>(self) -> EntitiesHolderQuery<'e, A, F> {
@@ -468,16 +490,15 @@ impl<'e> EntitiesHolderRef<'e> {
         unsafe { entities_holder_get_component(&*self.entities, self.types, entity) }
     }
 
-    pub fn get_component_any(self, entity: EntityId, type_name: &str) -> Option<FfiAnyRef<'e>> {
-        let (ptr, info) = unsafe { entities_holder_get_component_any_ptr(&*self.entities, self.types, entity, type_name) }?;
-        Some(unsafe { info.as_any(FfiOpaqueRef::from_raw(ptr as *const c_void)) })
+    pub fn get_component_any(self, entity: EntityId, id: AnyTypeId) -> Option<AnyRef<'e>> {
+        unsafe { entities_holder_get_component_any_ptr(&*self.entities, self.types, entity, id).map(|p| p.as_any_ref()) }
     }
 
-    pub fn get_all_components<'r>(&'r self, entity: EntityId, handler: impl FnMut(FfiAnyRef<'r>))
+    pub fn get_all_components<'r>(&'r self, entity: EntityId, handler: impl FnMut(AnyRef<'r>))
     where
         'e: 'r,
     {
-        unsafe { entities_holder_get_all_components(&*self.entities, entity, handler) }
+        unsafe { entities_holder_get_all_components(&*self.entities, self.types, entity, handler) }
     }
 }
 

@@ -16,11 +16,12 @@
 //!
 //! - `entity`: `/`-joined [`NameComponent`](aphyn_transform::NameComponent) names below the root
 //!   (`""` is the root itself, `"Arm/Hand"` the child `Hand` of the root's child `Arm`);
-//! - `component`: the component's type name (`std::any::type_name`);
+//! - `component`: the component's `AnyTypeId` (its serialized name on disk);
 //! - `field`: an [`aphyn_reflection::ReflectPath`] inside the component (fields, list and map indices).
 //!
-//! A track also stores its value's type name, and every key holds the value as an `FfiAny` of
-//! that type. Numbers (`f32`, `f64` and the integer types) interpolate per [`KeyInterpolation`]
+//! A track also stores its value's `AnyTypeId`, and every key holds the value as an `AnyBox` of
+//! that type. Conversions through `f64` go through [`AnimationTypes`]: the ids of the numeric and
+//! quaternion types in one world's types registry (the module keeps one as a resource). Numbers (`f32`, `f64` and the integer types) interpolate per [`KeyInterpolation`]
 //! (`Constant`, `Linear`, or cubic `Hermite` through the keys' in/out tangents, in value per
 //! second); integers are rounded to the nearest value. Any other type steps from key to key.
 //! A quaternion is animated as up to three Euler tracks ([`AnimatedLeaf::QuatEuler`], degrees,
@@ -28,30 +29,36 @@
 //!
 //! ```
 //! use aphyn_animation::*;
-//! use aphyn_ffi::FfiAny;
+//! use aphyn_any::*;
 //! use aphyn_reflection::{ReflectPath, ReflectionRegistryBuilder};
+//!
+//! struct Door;
+//!
+//! let types = TypesRegistryCache::new(TypesRegistryAccessFfi::new());
+//! let anim = AnimationTypes::new(&types);
+//! let f32_id = types.type_id_of::<f32>().any_type_id();
 //!
 //! let path = AnimationPath {
 //!     entity: "".into(),
-//!     component: "my_game::Door".into(),
+//!     component: types.type_id_of::<Door>().any_type_id(),
 //!     field: ReflectPath::parse("/angle").unwrap(),
 //!     leaf: AnimatedLeaf::Direct,
 //! };
 //!
 //! let mut clip = AnimationClip::new();
-//! clip.set_key(path.clone(), "f32", 0.0, FfiAny::new(0.0_f32));
-//! let (track, key) = clip.set_key(path, "f32", 2.0, FfiAny::new(90.0_f32));
+//! clip.set_key(&anim, path.clone(), f32_id, 0.0, AnyBox::new(0.0_f32, &types));
+//! let (track, key) = clip.set_key(&anim, path, f32_id, 2.0, AnyBox::new(90.0_f32, &types));
 //! clip.tracks[track as u64].keys[0].interpolation = KeyInterpolation::Linear;
 //! assert_eq!(clip.duration(), 2.0);
 //! assert_eq!(key, 1);
 //!
 //! let registry = ReflectionRegistryBuilder::new().build();
-//! let sampled = sample_track(&registry, &clip.tracks[0], 0.5).unwrap();
-//! assert_eq!(sampled.downcast_ref::<f32>(), Some(&22.5));
+//! let sampled = sample_track(&registry, &anim, &clip.tracks[0], 0.5).unwrap();
+//! assert_eq!(sampled.downcast_ref(types.type_id_of::<f32>()), Some(&22.5));
 //!
 //! // before the first and after the last key the end values hold
-//! let sampled = sample_track(&registry, &clip.tracks[0], 5.0).unwrap();
-//! assert_eq!(sampled.downcast_ref::<f32>(), Some(&90.0));
+//! let sampled = sample_track(&registry, &anim, &clip.tracks[0], 5.0).unwrap();
+//! assert_eq!(sampled.downcast_ref(types.type_id_of::<f32>()), Some(&90.0));
 //! ```
 //!
 //! [`AnimationClip::set_key`] creates the track on demand and replaces a key that is already at
@@ -61,17 +68,21 @@
 //!
 //! ```
 //! use aphyn_animation::*;
-//! use aphyn_ffi::FfiAny;
+//! use aphyn_any::*;
 //! use aphyn_reflection::ReflectPath;
 //!
-//! let path = AnimationPath { entity: "".into(), component: "c".into(), field: ReflectPath::new(), leaf: AnimatedLeaf::Direct };
+//! let types = TypesRegistryCache::new(TypesRegistryAccessFfi::new());
+//! let anim = AnimationTypes::new(&types);
+//! let i32_id = types.type_id_of::<i32>().any_type_id();
+//! let path = AnimationPath { entity: "".into(), component: AnyTypeId::UNRESOLVED, field: ReflectPath::new(), leaf: AnimatedLeaf::Direct };
 //! let mut clip = AnimationClip::new();
-//! clip.set_key(path.clone(), "i32", 0.0, FfiAny::new(0_i32));
-//! clip.set_key(path, "i32", 1.0, FfiAny::new(3_i32));
+//! clip.set_key(&anim, path.clone(), i32_id, 0.0, AnyBox::new(0_i32, &types));
+//! clip.set_key(&anim, path, i32_id, 1.0, AnyBox::new(3_i32, &types));
 //! clip.tracks[0].keys[0].interpolation = KeyInterpolation::Linear;
 //!
-//! assert_eq!(sample_numeric(&clip.tracks[0].keys, 0.5), Some(1.5));
-//! assert_eq!(numeric_from_f64("i32", 1.5).unwrap().downcast_ref::<i32>(), Some(&2));
+//! assert_eq!(sample_numeric(&anim, &clip.tracks[0].keys, 0.5), Some(1.5));
+//! let rounded = anim.numeric_from_f64(i32_id, 1.5).unwrap();
+//! assert_eq!(rounded.downcast_ref(types.type_id_of::<i32>()), Some(&2));
 //! ```
 //!
 //! #### Playing a clip
@@ -102,8 +113,8 @@
 //! ```
 //! use aphyn_animation::*;
 //! use aphyn_asset_storage::AssetHandle;
+//! use aphyn_any::AnyBox;
 //! use aphyn_ecs::{Component, WorldData};
-//! use aphyn_ffi::FfiAny;
 //! use aphyn_reflection::*;
 //! use aphyn_transform::{NameComponent, set_parent};
 //!
@@ -112,11 +123,13 @@
 //!     angle: f32,
 //! }
 //!
-//! let mut builder = ReflectionRegistryBuilder::new();
-//! builder.register::<Door>().register::<f32>();
-//! let registry = builder.build();
-//!
 //! let mut data = WorldData::default();
+//! let types = data.types().clone();
+//! let mut builder = ReflectionRegistryBuilder::new();
+//! builder.register::<Door>(&types).register::<f32>(&types);
+//! let registry = builder.build();
+//! let anim = AnimationTypes::new(&types);
+//!
 //! let mut ent = data.entities_mut();
 //! let root = ent.create_entity();
 //! let door = ent.create_entity();
@@ -126,16 +139,16 @@
 //!
 //! let path = AnimationPath {
 //!     entity: "Door".into(),
-//!     component: std::any::type_name::<Door>().into(),
+//!     component: types.type_id_of::<Door>().any_type_id(),
 //!     field: ReflectPath::parse("/angle").unwrap(),
 //!     leaf: AnimatedLeaf::Direct,
 //! };
 //! let mut clip = AnimationClip::new();
-//! clip.set_key(path.clone(), "f32", 0.0, FfiAny::new(0.0_f32));
-//! clip.set_key(path, "f32", 1.0, FfiAny::new(90.0_f32));
+//! clip.set_key(&anim, path.clone(), types.type_id_of::<f32>().any_type_id(), 0.0, AnyBox::new(0.0_f32, &types));
+//! clip.set_key(&anim, path, types.type_id_of::<f32>().any_type_id(), 1.0, AnyBox::new(90.0_f32, &types));
 //!
-//! let bindings = bind_clip(ent.as_ref(), &registry, root, &AssetHandle::EMPTY, &clip);
-//! assert!(apply_bindings(ent.as_mut(), &registry, &clip, &bindings, 1.0));
+//! let bindings = bind_clip(ent.as_ref(), &registry, &anim, root, &AssetHandle::EMPTY, &clip);
+//! assert!(apply_bindings(ent.as_mut(), &registry, &anim, &clip, &bindings, 1.0));
 //! assert_eq!(ent.get_component::<Door>(door).unwrap().angle, 90.0);
 //! assert_eq!(entity_path_from(ent.as_ref(), root, door).unwrap().as_str(), "Door");
 //! ```
@@ -153,14 +166,15 @@
 //!
 //! On disk a clip is [`AnimationClipAssetMetadata`]: the field path as text
 //! ([`ReflectPath::parse`](aphyn_reflection::ReflectPath::parse) / `Display`) and each key's
-//! value as a `SerializedValue`. [`AnimationClip::from_meta`] deserializes every key into an
-//! `FfiAny` of the track's `value_type` through the transitive serializer registry, so the value
+//! value as a `SerializedValue`. [`AnimationClip::from_meta`] resolves the track's `component` and `value_type` serialized
+//! names to `AnyTypeId`s through the serializer registry (a track naming an unknown type is dropped) and
+//! deserializes every key into an `AnyBox` of the value type through the transitive serializer registry, so the value
 //! type needs a registered serializer; [`AnimationClip::to_meta`] is the inverse and is what the
 //! asset save serializer writes. Sampling and applying never touch serialization.
 //!
 //! #### Binding
 //!
-//! [`bind_clip`] resolves each track once: the entity by names, the component by type name
+//! [`bind_clip`] resolves each track once: the entity by names, the component by its id
 //! (`get_component_any`), and the field into a chain of [`BindStep`]s (a `ReflectField` per
 //! struct or enum field, the list or map reflector plus an index otherwise). The value at the end
 //! must have the track's type (or be a `Quat<f32>`/`Quat<f64>` for Euler tracks, which are grouped
@@ -200,6 +214,8 @@ pub const SYSTEM_GROUP_ANIMATION: &str = "aphyn_animation";
 
 pub fn add_animation_module_to(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
     data.resources_mut().insert(AssetStorageResource::<AnimationClip>::new());
+    let types = AnimationTypes::new(data.types());
+    data.resources_mut().insert(types);
 
     behavior
         .get_mut(Schedule::Update)

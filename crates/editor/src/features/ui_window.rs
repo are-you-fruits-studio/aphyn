@@ -12,8 +12,10 @@ use crate::{
     },
 };
 
-// todo: bundle registration params
-pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+pub fn register_feature(ctx: FeatureInitCtx) {
+    let FeatureInitCtx {
+        mut data, mut behavior, ..
+    } = ctx;
     data.resources_mut().insert(WindowsOrderResource::default());
 
     let mut update = behavior.get_mut(Schedule::Update);

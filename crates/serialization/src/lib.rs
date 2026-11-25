@@ -14,10 +14,11 @@
 //! Two states ship with the crate: [`PureSerializerCtxState`] dispatches statically to each
 //! type's own [`Serializable`] impl, and [`TransSerializerCtxState`] looks the serializer up at
 //! runtime in a [`TransSerializerRegistry`] and carries a [`ContextData`] with per-operation data
-//! for those serializers. Inside the engine the shared registry already lives
-//! in the world as `SerializersResource` (crate `aphyn_serialization_ecs`, which keeps this crate
-//! independent of the ECS), inserted (and filled with the common types) by the
-//! engine's default-modules setup.
+//! for those serializers. Serializers are registered in a [`TransSerializerRegistryBuilder`],
+//! which [`build`](TransSerializerRegistryBuilder::build)s the read-only registry. Inside the
+//! engine the app's init context holds the builder (the default-modules setup fills it with the
+//! common types), and the app inserts the built registry into the world as `SerializersResource`
+//! (crate `aphyn_serialization_ecs`, which keeps this crate independent of the ECS).
 //!
 //! #### Round-trip a value without a registry
 //!
@@ -47,8 +48,8 @@
 //!
 //! #### Round-trip a value through a registry
 //!
-//! Register a [`StandardSerializer`] for the type and for every type it contains, then call the
-//! registry's [`serialize`](TransSerializerRegistry::serialize) /
+//! Register a [`StandardSerializer`] for the type and for every type it contains, build the
+//! registry, then call its [`serialize`](TransSerializerRegistry::serialize) /
 //! [`deserialize`](TransSerializerRegistry::deserialize). Errors are passed to the callback
 //! instead of being returned:
 //!
@@ -61,20 +62,22 @@
 //!     score: u32,
 //! }
 //!
-//! let mut registry = TransSerializerRegistry::new();
+//! let types = aphyn_any::TypesRegistryCache::new(aphyn_any::TypesRegistryAccessFfi::new());
+//! let mut builder = TransSerializerRegistryBuilder::new();
 //! // every type that appears in the data must have a serializer registered
-//! registry.register(StandardSerializer::<String>::default());
-//! registry.register(StandardSerializer::<u32>::default());
-//! registry.register(StandardSerializer::<Player>::default());
+//! builder.register(&types, "String", StandardSerializer::<String>::default());
+//! builder.register(&types, "u32", StandardSerializer::<u32>::default());
+//! builder.register(&types, "my_game::Player", StandardSerializer::<Player>::default());
+//! let registry = builder.build();
 //!
 //! let player = Player { name: String::from("Ada"), score: 42 };
 //!
 //! let mut errors = Vec::new();
 //! let mut on_err = |err| errors.push(err);
 //!
-//! let serialized = registry.serialize(&player, "", &mut on_err);
+//! let serialized = registry.serialize(&types, &player, "", &mut on_err);
 //! let mut restored = Player::default();
-//! registry.deserialize(&mut restored, "", &serialized, &mut on_err);
+//! registry.deserialize(&types, &mut restored, "", &serialized, &mut on_err);
 //!
 //! assert!(errors.is_empty());
 //! assert_eq!(restored, player);
@@ -117,14 +120,16 @@
 //!     }
 //! }
 //!
-//! let mut registry = TransSerializerRegistry::new();
-//! registry.register(MetersSerializer);
+//! let types = aphyn_any::TypesRegistryCache::new(aphyn_any::TypesRegistryAccessFfi::new());
+//! let mut builder = TransSerializerRegistryBuilder::new();
+//! builder.register(&types, "my_game::Meters", MetersSerializer);
+//! let registry = builder.build();
 //!
 //! let scale = 100.0;
 //! let context = ContextData::new().with::<Scale>(&scale);
 //!
 //! let mut on_err = |err: SerializationError| panic!("{err}");
-//! let mut ctx = registry.to_ctx(&context, &mut on_err);
+//! let mut ctx = registry.to_ctx(&context, &types, &mut on_err);
 //!
 //! let serialized = ctx.serialize(&Meters(1.5), "");
 //! assert!(matches!(serialized, SerializedValue::Primitive(SerializedPrimitive::Float(v)) if v == 150.0));
@@ -315,22 +320,47 @@
 //! `StandardSerializer::<T>::default()` rather than the type itself; custom serializers (asset
 //! handles, entity ids) implement [`Serializer`] directly.
 //!
-//! [`TransSerializerRegistry`] keys each entry by `std::any::type_name` of its `Deserialized`
-//! type and stores it as a [`TransSerializerFfi`]: the serializer boxed in an `FfiDroppable`
-//! plus a static `extern "C-unwind"` vtable, so the registry stays FFI-safe. It holds only
-//! `'static` serializers; borrowed data reaches them through [`ContextData`]. Typed lookups cast the
-//! erased pointers back to `T` guarded only by the type-name string. **Caveat for
-//! maintainers:** `type_name` is not guaranteed to be unique or stable across builds, so this
-//! scheme is sound only as long as distinct types never collide on their `type_name` string.
+//! [`TransSerializerRegistry`] stores one [`TransSerializerEntry`] per registered type: its
+//! serialized name and a [`TransSerializerFfi`] (the serializer boxed in an `FfiDroppable` plus a
+//! static `extern "C-unwind"` vtable, so the registry stays FFI-safe). Entries live in one `FfiVec`
+//! with two indexes: a dense vec from the type's `AnyTypeId` id to the entry, and an `FfiIndexMap`
+//! from the serialized name to the entry. Serialized data names types only by these names, never by
+//! `std::any::type_name`; engine types use an `aphyn::` prefix (see `aphyn_modules`).
+//! [`TransSerializerRegistryBuilder::register`] takes the world's types cache, the name and the
+//! serializer, resolves the type's id right away, and panics when a type gets a second name, a name
+//! gets a second type, or the cache belongs to another types registry than earlier registrations;
+//! registering a type again with its name replaces the serializer. [`build`](TransSerializerRegistryBuilder::build)
+//! moves the table into an `FfiArc`, so the built registry is immutable and cheap to clone, and keeps
+//! a handle of the types registry, so the boxes it creates carry the right id and keep it alive. It
+//! holds only `'static` serializers; borrowed data reaches them through [`ContextData`].
+//!
+//! #### Typed lookups and the local types cache
+//!
+//! A typed lookup (`ctx.serialize::<T>()`, which every derived `Serializable` makes per field)
+//! needs `T`'s id, i.e. a `TypeId -> id` lookup in a `TypesRegistryCache`. `TypeId`s are only
+//! meaningful inside one binary, so [`TransSerializerCtxState`] carries a `local_types` cache that
+//! always belongs to the binary running the code that holds the state: the caller passes its own to
+//! [`to_ctx`](TransSerializerRegistry::to_ctx) / [`to_ctx_state`](TransSerializerRegistry::to_ctx_state),
+//! and every `TransSerializerFfi` keeps a clone of the cache of the binary that registered it, which
+//! its serialize/deserialize trampolines swap into the state before running the serializer. A
+//! serializer from a scripts library therefore resolves its nested types through the library's own
+//! cache. Breaking this invariant (handing a state to code of another binary without the swap) makes
+//! typed lookups use foreign `TypeId`s. The typed reference then casts the erased pointers back to
+//! `T`, guarded by the id.
 //!
 //! #### Type-erased entry points
 //!
 //! On a [`TransSerializerCtxState`] context, [`serialize_any`](SerializerCtx::serialize_any) and
-//! [`deserialize_any`](SerializerCtx::deserialize_any) take an `FfiAnyRef` / `FfiAnyMut` and
-//! find the serializer by the value's type-info name (the same `type_name` string), and
-//! [`deserialize_default_any`](SerializerCtx::deserialize_default_any) creates the value from
-//! the serializer's default and returns it as an `FfiAny`. `aphyn_prefab` uses these to
-//! (de)serialize components it only knows by type name.
+//! [`deserialize_any`](SerializerCtx::deserialize_any) take an `aphyn_any` `AnyRef` / `AnyMut`
+//! and find the serializer by the value's id. A value of another world (another registry tag) is
+//! first resolved to this registry's id through the types registry (`own_type_id`), so values moved
+//! between worlds keep working. [`deserialize_default_any`](SerializerCtx::deserialize_default_any)
+//! (by serialized name) and [`deserialize_default_any_by_id`](SerializerCtx::deserialize_default_any_by_id)
+//! create the value from the serializer's default and return it as an `AnyBox`.
+//! [`name_of`](TransSerializerRegistry::name_of) / [`type_id_of_name`](TransSerializerRegistry::type_id_of_name)
+//! convert between ids and names. `aphyn_prefab` and animation clips use these to (de)serialize
+//! values they only know by name. `ContextData` keys are still `type_name::<K>()`: they name
+//! per-operation data slots, not serialized types.
 //!
 //! #### Errors are reported, not returned; deserialization is lenient
 //!

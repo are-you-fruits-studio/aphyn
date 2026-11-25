@@ -28,8 +28,10 @@ const HIGHLIGHT_Z: f32 = -8_500.0;
 const SPLITTER_COLOR: Vec4<f32> = Vec4::new(0.1, 0.1, 0.1, 1.0);
 const SPLITTER_COLOR_HOVERED: Vec4<f32> = Vec4::new(0.38, 0.71, 0.98, 1.0);
 
-// todo: bundle registration params
-pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+pub fn register_feature(ctx: FeatureInitCtx) {
+    let FeatureInitCtx {
+        mut data, mut behavior, ..
+    } = ctx;
     data.resources_mut().insert(DockLayoutResource::default());
     data.resources_mut().insert(DockDragResource::default());
 

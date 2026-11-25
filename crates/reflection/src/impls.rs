@@ -4,7 +4,7 @@ use aphyn_ffi::{FfiIndexMap, FfiOption, FfiSmallString, FfiString, FfiVec};
 use aphyn_math::{Mat, Quat, Vec2, Vec3, Vec4};
 
 use crate::{
-    __reflect_take, EnumReflectorBuilder, ListReflectorBuilder, MapReflectorBuilder, Reflectable, Reflector, StructReflectorBuilder,
+    EnumReflectorBuilder, ListReflectorBuilder, MapReflectorBuilder, Reflectable, Reflector, StructReflectorBuilder,
     ValueReflectorBuilder,
 };
 
@@ -174,7 +174,7 @@ impl<T: 'static> Reflectable for Option<T> {
                 "Some",
                 |v| v.is_some(),
                 |b| b.field("0", |v| v.as_ref(), |v| v.as_mut()),
-                |fields| Some(Some(__reflect_take(&mut fields.into_iter())?)),
+                |fields| Some(Some(unsafe { fields.take()? })),
             )
             .default_fn(Some(|| None))
             .build()
@@ -201,7 +201,7 @@ impl<T: 'static> Reflectable for FfiOption<T> {
                         },
                     )
                 },
-                |fields| Some(FfiOption::Some(__reflect_take(&mut fields.into_iter())?)),
+                |fields| Some(FfiOption::Some(unsafe { fields.take()? })),
             )
             .default_fn(Some(|| FfiOption::None))
             .build()

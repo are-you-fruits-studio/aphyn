@@ -1,10 +1,10 @@
 # Immediate
 
-- optimize prefab spawning after all the reflection refactor
+- use reflection for prefab spawning instead of serialization
 - custom names for serialized components
 - shader runtime define switching and recompilation
 - move serialization, reflection, inspecting to being builder at app-init stage and immutable at runtime (probably store them separately from the ECS world and somewhere near the TypesRegistry)
-- allow using cached TypesRegistry key to avoid string lookup and even hashmap lookup where possible.
+- allow using cached TypesRegistry key in systems/render-features to avoid string lookup and even hashmap lookup where possible.
 - finish shaders, materials, material templates
     - including materials having inputs affect shader compilation directives
     - also, check with nsight

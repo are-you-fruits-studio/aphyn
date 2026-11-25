@@ -1,8 +1,38 @@
 use std::{
-    alloc::Layout, ffi::c_void, fmt::{Debug, Display}, mem::ManuallyDrop, ops::{Deref, DerefMut}
+    alloc::Layout,
+    ffi::c_void,
+    fmt::{Debug, Display},
+    mem::ManuallyDrop,
+    ops::{Deref, DerefMut},
 };
 
+// zero-sized values get a dangling, never-freed pointer: the global allocator rejects zero-sized layouts
+pub(crate) unsafe fn alloc_for<T>() -> *mut T {
+    let layout = Layout::new::<T>();
+
+    if layout.size() == 0 {
+        return std::ptr::NonNull::<T>::dangling().as_ptr();
+    }
+
+    let ptr = unsafe { std::alloc::alloc(layout) } as *mut T;
+
+    if ptr.is_null() {
+        std::alloc::handle_alloc_error(layout);
+    }
+
+    ptr
+}
+
+pub(crate) unsafe fn dealloc_for<T>(ptr: *mut c_void) {
+    let layout = Layout::new::<T>();
+
+    if layout.size() != 0 {
+        unsafe { std::alloc::dealloc(ptr as *mut u8, layout) }
+    }
+}
+
 #[repr(C)]
+#[derive(Copy, Clone)]
 pub struct FfiBoxVtable {
     pub drop_in_place_fn: unsafe extern "C-unwind" fn(*mut c_void),
     pub dealloc_fn: unsafe extern "C-unwind" fn(*mut c_void),
@@ -14,7 +44,7 @@ impl FfiBoxVtable {
             unsafe { std::ptr::drop_in_place(ptr as *mut T) }
         }
         unsafe extern "C-unwind" fn ffi_dealloc<T>(ptr: *mut c_void) {
-            unsafe { std::alloc::dealloc(ptr as *mut u8, Layout::new::<T>()) }
+            unsafe { dealloc_for::<T>(ptr) }
         }
 
         Self {
@@ -33,7 +63,7 @@ pub struct FfiBox<T> {
 impl<T> FfiBox<T> {
     pub fn new(value: T) -> Self {
         unsafe {
-            let ptr = std::alloc::alloc(Layout::new::<T>()) as *mut T;
+            let ptr = alloc_for::<T>();
 
             ptr.write(value);
 
@@ -44,17 +74,19 @@ impl<T> FfiBox<T> {
         }
     }
 
-    pub(crate) unsafe fn from_raw(ptr: *mut T, vtable: &'static FfiBoxVtable) -> Self {
-        Self {
-            ptr,
-            vtable,
-        }
+    pub unsafe fn from_raw(ptr: *mut T, vtable: &'static FfiBoxVtable) -> Self {
+        Self { ptr, vtable }
+    }
+
+    // the memory is freed by `FfiBoxVtable::new::<T>().dealloc_fn` (or `FfiExtendedTypeInfo::dealloc_box`)
+    pub fn into_raw(self) -> *mut T {
+        ManuallyDrop::new(self).ptr
     }
 
     pub fn into_inner(self) -> T {
         unsafe {
             let val = self.ptr.read();
-           
+
             let this = ManuallyDrop::new(self);
             (this.vtable.dealloc_fn)(this.ptr as *mut c_void);
 
@@ -127,5 +159,5 @@ impl<T: Display> Display for FfiBox<T> {
     }
 }
 
-unsafe impl<T: Send> Send for FfiBox<T> { }
-unsafe impl<T: Sync> Sync for FfiBox<T> { }
+unsafe impl<T: Send> Send for FfiBox<T> {}
+unsafe impl<T: Sync> Sync for FfiBox<T> {}

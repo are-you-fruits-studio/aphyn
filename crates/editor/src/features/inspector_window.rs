@@ -56,8 +56,10 @@ pub const FIELD_HEIGHT: UiVal = UiVal::px(18.0);
 pub const INDENT_WIDTH: UiVal = UiVal::px(18.0);
 pub const FIELD_GAP: UiVal = UiVal::px(2.0);
 
-// todo: bundle registration params
-pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+pub fn register_feature(ctx: FeatureInitCtx) {
+    let FeatureInitCtx {
+        mut data, mut behavior, ..
+    } = ctx;
     data.resources_mut().insert(InspectedAssetResource::default());
     data.resources_mut().insert(OpenedEntitiesAssetResource::default());
     data.resources_mut().insert(InspectedEntityResource::default());

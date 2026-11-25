@@ -10,4 +10,5 @@ crate-type = ["lib"]
 [dependencies]
 aphyn_reflection_macros = { path = "../reflection_macros" }
 aphyn_ffi = { path = "../ffi" }
+aphyn_any = { path = "../any" }
 aphyn_math = { path = "../math" }

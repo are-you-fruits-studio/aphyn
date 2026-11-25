@@ -21,8 +21,7 @@
 //!     let mut app = App::new();
 //!
 //!     // Pull in the engine's default subsystems (collision, transform, rendering, ...).
-//!     let AppInitCtx { mut data, mut behavior, render, .. } = app.init_ctx_mut();
-//!     add_defult_modules_to(data.as_mut(), behavior.as_mut(), render);
+//!     add_default_modules_to(app.init_ctx_mut().feature_ctx());
 //!
 //!     app.behavior_mut()
 //!         .as_mut()
@@ -87,13 +86,36 @@
 //! use aphyn::*;
 //!
 //! let mut app = App::new();
-//! let mut ctx = app.init_ctx_mut();
-//! add_defult_modules_to(ctx.data.as_mut(), ctx.behavior.as_mut(), ctx.render);
+//! add_default_modules_to(app.init_ctx_mut().feature_ctx());
 //! app.render_mut().add_feature("vignette", VignetteFeature::default());
 //! app.run();
 //!
 //! fn setup(ctx: AppInitCtx) {
 //!     ctx.render.add_feature("vignette", VignetteFeature::default());
+//! }
+//! ```
+//!
+//! #### Registering serializers and reflectors
+//!
+//! Serializers and reflectors are registered only during init, in the builders
+//! [`AppInitCtx::serializers`] and [`AppInitCtx::reflection`]. Every registration passes
+//! [`AppInitCtx::types`], the world's types cache, so ids are resolved right away. When
+//! [`run`](App::run) starts, it builds both into immutable registries and inserts them as `SerializersResource` and
+//! `ReflectionRegistryResource`, which systems and render features read. A [`FeatureInitCtx`]
+//! (from [`AppInitCtx::feature_ctx`]) bundles the world data, its types cache, the systems builder,
+//! the render feature registry and both builders for feature registration functions such as
+//! `add_default_modules_to`:
+//!
+//! ```ignore
+//! use aphyn::*;
+//!
+//! fn setup(mut ctx: AppInitCtx) {
+//!     add_health_feature(ctx.feature_ctx());
+//! }
+//!
+//! fn add_health_feature(ctx: FeatureInitCtx) {
+//!     ctx.serializers.register(ctx.types, "my_game::Health", StandardSerializer::<Health>::default());
+//!     ctx.reflection.register::<Health>(ctx.types);
 //! }
 //! ```
 //!
@@ -324,13 +346,19 @@
 //! `aphyn_window::WindowState`, and `aphyn_window` depends on `aphyn_ecs`. [`AppInitCtxFfi`] is
 //! its `#[repr(C)]` form for the dynamic-library boundary: raw pointers to the type registry, the
 //! world data (`data_mut`), the systems builder (`behavior_mut`), the window state, the render
-//! registry (`render_mut`), and the `#[repr(C)]` [`ThreadingMode`] (`threading_mut`). [`App`] only
+//! registry (`render_mut`), the `#[repr(C)]` [`ThreadingMode`] (`threading_mut`), and the
+//! `#[repr(C)]` serializer and reflection builders (`serializers_mut`, `reflection_mut`). [`App`] only
 //! stores that mode during init and creates the pool (or none) in `run`, so a single-threaded app
-//! never spawns worker threads. Engine modules cannot take an `AppInitCtx` (this crate depends on
-//! them), so their registration functions take the data, behavior and render feature registry as separate
-//! parameters.
+//! never spawns worker threads. [`App`] owns both builders and, at the start of `run`, builds them
+//! and inserts the registries as resources; this is the only point where they freeze (the editor
+//! does the same for its simulated worlds). Engine subsystem crates cannot take an `AppInitCtx` or
+//! a [`FeatureInitCtx`] (this crate depends on them), so their registration functions take the
+//! data, behavior and render feature registry as separate parameters; `aphyn_modules` and the editor
+//! sit above this crate and take a [`FeatureInitCtx`].
 //! `AppInitCtx::into_ffi` packs them on the host side and `AppInitCtxFfi::init_app` unpacks them
-//! inside the game library (called by the `aphyn_entry_point!` expansion). The pointers are only
+//! inside the game library (called by the `aphyn_entry_point!` expansion). `AppInitCtx::types` does not cross
+//! the boundary as a cache: `init_app` builds a library-side `TypesRegistryCache` over the shared
+//! `types_ref` registry, so `TypeId` lookups stay per binary while ids match on both sides. The pointers are only
 //! valid while the ctx's borrows are, and the layout must match on both sides of the boundary
 //! (change `AppInitCtxFfi` and the `aphyn_entry_point!` expansion in lockstep). The registry must
 //! be dropped before a game library that registered features into it is unloaded; `App::run`

@@ -13,5 +13,6 @@ crate-type = ["lib"]
 aphyn_serialization_macros = { path = "../serialization_macros" }
 aphyn_math = { path = "../math" }
 aphyn_ffi = { path = "../ffi" }
+aphyn_any = { path = "../any" }
 serde = { version = "1" }
 serde_json = { version = "1", features = ["preserve_order"] }

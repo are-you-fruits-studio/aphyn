@@ -12,7 +12,7 @@
 //! `"mesh"`, `"audio_clip"`, `"animation_clip"`, `"prefab"`, `"scene"`, or `"font"`) and the asset's settings, and usually points
 //! at a raw payload (image, `.wgsl`, `.obj`, `.wav`) by a further `assets/`-relative path; an empty
 //! payload path loads a placeholder asset (except for shaders). The module is part of the engine's
-//! default modules (`add_defult_modules_to`), which also registers the texture, material, template,
+//! default modules (`add_default_modules_to`), which also registers the texture, material, template,
 //! shader, mesh, and audio-clip storages it fills.
 //!
 //! A shader's `.wgsl` file is a payload, not an asset: only its `.asset` file is loaded. The WGSL
@@ -33,8 +33,8 @@
 //!
 //! fn main() {
 //!     let mut app = App::new();
-//!     let ctx = app.init_ctx_mut();
-//!     add_defult_modules_to(ctx.data, ctx.behavior, ctx.render);
+//!     let mut ctx = app.init_ctx_mut();
+//!     add_default_modules_to(ctx.feature_ctx());
 //!
 //!     let mut behavior = app.behavior_mut().as_mut();
 //!     let mut start = behavior.get_mut(Schedule::Start);
@@ -173,9 +173,11 @@
 //!
 //! #### Loading is driven by the serializers
 //!
-//! There is one serializer registry, the world's `SerializersResource`.
+//! There is one serializer registry, the world's read-only `SerializersResource`, built at app start. Asset
+//! files name types only by the serialized names given at registration (component ids in prefabs and
+//! scenes, track component and value types in animation clips), never by `std::any::type_name`.
 //! [`register_asset_loading_serializers`] (called by `aphyn_modules::register_common_transserializers`)
-//! registers into it, per asset type, an [`AssetHandleSerializer`], a [`DirectAssetLoadSerializer`]
+//! registers into its builder during app init, per asset type, an [`AssetHandleSerializer`], a [`DirectAssetLoadSerializer`]
 //! and (except fonts) a [`DirectAssetSaveSerializer`], plus one [`EntityIdSerializer`]. These are
 //! `'static`; what differs per operation is the `ContextData` the context carries:
 //!
@@ -213,7 +215,7 @@
 //! fetch the resources out of [`aphyn_ecs::ResourcesHolderMut`] through raw pointers.
 //! The loading variants need `AssetStorageResource<Material>` in the world, which this module
 //! does not insert: `aphyn_render_features::add_render_features_module_to` does (called by
-//! `add_defult_modules_to`). Without it `load_asset_transitively_from_world` and
+//! `add_default_modules_to`). Without it `load_asset_transitively_from_world` and
 //! `load_asset_single_from_world` return `None`, so startup loading loads nothing.
 //!
 //! When [`load_asset_single`] loads a key that is already registered, the new asset replaces the

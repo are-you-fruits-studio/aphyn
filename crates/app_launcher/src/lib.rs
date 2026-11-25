@@ -64,13 +64,14 @@
 //! # How to maintain
 //!
 //! Both entry points follow the same three steps: build an [`App`], register the
-//! engine's default modules with [`aphyn_modules::add_defult_modules_to`], let the
+//! engine's default modules with [`aphyn_modules::add_default_modules_to`], let the
 //! game populate the world, then hand control to [`App::run`]. They differ only in
 //! *how* the game populates the world.
 //!
 //! [`launch_app_statically`] is the simple path: the caller's closure is invoked
 //! directly with the [`AppInitCtx`] from [`App::init_ctx_mut`], which borrows the
-//! in-process [`App`]'s world data, systems builder, render feature registry and initial window state.
+//! in-process [`App`]'s world data, systems builder, render feature registry, initial window state
+//! and serializer and reflection builders, which [`App::run`] builds into the world's registries.
 //!
 //! [`launch_app_dynamically`] crosses an FFI boundary. It looks for a shared library
 //! named `aphynapp` with the platform's library prefix and suffix (`aphynapp.dll`, `libaphynapp.so`, `libaphynapp.dylib`)
@@ -92,7 +93,7 @@
 //! (locating the executable, loading the `aphynapp` library, resolving the symbol, closing the
 //! library), so a missing or mismatched library aborts the process rather than reporting
 //! an error. The default-module
-//! helper name `add_defult_modules_to` carries an upstream spelling and must match
+//! helper name `add_default_modules_to` carries an upstream spelling and must match
 //! `aphyn_modules`.
 
 use std::path::Path;
@@ -103,8 +104,8 @@ use libloading::Library;
 pub fn launch_app_statically(f: impl FnOnce(AppInitCtx)) {
     let mut app = App::new();
 
-    let ctx = app.init_ctx_mut();
-    aphyn_modules::add_defult_modules_to(ctx.data, ctx.behavior, ctx.render);
+    let mut ctx = app.init_ctx_mut();
+    aphyn_modules::add_default_modules_to(ctx.feature_ctx());
 
     f(app.init_ctx_mut());
 
@@ -114,8 +115,8 @@ pub fn launch_app_statically(f: impl FnOnce(AppInitCtx)) {
 pub fn launch_app_dynamically() {
     let mut app = App::new();
 
-    let ctx = app.init_ctx_mut();
-    aphyn_modules::add_defult_modules_to(ctx.data, ctx.behavior, ctx.render);
+    let mut ctx = app.init_ctx_mut();
+    aphyn_modules::add_default_modules_to(ctx.feature_ctx());
 
     let lib_path = std::env::current_exe()
         .unwrap()

@@ -112,16 +112,25 @@ mod tests {
     const TEMPLATE_KEY: &str = "templates/unlit.asset";
 
     fn global_serializers() -> TransSerializerRegistry {
-        let mut registry = TransSerializerRegistry::new();
-        registry.register(StandardSerializer::<Material>::default());
-        registry.register(StandardSerializer::<MaterialData>::default());
-        registry.register(StandardSerializer::<MaterialDataEntry>::default());
-        registry.register(StandardSerializer::<MaterialDataValue>::default());
-        registry.register(StandardSerializer::<FfiString>::default());
-        registry.register(StandardSerializer::<f32>::default());
-        registry.register(StandardSerializer::<Vec4<f32>>::default());
-        register_asset_loading_serializers(&mut registry);
-        registry
+        let types = aphyn_ecs::TypesRegistryCache::new(aphyn_ecs::TypesRegistryAccessFfi::new());
+        let mut registry = TransSerializerRegistryBuilder::new();
+        registry.register(&types, "aphyn::Material", StandardSerializer::<Material>::default());
+        registry.register(&types, "aphyn::MaterialData", StandardSerializer::<MaterialData>::default());
+        registry.register(
+            &types,
+            "aphyn::MaterialDataEntry",
+            StandardSerializer::<MaterialDataEntry>::default(),
+        );
+        registry.register(
+            &types,
+            "aphyn::MaterialDataValue",
+            StandardSerializer::<MaterialDataValue>::default(),
+        );
+        registry.register(&types, "aphyn::FfiString", StandardSerializer::<FfiString>::default());
+        registry.register(&types, "f32", StandardSerializer::<f32>::default());
+        registry.register(&types, "aphyn::Vec4<f32>", StandardSerializer::<Vec4<f32>>::default());
+        register_asset_loading_serializers(&types, &mut registry);
+        registry.build()
     }
 
     fn templates() -> AssetStorageResource<MaterialTemplate> {
@@ -154,8 +163,10 @@ mod tests {
         templates: &AssetStorageResource<MaterialTemplate>,
         textures: &AssetStorageResource<StandardTexture>,
     ) -> SerializedValue {
+        let local = aphyn_ecs::TypesRegistryCache::new(global.types().unwrap().clone());
         save_load_with_asset_serializers(
             global,
+            &local,
             &AssetStorageResource::<Prefab>::new(),
             &AssetStorageResource::<Scene>::new(),
             textures,
@@ -214,7 +225,8 @@ mod tests {
 
         let mut errors = Vec::new();
         let mut err_handler = |err| errors.push(format!("{err}"));
-        let mut ctx = global.to_ctx_state(&context).into_ctx(&mut err_handler);
+        let local = aphyn_ecs::TypesRegistryCache::new(global.types().unwrap().clone());
+        let mut ctx = global.to_ctx_state(&context, &local).into_ctx(&mut err_handler);
         _ = ctx.deserialize_default::<DirectDeserializedAsset<Material>>("", saved);
         drop(ctx);
 

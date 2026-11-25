@@ -17,8 +17,8 @@ use crate::{
 pub const APP_NAME: &str = "aphyn_editor";
 const FILE_NAME: &str = "windows_layout.json";
 
-// todo: bundle registration params
-pub fn register_feature(_data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+pub fn register_feature(ctx: FeatureInitCtx) {
+    let FeatureInitCtx { mut behavior, .. } = ctx;
     {
         let mut start = behavior.get_mut(Schedule::Start);
 

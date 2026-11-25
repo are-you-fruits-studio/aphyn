@@ -69,7 +69,7 @@ pub struct WorldBehaviorBuilder {
 impl WorldBehaviorBuilder {
     pub fn new(types: TypesRegistryCache) -> Self {
         Self {
-            behavior: WorldBehaviorBuilderFfi::new(unsafe { types.registry().clone() }),
+            behavior: WorldBehaviorBuilderFfi::new(types.ffi().clone()),
             types,
         }
     }

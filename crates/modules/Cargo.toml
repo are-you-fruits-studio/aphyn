@@ -11,6 +11,7 @@ crate-type = ["lib"]
 
 [dependencies]
 aphyn_ecs = { path = "../ecs" }
+aphyn_app = { path = "../app" }
 aphyn_audio = { path = "../audio" }
 aphyn_animation = { path = "../animation" }
 aphyn_render = { path = "../render" }
@@ -29,3 +30,4 @@ aphyn_serialization_ecs = { path = "../serialization_ecs" }
 aphyn_reflection_ecs = { path = "../reflection_ecs" }
 aphyn_math = { path = "../math" }
 aphyn_ffi = { path = "../ffi" }
+aphyn_any = { path = "../any" }

@@ -20,8 +20,10 @@ const FILE_NAME: &str = "foldouts.json";
 pub const FOLDOUT_WIDTH: f32 = 20.0;
 const FOLDOUT_ARROW_SIZE: f32 = 16.0;
 
-// todo: bundle registration params
-pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+pub fn register_feature(ctx: FeatureInitCtx) {
+    let FeatureInitCtx {
+        mut data, mut behavior, ..
+    } = ctx;
     data.resources_mut().insert(FoldoutResource::default());
 
     {

@@ -2,8 +2,8 @@ use crate::*;
 
 // todo: remove, unused since the inspector switched to generic_dropdown
 
-// todo: bundle registration params
-pub fn register_feature(_data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+pub fn register_feature(ctx: FeatureInitCtx) {
+    let FeatureInitCtx { mut behavior, .. } = ctx;
     let mut update = behavior.get_mut(Schedule::Update);
 
     update

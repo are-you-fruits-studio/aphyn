@@ -6,25 +6,25 @@ fn stored<'r, T: 'static + Send + Sync>(res: ResourcesHolderRef<'r>, key: &str) 
 }
 
 // what the inspector shows of an asset: its metadata, or the material / template itself
-pub fn clone_asset_for_inspection(res: ResourcesHolderRef, key: &str) -> Option<FfiAny> {
+pub fn clone_asset_for_inspection(res: ResourcesHolderRef, key: &str) -> Option<AnyBox> {
     let registry = res.get::<ReflectionRegistryResource>()?;
 
     let value = match get_asset_type(res, key)? {
-        AssetType::Texture => FfiAnyRef::new(stored::<StandardTexture>(res, key)?.meta()?),
-        AssetType::Mesh => FfiAnyRef::new(stored::<StandardMesh>(res, key)?.meta()?),
-        AssetType::Shader => FfiAnyRef::new(stored::<Shader>(res, key)?.meta()?),
-        AssetType::ComputeShader => FfiAnyRef::new(stored::<ComputeShader>(res, key)?.meta()?),
-        AssetType::AudioClip => FfiAnyRef::new(stored::<AudioClip>(res, key)?.meta()?),
-        AssetType::Material => FfiAnyRef::new(stored::<Material>(res, key)?),
-        AssetType::MaterialTemplate => FfiAnyRef::new(stored::<MaterialTemplate>(res, key)?),
+        AssetType::Texture => AnyRef::new(stored::<StandardTexture>(res, key)?.meta()?, res.types().type_id_of()),
+        AssetType::Mesh => AnyRef::new(stored::<StandardMesh>(res, key)?.meta()?, res.types().type_id_of()),
+        AssetType::Shader => AnyRef::new(stored::<Shader>(res, key)?.meta()?, res.types().type_id_of()),
+        AssetType::ComputeShader => AnyRef::new(stored::<ComputeShader>(res, key)?.meta()?, res.types().type_id_of()),
+        AssetType::AudioClip => AnyRef::new(stored::<AudioClip>(res, key)?.meta()?, res.types().type_id_of()),
+        AssetType::Material => AnyRef::new(stored::<Material>(res, key)?, res.types().type_id_of()),
+        AssetType::MaterialTemplate => AnyRef::new(stored::<MaterialTemplate>(res, key)?, res.types().type_id_of()),
         AssetType::Font | AssetType::Prefab | AssetType::Scene | AssetType::AnimationClip => return None,
     };
 
     reflect_clone(registry, value)
 }
 
-fn take<T: 'static>(value: FfiAny) -> Option<T> {
-    value.downcast::<T>().map(|v| v.into_inner())
+fn take<T: 'static>(types: &TypesRegistryCache, value: AnyBox) -> Option<T> {
+    value.downcast(types.type_id_of::<T>()).ok()
 }
 
 fn replace_registered<T: 'static + Send + Sync>(res: ResourcesHolderMut, key: &str, asset: T) -> bool {
@@ -49,7 +49,7 @@ pub fn reload_asset_from_inspected_copy(
     mut res: ResourcesHolderMut,
     key: &str,
     asset_type: AssetType,
-    copy: FfiAnyRef,
+    copy: AnyRef,
     assets_dir_path: &str,
 ) -> bool {
     let Some(registry) = res.as_ref().get::<ReflectionRegistryResource>().cloned() else {
@@ -68,10 +68,10 @@ pub fn reload_asset_from_inspected_copy(
     reloaded
 }
 
-fn reload_asset(mut res: ResourcesHolderMut, key: &str, asset_type: AssetType, copy: FfiAny, assets_dir_path: &str) -> bool {
+fn reload_asset(mut res: ResourcesHolderMut, key: &str, asset_type: AssetType, copy: AnyBox, assets_dir_path: &str) -> bool {
     macro_rules! reload_with {
         ($meta: ty, $asset: ty, |$render_api: ident, $meta_value: ident| $load: expr) => {{
-            let Some($meta_value) = take::<$meta>(copy) else {
+            let Some($meta_value) = take::<$meta>(res.types(), copy) else {
                 return false;
             };
             let asset: Option<$asset> = {
@@ -101,7 +101,7 @@ fn reload_asset(mut res: ResourcesHolderMut, key: &str, asset_type: AssetType, c
             ComputeShaderLoader { render_api }.load_from_deserialized(meta, assets_dir_path)
         }),
         AssetType::AudioClip => {
-            let Some(meta) = take::<AudioClipAssetMetadata>(copy) else {
+            let Some(meta) = take::<AudioClipAssetMetadata>(res.types(), copy) else {
                 return false;
             };
             let clip = {
@@ -116,7 +116,7 @@ fn reload_asset(mut res: ResourcesHolderMut, key: &str, asset_type: AssetType, c
             }
         }
         AssetType::Material => {
-            let Some(material) = take::<Material>(copy) else {
+            let Some(material) = take::<Material>(res.types(), copy) else {
                 return false;
             };
             let material = {
@@ -134,7 +134,7 @@ fn reload_asset(mut res: ResourcesHolderMut, key: &str, asset_type: AssetType, c
             };
             replace_registered(res, key, material)
         }
-        AssetType::MaterialTemplate => match take::<MaterialTemplate>(copy) {
+        AssetType::MaterialTemplate => match take::<MaterialTemplate>(res.types(), copy) {
             Some(template) => replace_registered(res, key, template),
             None => false,
         },

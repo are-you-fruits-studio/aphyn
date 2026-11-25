@@ -37,11 +37,9 @@ pub struct WorldData {
 
 impl WorldData {
     pub fn new(types: TypesRegistryCache) -> Self {
-        unsafe {
-            Self {
-                world: FfiBox::new(WorldDataUnsafeFfi::new(types.registry().clone())),
-                types,
-            }
+        Self {
+            world: FfiBox::new(WorldDataUnsafeFfi::new(types.ffi().clone())),
+            types,
         }
     }
 
@@ -119,6 +117,10 @@ pub struct WorldDataMut<'w> {
 impl<'w> WorldDataMut<'w> {
     pub unsafe fn new(world: *mut WorldDataUnsafeFfi, types: &'w TypesRegistryCache) -> Self {
         Self { world, types }
+    }
+
+    pub fn types(&self) -> &'w TypesRegistryCache {
+        self.types
     }
 
     pub fn into_resources(self) -> ResourcesHolderRef<'w> {
@@ -208,6 +210,10 @@ pub struct WorldDataRef<'w> {
 impl<'w> WorldDataRef<'w> {
     pub unsafe fn new(world: *mut WorldDataUnsafeFfi, types: &'w TypesRegistryCache) -> Self {
         Self { world, types }
+    }
+
+    pub fn types(self) -> &'w TypesRegistryCache {
+        self.types
     }
 
     pub fn resources(self) -> ResourcesHolderRef<'w> {

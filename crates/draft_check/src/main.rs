@@ -22,19 +22,20 @@ fn check_all_assets_deserialization() {
 //
 
 fn check_prefab_serialization() {
-    let mut serializers_global = TransSerializerRegistry::new();
+    let types = TypesRegistryCache::new(TypesRegistryAccessFfi::new());
+    let mut serializers_global = TransSerializerRegistryBuilder::new();
 
-    serializers_global.register(StandardSerializer::<String>::default());
-    serializers_global.register(StandardSerializer::<u32>::default());
-    serializers_global.register(StandardSerializer::<u8>::default());
-    serializers_global.register(StandardSerializer::<bool>::default());
-    serializers_global.register(StandardSerializer::<i32>::default());
-    serializers_global.register(StandardSerializer::<IntComponent>::default());
-    serializers_global.register(StandardSerializer::<Vec<ExampleUser>>::default());
-    serializers_global.register(StandardSerializer::<ExampleStruct>::default());
-    serializers_global.register(StandardSerializer::<ExampleUser>::default());
-    serializers_global.register(StandardSerializer::<UserInfo>::default());
-    serializers_global.register(StandardSerializer::<SomeComponent>::default());
+    serializers_global.register(&types, "String", StandardSerializer::<String>::default());
+    serializers_global.register(&types, "u32", StandardSerializer::<u32>::default());
+    serializers_global.register(&types, "u8", StandardSerializer::<u8>::default());
+    serializers_global.register(&types, "bool", StandardSerializer::<bool>::default());
+    serializers_global.register(&types, "i32", StandardSerializer::<i32>::default());
+    serializers_global.register(&types, "draft::IntComponent", StandardSerializer::<IntComponent>::default());
+    serializers_global.register(&types, "Vec<draft::ExampleUser>", StandardSerializer::<Vec<ExampleUser>>::default());
+    serializers_global.register(&types, "draft::ExampleStruct", StandardSerializer::<ExampleStruct>::default());
+    serializers_global.register(&types, "draft::ExampleUser", StandardSerializer::<ExampleUser>::default());
+    serializers_global.register(&types, "draft::UserInfo", StandardSerializer::<UserInfo>::default());
+    serializers_global.register(&types, "draft::SomeComponent", StandardSerializer::<SomeComponent>::default());
 
     //
 
@@ -79,7 +80,7 @@ fn check_prefab_serialization() {
     //
 
     let mut world = {
-        let mut world = WorldData::default();
+        let mut world = WorldData::new(types.clone());
         let mut ent = world.entities_mut();
 
         let entity = ent.create_entity();
@@ -95,7 +96,8 @@ fn check_prefab_serialization() {
     let entity = world.entities().query::<EntityId>().iter().next().unwrap();
 
     let mut err_handler = |err| println!("{err}");
-    let serializer_ctx = serializers_global.to_ctx_state(&context).into_ctx(&mut err_handler);
+    let serializers_global = serializers_global.build();
+    let serializer_ctx = serializers_global.to_ctx_state(&context, &types).into_ctx(&mut err_handler);
 
     let prefab = serialize_prefab_single_entity(entity, serializer_ctx, world.entities());
 

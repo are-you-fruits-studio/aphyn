@@ -5,7 +5,7 @@ use aphyn_reflection_ecs::ReflectionRegistryResource;
 use aphyn_serialization::*;
 use aphyn_time::TimeResource;
 
-use crate::{AnimationBindings, AnimationClip, apply_bindings, bind_clip};
+use crate::{AnimationBindings, AnimationClip, AnimationTypes, apply_bindings, bind_clip};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default, Serializable, Reflectable)]
@@ -144,8 +144,9 @@ pub fn animation_system(
     time: Option<Res<TimeResource>>,
     clips: Option<Res<AssetStorageResource<AnimationClip>>>,
     registry: Option<Res<ReflectionRegistryResource>>,
+    types: Option<Res<AnimationTypes>>,
 ) {
-    let (Some(clips), Some(registry)) = (clips, registry) else {
+    let (Some(clips), Some(registry), Some(types)) = (clips, registry, types) else {
         return;
     };
     let delta_time = time.map_or(0.0, |t| t.delta_time);
@@ -157,7 +158,7 @@ pub fn animation_system(
         .collect::<Vec<_>>();
 
     for entity in animated {
-        animate_entity(ent.as_mut(), &registry, &clips, entity, |anim, duration| {
+        animate_entity(ent.as_mut(), &registry, &types, &clips, entity, |anim, duration| {
             anim.advance(delta_time, duration)
         });
     }
@@ -167,6 +168,7 @@ pub fn animation_system(
 pub fn animate_entity(
     mut ent: EntitiesHolderMut,
     registry: &ReflectionRegistry,
+    types: &AnimationTypes,
     clips: &AssetStorageResource<AnimationClip>,
     entity: EntityId,
     step: impl FnOnce(&mut AnimationComponent, f32),
@@ -186,10 +188,10 @@ pub fn animate_entity(
     let mut bindings = std::mem::take(&mut anim.bindings);
 
     if !bindings.is_current(&clip_handle, clip) {
-        bindings = bind_clip(ent.as_ref(), registry, entity, &clip_handle, clip);
+        bindings = bind_clip(ent.as_ref(), registry, types, entity, &clip_handle, clip);
     }
 
-    if !apply_bindings(ent.as_mut(), registry, clip, &bindings, sample_time) {
+    if !apply_bindings(ent.as_mut(), registry, types, clip, &bindings, sample_time) {
         bindings.invalidate();
     }
 

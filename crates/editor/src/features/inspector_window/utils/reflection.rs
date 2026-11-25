@@ -85,18 +85,18 @@ pub enum InspectorEdit {
     Variant(FfiString),
     AddElement,
     RemoveLastElement,
-    Replace(FfiAny),
+    Replace(AnyBox),
 }
 
 // leaves are converted to and from text through the serializer registry
-pub fn build_inspector_value(registry: &ReflectionRegistry, state: TransSerializerCtxState, value: FfiAnyRef) -> InspectorValue {
+pub fn build_inspector_value(registry: &ReflectionRegistry, state: TransSerializerCtxState, value: AnyRef) -> InspectorValue {
     let type_name = value.type_info().short().name();
 
-    let Some(reflector) = registry.get(type_name) else {
+    let Some(reflector) = registry.get_for(value) else {
         return InspectorValue::read_only(format!("not reflectable: {type_name}"));
     };
 
-    let build = |value: Option<FfiAnyRef>| match value {
+    let build = |value: Option<AnyRef>| match value {
         Some(value) => build_inspector_value(registry, state, value),
         None => InspectorValue::read_only("<inaccessible>"),
     };
@@ -177,7 +177,7 @@ pub fn build_inspector_value(registry: &ReflectionRegistry, state: TransSerializ
     }
 }
 
-pub fn leaf_text(state: TransSerializerCtxState, value: FfiAnyRef) -> (FfiString, InspectorLeafKind) {
+pub fn leaf_text(state: TransSerializerCtxState, value: AnyRef) -> (FfiString, InspectorLeafKind) {
     let mut err_handler = |_err: SerializationError| ();
     let serialized = state.into_ctx(&mut err_handler).serialize_any(value, "");
 
@@ -202,7 +202,7 @@ pub fn parse_leaf_text(kind: InspectorLeafKind, text: &str) -> Option<Serialized
     }
 }
 
-fn write_leaf(state: TransSerializerCtxState, value: FfiAnyMut, primitive: SerializedPrimitive) {
+fn write_leaf(state: TransSerializerCtxState, value: AnyMut, primitive: SerializedPrimitive) {
     let mut err_handler = |err| println!("[{}:{}] {err}", file!(), line!());
     state
         .into_ctx(&mut err_handler)
@@ -212,7 +212,7 @@ fn write_leaf(state: TransSerializerCtxState, value: FfiAnyMut, primitive: Seria
 pub fn apply_inspector_edit(
     registry: &ReflectionRegistry,
     state: TransSerializerCtxState,
-    root: FfiAnyMut,
+    root: AnyMut,
     path: &ReflectPath,
     edit: InspectorEdit,
 ) -> bool {
@@ -227,7 +227,7 @@ pub fn apply_inspector_edit(
     let Some(mut value) = resolve_mut(registry, root, path.segments()) else {
         return false;
     };
-    let Some(reflector) = registry.get(value.type_info().short().name()).cloned() else {
+    let Some(reflector) = registry.get_for_type(value.type_id(), value.type_info()).cloned() else {
         return false;
     };
 
@@ -254,14 +254,13 @@ pub fn apply_inspector_edit(
         }
         InspectorEdit::AddElement => match &*reflector {
             Reflector::List(r) => {
-                let (Some(len), Some(element)) = (r.len(value.as_any_ref()), reflect_default(registry, r.element_type_name()))
-                else {
+                let (Some(len), Some(element)) = (r.len(value.as_any_ref()), reflect_default(registry, r.element_type_id())) else {
                     return false;
                 };
                 r.insert(value, len, element).is_ok()
             }
             Reflector::Map(r) => {
-                let Some(element) = reflect_default(registry, r.value_type_name()) else {
+                let Some(element) = reflect_default(registry, r.value_type_id()) else {
                     return false;
                 };
                 let Some(key) = free_map_key(registry, state, r, value.as_any_ref()) else {
@@ -295,7 +294,7 @@ pub fn apply_inspector_edit(
     }
 }
 
-fn read_float_quat(r: &StructReflector, state: TransSerializerCtxState, value: FfiAnyRef) -> Option<Quat<f64>> {
+fn read_float_quat(r: &StructReflector, state: TransSerializerCtxState, value: AnyRef) -> Option<Quat<f64>> {
     let [x, y, z, w] = QUAT_FIELDS.map(|name| {
         let field = r.field(name)?.get(value)?;
         leaf_text(state, field).0.as_str().parse::<f64>().ok()
@@ -306,7 +305,7 @@ fn read_float_quat(r: &StructReflector, state: TransSerializerCtxState, value: F
 fn apply_euler_edit(
     registry: &ReflectionRegistry,
     state: TransSerializerCtxState,
-    root: FfiAnyMut,
+    root: AnyMut,
     path: &ReflectPath,
     axis: usize,
     text: &str,
@@ -314,7 +313,7 @@ fn apply_euler_edit(
     let Some(mut quat_value) = path.parent().and_then(|p| resolve_mut(registry, root, p.segments())) else {
         return false;
     };
-    let Some(reflector) = registry.get(quat_value.type_info().short().name()).cloned() else {
+    let Some(reflector) = registry.get_for_type(quat_value.type_id(), quat_value.type_info()).cloned() else {
         return false;
     };
     let (Some(r), Ok(angle)) = (reflector.as_struct(), text.trim().parse::<f64>()) else {
@@ -340,9 +339,9 @@ fn apply_euler_edit(
 }
 
 // the key type's default, or else the first of "0", "1", ... the key type deserializes to that is still free
-fn free_map_key(registry: &ReflectionRegistry, state: TransSerializerCtxState, r: &MapReflector, map: FfiAnyRef) -> Option<FfiAny> {
-    let key_type = r.key_type_name();
-    let is_free = |key: &FfiAny| r.get(map, key.as_any_ref()).is_none();
+fn free_map_key(registry: &ReflectionRegistry, state: TransSerializerCtxState, r: &MapReflector, map: AnyRef) -> Option<AnyBox> {
+    let key_type = r.key_type_id();
+    let is_free = |key: &AnyBox| r.get(map, key.as_any_ref()).is_none();
 
     let key = reflect_default(registry, key_type)?;
     if is_free(&key) {
@@ -385,18 +384,18 @@ pub fn entity_ids_of(ent: EntitiesHolderRef) -> (HashMap<u64, EntityId>, HashMap
 pub fn with_component_mut<R>(
     mut ent: EntitiesHolderMut,
     entity: EntityId,
-    type_name: &str,
-    f: impl FnOnce(FfiAnyMut) -> R,
+    component: AnyTypeId,
+    f: impl FnOnce(AnyMut) -> R,
 ) -> Option<R> {
-    ent.get_component_any_mut(entity, type_name).map(f)
+    ent.get_component_any_mut(entity, component).map(f)
 }
 
-pub fn with_component<R>(ent: EntitiesHolderRef, entity: EntityId, type_name: &str, f: impl FnOnce(FfiAnyRef) -> R) -> Option<R> {
-    ent.get_component_any(entity, type_name).map(f)
+pub fn with_component<R>(ent: EntitiesHolderRef, entity: EntityId, component: AnyTypeId, f: impl FnOnce(AnyRef) -> R) -> Option<R> {
+    ent.get_component_any(entity, component).map(f)
 }
 
-// engine data (components, asset metadata) is Send + Sync; FfiAny itself can't promise it
-pub struct EditorValue(pub FfiAny);
+// engine data (components, asset metadata) is Send + Sync; AnyBox itself can't promise it
+pub struct EditorValue(pub AnyBox);
 
 unsafe impl Send for EditorValue {}
 unsafe impl Sync for EditorValue {}

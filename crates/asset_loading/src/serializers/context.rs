@@ -3,7 +3,7 @@ use std::{marker::PhantomData, path::Path, sync::Mutex};
 use aphyn_animation::AnimationClip;
 use aphyn_asset_storage::{AssetHandle, AssetStorageResource};
 use aphyn_audio::{AudioClip, AudioClipAssetMetadata};
-use aphyn_ecs::EntityId;
+use aphyn_ecs::{EntityId, TypesRegistryCache};
 use aphyn_ffi::FfiString;
 use aphyn_prefab::{Prefab, Scene};
 use aphyn_render::{
@@ -84,61 +84,101 @@ impl ContextDataKey for EntityIdCtxKey {
 
 //
 
-pub fn register_asset_loading_serializers(registry: &mut TransSerializerRegistry) {
-    registry.register(EntityIdSerializer);
+pub fn register_asset_loading_serializers(types: &TypesRegistryCache, registry: &mut TransSerializerRegistryBuilder) {
+    registry.register(types, "aphyn::EntityId", EntityIdSerializer);
 
-    register_asset_serializers::<StandardTexture>(registry);
-    register_asset_serializers::<Material>(registry);
-    register_asset_serializers::<MaterialTemplate>(registry);
-    register_asset_serializers::<StandardMesh>(registry);
-    register_asset_serializers::<AudioClip>(registry);
-    register_asset_serializers::<Shader>(registry);
-    register_asset_serializers::<ComputeShader>(registry);
-    register_asset_serializers::<Font>(registry);
-    register_asset_serializers::<Prefab>(registry);
-    register_asset_serializers::<Scene>(registry);
-    register_asset_serializers::<AnimationClip>(registry);
+    register_asset_serializers::<StandardTexture>(types, "aphyn::StandardTexture", registry);
+    register_asset_serializers::<Material>(types, "aphyn::Material", registry);
+    register_asset_serializers::<MaterialTemplate>(types, "aphyn::MaterialTemplate", registry);
+    register_asset_serializers::<StandardMesh>(types, "aphyn::StandardMesh", registry);
+    register_asset_serializers::<AudioClip>(types, "aphyn::AudioClip", registry);
+    register_asset_serializers::<Shader>(types, "aphyn::Shader", registry);
+    register_asset_serializers::<ComputeShader>(types, "aphyn::ComputeShader", registry);
+    register_asset_serializers::<Font>(types, "aphyn::Font", registry);
+    register_asset_serializers::<Prefab>(types, "aphyn::Prefab", registry);
+    register_asset_serializers::<Scene>(types, "aphyn::Scene", registry);
+    register_asset_serializers::<AnimationClip>(types, "aphyn::AnimationClip", registry);
 
-    registry.register(DirectAssetSaveSerializer::<StandardTexture, _>::new(|_, a| {
-        a.meta().cloned().unwrap_or_default()
-    }));
-    registry.register(DirectAssetSaveSerializer::<Material, _>::new(|_, m| m.clone()));
-    registry.register(DirectAssetSaveSerializer::<MaterialTemplate, _>::new(|_, t| t.clone()));
-    registry.register(DirectAssetSaveSerializer::<Shader, _>::new(|_, s| {
-        s.meta().cloned().unwrap_or_default()
-    }));
-    registry.register(DirectAssetSaveSerializer::<ComputeShader, _>::new(|_, s| {
-        s.meta().cloned().unwrap_or_default()
-    }));
-    registry.register(DirectAssetSaveSerializer::<StandardMesh, _>::new(|_, a| {
-        a.meta().cloned().unwrap_or_else(|| StandardMeshAssetMetadata {
-            raw_mesh: Default::default(),
-            coordinate_space: CoordinateSpaceType::LeftHandZForward,
-            has_clockwise_winding: Default::default(),
-            has_inverted_u: Default::default(),
-            has_inverted_v: Default::default(),
-        })
-    }));
-    registry.register(DirectAssetSaveSerializer::<AudioClip, _>::new(|_, a| {
-        a.meta().cloned().unwrap_or_else(|| AudioClipAssetMetadata {
-            raw_audio: Default::default(),
-        })
-    }));
-    registry.register(DirectAssetSaveSerializer::<AnimationClip, _>::new(|mut ctx, c| {
-        c.to_meta(&mut ctx)
-    }));
+    registry.register(
+        types,
+        "aphyn::DirectSerializableAsset<aphyn::StandardTexture>",
+        DirectAssetSaveSerializer::<StandardTexture, _>::new(|_, a| a.meta().cloned().unwrap_or_default()),
+    );
+    registry.register(
+        types,
+        "aphyn::DirectSerializableAsset<aphyn::Material>",
+        DirectAssetSaveSerializer::<Material, _>::new(|_, m| m.clone()),
+    );
+    registry.register(
+        types,
+        "aphyn::DirectSerializableAsset<aphyn::MaterialTemplate>",
+        DirectAssetSaveSerializer::<MaterialTemplate, _>::new(|_, t| t.clone()),
+    );
+    registry.register(
+        types,
+        "aphyn::DirectSerializableAsset<aphyn::Shader>",
+        DirectAssetSaveSerializer::<Shader, _>::new(|_, s| s.meta().cloned().unwrap_or_default()),
+    );
+    registry.register(
+        types,
+        "aphyn::DirectSerializableAsset<aphyn::ComputeShader>",
+        DirectAssetSaveSerializer::<ComputeShader, _>::new(|_, s| s.meta().cloned().unwrap_or_default()),
+    );
+    registry.register(
+        types,
+        "aphyn::DirectSerializableAsset<aphyn::StandardMesh>",
+        DirectAssetSaveSerializer::<StandardMesh, _>::new(|_, a| {
+            a.meta().cloned().unwrap_or_else(|| StandardMeshAssetMetadata {
+                raw_mesh: Default::default(),
+                coordinate_space: CoordinateSpaceType::LeftHandZForward,
+                has_clockwise_winding: Default::default(),
+                has_inverted_u: Default::default(),
+                has_inverted_v: Default::default(),
+            })
+        }),
+    );
+    registry.register(
+        types,
+        "aphyn::DirectSerializableAsset<aphyn::AudioClip>",
+        DirectAssetSaveSerializer::<AudioClip, _>::new(|_, a| {
+            a.meta().cloned().unwrap_or_else(|| AudioClipAssetMetadata {
+                raw_audio: Default::default(),
+            })
+        }),
+    );
+    registry.register(
+        types,
+        "aphyn::DirectSerializableAsset<aphyn::AnimationClip>",
+        DirectAssetSaveSerializer::<AnimationClip, _>::new(|mut ctx, c| c.to_meta(&mut ctx)),
+    );
     // todo: fonts
-    registry.register(DirectAssetSaveSerializer::<Prefab, _>::new(|ctx, p| {
-        serialize_entities_no_deps(ctx.map_state(|_| PureSerializerCtxState), &p.entities)
-    }));
-    registry.register(DirectAssetSaveSerializer::<Scene, _>::new(|ctx, s| {
-        serialize_entities_no_deps(ctx.map_state(|_| PureSerializerCtxState), &s.entities)
-    }));
+    registry.register(
+        types,
+        "aphyn::DirectSerializableAsset<aphyn::Prefab>",
+        DirectAssetSaveSerializer::<Prefab, _>::new(|ctx, p| {
+            serialize_entities_no_deps(ctx.map_state(|_| PureSerializerCtxState), &p.entities)
+        }),
+    );
+    registry.register(
+        types,
+        "aphyn::DirectSerializableAsset<aphyn::Scene>",
+        DirectAssetSaveSerializer::<Scene, _>::new(|ctx, s| {
+            serialize_entities_no_deps(ctx.map_state(|_| PureSerializerCtxState), &s.entities)
+        }),
+    );
 }
 
-fn register_asset_serializers<T: 'static>(registry: &mut TransSerializerRegistry) {
-    registry.register(AssetHandleSerializer::<T>(PhantomData));
-    registry.register(DirectAssetLoadSerializer::<T>(PhantomData));
+fn register_asset_serializers<T: 'static>(types: &TypesRegistryCache, name: &str, registry: &mut TransSerializerRegistryBuilder) {
+    registry.register(
+        types,
+        &format!("aphyn::AssetHandle<{name}>"),
+        AssetHandleSerializer::<T>(PhantomData),
+    );
+    registry.register(
+        types,
+        &format!("aphyn::DirectDeserializedAsset<{name}>"),
+        DirectAssetLoadSerializer::<T>(PhantomData),
+    );
 }
 
 fn missing_context_data<K: ContextDataKey>() -> SerializationError {

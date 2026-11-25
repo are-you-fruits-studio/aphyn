@@ -20,3 +20,7 @@ aphyn_transform = { path = "../transform" }
 aphyn_ffi = { path = "../ffi" }
 aphyn_window = { path = "../window" }
 aphyn_time = { path = "../time" }
+aphyn_serialization = { path = "../serialization" }
+aphyn_serialization_ecs = { path = "../serialization_ecs" }
+aphyn_reflection = { path = "../reflection" }
+aphyn_reflection_ecs = { path = "../reflection_ecs" }

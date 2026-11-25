@@ -1,7 +1,7 @@
 use aphyn_animation::AnimationClip;
 use aphyn_asset_storage::AssetStorageResource;
 use aphyn_audio::AudioClip;
-use aphyn_ecs::ResourcesHolderRef;
+use aphyn_ecs::{ResourcesHolderRef, TypesRegistryCache};
 use aphyn_prefab::{Prefab, Scene};
 use aphyn_render::{ComputeShader, Material, MaterialTemplate, Shader, StandardMesh, StandardTexture};
 use aphyn_serialization::*;
@@ -17,6 +17,7 @@ pub fn save_load_with_asset_serializers_from_world<R>(
 ) -> Option<R> {
     Some(save_load_with_asset_serializers::<R>(
         &*res.get::<SerializersResource>()?,
+        res.types(),
         &*res.get::<AssetStorageResource<Prefab>>()?,
         &*res.get::<AssetStorageResource<Scene>>()?,
         &*res.get::<AssetStorageResource<StandardTexture>>()?,
@@ -35,6 +36,7 @@ pub fn save_load_with_asset_serializers_from_world<R>(
 
 pub fn save_load_with_asset_serializers<R>(
     serializers: &TransSerializerRegistry,
+    local_types: &TypesRegistryCache,
     prefabs: &AssetStorageResource<Prefab>,
     scenes: &AssetStorageResource<Scene>,
     textures: &AssetStorageResource<StandardTexture>,
@@ -82,5 +84,5 @@ pub fn save_load_with_asset_serializers<R>(
         context.insert::<AssetHandleCtxKey<AnimationClip>>(animation_clips);
     }
 
-    f(serializers.to_ctx_state(&context))
+    f(serializers.to_ctx_state(&context, local_types))
 }

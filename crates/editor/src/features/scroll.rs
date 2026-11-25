@@ -5,8 +5,10 @@ use crate::{SYSTEM_GROUP, features::ui_interaction::UiRaycastResource};
 const MIN_HANDLE_HEIGHT: f32 = 20.0;
 const WHEEL_LINE_PIXELS: f32 = 40.0;
 
-// todo: bundle registration params
-pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+pub fn register_feature(ctx: FeatureInitCtx) {
+    let FeatureInitCtx {
+        mut data, mut behavior, ..
+    } = ctx;
     data.resources_mut().insert(ScrollResource {
         active_scroll: EntityId::EMPTY,
         grab_offset: 0.0,

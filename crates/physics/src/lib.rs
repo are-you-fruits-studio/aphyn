@@ -9,7 +9,7 @@
 //!
 //! #### Enabling physics
 //!
-//! `aphyn_modules::add_defult_modules_to` registers the module (through
+//! `aphyn_modules::add_default_modules_to` registers the module (through
 //! [`add_physics_module_to`]), which inserts [`PhysicsResource`] and [`PhysicsWorldResource`] and adds
 //! the step system. The step reads `fixed_delta_time` from `aphyn_time`'s `TimeResource`, so the world
 //! must contain one (the app and the editor insert it).

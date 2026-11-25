@@ -33,7 +33,8 @@ pub struct AnimationKeyMetadata {
 }
 
 impl AnimationClip {
-    // tracks with an unparsable field path and keys that don't deserialize to the track's type are dropped
+    // `component` and `value_type` are serialized names; tracks naming an unknown type or an unparsable field path
+    // and keys that don't deserialize to the track's type are dropped
     pub fn from_meta(ctx: &mut SerializerCtx<TransSerializerCtxState>, meta: &AnimationClipAssetMetadata) -> Self {
         let mut clip = AnimationClip::new();
 
@@ -42,16 +43,27 @@ impl AnimationClip {
                 eprintln!("animation clip: invalid field path `{}`", t.field);
                 continue;
             };
+            let registry = ctx.registry();
+            let (Some(component), Some(value_type)) = (
+                registry.type_id_of_name(&t.component),
+                registry.type_id_of_name(&t.value_type),
+            ) else {
+                eprintln!(
+                    "animation clip: unknown component `{}` or value type `{}`",
+                    t.component, t.value_type
+                );
+                continue;
+            };
             let path = AnimationPath {
                 entity: t.entity.clone(),
-                component: t.component.clone(),
+                component,
                 field,
                 leaf: t.leaf,
             };
-            let mut track = AnimationTrack::new(path, &t.value_type);
+            let mut track = AnimationTrack::new(path, value_type);
 
             for k in t.keys.iter() {
-                let Some(value) = ctx.deserialize_default_any(&t.value_type, "", &k.value) else {
+                let Some(value) = ctx.deserialize_default_any_by_id(value_type, "", &k.value) else {
                     continue;
                 };
                 track.keys.push(AnimationKey {
@@ -71,16 +83,26 @@ impl AnimationClip {
         clip
     }
 
+    // tracks whose component or value type has no serializer (so no serialized name) are dropped
     pub fn to_meta(&self, ctx: &mut SerializerCtx<TransSerializerCtxState>) -> AnimationClipAssetMetadata {
+        let registry = ctx.registry();
         let tracks = self
             .tracks
             .iter()
-            .map(|t| AnimationTrackMetadata {
+            .filter_map(|t| {
+                let (Some(component), Some(value_type)) = (registry.name_of(t.path.component), registry.name_of(t.value_type))
+                else {
+                    eprintln!("animation clip: a track's component or value type has no serialized name");
+                    return None;
+                };
+                Some((t, component, value_type))
+            })
+            .map(|(t, component, value_type)| AnimationTrackMetadata {
                 entity: t.path.entity.clone(),
-                component: t.path.component.clone(),
+                component: component.into(),
                 field: t.path.field.to_string().into(),
                 leaf: t.path.leaf,
-                value_type: t.value_type.clone(),
+                value_type: value_type.into(),
                 keys: t
                     .keys
                     .iter()

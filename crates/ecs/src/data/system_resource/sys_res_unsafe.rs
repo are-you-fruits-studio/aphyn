@@ -30,7 +30,7 @@ pub struct SystemResourcesHolder {
 impl SystemResourcesHolder {
     pub fn new(types: TypesRegistryCache) -> Self {
         Self {
-            res: SystemResourcesHolderUnsafeFfi::new(unsafe { types.registry().clone() }),
+            res: SystemResourcesHolderUnsafeFfi::new(types.ffi().clone()),
             types,
         }
     }

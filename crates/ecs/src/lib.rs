@@ -237,9 +237,11 @@
 //! }
 //! ```
 //!
-//! Code that knows a component only by its type name (the inspector, animation) reads it untyped
-//! with `get_component_any` / `get_component_any_mut`, which return an `FfiAnyRef` / `FfiAnyMut`,
-//! or `None` when the type was never registered or the entity lacks it.
+//! Code that knows a component only by its `AnyTypeId` (the inspector, animation, prefabs) reads it
+//! untyped with `get_component_any` / `get_component_any_mut` (and removes it with
+//! `remove_component_any`), which return an `aphyn_any` `AnyRef` /
+//! `AnyMut` tagged with the world's types registry, or `None` when the id belongs to another
+//! types registry or the entity lacks the component. The world, resource and entity views expose that registry through `types()`.
 //!
 //! #### Ordering systems and grouping them
 //!
@@ -302,15 +304,15 @@
 //!
 //! #### Runtime type identity
 //!
-//! Types are not identified by [`std::any::TypeId`] across the boundary. Instead the shared
-//! [`TypesRegistryAccessFfi`] assigns each registered type a sequential `u64` id, keyed by its
-//! [`std::any::type_name`] so the same type gets the same id on both sides of the boundary, and
-//! stores its `FfiExtendedTypeInfo` (size, alignment, name, and drop/conversion functions).
-//! [`TypesRegistryCache`] memoizes the `TypeId -> u64` mapping per process so the lookup is
-//! paid once per type. Components, resources, events, and system resources are all registered
-//! lazily through `get_or_register` the first time they are used. Untyped storage (resources
-//! kept as `FfiAny` values in [`ResourcesHolderUnsafeFfi`], `EventsHolderNative`, archetype
-//! memory) allocates and drops values purely from this type info.
+//! The types registry ([`TypesRegistryAccessFfi`], [`TypesRegistryCache`],
+//! [`RegistrySpecificTypeId`]) lives in `aphyn_any` and is re-exported here; its crate docs
+//! describe the ids, tags and caches. Each [`WorldData`] owns one registry. Components,
+//! resources, events, and system resources are all registered lazily through `get_or_register` the
+//! first time they are used. Untyped storage (resources kept as `AnyBox` values in
+//! [`ResourcesHolderUnsafeFfi`], `EventsHolderNative`, archetype memory) allocates and drops values
+//! purely from the stored type info. Typed resource access checks the stored box against the
+//! type's cached id (one integer compare); untyped component access tags the returned refs with
+//! the component's stored id.
 //!
 //! Code across the boundary that receives only a raw `*mut WorldDataUnsafeFfi` (a render feature
 //! from a game library, see `aphyn_render_features`) reads the world's registry through
@@ -376,12 +378,12 @@
 mod behavior;
 mod data;
 mod data_usage;
-mod types_registry;
+
 
 pub use behavior::*;
 pub use data::*;
 pub use data_usage::*;
-pub use types_registry::*;
+pub use aphyn_any::*;
 
 pub use aphyn_ecs_macros::*;
 pub use aphyn_utils::thread_pool::{GraphIter, JobHandle, TaskId, ThreadPool, ThreadPoolAccess};

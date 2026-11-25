@@ -10,6 +10,7 @@ crate-type = ["lib"]
 [dependencies]
 libloading = "0.9"
 aphyn_ffi = { path = "../ffi" }
+aphyn_any = { path = "../any" }
 aphyn_utils = { path = "../utils" }
 aphyn_profiling = { path = "../profiling" }
 aphyn_ecs_macros = { path = "../ecs_macros" }

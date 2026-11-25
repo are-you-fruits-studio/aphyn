@@ -82,7 +82,7 @@ pub fn instantiate_serialized_entities(
         insert_optional::<AssetHandleCtxKey<AnimationClip>>(&mut context, &entries.10);
 
         let mut err_handler = |err| println!("[{}:{}] {err}", file!(), line!());
-        let mut serializer_ctx = serializers.to_ctx_state(&context).into_ctx(&mut err_handler);
+        let mut serializer_ctx = serializers.to_ctx_state(&context, res.types()).into_ctx(&mut err_handler);
 
         for (&entity_id, entity_components) in &serialized_entities.0 {
             let entity = *id_to_ent.get(&entity_id).unwrap();
@@ -180,9 +180,9 @@ pub fn override_entity_components(
     id_to_ent: EntityIdDecoder,
 ) {
     let mut components_to_remove = Vec::new();
-    ent.get_all_components(entity, |c| components_to_remove.push(c.type_info().short().name()));
-    for component_name in components_to_remove {
-        ent.remove_component_any(entity, component_name);
+    ent.get_all_components(entity, |c| components_to_remove.push(c.type_id()));
+    for component_id in components_to_remove {
+        ent.remove_component_any(entity, component_id);
     }
 
     let serializers = res.get::<SerializersResource>().unwrap();
@@ -191,7 +191,7 @@ pub fn override_entity_components(
     let context = ContextData::new().with::<EntityIdCtxKey>(&entity_ids);
 
     let mut err_handler = |err| println!("[{}:{}] {err}", file!(), line!());
-    let serializer_ctx = serializers.to_ctx_state(&context).into_ctx(&mut err_handler);
+    let serializer_ctx = serializers.to_ctx_state(&context, res.types()).into_ctx(&mut err_handler);
 
     deserialize_entity_components(components, entity, serializer_ctx, ent)
 }

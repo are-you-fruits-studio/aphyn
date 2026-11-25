@@ -86,6 +86,7 @@ pub fn transform_gizmo_interaction_system(
     if let Some(drag) = &gizmo_res.drag {
         return_if_not!(Some(local) = dragged_local(drag, &view, mouse));
 
+        let local_transform_id = data.types().type_id_of::<LocalTransform>().any_type_id();
         let mut ent = data.entities_mut();
         if let Some(local_c) = ent.get_component_mut::<LocalTransform>(selected)
             && *local_c != local
@@ -101,7 +102,7 @@ pub fn transform_gizmo_interaction_system(
             for (field, _) in changed.into_iter().filter(|(_, is_changed)| *is_changed) {
                 field_edited_evt.push(EntityFieldEditedEvent {
                     entity: selected,
-                    component: std::any::type_name::<LocalTransform>().into(),
+                    component: local_transform_id,
                     path: ReflectPath::new().join(ReflectPathSegment::Field(field.into())),
                 });
             }

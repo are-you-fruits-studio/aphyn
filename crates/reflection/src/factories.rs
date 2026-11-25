@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
-use aphyn_ffi::{FfiAny, FfiAnyRef, FfiOption};
+use aphyn_any::{AnyBox, AnyBoxCtx, AnyRef, AnyTypeId};
+use aphyn_ffi::FfiOption;
 
 use crate::any_ref_into;
 
@@ -11,8 +12,8 @@ pub(crate) struct ErasedFn<F> {
     pub(crate) trampoline: F,
 }
 
-type FnDefaultErased = unsafe extern "C-unwind" fn(*const ()) -> FfiAny;
-type FnCloneErased = unsafe extern "C-unwind" fn(*const (), FfiAnyRef) -> FfiOption<FfiAny>;
+type FnDefaultErased = unsafe extern "C-unwind" fn(*const (), AnyBoxCtx) -> AnyBox;
+type FnCloneErased = unsafe extern "C-unwind" fn(*const (), AnyRef, AnyBoxCtx) -> FfiOption<AnyBox>;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -33,10 +34,10 @@ impl ReflectFactories {
     }
 
     pub(crate) fn set_default<T: 'static>(&mut self, default: fn() -> T) {
-        unsafe extern "C-unwind" fn ffi_default<T: 'static>(default: *const ()) -> FfiAny {
+        unsafe extern "C-unwind" fn ffi_default<T: 'static>(default: *const (), ctx: AnyBoxCtx) -> AnyBox {
             let default: fn() -> T = unsafe { std::mem::transmute(default) };
 
-            FfiAny::new(default())
+            unsafe { AnyBox::from_typed(default(), ctx) }
         }
 
         self.default = FfiOption::Some(ErasedFn {
@@ -46,10 +47,12 @@ impl ReflectFactories {
     }
 
     pub(crate) fn set_clone<T: 'static>(&mut self, clone: fn(&T) -> T) {
-        unsafe extern "C-unwind" fn ffi_clone<T: 'static>(clone: *const (), value: FfiAnyRef) -> FfiOption<FfiAny> {
+        unsafe extern "C-unwind" fn ffi_clone<T: 'static>(clone: *const (), value: AnyRef, ctx: AnyBoxCtx) -> FfiOption<AnyBox> {
             let clone: fn(&T) -> T = unsafe { std::mem::transmute(clone) };
 
-            any_ref_into::<T>(value).map(|v| FfiAny::new(clone(v))).into()
+            unsafe { any_ref_into::<T>(value, ctx.id) }
+                .map(|v| unsafe { AnyBox::from_typed(clone(v), ctx) })
+                .into()
         }
 
         self.clone = FfiOption::Some(ErasedFn {
@@ -75,16 +78,18 @@ impl ReflectFactories {
         self.clone.is_some()
     }
 
-    pub(crate) fn default_value(&self) -> Option<FfiAny> {
+    // `ctx` must be the reflected type's own ctx
+    pub(crate) fn default_value(&self, ctx: AnyBoxCtx) -> Option<AnyBox> {
         match self.default {
-            FfiOption::Some(f) => Some(unsafe { (f.trampoline)(f.func) }),
+            FfiOption::Some(f) => Some(unsafe { (f.trampoline)(f.func, ctx) }),
             FfiOption::None => None,
         }
     }
 
-    pub(crate) fn clone_value(&self, value: FfiAnyRef) -> Option<FfiAny> {
+    // `ctx` must be the reflected type's own ctx
+    pub(crate) fn clone_value(&self, value: AnyRef, ctx: AnyBoxCtx) -> Option<AnyBox> {
         match self.clone {
-            FfiOption::Some(f) => unsafe { (f.trampoline)(f.func, value) }.into_option(),
+            FfiOption::Some(f) => unsafe { (f.trampoline)(f.func, value, ctx) }.into_option(),
             FfiOption::None => None,
         }
     }
@@ -165,8 +170,26 @@ macro_rules! __reflect_clone_fn {
     }};
 }
 
-// todo
-#[doc(hidden)]
-pub fn __reflect_take<T: 'static>(fields: &mut impl Iterator<Item = FfiAny>) -> Option<T> {
-    fields.next()?.downcast::<T>().map(|v| v.into_inner())
+// the field values handed to an enum variant constructor, in field order, with each field's resolved id
+pub struct ReflectVariantFields<'a> {
+    values: std::vec::IntoIter<AnyBox>,
+    ids: std::slice::Iter<'a, AnyTypeId>,
+}
+
+impl<'a> ReflectVariantFields<'a> {
+    pub(crate) fn new(values: Vec<AnyBox>, ids: &'a [AnyTypeId]) -> Self {
+        Self {
+            values: values.into_iter(),
+            ids: ids.iter(),
+        }
+    }
+
+    // None when the values ran out or the next one is not a `T`
+    // safety: `T` is the type the variant declared for the next field
+    pub unsafe fn take<T: 'static>(&mut self) -> Option<T> {
+        let value = self.values.next()?;
+        let id = *self.ids.next()?;
+
+        unsafe { value.downcast_by_id::<T>(id) }.ok()
+    }
 }

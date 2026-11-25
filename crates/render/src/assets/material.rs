@@ -576,13 +576,22 @@ mod tests {
     use super::*;
     use crate::MaterialInput;
 
+    fn local(registry: &TransSerializerRegistry) -> aphyn_ecs::TypesRegistryCache {
+        aphyn_ecs::TypesRegistryCache::new(registry.types().unwrap().clone())
+    }
+
     fn registry() -> TransSerializerRegistry {
-        let mut registry = TransSerializerRegistry::new();
-        registry.register(StandardSerializer::<f32>::default());
-        registry.register(StandardSerializer::<Vec4<f32>>::default());
-        registry.register(StandardSerializer::<MaterialDataEntry>::default());
-        registry.register(StandardSerializer::<MaterialData>::default());
-        registry
+        let types = aphyn_ecs::TypesRegistryCache::new(aphyn_ecs::TypesRegistryAccessFfi::new());
+        let mut registry = TransSerializerRegistryBuilder::new();
+        registry.register(&types, "f32", StandardSerializer::<f32>::default());
+        registry.register(&types, "aphyn::Vec4<f32>", StandardSerializer::<Vec4<f32>>::default());
+        registry.register(
+            &types,
+            "aphyn::MaterialDataEntry",
+            StandardSerializer::<MaterialDataEntry>::default(),
+        );
+        registry.register(&types, "aphyn::MaterialData", StandardSerializer::<MaterialData>::default());
+        registry.build()
     }
 
     fn sample_data() -> MaterialData {
@@ -598,15 +607,15 @@ mod tests {
 
     #[test]
     fn roundtrip_keeps_values() {
-        let mut registry = registry();
+        let registry = registry();
         let mut on_err = |err: SerializationError| panic!("{err}");
         let data = sample_data();
 
-        let serialized = registry.serialize(&data, "", &mut on_err);
+        let serialized = registry.serialize(&local(&registry), &data, "", &mut on_err);
         let mut restored = MaterialData::new();
         restored.insert("color", MaterialDataValue::Vec4(Vec4::splat(0.0)));
         restored.insert("speed", MaterialDataValue::F32(0.0));
-        registry.deserialize(&mut restored, "", &serialized, &mut on_err);
+        registry.deserialize(&local(&registry), &mut restored, "", &serialized, &mut on_err);
 
         assert_eq!(entry_names(&restored), ["color", "speed"]);
         assert_eq!(restored.get_f32("speed"), Some(&0.3));
@@ -614,35 +623,38 @@ mod tests {
 
         assert!(matches!(&serialized, SerializedValue::Composite(composite) if composite.is_rigid));
         let json = serialized.to_json();
-        assert_eq!(json["speed"], registry.serialize(&0.3_f32, "", &mut on_err).to_json());
+        assert_eq!(
+            json["speed"],
+            registry.serialize(&local(&registry), &0.3_f32, "", &mut on_err).to_json()
+        );
         assert_eq!(json["color"], serde_json::json!({ "x": 1.0, "y": 0.0, "z": 0.0, "w": 1.0 }));
     }
 
     #[test]
     fn deserialize_keeps_kinds() {
-        let mut registry = registry();
+        let registry = registry();
         let mut on_err = |_: SerializationError| ();
         let mut data = sample_data();
 
-        let serialized = registry.serialize(&0.7_f32, "", &mut on_err);
-        registry.deserialize(&mut data, "color", &serialized, &mut on_err);
+        let serialized = registry.serialize(&local(&registry), &0.7_f32, "", &mut on_err);
+        registry.deserialize(&local(&registry), &mut data, "color", &serialized, &mut on_err);
 
         assert!(data.get_vec4("color").is_some());
     }
 
     #[test]
     fn deserialize_skips_unknown_entries() {
-        let mut registry = registry();
+        let registry = registry();
         let mut errors = Vec::new();
         let mut on_err = |err: SerializationError| errors.push(err.to_string());
 
         let mut source = sample_data();
         source.insert("glow", MaterialDataValue::F32(1.0));
-        let serialized = registry.serialize(&source, "", &mut on_err);
+        let serialized = registry.serialize(&local(&registry), &source, "", &mut on_err);
 
         let mut data = MaterialData::new();
         data.insert("speed", MaterialDataValue::F32(0.0));
-        registry.deserialize(&mut data, "", &serialized, &mut on_err);
+        registry.deserialize(&local(&registry), &mut data, "", &serialized, &mut on_err);
 
         assert_eq!(entry_names(&data), ["speed"]);
         assert_eq!(data.get_f32("speed"), Some(&0.3));
@@ -665,12 +677,12 @@ mod tests {
 
     #[test]
     fn deserialize_bumps_snapshot() {
-        let mut registry = registry();
+        let registry = registry();
         let mut on_err = |err: SerializationError| panic!("{err}");
         let mut data = sample_data();
 
-        let serialized = registry.serialize(&0.9_f32, "", &mut on_err);
-        registry.deserialize(&mut data, "speed", &serialized, &mut on_err);
+        let serialized = registry.serialize(&local(&registry), &0.9_f32, "", &mut on_err);
+        registry.deserialize(&local(&registry), &mut data, "speed", &serialized, &mut on_err);
 
         assert_eq!(data.get_f32("speed"), Some(&0.9));
         assert_eq!(data.entry("speed").unwrap().snapshot(), 2);

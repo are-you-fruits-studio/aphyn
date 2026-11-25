@@ -24,8 +24,10 @@ const DEFAULT_LIGHT_COLOR: Vec3<f32> = Vec3::splat(3.0);
 const BUTTON_COLOR: Vec4<f32> = Vec4::new(0.3, 0.3, 0.3, 1.0);
 const BUTTON_COLOR_ACTIVE: Vec4<f32> = Vec4::from_array(const { parse_color_rgba_f32("#7d90e6ff").unwrap() });
 
-// todo: bundle registration params
-pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+pub fn register_feature(ctx: FeatureInitCtx) {
+    let FeatureInitCtx {
+        mut data, mut behavior, ..
+    } = ctx;
     data.resources_mut().insert(SceneLightResource::default());
 
     behavior

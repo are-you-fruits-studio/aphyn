@@ -46,8 +46,9 @@
 //!   fields, construct)` per variant. `is_active` is `matches!(v, Self::Name { .. })`, which works for unit,
 //!   tuple and struct variants alike. Each variant field getter `match`es the variant and binds
 //!   the field (by name, or by position padded with `_` for tuple variants), returning `None`
-//!   for other variants. `construct` takes the fields in order from the `FfiVec<FfiAny>` with
-//!   `__reflect_take::<FieldType>` and builds the variant, `None` on a missing or mistyped field.
+//!   for other variants. `construct` takes the fields in declaration order from the
+//!   `ReflectVariantFields` with `unsafe { fields.take::<FieldType>() }` (sound because the order and
+//!   types match the `.field` calls) and builds the variant, `None` on a missing or mistyped field.
 //!   `reflector()` carries `#[allow(unreachable_patterns)]` because the
 //!   fallback `_ => None` arm is unreachable for single-variant enums.
 //! - Both end with `.default_fn(__reflect_default_fn!(Self))` and `.clone_fn(__reflect_clone_fn!(Self))`.
@@ -146,7 +147,7 @@ fn struct_body(fields: &Fields) -> TokenStream2 {
 fn variant_construct(variant: &syn::Ident, fields: &Fields) -> TokenStream2 {
     let takes = fields.iter().map(|field| {
         let ty = &field.ty;
-        quote!(__reflect_take::<#ty>(&mut fields)?)
+        quote!(unsafe { fields.take::<#ty>() }?)
     });
 
     let value = match fields {
@@ -160,8 +161,8 @@ fn variant_construct(variant: &syn::Ident, fields: &Fields) -> TokenStream2 {
 
     quote! {
         |fields| {
-            #[allow(unused_mut, unused_variables)]
-            let mut fields = fields.into_iter();
+            #[allow(unused_variables)]
+            let fields = fields;
             Some(#value)
         }
     }

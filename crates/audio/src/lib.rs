@@ -7,7 +7,7 @@
 //!
 //! #### Enabling audio in a world
 //!
-//! Audio is part of the engine's default modules (`add_defult_modules_to`). To enable it on its
+//! Audio is part of the engine's default modules (`add_default_modules_to`). To enable it on its
 //! own, call [`add_audio_module_to`] with the world data, systems builder, and render feature registry:
 //!
 //! ```ignore

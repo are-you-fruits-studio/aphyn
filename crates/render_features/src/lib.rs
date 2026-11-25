@@ -11,7 +11,7 @@
 //!
 //! # How to use
 //!
-//! [`add_render_features_module_to`] (called by `add_defult_modules_to`) inserts the asset
+//! [`add_render_features_module_to`] (called by `add_default_modules_to`) inserts the asset
 //! storages (`Material`, `MaterialTemplate`, `Shader`, `ComputeShader`, `StandardMesh`, `StandardTexture`), the
 //! settings resources, registers the engine features and a `Start` system in
 //! [`SYSTEM_GROUP_RENDER`] that inserts the built-in shaders and material templates.

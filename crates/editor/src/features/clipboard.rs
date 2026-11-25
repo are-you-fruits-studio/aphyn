@@ -2,7 +2,8 @@ use std::path::PathBuf;
 
 use crate::{features::inspector_window::utils::reflection::EditorValue, *};
 
-pub fn register_feature(mut data: WorldDataMut, _behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+pub fn register_feature(ctx: FeatureInitCtx) {
+    let FeatureInitCtx { mut data, .. } = ctx;
     data.resources_mut().insert(EditorClipboardResource::default());
 }
 
@@ -14,7 +15,8 @@ pub struct EditorClipboardResource(pub Option<EditorClipboard>);
 pub enum EditorClipboard {
     Files(Vec<PathBuf>),
     Entities(SerializedEntities),
-    Component { component_id: FfiString, value: EditorValue },
+    // the component type is the value's; it is resolved against the current simulated world when pasting
+    Component(EditorValue),
     Value(EditorValue),
     AnimationKeys(Vec<CopiedAnimationKey>),
 }
@@ -22,7 +24,7 @@ pub enum EditorClipboard {
 // `time` is relative to the earliest copied key
 pub struct CopiedAnimationKey {
     pub path: AnimationPath,
-    pub value_type: FfiString,
+    pub value_type: AnyTypeId,
     pub time: f32,
     pub value: EditorValue,
     pub interpolation: KeyInterpolation,
@@ -53,14 +55,14 @@ impl EditorClipboardResource {
         }
     }
 
-    pub fn component(&self) -> Option<(&FfiString, FfiAnyRef<'_>)> {
+    pub fn component(&self) -> Option<AnyRef<'_>> {
         match &self.0 {
-            Some(EditorClipboard::Component { component_id, value }) => Some((component_id, value.0.as_any_ref())),
+            Some(EditorClipboard::Component(value)) => Some(value.0.as_any_ref()),
             _ => None,
         }
     }
 
-    pub fn value(&self) -> Option<FfiAnyRef<'_>> {
+    pub fn value(&self) -> Option<AnyRef<'_>> {
         match &self.0 {
             Some(EditorClipboard::Value(value)) => Some(value.0.as_any_ref()),
             _ => None,

@@ -15,6 +15,7 @@ members = [
     "crates/reflection_macros",
     "crates/editor",
     "crates/ffi",
+    "crates/any",
     "crates/math_macros",
     "crates/entry_point",
     "crates/app_launcher",
@@ -62,6 +63,7 @@ crate-type = ["lib"]
 aphyn_app = { path = "./crates/app" }
 aphyn_audio = { path = "./crates/audio" }
 aphyn_ecs = { path = "./crates/ecs" }
+aphyn_any = { path = "./crates/any" }
 aphyn_modules = { path = "./crates/modules" }
 aphyn_utils = { path = "./crates/utils" }
 aphyn_math = { path = "./crates/math" }

@@ -8,6 +8,8 @@ use std::{
 
 use aphyn_ffi::{FfiExtendedTypeInfo, FfiOption, FfiStrSliceRef};
 
+use crate::AnyTypeId;
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct StoredTypeInfo {
@@ -15,32 +17,51 @@ pub struct StoredTypeInfo {
     pub data: &'static FfiExtendedTypeInfo,
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub struct TypesRegistryTag(*const c_void);
+
+impl TypesRegistryTag {
+    pub const NONE: Self = Self(std::ptr::null());
+
+    pub fn is_none(&self) -> bool {
+        self.0.is_null()
+    }
+}
+
+unsafe impl Send for TypesRegistryTag {}
+unsafe impl Sync for TypesRegistryTag {}
+
 //
 
 #[repr(C)]
 struct TypesRegistryAccessVtable {
-    pub clone_fn: unsafe extern "C-unwind" fn(*const c_void) -> *mut c_void,
+    pub clone_fn: unsafe extern "C-unwind" fn(*const c_void),
     pub len_fn: unsafe extern "C-unwind" fn(*const c_void) -> u64,
     pub get_fn: unsafe extern "C-unwind" fn(*const c_void, id: u64) -> FfiOption<&'static FfiExtendedTypeInfo>,
     pub get_by_name_fn: unsafe extern "C-unwind" fn(*const c_void, name: FfiStrSliceRef) -> FfiOption<StoredTypeInfo>,
     pub try_register_fn: unsafe extern "C-unwind" fn(*const c_void, data: &'static FfiExtendedTypeInfo) -> FfiOption<u64>,
-    pub drop_fn: unsafe extern "C-unwind" fn(*mut c_void),
+    pub drop_fn: unsafe extern "C-unwind" fn(*const c_void),
 }
 
+// a refcounted handle to the shared registry state; the state's address is the registry's tag
 #[repr(C)]
 pub struct TypesRegistryAccessFfi {
-    data: *mut c_void,
+    data: *const c_void,
     vtable: &'static TypesRegistryAccessVtable,
 }
 
-//
+type TypesRegistryShared = RwLock<TypesRegistryData>;
 
 impl TypesRegistryAccessFfi {
     pub fn new() -> Self {
-        let types = TypesRegistryAccessNative::new();
+        let shared: Arc<TypesRegistryShared> = Arc::new(RwLock::new(TypesRegistryData {
+            types_by_string: HashMap::new(),
+            types: Vec::new(),
+        }));
 
         Self {
-            data: Box::into_raw(Box::new(types)) as *mut c_void,
+            data: Arc::into_raw(shared) as *const c_void,
             vtable: &TypesRegistryAccessVtable {
                 clone_fn: Self::ffi_clone,
                 len_fn: Self::ffi_len,
@@ -52,39 +73,28 @@ impl TypesRegistryAccessFfi {
         }
     }
 
+    pub fn tag(&self) -> TypesRegistryTag {
+        TypesRegistryTag(self.data)
+    }
+
     pub fn len(&self) -> u64 {
-        unsafe { (self.vtable.len_fn)((&raw const *self) as *const c_void) }
+        unsafe { (self.vtable.len_fn)(self.data) }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub fn get(&self, id: u64) -> Option<&'static FfiExtendedTypeInfo> {
-        unsafe {
-            let this = self.data;
-
-            let data = (self.vtable.get_fn)(this, id);
-
-            data.into_option()
-        }
+        unsafe { (self.vtable.get_fn)(self.data, id).into_option() }
     }
 
     pub fn get_by_name(&self, name: &str) -> Option<StoredTypeInfo> {
-        unsafe {
-            let this = self.data;
-            let name = FfiStrSliceRef::from_slice(name);
-
-            let data = (self.vtable.get_by_name_fn)(this, name);
-
-            data.into_option()
-        }
+        unsafe { (self.vtable.get_by_name_fn)(self.data, FfiStrSliceRef::from_slice(name)).into_option() }
     }
 
     pub fn try_register(&self, data: &'static FfiExtendedTypeInfo) -> Option<u64> {
-        unsafe {
-            let this = self.data;
-
-            let data = (self.vtable.try_register_fn)(this, data);
-
-            data.into_option()
-        }
+        unsafe { (self.vtable.try_register_fn)(self.data, data).into_option() }
     }
 
     pub fn get_or_register(&self, data: &'static FfiExtendedTypeInfo) -> u64 {
@@ -92,82 +102,52 @@ impl TypesRegistryAccessFfi {
             return id.id;
         }
 
-        self.try_register(data).unwrap()
+        self.try_register(data)
+            .or_else(|| self.get_by_name(data.short().name()).map(|t| t.id))
+            .unwrap()
     }
 
-    unsafe extern "C-unwind" fn ffi_clone(this: *const c_void) -> *mut c_void {
-        unsafe {
-            let this = &*(this as *const TypesRegistryAccessNative);
+    pub fn any_type_id(&self, data: &'static FfiExtendedTypeInfo) -> AnyTypeId {
+        AnyTypeId::new(self.tag(), self.get_or_register(data))
+    }
 
-            let cloned = this.clone();
+    unsafe fn shared<'a>(this: *const c_void) -> &'a TypesRegistryShared {
+        unsafe { &*(this as *const TypesRegistryShared) }
+    }
 
-            Box::into_raw(Box::new(cloned)) as *mut c_void
-        }
+    unsafe extern "C-unwind" fn ffi_clone(this: *const c_void) {
+        unsafe { Arc::increment_strong_count(this as *const TypesRegistryShared) }
     }
     unsafe extern "C-unwind" fn ffi_len(this: *const c_void) -> u64 {
-        unsafe {
-            let this = &*(this as *const TypesRegistryAccessNative);
-
-            let result = this.len();
-
-            result as u64
-        }
+        unsafe { Self::shared(this).read().unwrap().types.len() as u64 }
     }
     unsafe extern "C-unwind" fn ffi_get(this: *const c_void, id: u64) -> FfiOption<&'static FfiExtendedTypeInfo> {
-        unsafe {
-            let this = &*(this as *const TypesRegistryAccessNative);
-
-            let result = this.get(id);
-
-            FfiOption::from_option(result)
-        }
+        unsafe { FfiOption::from_option(Self::shared(this).read().unwrap().get(id)) }
     }
     unsafe extern "C-unwind" fn ffi_get_by_name(this: *const c_void, name: FfiStrSliceRef) -> FfiOption<StoredTypeInfo> {
-        unsafe {
-            let this = &*(this as *const TypesRegistryAccessNative);
-            let name = name.into_slice();
-
-            let result = this.get_by_name(name);
-
-            FfiOption::from_option(result)
-        }
+        unsafe { FfiOption::from_option(Self::shared(this).read().unwrap().get_by_name(name.into_slice())) }
     }
     unsafe extern "C-unwind" fn ffi_try_register(this: *const c_void, data: &'static FfiExtendedTypeInfo) -> FfiOption<u64> {
-        unsafe {
-            let this = &*(this as *const TypesRegistryAccessNative);
-
-            let result = this.try_register(data);
-
-            result.into()
-        }
+        unsafe { Self::shared(this).write().unwrap().try_register(data).into() }
     }
-    pub unsafe extern "C-unwind" fn ffi_drop(this_ref: *mut c_void) {
-        // todo
-        unsafe {
-            drop(Box::from_raw(this_ref as *mut TypesRegistryAccessNative));
-        }
+    unsafe extern "C-unwind" fn ffi_drop(this: *const c_void) {
+        unsafe { drop(Arc::from_raw(this as *const TypesRegistryShared)) }
     }
-    // todo
 }
 
 impl Drop for TypesRegistryAccessFfi {
     fn drop(&mut self) {
-        // todo
-        unsafe {
-            (self.vtable.drop_fn)(self.data);
-        }
+        unsafe { (self.vtable.drop_fn)(self.data) }
     }
 }
 
 impl Clone for TypesRegistryAccessFfi {
     fn clone(&self) -> Self {
-        unsafe {
-            let data = (self.vtable.clone_fn)(self.data);
+        unsafe { (self.vtable.clone_fn)(self.data) };
 
-            Self {
-                data,
-                vtable: self.vtable,
-            }
+        Self {
+            data: self.data,
+            vtable: self.vtable,
         }
     }
 }
@@ -182,72 +162,25 @@ struct TypesRegistryData {
     types: Vec<StoredTypeInfo>,
 }
 
-struct TypesRegistryAccessNative {
-    data: Arc<RwLock<TypesRegistryData>>,
-}
-
-impl Clone for TypesRegistryAccessNative {
-    fn clone(&self) -> Self {
-        Self {
-            data: Arc::clone(&self.data),
-        }
-    }
-}
-
-impl TypesRegistryAccessNative {
-    pub fn new() -> Self {
-        Self {
-            data: Arc::new(RwLock::new(TypesRegistryData {
-                types_by_string: HashMap::new(),
-                types: Vec::new(),
-            })),
-        }
+impl TypesRegistryData {
+    fn get(&self, id: u64) -> Option<&'static FfiExtendedTypeInfo> {
+        self.types.get(id as usize).map(|t| t.data)
     }
 
-    pub fn len(&self) -> usize {
-        let self_data = self.data.read().unwrap();
-
-        let result = self_data.types.len();
-
-        result
+    fn get_by_name(&self, name: &str) -> Option<StoredTypeInfo> {
+        self.types.get(*self.types_by_string.get(name)? as usize).copied()
     }
 
-    #[allow(dead_code)]
-    pub fn is_empty(&self) -> bool {
-        let self_data = self.data.read().unwrap();
-
-        let result = self_data.types.is_empty();
-
-        result
-    }
-
-    pub fn get(&self, id: u64) -> Option<&'static FfiExtendedTypeInfo> {
-        let self_data = self.data.read().unwrap();
-
-        let result = self_data.types.get(id as usize).copied();
-
-        result.map(|t| t.data)
-    }
-
-    pub fn get_by_name(&self, name: &str) -> Option<StoredTypeInfo> {
-        let self_data = self.data.read().unwrap();
-
-        let result = self_data.types.get(*self_data.types_by_string.get(name)? as usize).copied();
-
-        result
-    }
-
-    pub fn try_register(&self, data: &'static FfiExtendedTypeInfo) -> Option<u64> {
-        let mut self_data = self.data.write().unwrap();
+    fn try_register(&mut self, data: &'static FfiExtendedTypeInfo) -> Option<u64> {
         let name = data.short().name();
 
-        if self_data.types_by_string.get(name).is_some() {
+        if self.types_by_string.contains_key(name) {
             return None;
         }
 
-        let id = self_data.types.len() as u64;
-        self_data.types_by_string.insert(name.to_string(), id);
-        self_data.types.push(StoredTypeInfo { id, data });
+        let id = self.types.len() as u64;
+        self.types_by_string.insert(name.to_string(), id);
+        self.types.push(StoredTypeInfo { id, data });
 
         Some(id)
     }
@@ -256,36 +189,41 @@ impl TypesRegistryAccessNative {
 //
 
 pub struct RegistrySpecificTypeId<T: 'static> {
-    id: u64,
+    id: AnyTypeId,
     _phantom: PhantomData<fn(T) -> T>,
 }
 
 impl<T: 'static> RegistrySpecificTypeId<T> {
     pub fn try_new(types: &TypesRegistryCache) -> Option<Self> {
         Some(Self {
-            id: types.get::<T>()?,
+            id: AnyTypeId::new(types.tag(), types.get::<T>()?),
             _phantom: PhantomData,
         })
     }
 
     pub fn new(types: &TypesRegistryCache) -> Self {
         Self {
-            id: types.get_or_register::<T>(),
+            id: AnyTypeId::new(types.tag(), types.get_or_register::<T>()),
             _phantom: PhantomData,
         }
     }
 
     pub fn id(&self) -> u64 {
+        self.id.id()
+    }
+
+    pub fn tag(&self) -> TypesRegistryTag {
+        self.id.tag()
+    }
+
+    pub fn any_type_id(&self) -> AnyTypeId {
         self.id
     }
 }
 
 impl<T: 'static> Clone for RegistrySpecificTypeId<T> {
     fn clone(&self) -> Self {
-        Self {
-            id: self.id,
-            _phantom: PhantomData,
-        }
+        *self
     }
 }
 impl<T: 'static> Copy for RegistrySpecificTypeId<T> {}
@@ -343,21 +281,16 @@ pub struct TypesRegistryCache {
     registry: TypesRegistryAccessFfi,
 }
 
-// impl Clone for TypesRegistryCache {
-//     fn clone(&self) -> Self {
-//         Self {
-//             cache: Arc::clone(&self.cache),
-//             registry: self.registry.clone(),
-//         }
-//     }
-// }
-
 impl TypesRegistryCache {
     pub fn new(registry: TypesRegistryAccessFfi) -> Self {
         Self {
             cache: Arc::new(RwLock::new(HashMap::new())),
             registry,
         }
+    }
+
+    pub fn tag(&self) -> TypesRegistryTag {
+        self.registry.tag()
     }
 
     pub fn get_with_type_id(&self, type_id: &TypeId) -> Option<u64> {
@@ -396,12 +329,15 @@ impl TypesRegistryCache {
         self.get::<T>().unwrap_or_else(|| self.try_register::<T>().unwrap())
     }
 
-    pub unsafe fn registry(&self) -> &TypesRegistryAccessFfi {
-        &self.registry
+    pub fn type_id_of<T: 'static>(&self) -> RegistrySpecificTypeId<T> {
+        RegistrySpecificTypeId::new(self)
     }
 
-    // todo
-    // pub unsafe fn raw_registry(&self) -> TypesRegistryAccessRefFfi {
-    //     self.registry.clone()
-    // }
+    pub fn any_type_id(&self, data: &'static FfiExtendedTypeInfo) -> AnyTypeId {
+        self.registry.any_type_id(data)
+    }
+
+    pub fn ffi(&self) -> &TypesRegistryAccessFfi {
+        &self.registry
+    }
 }

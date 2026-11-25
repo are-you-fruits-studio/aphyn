@@ -54,7 +54,7 @@ For each task, in order:
      one-liner with file paths. Omit the section if none apply. Do not paste whole earlier reports,
      diffs, or the full Q&A.
    - **Where to start:** crates/files to read first, including their `//!` docs.
-   - **Rules:** follow `CLAUDE.md` (comment policy, `cargo fmt`, keep `add_defult_modules_to`
+   - **Rules:** follow `CLAUDE.md` (comment policy, `cargo fmt`, keep `add_default_modules_to`
      spelling, update a crate's `//!` docs when its behavior or public API changes); do not run any git
      write command; if an undecided design choice comes up, stop and return the question instead of
      choosing.

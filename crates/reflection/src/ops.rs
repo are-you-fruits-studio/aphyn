@@ -1,24 +1,25 @@
-use aphyn_ffi::{FfiAny, FfiAnyMut, FfiAnyRef, FfiString, FfiVec};
+use aphyn_any::{AnyBox, AnyMut, AnyRef, AnyTypeId};
+use aphyn_ffi::{FfiString, FfiVec};
 
 use crate::{EnumVariantReflector, ReflectionRegistry, Reflector};
 
-pub fn reflect_default(registry: &ReflectionRegistry, type_name: &str) -> Option<FfiAny> {
-    registry.get(type_name)?.default_value()
+pub fn reflect_default(registry: &ReflectionRegistry, id: AnyTypeId) -> Option<AnyBox> {
+    registry.get(id)?.default_value()
 }
 
 // the variant with every field set to its type's default
-pub fn reflect_construct_variant(registry: &ReflectionRegistry, variant: &EnumVariantReflector) -> Option<FfiAny> {
+pub fn reflect_construct_variant(registry: &ReflectionRegistry, variant: &EnumVariantReflector) -> Option<AnyBox> {
     let fields = variant
         .fields()
-        .map(|f| reflect_default(registry, f.dst_type_name()))
+        .map(|f| reflect_default(registry, f.dst_type_id()))
         .collect::<Option<Vec<_>>>()?;
 
     variant.construct(fields.into())
 }
 
 // the type's clone factory, otherwise its default filled with clones of the reflected parts
-pub fn reflect_clone(registry: &ReflectionRegistry, value: FfiAnyRef) -> Option<FfiAny> {
-    let reflector = registry.get(value.type_info().short().name())?;
+pub fn reflect_clone(registry: &ReflectionRegistry, value: AnyRef) -> Option<AnyBox> {
+    let reflector = registry.get_for(value)?;
 
     if let Some(cloned) = reflector.clone_value(value) {
         return Some(cloned);
@@ -155,9 +156,9 @@ impl std::fmt::Display for ReflectPath {
     }
 }
 
-pub fn resolve<'a>(registry: &ReflectionRegistry, mut value: FfiAnyRef<'a>, path: &[ReflectPathSegment]) -> Option<FfiAnyRef<'a>> {
+pub fn resolve<'a>(registry: &ReflectionRegistry, mut value: AnyRef<'a>, path: &[ReflectPathSegment]) -> Option<AnyRef<'a>> {
     for segment in path {
-        let reflector = registry.get(value.type_info().short().name())?;
+        let reflector = registry.get_for(value)?;
 
         value = match (&**reflector, segment) {
             (Reflector::Struct(r), ReflectPathSegment::Field(name)) => r.field(name)?.get(value)?,
@@ -175,13 +176,9 @@ pub fn resolve<'a>(registry: &ReflectionRegistry, mut value: FfiAnyRef<'a>, path
 }
 
 // map keys are cloned (see `reflect_clone`) to look an entry up mutably
-pub fn resolve_mut<'a>(
-    registry: &ReflectionRegistry,
-    mut value: FfiAnyMut<'a>,
-    path: &[ReflectPathSegment],
-) -> Option<FfiAnyMut<'a>> {
+pub fn resolve_mut<'a>(registry: &ReflectionRegistry, mut value: AnyMut<'a>, path: &[ReflectPathSegment]) -> Option<AnyMut<'a>> {
     for segment in path {
-        let reflector = registry.get(value.type_info().short().name())?;
+        let reflector = registry.get_for_type(value.type_id(), value.type_info())?;
 
         value = match (&**reflector, segment) {
             (Reflector::Struct(r), ReflectPathSegment::Field(name)) => r.field(name)?.get_mut(value)?,

@@ -11,8 +11,10 @@ use crate::{
 const CARET_BLINK_HALF_PERIOD: f64 = 0.53;
 const CARET_WIDTH_PX: f32 = 1.5;
 
-// todo: bundle registration params
-pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+pub fn register_feature(ctx: FeatureInitCtx) {
+    let FeatureInitCtx {
+        mut data, mut behavior, ..
+    } = ctx;
     data.resources_mut().insert(SelectedInputFieldResource::default());
     data.resources_mut().insert(InputFieldContextMenuResource::default());
 

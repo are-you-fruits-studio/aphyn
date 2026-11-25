@@ -1,3 +1,5 @@
+use std::ffi::c_void;
+
 use aphyn_ffi::{FfiExtendedTypeInfo, FfiFnMutMut, FfiSliceRef};
 
 use crate::*;
@@ -19,6 +21,7 @@ pub struct ComponentPtr {
 
 #[repr(C)]
 pub struct EntitiesHolderUnsafeFfi {
+    types: TypesRegistryAccessFfi,
     archetypes: ArchetypesHolderFfi,
     entities_meta: EntitiesMetadata,
 }
@@ -26,8 +29,9 @@ pub struct EntitiesHolderUnsafeFfi {
 impl EntitiesHolderUnsafeFfi {
     pub fn new(types: TypesRegistryAccessFfi) -> Self {
         Self {
-            archetypes: ArchetypesHolderFfi::new(types),
+            archetypes: ArchetypesHolderFfi::new(types.clone()),
             entities_meta: EntitiesMetadata::new(),
+            types,
         }
     }
 
@@ -289,7 +293,7 @@ impl EntitiesHolderUnsafeFfi {
     }
 
     // todo: to iterator
-    pub fn get_all_components_ptrs(&self, entity: EntityId, mut handler: FfiFnMutMut<(*mut u8, &'static FfiExtendedTypeInfo), ()>) {
+    pub fn get_all_components_ptrs(&self, entity: EntityId, mut handler: FfiFnMutMut<AnyPtr, ()>) {
         let Some(entity_location) = self.entities_meta.get(entity) else {
             return;
         };
@@ -304,7 +308,11 @@ impl EntitiesHolderUnsafeFfi {
                     .get_component_ptr(entity_location.entity_archetype_index, c.type_info.id)
                     .unwrap();
 
-                handler.execute((ptr, c.type_info.data))
+                let any_ptr = unsafe {
+                    let any_type_id = AnyTypeId::new(self.types.tag(), c.type_info.id);
+                    AnyPtr::from_raw(ptr as *mut c_void, c.type_info.data, any_type_id)
+                };
+                handler.execute(any_ptr)
             })
             .collect()
     }

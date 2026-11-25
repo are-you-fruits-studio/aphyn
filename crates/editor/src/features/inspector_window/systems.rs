@@ -71,22 +71,28 @@ pub fn update_hierarchy_entries_selection(
     }
 }
 
-fn get_inspected_component_id(ent: EntitiesHolderRef, ent_component: EntityId) -> Option<FfiString> {
-    let serialized_component_c = ent.get_component::<InspectorComponentComponent>(ent_component)?;
-    let component_id_text_c = ent.get_component::<TextComponent>(serialized_component_c.component_id_text)?;
-    Some(component_id_text_c.text.clone())
+fn get_inspected_component_id(ent: EntitiesHolderRef, ent_component: EntityId) -> Option<AnyTypeId> {
+    Some(
+        ent.get_component::<InspectorComponentComponent>(ent_component)?
+            .component_type,
+    )
+}
+
+// the type of a clipboard component in the current simulated world
+fn clipboard_component_type(sim_res: ResourcesHolderRef, value: AnyRef) -> Option<AnyTypeId> {
+    Some(sim_res.get::<ReflectionRegistryResource>()?.get_for(value)?.type_id())
 }
 
 fn remove_inspected_component(
     simulated_world: &mut SimulatedWorld,
     inspected_entity: &InspectedEntityResource,
-    component_id: &str,
+    component_id: AnyTypeId,
 ) -> bool {
     let (_, mut sim_ent, _) = simulated_world.data.as_mut().into_tuple_mut();
 
     let mut has_component = false;
     sim_ent.get_all_components(inspected_entity.selected_entity, |c| {
-        has_component |= c.type_info().short().name() == component_id
+        has_component |= c.type_id() == component_id
     });
 
     has_component
@@ -118,18 +124,21 @@ pub fn open_component_context_menu_system(
 
     let mut actions = vec![ComponentContextAction::Copy];
 
-    if let Some((clipboard_component_id, _)) = clipboard.component() {
+    if let Some(clipboard_component_id) = clipboard
+        .component()
+        .and_then(|value| clipboard_component_type(simulated_world.data.as_ref().resources(), value))
+    {
         let mut has_clipboard_component = false;
         simulated_world
             .data
             .as_ref()
             .entities()
             .get_all_components(inspected_entity.selected_entity, |c| {
-                has_clipboard_component |= c.type_info().short().name() == clipboard_component_id.as_str()
+                has_clipboard_component |= c.type_id() == clipboard_component_id
             });
 
         match has_clipboard_component {
-            true if *clipboard_component_id == component_id => actions.push(ComponentContextAction::PasteValues),
+            true if clipboard_component_id == component_id => actions.push(ComponentContextAction::PasteValues),
             true => {}
             false => actions.push(ComponentContextAction::PasteAsNew),
         }
@@ -166,19 +175,17 @@ pub fn apply_component_context_menu_system(
             let value = with_component(
                 sim_data.entities(),
                 inspected_entity.selected_entity,
-                &context_menu.component_id,
+                context_menu.component_id,
                 |c| reflect_clone(registry, c),
             )
             .flatten();
 
             match value {
-                Some(value) => {
-                    clipboard.0 = Some(EditorClipboard::Component {
-                        component_id: context_menu.component_id.clone(),
-                        value: EditorValue(value),
-                    })
-                }
-                None => println!("{} can't be cloned through reflection", context_menu.component_id),
+                Some(value) => clipboard.0 = Some(EditorClipboard::Component(EditorValue(value))),
+                None => println!(
+                    "component type #{} can't be cloned through reflection",
+                    context_menu.component_id.id()
+                ),
             }
 
             false
@@ -187,9 +194,7 @@ pub fn apply_component_context_menu_system(
             let (sim_res, sim_ent, _) = simulated_world.data.as_mut().into_tuple_mut();
             paste_component(sim_res.as_ref(), sim_ent, inspected_entity.selected_entity, &clipboard)
         }
-        ComponentContextAction::Remove => {
-            remove_inspected_component(simulated_world, &inspected_entity, context_menu.component_id.as_str())
-        }
+        ComponentContextAction::Remove => remove_inspected_component(simulated_world, &inspected_entity, context_menu.component_id),
     };
 
     if is_edited {
@@ -336,7 +341,7 @@ pub fn add_component_system(
         let sim_res = sim_res.as_ref();
         continue_if_not!(Some(registry) = sim_res.get::<ReflectionRegistryResource>());
 
-        let component_id = add_component_variant_c.component_id.as_str();
+        let component_id = add_component_variant_c.component_id;
         continue_if!(with_component(sim_ent.as_ref(), inspected_entity.selected_entity, component_id, |_| ()).is_some());
         continue_if_not!(Some(component) = reflect_default(registry, component_id));
 
@@ -370,9 +375,11 @@ pub fn update_add_component_variants_system(
         return;
     }
 
-    let Some(registry) = simulated_world.data.as_ref().resources().get::<ReflectionRegistryResource>() else {
+    let sim_res = simulated_world.data.as_ref().resources();
+    let Some(registry) = sim_res.get::<ReflectionRegistryResource>() else {
         return;
     };
+    let serializers = sim_res.get::<SerializersResource>();
 
     let Some(add_component_input_c) = ent
         .get_component::<AddComponentInputComponent>(selected_input.selected)
@@ -395,12 +402,12 @@ pub fn update_add_component_variants_system(
     let mut keys = registry
         .iter()
         .filter(|r| r.has_default() && (r.as_struct().is_some() || r.as_enum().is_some()))
-        .map(|r| FfiString::from(r.type_name()))
+        .map(|r| (component_label(serializers, r.type_id(), r.type_name()), r.type_id()))
         .collect::<Vec<_>>();
-    keys.sort();
+    keys.sort_by(|a, b| a.0.cmp(&b.0));
 
-    for component_id in keys {
-        if !subsequence_match_ignore_case(component_id.as_str(), searched_text.as_str()) {
+    for (label, component_id) in keys {
+        if !subsequence_match_ignore_case(label.as_str(), searched_text.as_str()) {
             continue;
         }
 
@@ -409,7 +416,7 @@ pub fn update_add_component_variants_system(
         let (entry_ent, _) = spawn_text_ent(
             ent.as_mut(),
             entry_ent,
-            component_id.clone(),
+            label,
             assets.material_panel.clone(),
             assets.material_text.clone(),
             assets.font.clone(),
@@ -657,7 +664,7 @@ fn paste_component(
     entity: EntityId,
     clipboard: &EditorClipboardResource,
 ) -> bool {
-    let Some((component_id, value)) = clipboard.component() else {
+    let Some(value) = clipboard.component() else {
         return false;
     };
     let Some(registry) = sim_res.get::<ReflectionRegistryResource>() else {
@@ -666,6 +673,7 @@ fn paste_component(
     let Some(value) = reflect_clone(registry, value) else {
         return false;
     };
+    let component_id = value.type_id();
 
     if with_component(sim_ent.as_ref(), entity, component_id, |_| ()).is_none() {
         return sim_ent.add_component_any(entity, value).is_ok();
@@ -942,7 +950,7 @@ pub fn toggle_inspector_checkbox_system(
 
 enum InspectedTarget {
     Asset(AssetType),
-    PrefabComponent { component_id: FfiString },
+    PrefabComponent { component_id: AnyTypeId },
 }
 
 impl InspectedTarget {
@@ -966,10 +974,8 @@ fn get_inspected_target(
             ent.get_component::<InspectorComponentComponent>(e)
         })?;
 
-        let component_id_text_c = ent.get_component::<TextComponent>(component_c.component_id_text)?;
-
         return Some(InspectedTarget::PrefabComponent {
-            component_id: component_id_text_c.text.clone(),
+            component_id: component_c.component_type,
         });
     }
 
@@ -988,7 +994,7 @@ fn with_inspected_value<R>(
     simulated_world: &mut SimulatedWorld,
     inspected_entity: &InspectedEntityResource,
     inspected_asset: &mut InspectedAssetResource,
-    f: impl FnOnce(&ReflectionRegistry, TransSerializerCtxState, FfiAnyMut) -> R,
+    f: impl FnOnce(&ReflectionRegistry, TransSerializerCtxState, AnyMut) -> R,
 ) -> Option<R> {
     match target {
         InspectedTarget::Asset(_) => {
@@ -1011,7 +1017,7 @@ fn with_inspected_value<R>(
             );
 
             save_load_with_asset_serializers_from_world(sim_res, entity_ids, |state| {
-                with_component_mut(sim_ent, inspected_entity.selected_entity, component_id, |c| {
+                with_component_mut(sim_ent, inspected_entity.selected_entity, *component_id, |c| {
                     f(registry, state, c)
                 })
             })
@@ -1079,7 +1085,7 @@ fn apply_inspector_edit_to_simulated_world(
     let field_edited = match &target {
         InspectedTarget::PrefabComponent { component_id } => Some(EntityFieldEditedEvent {
             entity: inspected_entity.selected_entity,
-            component: component_id.clone(),
+            component: *component_id,
             path: value_c.path.clone(),
         }),
         InspectedTarget::Asset(_) => None,
@@ -1470,7 +1476,12 @@ pub fn change_inspected_asset_system(
         clone_asset_for_inspection(simulated_world.data.as_ref().resources(), inspected_asset.asset_key.as_str()).map(EditorValue);
 }
 
-fn record_inspected_components(simulated_world: &SimulatedWorld, entity: EntityId) -> Vec<(FfiString, InspectorValue)> {
+// what the inspector calls a component: its serialized name, or its type name when it has no serializer
+fn component_label(serializers: Option<&SerializersResource>, id: AnyTypeId, type_name: &str) -> FfiString {
+    serializers.and_then(|s| s.name_of(id)).unwrap_or(type_name).into()
+}
+
+fn record_inspected_components(simulated_world: &SimulatedWorld, entity: EntityId) -> Vec<(AnyTypeId, FfiString, InspectorValue)> {
     let res = simulated_world.data.as_ref().resources();
     let ent = simulated_world.data.as_ref().entities();
     let registry = res.get::<ReflectionRegistryResource>().cloned().unwrap_or_default();
@@ -1481,7 +1492,8 @@ fn record_inspected_components(simulated_world: &SimulatedWorld, entity: EntityI
 
         ent.get_all_components(entity, |c| {
             components.push((
-                FfiString::from(c.type_info().short().name()),
+                c.type_id(),
+                component_label(res.get::<SerializersResource>(), c.type_id(), c.type_info().short().name()),
                 build_inspector_value(&registry, state, c),
             ))
         });
@@ -1605,7 +1617,7 @@ fn update_prefab_components_ent(
     mut ent: EntitiesHolderMut,
     ent_parent: EntityId,
     ent_selected_input: EntityId,
-    components: &[(FfiString, InspectorValue)],
+    components: &[(AnyTypeId, FfiString, InspectorValue)],
     foldout_res: &FoldoutResource,
     material_panel: AssetHandle<Material>,
     material_text: AssetHandle<Material>,
@@ -1633,7 +1645,7 @@ fn update_prefab_components_ent(
             destroy_entity_and_children(ent.as_mut(), e);
         }
 
-        for (i, (component_id, component_value)) in components.iter().enumerate() {
+        for (i, (component_type, component_label, component_value)) in components.iter().enumerate() {
             let ent_last = ent
                 .get_component::<ParentComponent>(ent_parent)
                 .unwrap()
@@ -1647,7 +1659,8 @@ fn update_prefab_components_ent(
                 ent_last,
                 ent_parent,
                 ent_selected_input,
-                component_id,
+                *component_type,
+                component_label,
                 component_value,
                 foldout_res,
                 material_panel.clone(),
@@ -1663,7 +1676,8 @@ fn update_prefab_component_ent(
     ent_last: EntityId,
     ent_parent: EntityId,
     ent_selected_input: EntityId,
-    component_id: &str,
+    component_type: AnyTypeId,
+    component_label: &str,
     component_value: &InspectorValue,
     foldout_res: &FoldoutResource,
     material_panel: AssetHandle<Material>,
@@ -1671,16 +1685,17 @@ fn update_prefab_component_ent(
     font: AssetHandle<Font>,
 ) {
     let key = FoldoutKey::InspectorComponent {
-        component_id: component_id.to_string(),
+        component_id: component_label.to_string(),
     };
     let is_expanded = foldout_res.is_expanded(&key);
 
     if let Some(&serialized_component_c) = ent.get_component::<InspectorComponentComponent>(ent_last)
+        && serialized_component_c.component_type == component_type
         && let Some(container_parent_c) = ent.get_component::<ParentComponent>(serialized_component_c.component_data_container)
         && let data_ents = container_parent_c.children().to_vec()
         && let Some(text_c) = ent.get_component_mut::<TextComponent>(serialized_component_c.component_id_text)
     {
-        text_c.text = component_id.into();
+        text_c.text = component_label.into();
 
         if let Some(foldout_c) = ent.get_component_mut::<FoldoutButtonComponent>(serialized_component_c.foldout_arrow) {
             foldout_c.key = key;
@@ -1722,7 +1737,7 @@ fn update_prefab_component_ent(
     let (component_header_ent, componet_id_text_ent) = spawn_text_ent(
         ent.as_mut(),
         comp_ent,
-        component_id.into(),
+        component_label.into(),
         material_panel.clone(),
         material_text.clone(),
         font.clone(),
@@ -1758,6 +1773,7 @@ fn update_prefab_component_ent(
     ent.set_component(
         comp_ent,
         InspectorComponentComponent {
+            component_type,
             component_id_text: componet_id_text_ent,
             component_data_container: comp_data_container,
             foldout_arrow,

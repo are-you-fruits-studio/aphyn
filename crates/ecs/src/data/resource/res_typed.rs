@@ -1,4 +1,5 @@
-use aphyn_ffi::{FfiAny, FfiAnyMut, FfiAnyPtr, FfiAnyRef, FfiExtendedTypeInfo, FfiFnMutMut};
+use aphyn_any::{AnyBox, AnyMut, AnyPtr, AnyRef};
+use aphyn_ffi::{FfiExtendedTypeInfo, FfiFnMutMut};
 
 use crate::*;
 
@@ -7,16 +8,17 @@ pub trait Resource: 'static + Send + Sync {}
 //
 
 fn resources_holder_get_ptr<T: Resource>(res: &ResourcesHolderUnsafeFfi, types: &TypesRegistryCache) -> Option<*mut T> {
-    res.get(types.get_or_register::<T>()).map(|p| p.downcast_ptr().unwrap())
+    let id = types.type_id_of::<T>();
+    res.get(id.id()).map(|p| p.downcast_ptr(id).unwrap())
 }
 fn resources_holder_get_ptr_any(
     res: &ResourcesHolderUnsafeFfi,
     types: &TypesRegistryCache,
     type_info: &'static FfiExtendedTypeInfo,
-) -> Option<FfiAnyPtr> {
-    unsafe { res.get(types.registry().get_or_register(type_info)) }
+) -> Option<AnyPtr> {
+    res.get(types.ffi().get_or_register(type_info))
 }
-fn resources_holder_get_all(res: &ResourcesHolderUnsafeFfi, mut handler: impl FnMut(FfiAnyPtr)) {
+fn resources_holder_get_all(res: &ResourcesHolderUnsafeFfi, mut handler: impl FnMut(AnyPtr)) {
     res.get_all(FfiFnMutMut::new(&mut handler))
 }
 
@@ -27,7 +29,7 @@ fn resources_holder_get_any<'r>(
     res: &'r ResourcesHolderUnsafeFfi,
     types: &TypesRegistryCache,
     type_info: &'static FfiExtendedTypeInfo,
-) -> Option<FfiAnyRef<'r>> {
+) -> Option<AnyRef<'r>> {
     unsafe { resources_holder_get_ptr_any(res, types, type_info).map(|p| p.as_any_ref()) }
 }
 
@@ -41,28 +43,29 @@ fn resources_holder_get_mut_any<'r>(
     res: &'r mut ResourcesHolderUnsafeFfi,
     types: &TypesRegistryCache,
     type_info: &'static FfiExtendedTypeInfo,
-) -> Option<FfiAnyMut<'r>> {
+) -> Option<AnyMut<'r>> {
     unsafe { resources_holder_get_ptr_any(res, types, type_info).map(|p| p.as_any_mut()) }
 }
 
 fn resources_holder_insert<T: Resource>(res: &mut ResourcesHolderUnsafeFfi, types: &TypesRegistryCache, data: T) -> Option<T> {
-    res.insert(types.get_or_register::<T>(), FfiAny::new(data))
-        .map(|a| a.downcast::<T>().unwrap().into_inner())
+    let id = types.type_id_of::<T>();
+    res.insert(id.id(), AnyBox::new(data, types))
+        .map(|a| a.downcast(id).ok().unwrap())
 }
-fn resources_holder_insert_any(res: &mut ResourcesHolderUnsafeFfi, types: &TypesRegistryCache, data: FfiAny) -> Option<FfiAny> {
-    unsafe { res.insert(types.registry().get_or_register(data.type_info()), FfiAny::new(data)) }
+fn resources_holder_insert_any(res: &mut ResourcesHolderUnsafeFfi, types: &TypesRegistryCache, data: AnyBox) -> Option<AnyBox> {
+    res.insert(types.ffi().get_or_register(data.type_info()), data)
 }
 
 fn resources_holder_remove<T: Resource>(res: &mut ResourcesHolderUnsafeFfi, types: &TypesRegistryCache) -> Option<T> {
-    res.remove(types.get_or_register::<T>())
-        .map(|a| a.downcast::<T>().unwrap().into_inner())
+    let id = types.type_id_of::<T>();
+    res.remove(id.id()).map(|a| a.downcast(id).ok().unwrap())
 }
 fn resources_holder_remove_any(
     res: &mut ResourcesHolderUnsafeFfi,
     types: &TypesRegistryCache,
     type_info: &'static FfiExtendedTypeInfo,
-) -> Option<FfiAny> {
-    unsafe { res.remove(types.registry().get_or_register(type_info)) }
+) -> Option<AnyBox> {
+    res.remove(types.ffi().get_or_register(type_info))
 }
 
 //
@@ -77,41 +80,45 @@ impl<'r> ResourcesHolderMut<'r> {
         Self { res, types }
     }
 
+    pub fn types(&self) -> &'r TypesRegistryCache {
+        self.types
+    }
+
     pub fn insert<T: Resource>(&mut self, data: T) -> Option<T> {
         unsafe { resources_holder_insert::<T>(&mut *self.res, self.types, data) }
     }
-    pub fn insert_any(&mut self, data: FfiAny) -> Option<FfiAny> {
+    pub fn insert_any(&mut self, data: AnyBox) -> Option<AnyBox> {
         unsafe { resources_holder_insert_any(&mut *self.res, self.types, data) }
     }
 
     pub fn remove<T: Resource>(&mut self) -> Option<T> {
         unsafe { resources_holder_remove::<T>(&mut *self.res, self.types) }
     }
-    pub fn remove_any(&mut self, type_info: &'static FfiExtendedTypeInfo) -> Option<FfiAny> {
+    pub fn remove_any(&mut self, type_info: &'static FfiExtendedTypeInfo) -> Option<AnyBox> {
         unsafe { resources_holder_remove_any(&mut *self.res, self.types, type_info) }
     }
 
     pub fn get_ptr<T: Resource>(&self) -> Option<*mut T> {
         unsafe { resources_holder_get_ptr::<T>(&*self.res, self.types) }
     }
-    pub fn get_ptr_any(&self, type_info: &'static FfiExtendedTypeInfo) -> Option<FfiAnyPtr> {
+    pub fn get_ptr_any(&self, type_info: &'static FfiExtendedTypeInfo) -> Option<AnyPtr> {
         unsafe { resources_holder_get_ptr_any(&*self.res, self.types, type_info) }
     }
-    pub fn get_all(&self, handler: impl FnMut(FfiAnyPtr)) {
+    pub fn get_all(&self, handler: impl FnMut(AnyPtr)) {
         unsafe { resources_holder_get_all(&*self.res, handler) }
     }
 
     pub fn into_get<T: Resource>(self) -> Option<&'r T> {
         unsafe { resources_holder_get::<T>(&*self.res, self.types) }
     }
-    pub fn into_get_any(self, type_info: &'static FfiExtendedTypeInfo) -> Option<FfiAnyRef<'r>> {
+    pub fn into_get_any(self, type_info: &'static FfiExtendedTypeInfo) -> Option<AnyRef<'r>> {
         unsafe { resources_holder_get_any(&*self.res, self.types, type_info) }
     }
 
     pub fn into_get_mut<T: Resource>(self) -> Option<&'r mut T> {
         unsafe { resources_holder_get_mut::<T>(&mut *self.res, self.types) }
     }
-    pub fn into_get_mut_any(self, type_info: &'static FfiExtendedTypeInfo) -> Option<FfiAnyMut<'r>> {
+    pub fn into_get_mut_any(self, type_info: &'static FfiExtendedTypeInfo) -> Option<AnyMut<'r>> {
         unsafe { resources_holder_get_mut_any(&mut *self.res, self.types, type_info) }
     }
 }
@@ -120,14 +127,14 @@ impl<'r: 'p, 'p> ResourcesHolderMut<'r> {
     pub fn get<T: Resource>(&'p self) -> Option<&'p T> {
         self.as_ref().get::<T>()
     }
-    pub fn get_any(&'p self, type_info: &'static FfiExtendedTypeInfo) -> Option<FfiAnyRef<'p>> {
+    pub fn get_any(&'p self, type_info: &'static FfiExtendedTypeInfo) -> Option<AnyRef<'p>> {
         self.as_ref().get_any(type_info)
     }
 
     pub fn get_mut<T: Resource>(&'p mut self) -> Option<&'p mut T> {
         self.as_mut().into_get_mut::<T>()
     }
-    pub fn get_mut_any(&'p mut self, type_info: &'static FfiExtendedTypeInfo) -> Option<FfiAnyMut<'p>> {
+    pub fn get_mut_any(&'p mut self, type_info: &'static FfiExtendedTypeInfo) -> Option<AnyMut<'p>> {
         self.as_mut().into_get_mut_any(type_info)
     }
 
@@ -162,20 +169,24 @@ impl<'r> ResourcesHolderRef<'r> {
         Self { res, types }
     }
 
+    pub fn types(self) -> &'r TypesRegistryCache {
+        self.types
+    }
+
     pub fn get_ptr<T: Resource>(self) -> Option<*mut T> {
         unsafe { resources_holder_get_ptr::<T>(&*self.res, self.types) }
     }
-    pub fn get_ptr_any(&self, type_info: &'static FfiExtendedTypeInfo) -> Option<FfiAnyPtr> {
+    pub fn get_ptr_any(&self, type_info: &'static FfiExtendedTypeInfo) -> Option<AnyPtr> {
         unsafe { resources_holder_get_ptr_any(&*self.res, self.types, type_info) }
     }
-    pub fn get_all(&self, handler: impl FnMut(FfiAnyPtr)) {
+    pub fn get_all(&self, handler: impl FnMut(AnyPtr)) {
         unsafe { resources_holder_get_all(&*self.res, handler) }
     }
 
     pub fn get<T: Resource>(self) -> Option<&'r T> {
         unsafe { resources_holder_get::<T>(&*self.res, self.types) }
     }
-    pub fn get_any(self, type_info: &'static FfiExtendedTypeInfo) -> Option<FfiAnyRef<'r>> {
+    pub fn get_any(self, type_info: &'static FfiExtendedTypeInfo) -> Option<AnyRef<'r>> {
         unsafe { resources_holder_get_any(&*self.res, self.types, type_info) }
     }
 }

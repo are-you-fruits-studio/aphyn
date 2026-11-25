@@ -1,8 +1,9 @@
-use aphyn_ffi::{FfiAny, FfiString, FfiVec};
+use aphyn_any::{AnyBox, AnyTypeId};
+use aphyn_ffi::{FfiString, FfiVec};
 use aphyn_reflection::*;
 use aphyn_serialization::*;
 
-use crate::{numeric_to_f64, sampling::is_numeric_type};
+use crate::AnimationTypes;
 
 pub const KEY_TIME_EPSILON: f32 = 1e-4;
 
@@ -10,19 +11,20 @@ pub const KEY_TIME_EPSILON: f32 = 1e-4;
 #[derive(Clone, Debug, PartialEq)]
 pub struct AnimationPath {
     pub entity: FfiString,
-    pub component: FfiString,
+    pub component: AnyTypeId,
     pub field: ReflectPath,
     pub leaf: AnimatedLeaf,
 }
 
-impl std::fmt::Display for AnimationPath {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let component = self.component.rsplit("::").next().unwrap_or(&self.component);
-        write!(f, "{}:{component}{}", self.entity, self.field)?;
+impl AnimationPath {
+    // `component_name` is how the caller names the component (its serialized name, say); the path holds only its id
+    pub fn label(&self, component_name: &str) -> String {
+        let component = component_name.rsplit("::").next().unwrap_or(component_name);
+        let mut label = format!("{}:{component}{}", self.entity, self.field);
         if let AnimatedLeaf::QuatEuler(axis) = self.leaf {
-            write!(f, "/euler_{}", ["x", "y", "z"].get(axis as usize).unwrap_or(&"?"))?;
+            label += &format!("/euler_{}", ["x", "y", "z"].get(axis as usize).unwrap_or(&"?"));
         }
-        Ok(())
+        label
     }
 }
 
@@ -47,7 +49,7 @@ pub enum KeyInterpolation {
 #[repr(C)]
 pub struct AnimationKey {
     pub time: f32,
-    pub value: FfiAny,
+    pub value: AnyBox,
     pub interpolation: KeyInterpolation,
     pub in_tangent: f32,
     pub out_tangent: f32,
@@ -55,7 +57,7 @@ pub struct AnimationKey {
 }
 
 impl AnimationKey {
-    pub fn new(time: f32, value: FfiAny) -> Self {
+    pub fn new(time: f32, value: AnyBox) -> Self {
         Self {
             time,
             value,
@@ -70,32 +72,32 @@ impl AnimationKey {
 #[repr(C)]
 pub struct AnimationTrack {
     pub path: AnimationPath,
-    pub value_type: FfiString,
+    pub value_type: AnyTypeId,
     pub keys: FfiVec<AnimationKey>,
 }
 
 impl AnimationTrack {
-    pub fn new(path: AnimationPath, value_type: &str) -> Self {
+    pub fn new(path: AnimationPath, value_type: AnyTypeId) -> Self {
         Self {
             path,
-            value_type: value_type.into(),
+            value_type,
             keys: FfiVec::new(),
         }
     }
 
-    pub fn is_numeric(&self) -> bool {
-        is_numeric_type(&self.value_type)
+    pub fn is_numeric(&self, types: &AnimationTypes) -> bool {
+        types.is_numeric(self.value_type)
     }
 
     pub fn key_index_at(&self, time: f32) -> Option<usize> {
         self.keys.iter().position(|k| (k.time - time).abs() < KEY_TIME_EPSILON)
     }
 
-    pub fn recompute_auto_tangents(&mut self) {
+    pub fn recompute_auto_tangents(&mut self, types: &AnimationTypes) {
         let values = self
             .keys
             .iter()
-            .map(|k| numeric_to_f64(k.value.as_any_ref()))
+            .map(|k| types.numeric_to_f64(k.value.as_any_ref()))
             .collect::<Vec<_>>();
         let times = self.keys.iter().map(|k| k.time).collect::<Vec<_>>();
         let last = times.len().saturating_sub(1);
@@ -132,7 +134,7 @@ pub struct AnimationClip {
     revision: u64,
 }
 
-// keys hold engine data, which is Send + Sync; FfiAny itself can't promise it
+// keys hold engine data, which is Send + Sync; AnyBox itself can't promise it
 unsafe impl Send for AnimationClip {}
 unsafe impl Sync for AnimationClip {}
 
@@ -164,7 +166,14 @@ impl AnimationClip {
 
     // creates the track if missing and replaces a key within `KEY_TIME_EPSILON` of `time`;
     // a track whose value type differs is emptied first
-    pub fn set_key(&mut self, path: AnimationPath, value_type: &str, time: f32, value: FfiAny) -> (usize, usize) {
+    pub fn set_key(
+        &mut self,
+        types: &AnimationTypes,
+        path: AnimationPath,
+        value_type: AnyTypeId,
+        time: f32,
+        value: AnyBox,
+    ) -> (usize, usize) {
         let track_idx = match self.track_index(&path) {
             Some(idx) => idx,
             None => {
@@ -175,8 +184,8 @@ impl AnimationClip {
 
         let track = &mut self.tracks[track_idx as u64];
 
-        if track.value_type.as_str() != value_type {
-            track.value_type = value_type.into();
+        if track.value_type != value_type {
+            track.value_type = value_type;
             track.keys.clear();
         }
 
@@ -188,7 +197,7 @@ impl AnimationClip {
             }
         }
 
-        track.recompute_auto_tangents();
+        track.recompute_auto_tangents(types);
         self.mark_edited();
 
         let key_idx = self.tracks[track_idx as u64].key_index_at(time).unwrap();
@@ -196,14 +205,14 @@ impl AnimationClip {
     }
 
     // removes the track too once its last key is gone
-    pub fn remove_key(&mut self, track: usize, key: usize) -> Option<AnimationKey> {
+    pub fn remove_key(&mut self, types: &AnimationTypes, track: usize, key: usize) -> Option<AnimationKey> {
         let t = self.tracks.get_mut(track as u64)?;
         let removed = t.keys.remove(key as u64)?;
 
         if t.keys.is_empty() {
             self.tracks.remove(track as u64);
         } else {
-            t.recompute_auto_tangents();
+            t.recompute_auto_tangents(types);
         }
 
         self.mark_edited();
@@ -211,7 +220,7 @@ impl AnimationClip {
     }
 
     // returns the key's new index; a key already at `time` is replaced
-    pub fn move_key(&mut self, track: usize, key: usize, time: f32) -> Option<usize> {
+    pub fn move_key(&mut self, types: &AnimationTypes, track: usize, key: usize, time: f32) -> Option<usize> {
         let t = self.tracks.get_mut(track as u64)?;
         let time = time.max(0.0);
 
@@ -219,12 +228,12 @@ impl AnimationClip {
             && existing != key
         {
             t.keys.remove(existing as u64);
-            return self.move_key(track, if existing < key { key - 1 } else { key }, time);
+            return self.move_key(types, track, if existing < key { key - 1 } else { key }, time);
         }
 
         t.keys.get_mut(key as u64)?.time = time;
         t.sort_keys();
-        t.recompute_auto_tangents();
+        t.recompute_auto_tangents(types);
         let idx = t.key_index_at(time);
 
         self.mark_edited();
@@ -237,9 +246,9 @@ impl AnimationClip {
         Some(removed)
     }
 
-    pub fn recompute_auto_tangents(&mut self, track: usize) {
+    pub fn recompute_auto_tangents(&mut self, types: &AnimationTypes, track: usize) {
         if let Some(t) = self.tracks.get_mut(track as u64) {
-            t.recompute_auto_tangents();
+            t.recompute_auto_tangents(types);
             self.mark_edited();
         }
     }

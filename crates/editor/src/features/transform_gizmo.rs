@@ -26,8 +26,10 @@ pub const TRANSFORM_GIZMO_RENDER_FEATURE: &str = "aphyn_editor/transform_gizmo";
 const BUTTON_COLOR: Vec4<f32> = Vec4::new(0.3, 0.3, 0.3, 1.0);
 const BUTTON_COLOR_ACTIVE: Vec4<f32> = Vec4::from_array(const { parse_color_rgba_f32("#7d90e6ff").unwrap() });
 
-// todo: bundle registration params
-pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+pub fn register_feature(ctx: FeatureInitCtx) {
+    let FeatureInitCtx {
+        mut data, mut behavior, ..
+    } = ctx;
     data.resources_mut().insert(TransformGizmoResource::default());
 
     let mut update = behavior.get_mut(Schedule::Update);

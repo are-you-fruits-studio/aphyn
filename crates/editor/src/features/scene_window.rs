@@ -24,8 +24,10 @@ const CLEAR_COLOR: [f32; 4] = [0.05, 0.05, 0.05, 1.0];
 const FOCUS_DISTANCE_SCALE: f32 = 3.0;
 const FOCUS_MIN_DISTANCE: f32 = 2.0;
 
-// todo: bundle registration params
-pub fn register_feature(mut data: WorldDataMut, mut behavior: WorldBehaviorBuilderMut, _render: &mut RenderFeatureRegistry) {
+pub fn register_feature(ctx: FeatureInitCtx) {
+    let FeatureInitCtx {
+        mut data, mut behavior, ..
+    } = ctx;
     data.resources_mut().insert(SceneCameraResource::default());
     data.resources_mut().insert(SceneViewResource::default());
     data.resources_mut().insert(HierarchyDoubleClickResource::default());

@@ -1,11 +1,12 @@
+use aphyn_any::{AnyMut, AnyRef, AnyTypeId};
 use aphyn_asset_storage::AssetHandle;
 use aphyn_ecs::{EntitiesHolderMut, EntitiesHolderRef, EntityId};
-use aphyn_ffi::{FfiAnyMut, FfiAnyRef, FfiArc, FfiOption, FfiString, FfiVec};
+use aphyn_ffi::{FfiArc, FfiOption, FfiString, FfiVec};
 use aphyn_math::{RotationOrder3D, Vec3};
 use aphyn_reflection::*;
 use aphyn_transform::{ChildComponent, NameComponent, ParentComponent};
 
-use crate::{AnimatedLeaf, AnimationClip, is_quat_type, quat_from_f64, quat_to_f64, sample_numeric, sample_track};
+use crate::{AnimatedLeaf, AnimationClip, AnimationTypes, sample_numeric, sample_track};
 
 pub const EULER_ORDER: RotationOrder3D = RotationOrder3D::Zxy;
 
@@ -21,7 +22,7 @@ pub enum BindStep {
 #[derive(Clone)]
 pub struct BoundTarget {
     pub entity: EntityId,
-    pub component: FfiString,
+    pub component: AnyTypeId,
     pub chain: FfiVec<BindStep>,
 }
 
@@ -104,13 +105,13 @@ pub fn find_root_of(ent: EntitiesHolderRef, entity: EntityId, has_root: impl Fn(
 
 pub fn resolve_chain<'a>(
     registry: &ReflectionRegistry,
-    mut value: FfiAnyRef<'a>,
+    mut value: AnyRef<'a>,
     path: &ReflectPath,
-) -> Option<(FfiVec<BindStep>, FfiAnyRef<'a>)> {
+) -> Option<(FfiVec<BindStep>, AnyRef<'a>)> {
     let mut chain = FfiVec::new();
 
     for segment in path.segments() {
-        let reflector = registry.get(value.type_info().short().name())?;
+        let reflector = registry.get_for(value)?;
 
         let (step, next) = match (&**reflector, segment) {
             (Reflector::Struct(r), ReflectPathSegment::Field(name)) => {
@@ -140,7 +141,7 @@ pub fn resolve_chain<'a>(
     Some((chain, value))
 }
 
-pub fn walk_chain_mut<'a>(registry: &ReflectionRegistry, mut value: FfiAnyMut<'a>, chain: &[BindStep]) -> Option<FfiAnyMut<'a>> {
+pub fn walk_chain_mut<'a>(registry: &ReflectionRegistry, mut value: AnyMut<'a>, chain: &[BindStep]) -> Option<AnyMut<'a>> {
     for step in chain {
         value = match step {
             BindStep::Field(field) => field.get_mut(value)?,
@@ -160,6 +161,7 @@ pub fn walk_chain_mut<'a>(registry: &ReflectionRegistry, mut value: FfiAnyMut<'a
 pub fn bind_clip(
     ent: EntitiesHolderRef,
     registry: &ReflectionRegistry,
+    types: &AnimationTypes,
     root: EntityId,
     clip_handle: &AssetHandle<AnimationClip>,
     clip: &AnimationClip,
@@ -175,25 +177,25 @@ pub fn bind_clip(
         let path = &track.path;
 
         let resolved = find_entity_by_path(ent, root, &path.entity).and_then(|entity| {
-            let component = ent.get_component_any(entity, &path.component)?;
+            let component = ent.get_component_any(entity, path.component)?;
             let (chain, value) = resolve_chain(registry, component, &path.field)?;
             let target = BoundTarget {
                 entity,
-                component: path.component.clone(),
+                component: path.component,
                 chain,
             };
-            Some((target, value.type_info().short().name()))
+            Some((target, value.type_id()))
         });
 
         let bound = match (resolved, path.leaf) {
-            (Some((target, ty)), AnimatedLeaf::Direct) if ty == track.value_type.as_str() => {
+            (Some((target, ty)), AnimatedLeaf::Direct) if ty == track.value_type => {
                 bindings.direct.push(DirectBinding {
                     track: idx as u64,
                     target,
                 });
                 true
             }
-            (Some((target, ty)), AnimatedLeaf::QuatEuler(axis)) if is_quat_type(ty) && axis < 3 => {
+            (Some((target, ty)), AnimatedLeaf::QuatEuler(axis)) if types.is_quat(ty) && axis < 3 => {
                 let group = bindings
                     .euler
                     .iter_mut()
@@ -217,7 +219,10 @@ pub fn bind_clip(
         };
 
         if !bound {
-            eprintln!("animation: track `{path}` could not be bound");
+            eprintln!(
+                "animation: track `{}` could not be bound",
+                path.label(&format!("type #{}", path.component.id()))
+            );
         }
     }
 
@@ -228,6 +233,7 @@ pub fn bind_clip(
 pub fn apply_bindings(
     mut ent: EntitiesHolderMut,
     registry: &ReflectionRegistry,
+    types: &AnimationTypes,
     clip: &AnimationClip,
     bindings: &AnimationBindings,
     time: f32,
@@ -238,12 +244,12 @@ pub fn apply_bindings(
         let Some(track) = clip.tracks.get(binding.track) else {
             continue;
         };
-        let Some(sampled) = sample_track(registry, track, time) else {
+        let Some(sampled) = sample_track(registry, types, track, time) else {
             continue;
         };
         let target = &binding.target;
 
-        let Some(component) = ent.get_component_any_mut(target.entity, &target.component) else {
+        let Some(component) = ent.get_component_any_mut(target.entity, target.component) else {
             is_valid = false;
             continue;
         };
@@ -256,7 +262,7 @@ pub fn apply_bindings(
     for binding in bindings.euler.iter() {
         let target = &binding.target;
 
-        let Some(component) = ent.get_component_any_mut(target.entity, &target.component) else {
+        let Some(component) = ent.get_component_any_mut(target.entity, target.component) else {
             is_valid = false;
             continue;
         };
@@ -264,7 +270,7 @@ pub fn apply_bindings(
             is_valid = false;
             continue;
         };
-        let Some(quat) = quat_to_f64(value.as_any_ref()) else {
+        let Some(quat) = types.quat_to_f64(value.as_any_ref()) else {
             continue;
         };
 
@@ -273,14 +279,14 @@ pub fn apply_bindings(
             let sampled = track
                 .as_ref()
                 .and_then(|idx| clip.tracks.get(*idx))
-                .and_then(|t| sample_numeric(&t.keys, time));
+                .and_then(|t| sample_numeric(types, &t.keys, time));
             if let Some(degrees) = sampled {
                 angles[axis] = degrees.to_radians();
             }
         }
 
         let quat = aphyn_math::Quat::<f64>::from_euler_angles(Vec3::from_array(angles), EULER_ORDER);
-        if let Some(new) = quat_from_f64(value.type_info().short().name(), quat) {
+        if let Some(new) = types.quat_from_f64(value.type_id(), quat) {
             _ = value.replace(new);
         }
     }

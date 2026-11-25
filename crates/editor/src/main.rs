@@ -84,20 +84,14 @@ fn main() {
 fn run_editor_app(project_path: &str) {
     let mut app = App::new();
 
-    let AppInitCtx {
-        mut data,
-        mut behavior,
-        window,
-        render,
-        threading,
-    } = app.init_ctx_mut();
+    let mut ctx = app.init_ctx_mut();
 
-    *threading = ThreadingMode::SingleThreaded;
+    *ctx.threading = ThreadingMode::SingleThreaded;
 
-    add_defult_modules_to(data.as_mut(), behavior.as_mut(), render);
+    add_default_modules_to(ctx.feature_ctx());
 
     {
-        let mut start = behavior.get_mut(Schedule::Start);
+        let mut start = ctx.behavior.get_mut(Schedule::Start);
 
         start.insert_system(init_system);
 
@@ -108,46 +102,46 @@ fn run_editor_app(project_path: &str) {
     }
 
     {
-        let mut update = behavior.get_mut(Schedule::Update);
+        let mut update = ctx.behavior.get_mut(Schedule::Update);
 
         update.order_group(SYSTEM_GROUP).before_group(SYSTEM_GROUP_RENDER);
         update.order_group(SYSTEM_GROUP).before_group(SYSTEM_GROUP_TRANSFORM);
     }
 
-    features::world_preload::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::clipboard::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::project_reload::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::scroll::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::ui_interaction::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::project_window_entries::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::project_window_selection::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::project_window_rename::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::project_window_create::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::inspector_window::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::input_field::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::number_drag::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::dropdown::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::generic_dropdown::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::serialization::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::test_window::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::ui_window::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::docking::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::windows_layout::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::scene_window::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::scene_light::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::transform_gizmo::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::game_window::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::play_mode::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::animation_window::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::profiler_window::register_feature(data.as_mut(), behavior.as_mut(), render);
-    features::foldout::register_feature(data.as_mut(), behavior.as_mut(), render);
+    features::world_preload::register_feature(ctx.feature_ctx());
+    features::clipboard::register_feature(ctx.feature_ctx());
+    features::project_reload::register_feature(ctx.feature_ctx());
+    features::scroll::register_feature(ctx.feature_ctx());
+    features::ui_interaction::register_feature(ctx.feature_ctx());
+    features::project_window_entries::register_feature(ctx.feature_ctx());
+    features::project_window_selection::register_feature(ctx.feature_ctx());
+    features::project_window_rename::register_feature(ctx.feature_ctx());
+    features::project_window_create::register_feature(ctx.feature_ctx());
+    features::inspector_window::register_feature(ctx.feature_ctx());
+    features::input_field::register_feature(ctx.feature_ctx());
+    features::number_drag::register_feature(ctx.feature_ctx());
+    features::dropdown::register_feature(ctx.feature_ctx());
+    features::generic_dropdown::register_feature(ctx.feature_ctx());
+    features::serialization::register_feature(ctx.feature_ctx());
+    features::test_window::register_feature(ctx.feature_ctx());
+    features::ui_window::register_feature(ctx.feature_ctx());
+    features::docking::register_feature(ctx.feature_ctx());
+    features::windows_layout::register_feature(ctx.feature_ctx());
+    features::scene_window::register_feature(ctx.feature_ctx());
+    features::scene_light::register_feature(ctx.feature_ctx());
+    features::transform_gizmo::register_feature(ctx.feature_ctx());
+    features::game_window::register_feature(ctx.feature_ctx());
+    features::play_mode::register_feature(ctx.feature_ctx());
+    features::animation_window::register_feature(ctx.feature_ctx());
+    features::profiler_window::register_feature(ctx.feature_ctx());
+    features::foldout::register_feature(ctx.feature_ctx());
 
-    data.resources_mut().insert(OpenProjectResource {
+    ctx.data.resources_mut().insert(OpenProjectResource {
         dir_path: project_path.to_string(),
     });
 
     {
-        let mut ec = data.entities_mut();
+        let mut ec = ctx.data.entities_mut();
 
         let camera = ec.create_entity();
         ec.add_component(camera, GlobalTransform::default()).ok().unwrap();
@@ -165,7 +159,7 @@ fn run_editor_app(project_path: &str) {
         .unwrap();
     }
 
-    window.fullscreen = FullscreenState::WindowedMaximized;
+    ctx.window.fullscreen = FullscreenState::WindowedMaximized;
 
     app.run();
 }
