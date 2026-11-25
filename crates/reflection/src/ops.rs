@@ -121,6 +121,26 @@ impl ReflectPath {
         path.0.pop()?;
         Some(path)
     }
+
+    // the inverse of `Display`: "" is the root, "/field/[3]" a field then an index
+    pub fn parse(text: &str) -> Option<Self> {
+        let mut path = Self::new();
+
+        if text.is_empty() {
+            return Some(path);
+        }
+
+        for segment in text.strip_prefix('/')?.split('/') {
+            let segment = match segment.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+                Some(idx) => ReflectPathSegment::Index(idx.parse().ok()?),
+                None if !segment.is_empty() => ReflectPathSegment::Field(segment.into()),
+                None => return None,
+            };
+            path.0.push(segment);
+        }
+
+        Some(path)
+    }
 }
 
 impl std::fmt::Display for ReflectPath {

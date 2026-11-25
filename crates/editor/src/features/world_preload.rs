@@ -309,10 +309,11 @@ fn build_simulated_world(
         serializer.register(StandardSerializer::<ComputeShaderAssetMetadata>::default());
         serializer.register(StandardSerializer::<StandardMeshAssetMetadata>::default());
         serializer.register(StandardSerializer::<AudioClipAssetMetadata>::default());
+        serializer.register(StandardSerializer::<AnimationClipAssetMetadata>::default());
         // todo
         // serializer.register(StandardTransSerializer::<Prefab>::default());
         serializer.register(StandardSerializer::<FfiOption<AssetHandle<StandardTexture>>>::default());
-        serializer.register(StandardSerializer::<DebugNameComponent>::default());
+        serializer.register(StandardSerializer::<NameComponent>::default());
         serializer.register(StandardSerializer::<ChildComponent>::default());
         serializer.register(StandardSerializer::<ParentComponent>::default());
         serializer.register(StandardSerializer::<StaticComponent>::default());
@@ -329,6 +330,7 @@ fn build_simulated_world(
                     WrappedAudioStateHandle::new(Arc::new(Mutex::new(AudioState::new()))),
                 ));
                 res.insert(AssetStorageResource::<AudioClip>::new());
+                res.insert(AssetStorageResource::<AnimationClip>::new());
                 res.insert(AssetStorageResource::<Prefab>::new());
                 res.insert(AssetStorageResource::<Scene>::new());
 

@@ -388,27 +388,11 @@ pub fn with_component_mut<R>(
     type_name: &str,
     f: impl FnOnce(FfiAnyMut) -> R,
 ) -> Option<R> {
-    let mut component = None;
-
-    ent.get_all_components_mut(entity, |c| {
-        if component.is_none() && c.type_info().short().name() == type_name {
-            component = Some(c);
-        }
-    });
-
-    component.map(f)
+    ent.get_component_any_mut(entity, type_name).map(f)
 }
 
 pub fn with_component<R>(ent: EntitiesHolderRef, entity: EntityId, type_name: &str, f: impl FnOnce(FfiAnyRef) -> R) -> Option<R> {
-    let mut component = None;
-
-    ent.get_all_components(entity, |c| {
-        if component.is_none() && c.type_info().short().name() == type_name {
-            component = Some(c);
-        }
-    });
-
-    component.map(f)
+    ent.get_component_any(entity, type_name).map(f)
 }
 
 // engine data (components, asset metadata) is Send + Sync; FfiAny itself can't promise it

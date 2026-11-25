@@ -23,7 +23,7 @@ pub fn debug_layout_system(mut world: WorldDataMut) {
             if let Some(name) = world
                 .as_ref()
                 .entities()
-                .get_component::<DebugNameComponent>(child)
+                .get_component::<NameComponent>(child)
                 .map(|c| c.0.as_str())
             {
                 children_debug.push(name);

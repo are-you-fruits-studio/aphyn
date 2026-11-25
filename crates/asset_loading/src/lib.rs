@@ -9,7 +9,7 @@
 //! Every asset is identified by a **key**: the `/`-separated path, relative to the `assets/`
 //! directory, of a small JSON *asset file* with the `.asset` extension. The file declares an
 //! `asset_type` (`"texture"`, `"material"`, `"material_template"`, `"shader"`, `"compute_shader"`,
-//! `"mesh"`, `"audio_clip"`, `"prefab"`, `"scene"`, or `"font"`) and the asset's settings, and usually points
+//! `"mesh"`, `"audio_clip"`, `"animation_clip"`, `"prefab"`, `"scene"`, or `"font"`) and the asset's settings, and usually points
 //! at a raw payload (image, `.wgsl`, `.obj`, `.wav`) by a further `assets/`-relative path; an empty
 //! payload path loads a placeholder asset (except for shaders). The module is part of the engine's
 //! default modules (`add_defult_modules_to`), which also registers the texture, material, template,
@@ -248,6 +248,8 @@
 //! - **Audio clip** — [`AudioClipLoader`] reads the `raw_audio` `.wav` with `hound`. Integer
 //!   samples are normalized to `f32`, the buffer is forced to stereo, and it is resampled to
 //!   the engine's sample rate when the file's rate differs.
+//! - **Animation clip** — `AnimationClip::from_meta` (in `aphyn_animation`) deserializes every key value into its
+//!   track's `value_type`; the clip has no payload file. It is saved through `AnimationClip::to_meta`.
 //! - **Shader** — [`ShaderLoader`] deserializes a `ShaderAssetMetadata`, reads its `wgsl` source, starts a composer with the engine
 //!   libraries, and registers every other include path (found with `wgsl_include_paths`,
 //!   recursively through the registered files) by reading `assets/<path>`; an unreadable file is
@@ -311,6 +313,7 @@ use std::{
 };
 
 use aphyn_asset_storage::{AssetHandle, AssetStorageResource};
+use aphyn_animation::AnimationClip;
 use aphyn_audio::AudioClip;
 use aphyn_prefab::{Prefab, Scene};
 use aphyn_render::{ComputeShader, Material, MaterialTemplate, Shader, StandardMesh, StandardTexture};
@@ -392,6 +395,7 @@ pub enum AssetType {
     Shader,
     ComputeShader,
     MaterialTemplate,
+    AnimationClip,
 }
 
 impl AssetType {
@@ -407,6 +411,7 @@ impl AssetType {
             AssetType::Shader => "shader",
             AssetType::ComputeShader => "compute_shader",
             AssetType::MaterialTemplate => "material_template",
+            AssetType::AnimationClip => "animation_clip",
         }
     }
 
@@ -422,6 +427,7 @@ impl AssetType {
             "shader" => Some(AssetType::Shader),
             "compute_shader" => Some(AssetType::ComputeShader),
             "material_template" => Some(AssetType::MaterialTemplate),
+            "animation_clip" => Some(AssetType::AnimationClip),
             _ => None,
         }
     }
@@ -555,6 +561,9 @@ pub fn load_all_assets(mut res: ResourcesHolderMut, assets_dir_path: impl AsRef<
                     }
                     AssetType::MaterialTemplate => {
                         _ = serializer_ctx.deserialize_default::<AssetHandle<MaterialTemplate>>("", &serialized_value)
+                    }
+                    AssetType::AnimationClip => {
+                        _ = serializer_ctx.deserialize_default::<AssetHandle<AnimationClip>>("", &serialized_value)
                     }
                 };
             });

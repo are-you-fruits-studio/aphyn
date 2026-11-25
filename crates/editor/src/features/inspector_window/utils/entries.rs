@@ -75,7 +75,7 @@ pub fn spawn_hierarchy_window_entry(
     ec.as_mut().set_components(
         ent_name,
         (
-            DebugNameComponent("ent_name".into()),
+            NameComponent("ent_name".into()),
             GlobalRectComponent::default(),
             GlobalDisableableComponent::default(),
             LocalRectComponent { ..Default::default() },
@@ -1168,7 +1168,7 @@ pub fn spawn_hierarchy_entry(
     ec.as_mut().set_components(
         ent_entry_name,
         (
-            DebugNameComponent("ent_name".into()),
+            NameComponent("ent_name".into()),
             GlobalRectComponent::default(),
             GlobalDisableableComponent::default(),
             LocalRectComponent { ..Default::default() },
@@ -1197,7 +1197,7 @@ pub fn spawn_hierarchy_entry(
     ec.as_mut().set_components(
         ent_children,
         (
-            DebugNameComponent("ent_children".into()),
+            NameComponent("ent_children".into()),
             GlobalRectComponent::default(),
             GlobalDisableableComponent::default(),
             LocalRectComponent {

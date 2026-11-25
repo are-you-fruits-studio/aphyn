@@ -24,6 +24,8 @@ pub struct OpenedEntitiesAssetResource {
     pub path: OsString,
     pub asset_type: Option<AssetType>,
     pub prefab_root: EntityId,
+    // set while the Animation window previews, so animated values aren't recorded into the asset
+    pub is_saving_paused: bool,
 }
 
 // todo: maybe merge InspectedAssetResource and InspectedEntityResource or smth.
@@ -166,3 +168,11 @@ pub enum AssetEditedEvent {
 
 #[derive(Event)]
 pub struct EntitySelectedEvent;
+
+// a field of a simulated entity's component changed through an editor tool (inspector, gizmo)
+#[derive(Event, Clone)]
+pub struct EntityFieldEditedEvent {
+    pub entity: EntityId,
+    pub component: FfiString,
+    pub path: ReflectPath,
+}

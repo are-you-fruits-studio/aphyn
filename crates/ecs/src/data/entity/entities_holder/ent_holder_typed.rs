@@ -161,6 +161,16 @@ fn entities_holder_get_component<'r, C: 'static>(
     unsafe { entities_holder_get_component_ptr::<C>(entities, types, entity).map(|p| &*p) }
 }
 
+fn entities_holder_get_component_any_ptr(
+    entities: &EntitiesHolderUnsafeFfi,
+    types: &TypesRegistryCache,
+    entity: EntityId,
+    type_name: &str,
+) -> Option<(*mut u8, &'static FfiExtendedTypeInfo)> {
+    let info = unsafe { types.registry() }.get_by_name(type_name)?;
+    entities.get_component_ptr(entity, info.id).map(|ptr| (ptr, info.data))
+}
+
 fn entities_holder_get_all_components<'r>(
     entities: &'r EntitiesHolderUnsafeFfi,
     entity: EntityId,
@@ -341,6 +351,22 @@ impl<'e> EntitiesHolderMut<'e> {
         unsafe { entities_holder_get_component_mut(&mut *self.entities, self.types, entity) }
     }
 
+    pub fn get_component_any<'r>(&'r self, entity: EntityId, type_name: &str) -> Option<FfiAnyRef<'r>>
+    where
+        'e: 'r,
+    {
+        let (ptr, info) = unsafe { entities_holder_get_component_any_ptr(&*self.entities, self.types, entity, type_name) }?;
+        Some(unsafe { info.as_any(FfiOpaqueRef::from_raw(ptr as *const c_void)) })
+    }
+
+    pub fn get_component_any_mut<'r>(&'r mut self, entity: EntityId, type_name: &str) -> Option<FfiAnyMut<'r>>
+    where
+        'e: 'r,
+    {
+        let (ptr, info) = unsafe { entities_holder_get_component_any_ptr(&*self.entities, self.types, entity, type_name) }?;
+        Some(unsafe { info.as_any_mut(FfiOpaqueMut::from_raw(ptr as *mut c_void)) })
+    }
+
     pub fn get_all_components<'r>(&'r self, entity: EntityId, handler: impl FnMut(FfiAnyRef<'r>))
     where
         'e: 'r,
@@ -440,6 +466,11 @@ impl<'e> EntitiesHolderRef<'e> {
 
     pub fn get_component<C: 'static>(self, entity: EntityId) -> Option<&'e C> {
         unsafe { entities_holder_get_component(&*self.entities, self.types, entity) }
+    }
+
+    pub fn get_component_any(self, entity: EntityId, type_name: &str) -> Option<FfiAnyRef<'e>> {
+        let (ptr, info) = unsafe { entities_holder_get_component_any_ptr(&*self.entities, self.types, entity, type_name) }?;
+        Some(unsafe { info.as_any(FfiOpaqueRef::from_raw(ptr as *const c_void)) })
     }
 
     pub fn get_all_components<'r>(&'r self, entity: EntityId, handler: impl FnMut(FfiAnyRef<'r>))

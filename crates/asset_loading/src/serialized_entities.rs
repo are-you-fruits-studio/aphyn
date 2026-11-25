@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use aphyn_animation::AnimationClip;
 use aphyn_asset_storage::AssetStorageResource;
 use aphyn_audio::AudioClip;
 use aphyn_ecs::*;
@@ -63,6 +64,8 @@ pub fn instantiate_serialized_entities(
             res.get::<AssetStorageResource<Font>>().map(AssetHandleCtx::Registered),
             res.get::<AssetStorageResource<Prefab>>().map(AssetHandleCtx::Registered),
             res.get::<AssetStorageResource<Scene>>().map(AssetHandleCtx::Registered),
+            res.get::<AssetStorageResource<AnimationClip>>()
+                .map(AssetHandleCtx::Registered),
         );
 
         let mut context = ContextData::new().with::<EntityIdCtxKey>(&entity_ids);
@@ -76,6 +79,7 @@ pub fn instantiate_serialized_entities(
         insert_optional::<AssetHandleCtxKey<Font>>(&mut context, &entries.7);
         insert_optional::<AssetHandleCtxKey<Prefab>>(&mut context, &entries.8);
         insert_optional::<AssetHandleCtxKey<Scene>>(&mut context, &entries.9);
+        insert_optional::<AssetHandleCtxKey<AnimationClip>>(&mut context, &entries.10);
 
         let mut err_handler = |err| println!("[{}:{}] {err}", file!(), line!());
         let mut serializer_ctx = serializers.to_ctx_state(&context).into_ctx(&mut err_handler);

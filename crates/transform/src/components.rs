@@ -1,5 +1,5 @@
 use aphyn_ecs::{Component, EntityId, Resource};
-use aphyn_ffi::{FfiOption, FfiVec};
+use aphyn_ffi::{FfiOption, FfiSmallString, FfiVec};
 use aphyn_math::{Mat, Mat3, Quat, Vec2, Vec3};
 use aphyn_reflection::*;
 use aphyn_serialization::*;
@@ -333,3 +333,7 @@ impl UiVal {
         })
     }
 }
+
+#[repr(transparent)]
+#[derive(Component, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Default, Serializable, Reflectable)]
+pub struct NameComponent(pub FfiSmallString);

@@ -22,6 +22,7 @@ impl InspectedAsset {
             AssetType::MaterialTemplate => {
                 ctx.serialize(&DirectSerializableAsset::<MaterialTemplate>::Key(self.asset_key.clone()), "")
             }
+            AssetType::AnimationClip => ctx.serialize(&DirectSerializableAsset::<AnimationClip>::Key(self.asset_key.clone()), ""),
         }
     }
 
@@ -115,6 +116,11 @@ pub fn get_asset_type(res: ResourcesHolderRef, key: &str) -> Option<AssetType> {
         && storage.get_registered(key).is_some()
     {
         return Some(AssetType::Prefab);
+    }
+    if let Some(storage) = res.get::<AssetStorageResource<AnimationClip>>()
+        && storage.get_registered(key).is_some()
+    {
+        return Some(AssetType::AnimationClip);
     }
     if let Some(storage) = res.get::<AssetStorageResource<Scene>>()
         && storage.get_registered(key).is_some()

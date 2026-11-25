@@ -7,7 +7,7 @@ use super::{
     handles::{GizmoFrame, GizmoView, HandlePart, HandleShape, RING_RADIUS, handle_parts, perpendicular_basis},
 };
 use crate::features::{
-    inspector_window::data::{AssetEditedEvent, InspectedEntityResource},
+    inspector_window::data::{AssetEditedEvent, EntityFieldEditedEvent, InspectedEntityResource},
     scene_window::{SceneCameraResource, SceneViewImageComponent, view_size},
     ui_interaction::HoverAreaComponent,
     world_preload::SimulatedWorldResource,
@@ -48,6 +48,7 @@ pub fn transform_gizmo_interaction_system(
     mut gizmo_res: ResMut<TransformGizmoResource>,
     mut simulated_world: ResMut<SimulatedWorldResource>,
     mut asset_edited_evt: EvtMut<AssetEditedEvent>,
+    mut field_edited_evt: EvtMut<EntityFieldEditedEvent>,
     image_q: WorldQuery<(&GlobalRectComponent, &HoverAreaComponent), WithFilter<SceneViewImageComponent>>,
 ) {
     let gizmo_res = &mut *gizmo_res;
@@ -89,8 +90,21 @@ pub fn transform_gizmo_interaction_system(
         if let Some(local_c) = ent.get_component_mut::<LocalTransform>(selected)
             && *local_c != local
         {
+            let changed = [
+                ("position", local_c.position != local.position),
+                ("rotation", local_c.rotation != local.rotation),
+                ("scale", local_c.scale != local.scale),
+            ];
             *local_c = local;
             asset_edited_evt.push(AssetEditedEvent::OpenedEntitiesAsset);
+
+            for (field, _) in changed.into_iter().filter(|(_, is_changed)| *is_changed) {
+                field_edited_evt.push(EntityFieldEditedEvent {
+                    entity: selected,
+                    component: std::any::type_name::<LocalTransform>().into(),
+                    path: ReflectPath::new().join(ReflectPathSegment::Field(field.into())),
+                });
+            }
         }
 
         return;

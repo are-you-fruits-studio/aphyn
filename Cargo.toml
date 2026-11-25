@@ -39,6 +39,7 @@ members = [
     "crates/window",
     "crates/noise",
     "crates/time",
+    "crates/animation",
 ]
 
 [workspace.package]
@@ -86,3 +87,4 @@ aphyn_file_storage = { path = "./crates/file_storage" }
 aphyn_window = { path = "./crates/window" }
 aphyn_noise = { path = "./crates/noise" }
 aphyn_time = { path = "./crates/time" }
+aphyn_animation = { path = "./crates/animation" }

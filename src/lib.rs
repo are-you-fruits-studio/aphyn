@@ -27,3 +27,4 @@ pub use aphyn_file_storage::*;
 pub use aphyn_window::*;
 pub use aphyn_noise::*;
 pub use aphyn_time::*;
+pub use aphyn_animation::*;

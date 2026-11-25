@@ -16,9 +16,29 @@ pub enum EditorClipboard {
     Entities(SerializedEntities),
     Component { component_id: FfiString, value: EditorValue },
     Value(EditorValue),
+    AnimationKeys(Vec<CopiedAnimationKey>),
+}
+
+// `time` is relative to the earliest copied key
+pub struct CopiedAnimationKey {
+    pub path: AnimationPath,
+    pub value_type: FfiString,
+    pub time: f32,
+    pub value: EditorValue,
+    pub interpolation: KeyInterpolation,
+    pub in_tangent: f32,
+    pub out_tangent: f32,
+    pub auto_tangent: bool,
 }
 
 impl EditorClipboardResource {
+    pub fn animation_keys(&self) -> Option<&[CopiedAnimationKey]> {
+        match &self.0 {
+            Some(EditorClipboard::AnimationKeys(keys)) => Some(keys),
+            _ => None,
+        }
+    }
+
     pub fn files(&self) -> Option<&[PathBuf]> {
         match &self.0 {
             Some(EditorClipboard::Files(paths)) => Some(paths),

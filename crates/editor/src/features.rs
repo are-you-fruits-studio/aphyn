@@ -1,3 +1,4 @@
+pub mod animation_window;
 pub mod asset_serialization;
 pub mod clipboard;
 pub mod docking;

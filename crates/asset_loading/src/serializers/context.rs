@@ -1,5 +1,6 @@
 use std::{marker::PhantomData, path::Path, sync::Mutex};
 
+use aphyn_animation::AnimationClip;
 use aphyn_asset_storage::{AssetHandle, AssetStorageResource};
 use aphyn_audio::{AudioClip, AudioClipAssetMetadata};
 use aphyn_ecs::EntityId;
@@ -96,6 +97,7 @@ pub fn register_asset_loading_serializers(registry: &mut TransSerializerRegistry
     register_asset_serializers::<Font>(registry);
     register_asset_serializers::<Prefab>(registry);
     register_asset_serializers::<Scene>(registry);
+    register_asset_serializers::<AnimationClip>(registry);
 
     registry.register(DirectAssetSaveSerializer::<StandardTexture, _>::new(|_, a| {
         a.meta().cloned().unwrap_or_default()
@@ -121,6 +123,9 @@ pub fn register_asset_loading_serializers(registry: &mut TransSerializerRegistry
         a.meta().cloned().unwrap_or_else(|| AudioClipAssetMetadata {
             raw_audio: Default::default(),
         })
+    }));
+    registry.register(DirectAssetSaveSerializer::<AnimationClip, _>::new(|mut ctx, c| {
+        c.to_meta(&mut ctx)
     }));
     // todo: fonts
     registry.register(DirectAssetSaveSerializer::<Prefab, _>::new(|ctx, p| {

@@ -72,10 +72,11 @@ enum ProjectEntryCreateKind {
     Texture,
     Mesh,
     AudioClip,
+    AnimationClip,
 }
 
 impl ProjectEntryCreateKind {
-    const ALL: [Self; 10] = [
+    const ALL: [Self; 11] = [
         Self::Folder,
         Self::Material,
         Self::MaterialTemplate,
@@ -86,6 +87,7 @@ impl ProjectEntryCreateKind {
         Self::Texture,
         Self::Mesh,
         Self::AudioClip,
+        Self::AnimationClip,
     ];
 
     fn label(self) -> &'static str {
@@ -100,6 +102,7 @@ impl ProjectEntryCreateKind {
             Self::Texture => "Texture",
             Self::Mesh => "Mesh",
             Self::AudioClip => "Audio clip",
+            Self::AnimationClip => "Animation clip",
         }
     }
 
@@ -115,6 +118,7 @@ impl ProjectEntryCreateKind {
             Self::Texture => "New Texture",
             Self::Mesh => "New Mesh",
             Self::AudioClip => "New Audio Clip",
+            Self::AnimationClip => "New Animation Clip",
         }
     }
 
@@ -130,6 +134,7 @@ impl ProjectEntryCreateKind {
             Self::Texture => Some(AssetType::Texture),
             Self::Mesh => Some(AssetType::Mesh),
             Self::AudioClip => Some(AssetType::AudioClip),
+            Self::AnimationClip => Some(AssetType::AnimationClip),
         }
     }
 }
@@ -231,6 +236,7 @@ fn create_asset(
         AssetType::MaterialTemplate => serialize_default_metadata::<MaterialTemplate>(res.as_ref(), asset_type),
         AssetType::Mesh => serialize_default_metadata::<StandardMeshAssetMetadata>(res.as_ref(), asset_type),
         AssetType::AudioClip => serialize_default_metadata::<AudioClipAssetMetadata>(res.as_ref(), asset_type),
+        AssetType::AnimationClip => serialize_default_metadata::<AnimationClipAssetMetadata>(res.as_ref(), asset_type),
         AssetType::Prefab => {
             let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or(stem);
             create_named_root_prefab(res.as_ref(), name).and_then(|prefab| {
@@ -266,6 +272,7 @@ fn create_asset(
             | AssetType::Shader
             | AssetType::ComputeShader
             | AssetType::MaterialTemplate
+            | AssetType::AnimationClip
     ) {
         let assets_dir_path = open_project.dir_path.to_string() + PROJECT_ASSETS_SUBPATH;
         load_asset_to_world_res(res.as_mut(), &key, &serialized, asset_type, &assets_dir_path);
@@ -289,8 +296,8 @@ fn serialize_metadata<T: 'static>(res: ResourcesHolderRef, asset_type: AssetType
 }
 
 fn create_named_root_prefab(res: ResourcesHolderRef, name: &str) -> Option<Prefab> {
-    let component_name = FfiString::from(FfiExtendedTypeInfo::of::<DebugNameComponent>().short().name());
-    let component = serialize_with_world_serializers(res, &DebugNameComponent(name.into()))?;
+    let component_name = FfiString::from(FfiExtendedTypeInfo::of::<NameComponent>().short().name());
+    let component = serialize_with_world_serializers(res, &NameComponent(name.into()))?;
 
     let components = SerializedEntityComponents([(component_name, component)].into_iter().collect());
 

@@ -11,7 +11,10 @@ use aphyn_transform::*;
 use aphyn_window::WindowResource;
 use image::GenericImageView;
 
-use crate::{ChildrenRectMaskComponent, Font, HorizontalAlign, ImageComponent, ImageFillSettings, StandardUiAssetsResource, TextComponent, VerticalAlign};
+use crate::{
+    ChildrenRectMaskComponent, Font, HorizontalAlign, ImageComponent, ImageFillSettings, StandardUiAssetsResource, TextComponent,
+    UiLineComponent, VerticalAlign,
+};
 
 pub fn create_standard_ui_assets_resource(mut world: WorldDataMut) {
     let render_api = world.as_ref().resources().get::<RenderApiResource>().unwrap();
@@ -297,11 +300,74 @@ pub fn update_text_batched_mesh(
     }
 }
 
+pub fn update_line_batched_mesh(mut q: WorldQuery<(&UiLineComponent, &mut BatchedMeshComponent, &GlobalRectComponent)>) {
+    for (line_c, mesh_c, rect_c) in q.iter_mut() {
+        mesh_c.vertices.clear();
+        mesh_c.indices.clear();
+
+        let color = line_c.color.into_array();
+        let half = line_c.thickness_px * 0.5;
+        let min = rect_c.center - rect_c.scale * 0.5;
+        let to_global = |p: Vec2<f32>| min + p * rect_c.scale;
+
+        let create_vertex = |position: Vec2<f32>| StandardVertex {
+            color,
+            normal: [0.0, 0.0, -1.0],
+            tangent: [1.0, 0.0, 0.0, 1.0],
+            uv: [0.5, 0.5],
+            position: [position.x, position.y, rect_c.z],
+        };
+
+        let points = line_c.points.as_slice();
+        let segments: Box<dyn Iterator<Item = &[Vec2<f32>]>> = if line_c.is_segments {
+            Box::new(points.chunks_exact(2))
+        } else {
+            Box::new(points.windows(2))
+        };
+
+        for segment in segments {
+            let (a, b) = (to_global(segment[0]), to_global(segment[1]));
+            let dir = b - a;
+            let len = (dir.x * dir.x + dir.y * dir.y).sqrt();
+            if len < f32::EPSILON {
+                continue;
+            }
+
+            // extending each end by half the thickness closes the gaps at polyline joints
+            let dir = dir / len * half;
+            let normal = Vec2::new(-dir.y, dir.x);
+            let (a, b) = (a - dir, b + dir);
+
+            let base = mesh_c.vertices.len() as u32;
+            for p in [a + normal, b + normal, a - normal, b - normal] {
+                mesh_c.vertices.push(create_vertex(p));
+            }
+            // both windings: the ui templates cull back faces
+            for i in [0, 3, 1, 0, 2, 3, 0, 1, 3, 0, 3, 2] {
+                mesh_c.indices.push(base + i);
+            }
+        }
+    }
+}
+
 pub fn update_masked_batched_mesh(
     hierarchy_q: WorldQuery<(EntityId, Option<&ChildComponent>, Option<&ParentComponent>)>,
     mask_q: WorldQuery<(EntityId, &GlobalRectComponent), WithFilter<ChildrenRectMaskComponent>>,
     mut mesh_q: WorldQuery<&mut BatchedMeshComponent>,
 ) {
+    for (e, (min, max)) in collect_mask_clip_rects(&hierarchy_q, &mask_q) {
+        if let Some(mesh) = mesh_q.get_mut(e) {
+            crop_mesh_to_rect(mesh, min, max);
+        }
+    }
+}
+
+// the (min, max) rect each entity at or below a `ChildrenRectMaskComponent` is clipped to:
+// the intersection of the rects of every mask among it and its ancestors
+pub fn collect_mask_clip_rects(
+    hierarchy_q: &WorldQuery<(EntityId, Option<&ChildComponent>, Option<&ParentComponent>)>,
+    mask_q: &WorldQuery<(EntityId, &GlobalRectComponent), WithFilter<ChildrenRectMaskComponent>>,
+) -> HashMap<EntityId, (Vec2<f32>, Vec2<f32>)> {
     let mut roots = Vec::new();
 
     for (mask_e, _) in mask_q.iter() {
@@ -325,42 +391,26 @@ pub fn update_masked_batched_mesh(
         }
     }
 
+    let mut clip_rects = HashMap::new();
+
     for root in roots {
-        update_masked_batched_mesh_subtree(&hierarchy_q, &mask_q, &mut mesh_q, root);
+        aphyn_transform::hierarchy_iter_depth_first_parent_to_child(hierarchy_q, Some(root), |e, _, parent_clip| {
+            let own = mask_q.get(e).map(|(_, r)| (r.center - r.scale * 0.5, r.center + r.scale * 0.5));
+
+            let clip = match (parent_clip.copied(), own) {
+                (None, None) => return None,
+                (Some(clip), None) | (None, Some(clip)) => clip,
+                (Some((p_min, p_max)), Some((c_min, c_max))) => {
+                    (p_min.zip_copied(c_min, f32::max), p_max.zip_copied(c_max, f32::min))
+                }
+            };
+
+            clip_rects.insert(e, clip);
+            Some(clip)
+        });
     }
-}
 
-fn update_masked_batched_mesh_subtree(
-    hierarchy_q: &WorldQuery<(EntityId, Option<&ChildComponent>, Option<&ParentComponent>)>,
-    mask_q: &WorldQuery<(EntityId, &GlobalRectComponent), WithFilter<ChildrenRectMaskComponent>>,
-    mesh_q: &mut WorldQuery<&mut BatchedMeshComponent>,
-    root: EntityId,
-) {
-    aphyn_transform::hierarchy_iter_depth_first_parent_to_child(hierarchy_q, Some(root), |e, _, parent_mask| {
-        let rect = match (parent_mask, mask_q.get(e).map(|(_, r)| r)) {
-            (None, None) => return None,
-            (Some(&m), None) => m,
-            (None, Some(&m)) => m,
-            (Some(p), Some(c)) => {
-                let min = (p.center - p.scale * 0.5).zip_copied(c.center - c.scale * 0.5, f32::max);
-                let max = (p.center + p.scale * 0.5).zip_copied(c.center + c.scale * 0.5, f32::min);
-
-                let center = (min + max) * 0.5;
-                let scale = max - min;
-
-                GlobalRectComponent { center, scale, z: 0.0 }
-            }
-        };
-
-        let min = rect.center - rect.scale * 0.5;
-        let max = rect.center + rect.scale * 0.5;
-
-        if let Some(mesh) = mesh_q.get_mut(e) {
-            crop_mesh_to_rect(mesh, min, max);
-        }
-
-        Some(rect)
-    });
+    clip_rects
 }
 
 // clamps positions into the rect and moves uvs along through each triangle's position-to-uv mapping:

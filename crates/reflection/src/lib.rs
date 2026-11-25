@@ -201,6 +201,18 @@
 //! assert_eq!(inventory.items, [1, 7]);
 //! ```
 //!
+//! A path prints as text (`/items/[1]`) and [`ReflectPath::parse`] reads that text back, so
+//! assets can store paths as strings:
+//!
+//! ```
+//! use aphyn_reflection::*;
+//!
+//! let path = ReflectPath::parse("/items/[1]").unwrap();
+//! assert_eq!(path.to_string(), "/items/[1]");
+//! assert_eq!(ReflectPath::parse("").unwrap(), ReflectPath::new());
+//! assert!(ReflectPath::parse("items").is_none());
+//! ```
+//!
 //! #### Hand-written reflectors
 //!
 //! The builders take non-capturing closures, which coerce to plain `fn` pointers.

@@ -31,6 +31,7 @@ pub fn add_ui_module_to(mut data: WorldDataMut, mut behavior: WorldBehaviorBuild
         .group(SYSTEM_GROUP_UI)
         .insert_child_system(update_text_batched_mesh)
         .insert_child_system(update_image_batched_mesh)
+        .insert_child_system(update_line_batched_mesh)
         .insert_child_system(update_masked_batched_mesh);
 
     update
@@ -38,6 +39,10 @@ pub fn add_ui_module_to(mut data: WorldDataMut, mut behavior: WorldBehaviorBuild
         .before_system(update_masked_batched_mesh);
     update
         .order_system(update_image_batched_mesh)
+        .before_system(update_masked_batched_mesh);
+
+    update
+        .order_system(update_line_batched_mesh)
         .before_system(update_masked_batched_mesh);
 
     update

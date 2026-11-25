@@ -17,7 +17,7 @@ pub fn clone_asset_for_inspection(res: ResourcesHolderRef, key: &str) -> Option<
         AssetType::AudioClip => FfiAnyRef::new(stored::<AudioClip>(res, key)?.meta()?),
         AssetType::Material => FfiAnyRef::new(stored::<Material>(res, key)?),
         AssetType::MaterialTemplate => FfiAnyRef::new(stored::<MaterialTemplate>(res, key)?),
-        AssetType::Font | AssetType::Prefab | AssetType::Scene => return None,
+        AssetType::Font | AssetType::Prefab | AssetType::Scene | AssetType::AnimationClip => return None,
     };
 
     reflect_clone(registry, value)
@@ -138,6 +138,6 @@ fn reload_asset(mut res: ResourcesHolderMut, key: &str, asset_type: AssetType, c
             Some(template) => replace_registered(res, key, template),
             None => false,
         },
-        AssetType::Font | AssetType::Prefab | AssetType::Scene => false,
+        AssetType::Font | AssetType::Prefab | AssetType::Scene | AssetType::AnimationClip => false,
     }
 }

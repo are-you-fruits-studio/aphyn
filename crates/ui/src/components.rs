@@ -1,7 +1,7 @@
 use aphyn_asset_storage::AssetHandle;
 use aphyn_ecs::Component;
-use aphyn_ffi::FfiString;
-use aphyn_math::Vec4;
+use aphyn_ffi::{FfiString, FfiVec};
+use aphyn_math::{Vec2, Vec4};
 use aphyn_reflection::*;
 use aphyn_serialization::*;
 use aphyn_transform::UiVal;
@@ -83,3 +83,24 @@ pub enum VerticalAlign {
 #[repr(C)]
 #[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default, Serializable, Reflectable)]
 pub struct ChildrenRectMaskComponent;
+
+#[repr(C)]
+#[derive(Component, Serializable, Reflectable)]
+pub struct UiLineComponent {
+    // in the entity's rect: (0, 0) is its min corner, (1, 1) its max corner
+    pub points: FfiVec<Vec2<f32>>,
+    pub thickness_px: f32,
+    // draws points as separate (start, end) pairs instead of one connected strip
+    pub is_segments: bool,
+    pub color: Vec4<f32>,
+}
+impl Default for UiLineComponent {
+    fn default() -> Self {
+        Self {
+            points: FfiVec::new(),
+            thickness_px: 1.0,
+            is_segments: false,
+            color: Vec4::splat(1.0),
+        }
+    }
+}

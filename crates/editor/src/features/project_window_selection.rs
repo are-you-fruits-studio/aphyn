@@ -352,10 +352,12 @@ pub fn copy_selected_file_hotkey_system(
     input_res: Res<InputResource>,
     selected_input: Res<SelectedInputFieldResource>,
     game_focus: Res<GameViewFocusResource>,
+    animation_window: Res<crate::features::animation_window::AnimationWindowResource>,
     open_project: Res<OpenProjectResource>,
     selected_file: Res<SelectedFileResource>,
     mut clipboard: ResMut<EditorClipboardResource>,
 ) {
+    return_if!(animation_window.is_focused);
     return_if!(!is_editor_ctrl_hotkey_just_pressed(
         &input_res,
         &selected_input,
@@ -371,6 +373,7 @@ pub fn paste_files_hotkey_system(
     input_res: Res<InputResource>,
     selected_input: Res<SelectedInputFieldResource>,
     game_focus: Res<GameViewFocusResource>,
+    animation_window: Res<crate::features::animation_window::AnimationWindowResource>,
     open_project: Res<OpenProjectResource>,
     simulated_world: Res<SimulatedWorldResource>,
     inspected_entity: Res<InspectedEntityResource>,
@@ -379,6 +382,7 @@ pub fn paste_files_hotkey_system(
     mut select_evt: EvtMut<FileSelectedEvent>,
     mut project_reload: ResMut<ProjectReloadResource>,
 ) {
+    return_if!(animation_window.is_focused);
     return_if!(!is_editor_ctrl_hotkey_just_pressed(
         &input_res,
         &selected_input,
@@ -610,6 +614,7 @@ pub fn apply_project_path_change(
     rekey_registered_assets::<StandardMesh>(res.as_mut(), &old_key, new_key);
     rekey_registered_assets::<Font>(res.as_mut(), &old_key, new_key);
     rekey_registered_assets::<AudioClip>(res.as_mut(), &old_key, new_key);
+    rekey_registered_assets::<AnimationClip>(res.as_mut(), &old_key, new_key);
     rekey_registered_assets::<Prefab>(res.as_mut(), &old_key, new_key);
     rekey_registered_assets::<Scene>(res.as_mut(), &old_key, new_key);
 }

@@ -206,6 +206,10 @@
 //! }
 //! ```
 //!
+//! Code that knows a component only by its type name (the inspector, animation) reads it untyped
+//! with `get_component_any` / `get_component_any_mut`, which return an `FfiAnyRef` / `FfiAnyMut`,
+//! or `None` when the type was never registered or the entity lacks it.
+//!
 //! #### Ordering systems and grouping them
 //!
 //! By default systems in a pass run in any order that respects their data dependencies. Pin a

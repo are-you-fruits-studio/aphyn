@@ -2,7 +2,7 @@
 //!
 //! Bundles the engine's built-in subsystems into a single registration step, so an
 //! app starts from a world that already has collision, physics, transforms, UI, rendering, audio,
-//! asset loading, serialization, and reflection wired together.
+//! animation, asset loading, serialization, and reflection wired together.
 //!
 //! # How to use
 //!
@@ -79,7 +79,7 @@
 //!
 //! [`add_defult_modules_to`] is the assembly point. It registers the collision, physics
 //! (whose step runs alone in the `FixedUpdate` schedule, so it needs no ordering here),
-//! transform, UI, render (`aphyn_render_features`), audio, and asset
+//! transform, UI, render (`aphyn_render_features`), audio, animation, and asset
 //! subsystems through their own `add_*_module_to`
 //! helpers, inserts a [`SerializersResource`] filled by [`register_common_transserializers`],
 //! then constrains the [`Update`](aphyn_ecs::Schedule::Update) schedule so the
@@ -90,7 +90,9 @@
 //! ([`SYSTEM_GROUP_PHYSICS_INTERPOLATION`](aphyn_physics::SYSTEM_GROUP_PHYSICS_INTERPOLATION)) runs before
 //! the transform group and its restore
 //! ([`SYSTEM_GROUP_PHYSICS_RESTORE`](aphyn_physics::SYSTEM_GROUP_PHYSICS_RESTORE)) after it, so the
-//! shown body pose propagates to children. In `Start` it orders `SYSTEM_GROUP_RENDER` (which inserts the built-in
+//! shown body pose propagates to children. Animation
+//! ([`SYSTEM_GROUP_ANIMATION`](aphyn_animation::SYSTEM_GROUP_ANIMATION)) also runs before the transform
+//! group, so animated transforms propagate in the same frame. In `Start` it orders `SYSTEM_GROUP_RENDER` (which inserts the built-in
 //! shaders and material templates) before `SYSTEM_GROUP_ASSETS`, so asset files can reference them. The name carries an upstream misspelling (`defult`);
 //! callers must match it exactly.
 //!
@@ -100,8 +102,8 @@
 //! [`TransSerializerRegistry`] that derefs to it. It is filled here, with the world, because
 //! this crate is the one that depends on every subsystem whose types it registers.
 //! [`register_common_transserializers`] registers a [`StandardSerializer`] for exactly the
-//! types the engine needs: every engine component (transform, render, UI, audio, collision, physics,
-//! [`DebugNameComponent`]), the texture/mesh/shader/audio asset metadata types, the `Material` and
+//! types the engine needs: every engine component (transform, render, UI, audio, animation, collision, physics,
+//! [`NameComponent`]), the texture/mesh/shader/audio/animation-clip asset metadata types, the `Material` and
 //! `MaterialTemplate` assets the asset loaders read (with `GpuShaderDesc` and its parts), and, recursively, the type of every field they contain, generic instantiations
 //! included (`Vec2<FfiOption<UiVal>>`, `[[f32; 3]; 3]` behind `Mat3<f32>`, `f64` behind
 //! `Quat<f32>`, ...). The list is maintained by hand: adding a component or a field type means
@@ -130,8 +132,6 @@
 //! be cloned, that every component has a default factory, and that cloning and variant
 //! construction work on a few engine types.
 //!
-//! [`DebugNameComponent`] is a serializable component wrapping an `FfiSmallString` name.
-//!
 //! #### FPS counter
 //!
 //! `fps_counter` keeps an `FpsResource` holding a sliding window of up to 100 recent
@@ -142,12 +142,16 @@
 //! only printed, not exposed to other systems.
 
 use aphyn_asset_storage::AssetHandle;
+use aphyn_animation::{
+    AnimatedLeaf, AnimationClip, AnimationClipAssetMetadata, AnimationComponent, AnimationKeyMetadata, AnimationTrackMetadata,
+    AnimationWrapMode, KeyInterpolation,
+};
 use aphyn_audio::{AudioClip, AudioClipAssetMetadata, AudioSource};
 use aphyn_collision::{
     ColliderComponent, ColliderShape, CollisionAabb, CollisionBox, CollisionLayer, CollisionLine, CollisionShape, CollisionSphere,
     LineBoundType, MeshCollider,
 };
-use aphyn_ecs::{Component, EntityId, Schedule, WorldBehaviorBuilderMut, WorldDataMut};
+use aphyn_ecs::{EntityId, Schedule, WorldBehaviorBuilderMut, WorldDataMut};
 use aphyn_ffi::{FfiIndexMap, FfiOption, FfiSmallString, FfiString, FfiVec};
 use aphyn_math::{Mat, Mat3, Quat, Vec2, Vec3, Vec4};
 use aphyn_physics::{
@@ -173,9 +177,11 @@ use aphyn_serialization::*;
 use aphyn_serialization_ecs::SerializersResource;
 use aphyn_transform::{
     ChildComponent, GlobalDisableableComponent, GlobalRectComponent, GlobalTransform, LocalDisableableComponent, LocalRectComponent,
-    LocalTransform, ParentComponent, RectChildAlignComponent, StaticComponent, UiDirection, UiSpacing, UiUnit, UiVal,
+    LocalTransform, NameComponent, ParentComponent, RectChildAlignComponent, StaticComponent, UiDirection, UiSpacing, UiUnit, UiVal,
 };
-use aphyn_ui::{ChildrenRectMaskComponent, Font, HorizontalAlign, ImageComponent, ImageFillSettings, TextComponent, VerticalAlign};
+use aphyn_ui::{
+    ChildrenRectMaskComponent, Font, HorizontalAlign, ImageComponent, ImageFillSettings, TextComponent, UiLineComponent, VerticalAlign,
+};
 
 pub mod fps_counter;
 
@@ -187,6 +193,7 @@ pub fn add_defult_modules_to(mut data: WorldDataMut, mut behavior: WorldBehavior
     aphyn_ui::add_ui_module_to(data.as_mut(), behavior.as_mut(), render);
     aphyn_render_features::add_render_features_module_to(data.as_mut(), behavior.as_mut(), render);
     aphyn_audio::add_audio_module_to(data.as_mut(), behavior.as_mut(), render);
+    aphyn_animation::add_animation_module_to(data.as_mut(), behavior.as_mut(), render);
     aphyn_asset_loading::add_asset_module_to(data.as_mut(), behavior.as_mut(), render);
 
     data.resources_mut().insert({
@@ -215,6 +222,11 @@ pub fn add_defult_modules_to(mut data: WorldDataMut, mut behavior: WorldBehavior
         .order_group(aphyn_transform::SYSTEM_GROUP_TRANSFORM)
         .before_group(aphyn_physics::SYSTEM_GROUP_PHYSICS_RESTORE);
 
+    behavior
+        .get_mut(Schedule::Update)
+        .order_group(aphyn_animation::SYSTEM_GROUP_ANIMATION)
+        .before_group(aphyn_transform::SYSTEM_GROUP_TRANSFORM);
+
     // asset files may reference the built-in shaders and material templates
     behavior
         .get_mut(Schedule::Start)
@@ -227,7 +239,7 @@ pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry
     aphyn_asset_loading::register_asset_loading_serializers(serializer);
 
     // components
-    register_transserializer::<DebugNameComponent>(serializer);
+    register_transserializer::<NameComponent>(serializer);
     register_transserializer::<GlobalTransform>(serializer);
     register_transserializer::<LocalTransform>(serializer);
     register_transserializer::<ParentComponent>(serializer);
@@ -246,7 +258,9 @@ pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry
     register_transserializer::<TextComponent>(serializer);
     register_transserializer::<ImageComponent>(serializer);
     register_transserializer::<ChildrenRectMaskComponent>(serializer);
+    register_transserializer::<UiLineComponent>(serializer);
     register_transserializer::<AudioSource>(serializer);
+    register_transserializer::<AnimationComponent>(serializer);
     register_transserializer::<ColliderComponent>(serializer);
     register_transserializer::<RigidbodyComponent>(serializer);
     register_transserializer::<PhysicsMaterialComponent>(serializer);
@@ -258,6 +272,15 @@ pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry
     register_transserializer::<ShaderAssetMetadata>(serializer);
     register_transserializer::<ComputeShaderAssetMetadata>(serializer);
     register_transserializer::<AudioClipAssetMetadata>(serializer);
+    register_transserializer::<AnimationClipAssetMetadata>(serializer);
+    register_transserializer::<AnimationTrackMetadata>(serializer);
+    register_transserializer::<FfiVec<AnimationTrackMetadata>>(serializer);
+    register_transserializer::<AnimationKeyMetadata>(serializer);
+    register_transserializer::<FfiVec<AnimationKeyMetadata>>(serializer);
+    register_transserializer::<AnimatedLeaf>(serializer);
+    register_transserializer::<KeyInterpolation>(serializer);
+    register_transserializer::<AnimationWrapMode>(serializer);
+    register_transserializer::<SerializedValue>(serializer);
     register_transserializer::<Material>(serializer);
     register_transserializer::<MaterialTemplate>(serializer);
 
@@ -279,6 +302,7 @@ pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry
     register_transserializer::<[f32; 4]>(serializer);
     register_transserializer::<[[f32; 3]; 3]>(serializer);
     register_transserializer::<Vec2<f32>>(serializer);
+    register_transserializer::<FfiVec<Vec2<f32>>>(serializer);
     register_transserializer::<Vec3<f32>>(serializer);
     register_transserializer::<Vec4<f32>>(serializer);
     register_transserializer::<[Vec3<f32>; 3]>(serializer);
@@ -344,7 +368,7 @@ pub fn register_common_transserializers(serializer: &mut TransSerializerRegistry
 pub fn register_common_reflectors(reflectors: &mut ReflectionRegistryBuilder) {
     // components
     reflectors
-        .register::<DebugNameComponent>()
+        .register::<NameComponent>()
         .register::<GlobalTransform>()
         .register::<LocalTransform>()
         .register::<ParentComponent>()
@@ -363,7 +387,10 @@ pub fn register_common_reflectors(reflectors: &mut ReflectionRegistryBuilder) {
         .register::<TextComponent>()
         .register::<ImageComponent>()
         .register::<ChildrenRectMaskComponent>()
+        .register::<UiLineComponent>()
         .register::<AudioSource>()
+        .register::<AnimationComponent>()
+        .register::<AnimationWrapMode>()
         .register::<ColliderComponent>()
         .register::<RigidbodyComponent>()
         .register::<PhysicsMaterialComponent>()
@@ -398,6 +425,7 @@ pub fn register_common_reflectors(reflectors: &mut ReflectionRegistryBuilder) {
         .register_with_factories::<[f32; 4]>()
         .register_with_factories::<[[f32; 3]; 3]>()
         .register_with_factories::<Vec2<f32>>()
+        .register_with_factories::<FfiVec<Vec2<f32>>>()
         .register_with_factories::<Vec3<f32>>()
         .register_with_factories::<Vec4<f32>>()
         .register_with_factories::<[Vec3<f32>; 3]>()
@@ -466,7 +494,8 @@ pub fn register_common_reflectors(reflectors: &mut ReflectionRegistryBuilder) {
         .register::<AssetHandle<Material>>()
         .register::<AssetHandle<MaterialTemplate>>()
         .register::<AssetHandle<Font>>()
-        .register::<AssetHandle<AudioClip>>();
+        .register::<AssetHandle<AudioClip>>()
+        .register::<AssetHandle<AnimationClip>>();
 }
 
 pub fn register_transserializer<T: 'static + Default + for<'a> Serializable<TransSerializerCtxState<'a>>>(
@@ -529,10 +558,6 @@ pub fn register_related_common_transserializers<T: 'static + Default>(serializer
     serializer.register(StandardSerializer::<FfiOption<T>>::default());
 }
 
-#[repr(transparent)]
-#[derive(Component, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Default, Serializable, Reflectable)]
-pub struct DebugNameComponent(pub FfiSmallString);
-
 #[cfg(test)]
 mod tests {
     use std::any::type_name;
@@ -569,7 +594,7 @@ mod tests {
     fn components_have_default_factories() {
         let registry = common_registry();
         let components = [
-            type_name::<DebugNameComponent>(),
+            type_name::<NameComponent>(),
             type_name::<GlobalTransform>(),
             type_name::<LocalTransform>(),
             type_name::<ParentComponent>(),
@@ -588,7 +613,9 @@ mod tests {
             type_name::<TextComponent>(),
             type_name::<ImageComponent>(),
             type_name::<ChildrenRectMaskComponent>(),
+            type_name::<UiLineComponent>(),
             type_name::<AudioSource>(),
+            type_name::<AnimationComponent>(),
             type_name::<ColliderComponent>(),
             type_name::<RigidbodyComponent>(),
             type_name::<PhysicsMaterialComponent>(),
@@ -634,5 +661,44 @@ mod tests {
 
         let sphere = reflect_construct_variant(&registry, shape.variant("Sphere").unwrap()).unwrap();
         assert!(matches!(sphere.downcast_ref::<CollisionShape>(), Some(CollisionShape::Sphere(_))));
+    }
+
+    #[test]
+    fn animation_clip_metadata_serializes() {
+        let mut registry = TransSerializerRegistry::new();
+        register_common_transserializers(&mut registry);
+
+        let key = AnimationKeyMetadata {
+            time: 1.0,
+            value: SerializedValue::Primitive(SerializedPrimitive::Float(2.0)),
+            ..Default::default()
+        };
+        let track = AnimationTrackMetadata {
+            component: "c".into(),
+            field: "/x".into(),
+            leaf: AnimatedLeaf::QuatEuler(2),
+            value_type: "f32".into(),
+            keys: vec![key].into(),
+            ..Default::default()
+        };
+        let meta = AnimationClipAssetMetadata {
+            tracks: vec![track].into(),
+        };
+
+        let mut errors = Vec::new();
+        let serialized = registry.serialize(&meta, "", &mut |err: SerializationError| errors.push(err.to_string()));
+
+        assert_eq!(errors, Vec::<String>::new());
+        assert_eq!(serialized.to_json()["tracks"][0]["keys"][0]["time"], 1.0);
+
+        let mut restored = AnimationClipAssetMetadata::default();
+        registry.deserialize(&mut restored, "", &serialized, &mut |err: SerializationError| {
+            errors.push(err.to_string())
+        });
+
+        assert_eq!(errors, Vec::<String>::new());
+        assert_eq!(restored.tracks.len(), 1);
+        assert_eq!(restored.tracks[0].keys[0].time, 1.0);
+        assert_eq!(restored.tracks[0].leaf, AnimatedLeaf::QuatEuler(2));
     }
 }

@@ -18,6 +18,7 @@ aphyn_wavefront = { path = "../wavefront" }
 aphyn_render = { path = "../render" }
 aphyn_asset_storage = { path = "../asset_storage" }
 aphyn_audio = { path = "../audio" }
+aphyn_animation = { path = "../animation" }
 aphyn_prefab = { path = "../prefab" }
 aphyn_serialization = { path = "../serialization" }
 aphyn_serialization_ecs = { path = "../serialization_ecs" }

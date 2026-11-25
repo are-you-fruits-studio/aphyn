@@ -1,3 +1,4 @@
+use aphyn_animation::AnimationClip;
 use aphyn_asset_storage::AssetStorageResource;
 use aphyn_audio::AudioClip;
 use aphyn_ecs::ResourcesHolderRef;
@@ -26,6 +27,7 @@ pub fn save_load_with_asset_serializers_from_world<R>(
         &*res.get::<AssetStorageResource<Shader>>()?,
         &*res.get::<AssetStorageResource<ComputeShader>>()?,
         res.get::<AssetStorageResource<Font>>(),
+        res.get::<AssetStorageResource<AnimationClip>>(),
         entity_ids,
         f,
     ))
@@ -43,6 +45,7 @@ pub fn save_load_with_asset_serializers<R>(
     shaders: &AssetStorageResource<Shader>,
     compute_shaders: &AssetStorageResource<ComputeShader>,
     fonts: Option<&AssetStorageResource<Font>>,
+    animation_clips: Option<&AssetStorageResource<AnimationClip>>,
     entity_ids: EntityIdCtx,
     f: impl FnOnce(TransSerializerCtxState) -> R,
 ) -> R {
@@ -57,6 +60,7 @@ pub fn save_load_with_asset_serializers<R>(
         AssetHandleCtx::Registered(shaders),
         AssetHandleCtx::Registered(compute_shaders),
         fonts.map(AssetHandleCtx::Registered),
+        animation_clips.map(AssetHandleCtx::Registered),
     );
 
     let mut context = ContextData::new()
@@ -73,6 +77,9 @@ pub fn save_load_with_asset_serializers<R>(
 
     if let Some(fonts) = &entries.9 {
         context.insert::<AssetHandleCtxKey<Font>>(fonts);
+    }
+    if let Some(animation_clips) = &entries.10 {
+        context.insert::<AssetHandleCtxKey<AnimationClip>>(animation_clips);
     }
 
     f(serializers.to_ctx_state(&context))

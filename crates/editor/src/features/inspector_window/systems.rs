@@ -678,10 +678,12 @@ pub fn copy_selected_entity_hotkey_system(
     input_res: Res<InputResource>,
     selected_input: Res<SelectedInputFieldResource>,
     game_focus: Res<GameViewFocusResource>,
+    animation_window: Res<crate::features::animation_window::AnimationWindowResource>,
     inspected_entity: Res<InspectedEntityResource>,
     simulated_world: Res<SimulatedWorldResource>,
     mut clipboard: ResMut<EditorClipboardResource>,
 ) {
+    return_if!(animation_window.is_focused);
     return_if!(!is_editor_ctrl_hotkey_just_pressed(
         &input_res,
         &selected_input,
@@ -701,6 +703,7 @@ pub fn paste_entities_hotkey_system(
     input_res: Res<InputResource>,
     selected_input: Res<SelectedInputFieldResource>,
     game_focus: Res<GameViewFocusResource>,
+    animation_window: Res<crate::features::animation_window::AnimationWindowResource>,
     clipboard: Res<EditorClipboardResource>,
     opened_asset: Res<OpenedEntitiesAssetResource>,
     mut inspected_entity: ResMut<InspectedEntityResource>,
@@ -708,6 +711,7 @@ pub fn paste_entities_hotkey_system(
     mut simulated_world: ResMut<SimulatedWorldResource>,
     mut asset_edited_evt: EvtMut<AssetEditedEvent>,
 ) {
+    return_if!(animation_window.is_focused);
     return_if!(!is_editor_ctrl_hotkey_just_pressed(
         &input_res,
         &selected_input,
@@ -747,6 +751,7 @@ pub fn apply_inspector_field_text_change_to_simulated_world_system(
     mut inspected_asset: ResMut<InspectedAssetResource>,
     open_project: Res<OpenProjectResource>,
     mut asset_edited_evt: EvtMut<AssetEditedEvent>,
+    mut field_edited_evt: EvtMut<EntityFieldEditedEvent>,
 ) {
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
 
@@ -760,9 +765,7 @@ pub fn apply_inspector_field_text_change_to_simulated_world_system(
             &open_project,
         );
 
-        if let Some(edited) = edited {
-            asset_edited_evt.push(edited);
-        };
+        push_inspector_edit(edited, &mut asset_edited_evt, &mut field_edited_evt);
     }
 }
 
@@ -774,6 +777,7 @@ pub fn apply_inspector_number_drag_to_simulated_world_system(
     mut inspected_asset: ResMut<InspectedAssetResource>,
     open_project: Res<OpenProjectResource>,
     mut asset_edited_evt: EvtMut<AssetEditedEvent>,
+    mut field_edited_evt: EvtMut<EntityFieldEditedEvent>,
 ) {
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
 
@@ -787,9 +791,7 @@ pub fn apply_inspector_number_drag_to_simulated_world_system(
             &open_project,
         );
 
-        if let Some(edited) = edited {
-            asset_edited_evt.push(edited);
-        };
+        push_inspector_edit(edited, &mut asset_edited_evt, &mut field_edited_evt);
     }
 }
 
@@ -816,6 +818,7 @@ pub fn apply_inspector_dropdown_change_to_simulated_world_system(
     mut inspected_asset: ResMut<InspectedAssetResource>,
     open_project: Res<OpenProjectResource>,
     mut asset_edited_evt: EvtMut<AssetEditedEvent>,
+    mut field_edited_evt: EvtMut<EntityFieldEditedEvent>,
 ) {
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
 
@@ -854,9 +857,7 @@ pub fn apply_inspector_dropdown_change_to_simulated_world_system(
             &open_project,
         );
 
-        if let Some(edited) = edited {
-            asset_edited_evt.push(edited);
-        };
+        push_inspector_edit(edited, &mut asset_edited_evt, &mut field_edited_evt);
     }
 }
 
@@ -868,6 +869,7 @@ pub fn adjust_non_rigid_composite_system(
     mut inspected_asset: ResMut<InspectedAssetResource>,
     open_project: Res<OpenProjectResource>,
     mut asset_edited_evt: EvtMut<AssetEditedEvent>,
+    mut field_edited_evt: EvtMut<EntityFieldEditedEvent>,
 ) {
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
 
@@ -890,9 +892,7 @@ pub fn adjust_non_rigid_composite_system(
             &open_project,
         );
 
-        if let Some(edited) = edited {
-            asset_edited_evt.push(edited);
-        };
+        push_inspector_edit(edited, &mut asset_edited_evt, &mut field_edited_evt);
     }
 }
 
@@ -903,6 +903,7 @@ pub fn toggle_inspector_checkbox_system(
     mut inspected_asset: ResMut<InspectedAssetResource>,
     open_project: Res<OpenProjectResource>,
     mut asset_edited_evt: EvtMut<AssetEditedEvent>,
+    mut field_edited_evt: EvtMut<EntityFieldEditedEvent>,
 ) {
     return_if_not!(Some(simulated_world) = &mut simulated_world.0);
 
@@ -935,9 +936,7 @@ pub fn toggle_inspector_checkbox_system(
             &open_project,
         );
 
-        if let Some(edited) = edited {
-            asset_edited_evt.push(edited);
-        };
+        push_inspector_edit(edited, &mut asset_edited_evt, &mut field_edited_evt);
     }
 }
 
@@ -1063,11 +1062,11 @@ fn apply_inspector_edit_to_simulated_world(
     inspected_entity: &InspectedEntityResource,
     inspected_asset: &mut InspectedAssetResource,
     open_project: &OpenProjectResource,
-) -> Option<AssetEditedEvent> {
+) -> Option<(AssetEditedEvent, Option<EntityFieldEditedEvent>)> {
     let value_c = ent.get_component::<InspectorValueComponent>(ent_value)?;
     let target = get_inspected_target(ent, ent_value, simulated_world, inspected_entity, inspected_asset)?;
 
-    edit_inspected_target(
+    let is_edited = edit_inspected_target(
         &target,
         &value_c.path,
         edit,
@@ -1075,8 +1074,33 @@ fn apply_inspector_edit_to_simulated_world(
         inspected_entity,
         inspected_asset,
         open_project,
-    )
-    .then(|| target.edited_event())
+    );
+
+    let field_edited = match &target {
+        InspectedTarget::PrefabComponent { component_id } => Some(EntityFieldEditedEvent {
+            entity: inspected_entity.selected_entity,
+            component: component_id.clone(),
+            path: value_c.path.clone(),
+        }),
+        InspectedTarget::Asset(_) => None,
+    };
+
+    is_edited.then(|| (target.edited_event(), field_edited))
+}
+
+fn push_inspector_edit(
+    edited: Option<(AssetEditedEvent, Option<EntityFieldEditedEvent>)>,
+    asset_edited_evt: &mut EvtMut<AssetEditedEvent>,
+    field_edited_evt: &mut EvtMut<EntityFieldEditedEvent>,
+) {
+    let Some((asset_edited, field_edited)) = edited else {
+        return;
+    };
+
+    asset_edited_evt.push(asset_edited);
+    if let Some(field_edited) = field_edited {
+        field_edited_evt.push(field_edited);
+    }
 }
 
 fn apply_inspector_leaf_to_simulated_world(
@@ -1086,7 +1110,7 @@ fn apply_inspector_leaf_to_simulated_world(
     inspected_entity: &InspectedEntityResource,
     inspected_asset: &mut InspectedAssetResource,
     open_project: &OpenProjectResource,
-) -> Option<AssetEditedEvent> {
+) -> Option<(AssetEditedEvent, Option<EntityFieldEditedEvent>)> {
     let InspectorValueComponentTy::Leaf { kind, .. } = ent.get_component::<InspectorValueComponent>(ent_input)?.ty else {
         return None;
     };
@@ -1110,6 +1134,7 @@ pub fn save_simulated_entities_to_asset_system(
 ) {
     // todo: support saving assets in play mode
     return_if!(simulated_world.is_playing());
+    return_if!(opened_asset.is_saving_paused);
 
     let Some(simulated_world) = &mut simulated_world.0 else {
         return;
@@ -1260,6 +1285,7 @@ pub fn open_entities_asset(
         path: path.to_owned(),
         asset_type,
         prefab_root,
+        is_saving_paused: false,
     };
 }
 
@@ -1370,7 +1396,7 @@ fn spawn_hierarchy_window_entries_recursively(
     let entity_id = sim_ent.encode_entity_as_id(simulated_ent);
 
     let name = sim_ent
-        .get_component::<DebugNameComponent>(simulated_ent)
+        .get_component::<NameComponent>(simulated_ent)
         .map(|s| s.0.as_str().into())
         .unwrap_or_else(|| format!("e{{{}}}", entity_id));
 

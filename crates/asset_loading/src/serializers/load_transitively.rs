@@ -1,5 +1,6 @@
 use std::{path::Path, sync::Mutex};
 
+use aphyn_animation::{AnimationClip, AnimationClipAssetMetadata};
 use aphyn_asset_storage::AssetStorageResource;
 use aphyn_audio::{AudioClip, AudioStateResource};
 use aphyn_ecs::ResourcesHolderMut;
@@ -39,6 +40,7 @@ pub fn load_asset_transitively_from_world<R>(
             &mut *res.get_ptr::<AssetStorageResource<Shader>>()?,
             &mut *res.get_ptr::<AssetStorageResource<ComputeShader>>()?,
             &mut *res.get_ptr::<AssetStorageResource<MaterialTemplate>>()?,
+            &mut *res.get_ptr::<AssetStorageResource<AnimationClip>>()?,
             assets_dir_path,
             entity_ids,
             f,
@@ -60,6 +62,7 @@ pub fn load_asset_transitively<R>(
     shaders: &mut AssetStorageResource<Shader>,
     compute_shaders: &mut AssetStorageResource<ComputeShader>,
     templates: &mut AssetStorageResource<MaterialTemplate>,
+    animation_clips: &mut AssetStorageResource<AnimationClip>,
     assets_dir_path: impl AsRef<Path>,
     entity_ids: EntityIdCtx,
     f: impl FnOnce(TransSerializerCtxState) -> R,
@@ -76,6 +79,7 @@ pub fn load_asset_transitively<R>(
     let shaders = Mutex::new(&mut *shaders);
     let compute_shaders = Mutex::new(&mut *compute_shaders);
     let templates = Mutex::new(&mut *templates);
+    let animation_clips = Mutex::new(&mut *animation_clips);
 
     let texture_loader = asset_loader(|mut ctx, value, assets_dir_path| {
         // todo: use real path?
@@ -112,6 +116,10 @@ pub fn load_asset_transitively<R>(
     });
     let template_loader =
         asset_loader(|mut ctx, value, _assets_dir_path| Some(ctx.deserialize_default::<MaterialTemplate>("", value)));
+    let animation_clip_loader = asset_loader(|mut ctx, value, _assets_dir_path| {
+        let meta = ctx.deserialize_default::<AnimationClipAssetMetadata>("", value);
+        Some(AnimationClip::from_meta(&mut ctx, &meta))
+    });
     // todo: fonts
     let prefab_loader = asset_loader(|ctx, value, _assets_dir_path| PrefabLoader.load_from_serialized(ctx, value));
     let scene_loader = asset_loader(|ctx, value, _assets_dir_path| SceneLoader.load_from_serialized(ctx, value));
@@ -162,6 +170,11 @@ pub fn load_asset_transitively<R>(
             assets_dir_path,
             loader: &scene_loader,
         },
+        AssetHandleCtx::LoadTransitively {
+            assets: &animation_clips,
+            assets_dir_path,
+            loader: &animation_clip_loader,
+        },
     );
 
     let context = ContextData::new()
@@ -174,7 +187,8 @@ pub fn load_asset_transitively<R>(
         .with::<AssetHandleCtxKey<ComputeShader>>(&entries.5)
         .with::<AssetHandleCtxKey<MaterialTemplate>>(&entries.6)
         .with::<AssetHandleCtxKey<Prefab>>(&entries.7)
-        .with::<AssetHandleCtxKey<Scene>>(&entries.8);
+        .with::<AssetHandleCtxKey<Scene>>(&entries.8)
+        .with::<AssetHandleCtxKey<AnimationClip>>(&entries.9);
 
     f(serializers.to_ctx_state(&context))
 }

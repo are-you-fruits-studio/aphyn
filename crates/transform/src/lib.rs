@@ -207,6 +207,12 @@
 //! destroy_entity_and_children(world.entities_mut(), root);
 //! ```
 //!
+//! #### Naming entities
+//!
+//! [`NameComponent`] holds an entity's name. The editor shows it in the hierarchy, and animation
+//! clips address entities below their root by `/`-joined child names, so siblings an animation
+//! targets need distinct names.
+//!
 //! # How to maintain
 //!
 //! #### Local vs global split

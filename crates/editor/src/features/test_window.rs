@@ -4,6 +4,7 @@ use crate::{
     SYSTEM_GROUP,
     components::{HierarchyWindowComponent, ProjectWindowComponent},
     features::{
+        animation_window::AnimationWindowComponent,
         generic_dropdown::{GenericDropdownResource, select_generic_dropdown_system},
         inspector_window::data::InspectorWindowComponent,
         ui_interaction::ButtonComponent,
@@ -48,13 +49,15 @@ pub const WINDOW_KIND_HIERARCHY: &str = "Hierarchy Window";
 pub const WINDOW_KIND_INSPECTOR: &str = "Inspector Window";
 pub const WINDOW_KIND_SCENE: &str = "Scene Window";
 pub const WINDOW_KIND_GAME: &str = "Game Window";
+pub const WINDOW_KIND_ANIMATION: &str = "Animation Window";
 
-const WINDOW_KINDS: [&str; 5] = [
+const WINDOW_KINDS: [&str; 6] = [
     WINDOW_KIND_PROJECT,
     WINDOW_KIND_HIERARCHY,
     WINDOW_KIND_INSPECTOR,
     WINDOW_KIND_SCENE,
     WINDOW_KIND_GAME,
+    WINDOW_KIND_ANIMATION,
 ];
 
 fn open_windows_dropdown_system(
@@ -136,6 +139,7 @@ pub fn open_panel_by_kind(world: WorldDataMut, kind: &str) -> Option<EntityId> {
         ),
         WINDOW_KIND_SCENE => open_specific_window(world, kind, SceneWindowComponent, prefabs::init_window_as_scene),
         WINDOW_KIND_GAME => open_specific_window(world, kind, GameWindowComponent, prefabs::init_window_as_game),
+        WINDOW_KIND_ANIMATION => open_specific_window(world, kind, AnimationWindowComponent, prefabs::init_window_as_animation),
         _ => None,
     }
 }

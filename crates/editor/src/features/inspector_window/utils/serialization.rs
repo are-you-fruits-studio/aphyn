@@ -55,6 +55,9 @@ pub fn load_asset_to_world_res(
                 AssetType::MaterialTemplate => {
                     _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<MaterialTemplate>>("", value)
                 }
+                AssetType::AnimationClip => {
+                    _ = serializer_ctx.deserialize_default::<DirectDeserializedAsset<AnimationClip>>("", value)
+                }
             };
         },
     )

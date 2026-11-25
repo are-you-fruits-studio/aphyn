@@ -166,6 +166,7 @@ mod tests {
             &AssetStorageResource::<Shader>::new(),
             &AssetStorageResource::<ComputeShader>::new(),
             None,
+            None,
             EntityIdCtx::default(),
             |state| {
                 let mut errors = Vec::new();

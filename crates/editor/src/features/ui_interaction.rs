@@ -71,8 +71,13 @@ pub fn prepare_ui_raycast_system(
             WithFilter<HoverAreaComponent>,
         )>,
     >,
+    hierarchy_q: WorldQuery<(EntityId, Option<&ChildComponent>, Option<&ParentComponent>)>,
+    mask_q: WorldQuery<(EntityId, &GlobalRectComponent), WithFilter<ChildrenRectMaskComponent>>,
     mut raycast_res: ResMut<UiRaycastResource>,
 ) {
+    // a masked-out part of a rect is invisible, so it must not catch the cursor either
+    let clip_rects = collect_mask_clip_rects(&hierarchy_q, &mask_q);
+
     let iter = button_q.iter().filter_map(|(ent, rect, disableable)| {
         if disableable.copied().unwrap_or_default().is_disabled {
             return None;
@@ -82,10 +87,20 @@ pub fn prepare_ui_raycast_system(
             return None;
         }
 
+        let (mut min, mut max) = (rect.center - rect.scale * 0.5, rect.center + rect.scale * 0.5);
+        if let Some((clip_min, clip_max)) = clip_rects.get(&ent) {
+            min = min.zip_copied(*clip_min, f32::max);
+            max = max.zip_copied(*clip_max, f32::min);
+        }
+
+        if (max - min).map(|v| v <= 0.0).any() {
+            return None;
+        }
+
         Some((
             CollisionAabb {
-                center: rect.center.xyn(rect.z),
-                extents: (rect.scale * 0.5).xyn(1.0),
+                center: ((min + max) * 0.5).xyn(rect.z),
+                extents: ((max - min) * 0.5).xyn(1.0),
             }
             .into_shape(),
             ent,
