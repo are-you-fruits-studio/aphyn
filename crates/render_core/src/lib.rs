@@ -20,6 +20,7 @@
 //!
 //! api.draw(
 //!     &GpuRenderPass {
+//!         label: Some("fullscreen"),
 //!         shader: &shader,
 //!         target: Some(GpuRenderPassTarget {
 //!             view: &target,
@@ -43,7 +44,9 @@
 //! and graphics debuggers; `None` falls back to a generic name such as `aphyn texture`. Bind group
 //! layouts, bind groups, pipeline layouts, and pipelines are named after what they are made of, for
 //! example `bind group [0: 'albedo', 1: sampler, 2: 'tint']` or `render pipeline 'blur' -> Rgba8Unorm`,
-//! where an unlabeled resource shows as its kind.
+//! where an unlabeled resource shows as its kind. Passes are labeled the same way: [`GpuRenderPass`] and
+//! [`GpuComputePass`] have a `label` field, and the clear methods take a label first. It names the wgpu
+//! pass; `None` falls back to `aphyn render pass`, `aphyn compute pass` or `aphyn clear pass`.
 //!
 //! [`RenderApiNew::create_shader`] returns `None` unless every `@location` input of `fs_main` is a
 //! `@location` output of `vs_main` with the same type. Extra outputs are allowed. Pipeline errors,
@@ -143,6 +146,7 @@
 //! let [size_x, ..] = shader.workgroup_size();
 //!
 //! api.dispatch(&GpuComputePass {
+//!     label: Some("particles"),
 //!     shader: &shader,
 //!     bind_groups: &[&[(0, GpuBinding::Buffer(&params)), (1, GpuBinding::VertexBuffer(&particles))]],
 //!     workgroups: [particle_count.div_ceil(size_x), 1, 1],
@@ -222,8 +226,9 @@
 //!
 //! Labels cross the FFI boundary as `FfiOption<FfiStrSliceRef>` and are copied into the resources,
 //! so the cache can name what it creates. Those names are built from the cache keys on a cache miss
-//! only, which is why shared layouts are named by their entries rather than by a shader. Texture
-//! views, command encoders, and passes keep fixed labels.
+//! only, which is why shared layouts are named by their entries rather than by a shader. Pass labels
+//! cross the same way, inside `FfiRenderPass` / `FfiComputePass` or as a clear's argument. Texture
+//! views and command encoders keep fixed labels.
 //!
 //! Each `TextureResource` has a view of all mip levels and one view per level, all created with the
 //! texture. Render attachments always use a per-level view, because wgpu only renders into single-mip

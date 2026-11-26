@@ -25,8 +25,8 @@ impl GpuWritableBuffer for GpuIndexBuffer {
     }
 }
 
-pub fn clear_color_target(render_api: &RenderApiResource, target: &StandardTexture, color: [f32; 4]) -> bool {
-    render_api.core().clear_color_texture(target.texture(), 0, color)
+pub fn clear_color_target(render_api: &RenderApiResource, label: Option<&str>, target: &StandardTexture, color: [f32; 4]) -> bool {
+    render_api.core().clear_color_texture(label, target.texture(), 0, color)
 }
 
 pub fn write_buffer_elements_with<T: AllBitsInit>(

@@ -194,19 +194,19 @@ impl RenderFeature for GlobalsRenderFeature {
             let resources = ctx.world.resources();
 
             if let Some(depth) = resources.get::<DepthTextureResource>() {
-                core.clear_depth_texture(depth.texture.texture(), 0, 0.0);
+                core.clear_depth_texture(Some("clear depth"), depth.texture.texture(), 0, 0.0);
             }
 
             if let Some(normals) = resources.get::<SceneNormalsTextureResource>() {
-                core.clear_color_texture(normals.texture.texture(), 0, [0.0; 4]);
+                core.clear_color_texture(Some("clear scene normals"), normals.texture.texture(), 0, [0.0; 4]);
             }
 
             if let Some(transparent) = resources.get::<TransparentTargetResource>() {
-                core.clear_color_texture(transparent.texture.texture(), 0, [0.0; 4]);
+                core.clear_color_texture(Some("clear transparent target"), transparent.texture.texture(), 0, [0.0; 4]);
             }
 
             if has_shadows && let Some(atlas) = resources.get::<ShadowAtlasResource>() {
-                core.clear_depth_texture(atlas.texture(), 0, 0.0);
+                core.clear_depth_texture(Some("clear shadow atlas"), atlas.texture(), 0, 0.0);
             }
         });
     }

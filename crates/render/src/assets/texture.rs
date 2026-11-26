@@ -157,6 +157,7 @@ pub(crate) fn generate_mipmaps(core: &RenderApi, mip_fill_shader: &GpuShader, mi
     for mip_level in 1..texture.mip_level_count() {
         core.draw(
             &GpuRenderPass {
+                label: Some("mip fill"),
                 shader: mip_fill_shader,
                 target: Some(GpuRenderPassTarget {
                     view: texture,

@@ -85,6 +85,7 @@ pub(crate) fn texture_binding(texture: &GpuTexture) -> GpuBinding<'_> {
 
 pub(crate) fn draw_fullscreen(
     core: &RenderApi,
+    label: &str,
     shader: &GpuShader,
     target: &GpuTexture,
     ops: GpuPassOps<[f32; 4]>,
@@ -94,6 +95,7 @@ pub(crate) fn draw_fullscreen(
 ) -> bool {
     core.draw(
         &GpuRenderPass {
+            label: Some(label),
             shader,
             target: Some(GpuRenderPassTarget {
                 view: target,

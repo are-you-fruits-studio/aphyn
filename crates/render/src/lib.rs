@@ -98,6 +98,7 @@
 //! let particles = render_api.create_compute_shader("shaders/particles.wgsl", &code, None).unwrap();
 //!
 //! render_api.core().dispatch(&GpuComputePass {
+//!     label: Some("particles"),
 //!     shader: particles.shader(),
 //!     bind_groups: &[&[(0, GpuBinding::VertexBuffer(instances.buffer()))]],
 //!     workgroups: [instances.len().div_ceil(particles.shader().workgroup_size()[0]), 1, 1],
@@ -566,7 +567,7 @@
 //!
 //! #### Helpers and unfinished parts
 //!
-//! [`clear_color_target`] clears mip level 0 of a color texture through core (used by `aphyn_app`
+//! [`clear_color_target`] clears mip level 0 of a color texture through core, with an optional pass label (used by `aphyn_app`
 //! and the editor). `render_graph.rs` is an unfinished render-graph sketch whose methods are
 //! `todo!()`; it is compiled but not exported. The `aphyn` facade re-exports
 //! `aphyn_render_core` next to this crate.

@@ -57,12 +57,13 @@ impl RenderTarget {
     }
 
     pub fn clear(&self, render_api: &RenderApiResource) {
-        clear_color_target(render_api, &self.texture, [0.0; 4]);
+        clear_color_target(render_api, Some("clear render target"), &self.texture, [0.0; 4]);
     }
 
     pub fn render_to_surface(&self, render_api: &RenderApiResource) {
         render_api.core().draw_to_surface(
             &GpuRenderPass {
+                label: Some("surface blit"),
                 shader: &self.shader,
                 target: None,
                 depth: None,

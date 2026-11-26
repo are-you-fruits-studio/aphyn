@@ -376,7 +376,7 @@ pub fn render_simulated_view(
 
     let target = textures.get(texture_handle).unwrap().clone();
 
-    clear_color_target(render_api, &target, CLEAR_COLOR);
+    clear_color_target(render_api, Some("clear scene view"), &target, CLEAR_COLOR);
 
     return_if_not!(Some(camera) = camera);
 

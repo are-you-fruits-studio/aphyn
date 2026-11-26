@@ -32,10 +32,10 @@ struct SsrGpu {
 impl SsrGpu {
     fn new(core: &RenderApi) -> Self {
         let texture_depth_off = core.create_texture(Some("ssr depth off"), [1, 1], GpuTextureFormat::Depth32Float, 1);
-        core.clear_depth_texture(&texture_depth_off, 0, 0.0);
+        core.clear_depth_texture(Some("clear ssr depth off"), &texture_depth_off, 0, 0.0);
 
         let texture_history_off = core.create_texture(Some("ssr history off"), [1, 1], GpuTextureFormat::Rgba16Float, 1);
-        core.clear_color_texture(&texture_history_off, 0, [0.0; 4]);
+        core.clear_color_texture(Some("clear ssr history off"), &texture_history_off, 0, [0.0; 4]);
 
         Self {
             shader_depth_copy: create_engine_shader(
@@ -188,6 +188,7 @@ impl SsrRenderFeature {
 
         core.draw(
             &GpuRenderPass {
+                label: Some("ssr depth copy"),
                 shader: &gpu.shader_depth_copy,
                 target: None,
                 depth: Some(GpuRenderPassDepth {

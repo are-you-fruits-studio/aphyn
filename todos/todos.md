@@ -1,9 +1,12 @@
 # Immediate
 
+- optimize rendering
+    - upload geometry
+    - MaterialRenderFeature::gather
+    - 
+- name passes in a shader-related way, so nsight debug is more readable
 - use reflection for prefab spawning instead of serialization
-- custom names for serialized components
 - shader runtime define switching and recompilation
-- move serialization, reflection, inspecting to being builder at app-init stage and immutable at runtime (probably store them separately from the ECS world and somewhere near the TypesRegistry)
 - allow using cached TypesRegistry key in systems/render-features to avoid string lookup and even hashmap lookup where possible.
 - finish shaders, materials, material templates
     - including materials having inputs affect shader compilation directives
@@ -11,6 +14,7 @@
 - screen-space effects (SSR, SSAO, SSGI)
 - rename current scene into multi-prefab and create a new scene asset that contains both entities and resources. It's used as a game bootstrap
 - implement animator and state (infrastructure and window). Also, add events to animation, not only keyframes (events just write the data as the keyframes do, but they don't interpolate and don't hold (repeatedly update) the value).
+- store archetype indices in a query in a sorted way (they are already sorted - we just need to wrap it so they are 100% sorted). Also, when looking for index in this array, use binary search, not linear search. Probably checking indices is redundant also - need to check.
 
 # Prioritized
 

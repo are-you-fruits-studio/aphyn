@@ -81,7 +81,12 @@ impl RenderFeature for SkyboxRenderFeature {
                 let texture = self
                     .texture_ambient
                     .get_or_insert_with(|| core.create_texture(Some("environment ambient"), [1, 1], ENVIRONMENT_FORMAT, 1));
-                core.clear_color_texture(texture, 0, [ambient_color.x, ambient_color.y, ambient_color.z, 1.0]);
+                core.clear_color_texture(
+                    Some("clear environment ambient"),
+                    texture,
+                    0,
+                    [ambient_color.x, ambient_color.y, ambient_color.z, 1.0],
+                );
 
                 texture.clone()
             }
@@ -137,6 +142,7 @@ impl SkyboxRenderFeature {
 
         core.draw(
             &GpuRenderPass {
+                label: Some("skybox octahedral"),
                 shader,
                 target: Some(GpuRenderPassTarget {
                     view: texture,
@@ -176,6 +182,7 @@ impl SkyboxRenderFeature {
 
         core.draw(
             &GpuRenderPass {
+                label: Some("skybox"),
                 shader,
                 target: Some(GpuRenderPassTarget {
                     view: current.target.texture(),

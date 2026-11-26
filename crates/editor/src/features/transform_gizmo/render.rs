@@ -109,6 +109,7 @@ impl TransformGizmoRenderFeature {
 
         core.draw_indexed(
             &GpuRenderPass {
+                label: Some("transform gizmo"),
                 shader: &gpu.shader,
                 target: Some(GpuRenderPassTarget {
                     view: target,

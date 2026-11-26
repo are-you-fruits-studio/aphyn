@@ -443,6 +443,12 @@ impl MaterialRenderFeature {
                 MaterialPassTarget::DepthNormals => Some(normals.texture.texture()),
             };
             let is_depth_normals = template_pass.target == MaterialPassTarget::DepthNormals;
+            let label = match template_pass.target {
+                MaterialPassTarget::Main => "material main",
+                MaterialPassTarget::Transparent => "material transparent",
+                MaterialPassTarget::Shadow => "material shadow",
+                MaterialPassTarget::DepthNormals => "material depth normals",
+            };
             let depth_view = match is_shadow {
                 true => atlas.texture(),
                 false => depth.texture.texture(),
@@ -513,6 +519,7 @@ impl MaterialRenderFeature {
                 let group_refs = groups.iter().map(Vec::as_slice).collect::<Vec<_>>();
 
                 let pass = |vertex_buffers| GpuRenderPass {
+                    label: Some(label),
                     shader,
                     target: target.map(|view| GpuRenderPassTarget {
                         view,
@@ -617,6 +624,7 @@ impl MaterialRenderFeature {
 
         draw_fullscreen(
             core,
+            "transparent composite",
             shader,
             current.target.texture(),
             GpuPassOps::Load,

@@ -1008,7 +1008,7 @@ impl RenderApiInner {
             view_formats: &[wgpu_format],
         });
 
-        // todo: labels for texture views, encoders and passes
+        // todo: labels for texture views and encoders
         let texture_view = texture.create_view(&Default::default());
         let mip_views = (0..mip_level_count)
             .map(|mip_level| {
@@ -1239,14 +1239,14 @@ impl RenderApiInner {
         })
     }
 
-    fn clear_color_texture(&self, texture: &GpuTexture, mip_level: usize, color: [f32; 4]) -> bool {
+    fn clear_color_texture(&self, label: Option<&str>, texture: &GpuTexture, mip_level: usize, color: [f32; 4]) -> bool {
         if texture.format == GpuTextureFormat::Depth32Float {
             return false;
         }
 
         self.clear_texture_resource(texture, mip_level, |encoder, view| {
             encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("aphyn clear pass"),
+                label: Some(label.unwrap_or("aphyn clear pass")),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view,
                     resolve_target: None,
@@ -1261,14 +1261,14 @@ impl RenderApiInner {
         })
     }
 
-    fn clear_depth_texture(&self, texture: &GpuTexture, mip_level: usize, depth: f32) -> bool {
+    fn clear_depth_texture(&self, label: Option<&str>, texture: &GpuTexture, mip_level: usize, depth: f32) -> bool {
         if texture.format != GpuTextureFormat::Depth32Float {
             return false;
         }
 
         self.clear_texture_resource(texture, mip_level, |encoder, view| {
             encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("aphyn clear pass"),
+                label: Some(label.unwrap_or("aphyn clear pass")),
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view,
                     depth_ops: Some(wgpu::Operations {
@@ -1534,6 +1534,7 @@ impl RenderApiInner {
         let Self { device, queue, .. } = self;
 
         let FfiComputePass {
+            label,
             shader: shader_handle,
             bind_group_entries,
             bind_group_count,
@@ -1567,7 +1568,7 @@ impl RenderApiInner {
 
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("aphyn compute pass"),
+                label: Some(label_from_ffi(label).unwrap_or("aphyn compute pass")),
                 timestamp_writes: None,
             });
 
@@ -1647,6 +1648,7 @@ impl RenderApiInner {
         let Self { device, queue, .. } = self;
 
         let FfiRenderPass {
+            label,
             shader: shader_handle,
             target: pass_target,
             depth: pass_depth,
@@ -1775,7 +1777,7 @@ impl RenderApiInner {
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("aphyn render pass"),
+                label: Some(label_from_ffi(label).unwrap_or("aphyn render pass")),
                 color_attachments: &color_attachments,
                 depth_stencil_attachment,
                 ..Default::default()
@@ -1854,6 +1856,7 @@ impl FfiRange {
 
 #[repr(C)]
 struct FfiRenderPass<'a> {
+    label: FfiOption<FfiStrSliceRef<'a>>,
     shader: &'a GpuShader,
     target: Option<&'a GpuRenderPassTarget<'a>>,
     depth: Option<&'a GpuRenderPassDepth<'a>>,
@@ -1867,6 +1870,7 @@ struct FfiRenderPass<'a> {
 
 #[repr(C)]
 struct FfiComputePass<'a> {
+    label: FfiOption<FfiStrSliceRef<'a>>,
     shader: &'a GpuComputeShader,
     bind_group_entries: FfiSliceRef<'a, FfiBindGroupEntry<'a>>,
     bind_group_count: usize,
@@ -1988,10 +1992,20 @@ struct RenderApiVTable {
         instances: FfiRange,
     ) -> bool,
     dispatch_fn: unsafe extern "C-unwind" fn(this: *const c_void, pass: FfiComputePass<'_>) -> bool,
-    clear_color_texture_fn:
-        unsafe extern "C-unwind" fn(this: *const c_void, texture: &GpuTexture, mip_level: usize, color: FfiArray<f32, 4>) -> bool,
-    clear_depth_texture_fn:
-        unsafe extern "C-unwind" fn(this: *const c_void, texture: &GpuTexture, mip_level: usize, depth: f32) -> bool,
+    clear_color_texture_fn: unsafe extern "C-unwind" fn(
+        this: *const c_void,
+        label: FfiOption<FfiStrSliceRef<'_>>,
+        texture: &GpuTexture,
+        mip_level: usize,
+        color: FfiArray<f32, 4>,
+    ) -> bool,
+    clear_depth_texture_fn: unsafe extern "C-unwind" fn(
+        this: *const c_void,
+        label: FfiOption<FfiStrSliceRef<'_>>,
+        texture: &GpuTexture,
+        mip_level: usize,
+        depth: f32,
+    ) -> bool,
     copy_texture_fn: unsafe extern "C-unwind" fn(this: *const c_void, src: &GpuTexture, dst: &GpuTexture) -> bool,
     read_texture_fn:
         unsafe extern "C-unwind" fn(this: *const c_void, texture: &GpuTexture, mip_level: usize) -> FfiOption<FfiVec<u8>>,
@@ -2158,19 +2172,21 @@ impl RenderApi {
         }
         unsafe extern "C-unwind" fn ffi_clear_color_texture(
             this: *const c_void,
+            label: FfiOption<FfiStrSliceRef<'_>>,
             texture: &GpuTexture,
             mip_level: usize,
             color: FfiArray<f32, 4>,
         ) -> bool {
-            unsafe { inner_ref(this) }.clear_color_texture(texture, mip_level, color.0)
+            unsafe { inner_ref(this) }.clear_color_texture(label_from_ffi(label), texture, mip_level, color.0)
         }
         unsafe extern "C-unwind" fn ffi_clear_depth_texture(
             this: *const c_void,
+            label: FfiOption<FfiStrSliceRef<'_>>,
             texture: &GpuTexture,
             mip_level: usize,
             depth: f32,
         ) -> bool {
-            unsafe { inner_ref(this) }.clear_depth_texture(texture, mip_level, depth)
+            unsafe { inner_ref(this) }.clear_depth_texture(label_from_ffi(label), texture, mip_level, depth)
         }
         unsafe extern "C-unwind" fn ffi_copy_texture(this: *const c_void, src: &GpuTexture, dst: &GpuTexture) -> bool {
             unsafe { inner_ref(this) }.copy_texture(src, dst)
@@ -2384,6 +2400,7 @@ impl RenderApi {
         let bind_group_entries = flatten_bind_groups(pass.bind_groups);
 
         let pass = FfiComputePass {
+            label: label_to_ffi(pass.label),
             shader: pass.shader,
             bind_group_entries: FfiSliceRef::from_slice(&bind_group_entries),
             bind_group_count: pass.bind_groups.len(),
@@ -2393,12 +2410,12 @@ impl RenderApi {
         unsafe { (self.vtable.dispatch_fn)(self.data.get(), pass) }
     }
 
-    pub fn clear_color_texture(&self, texture: &GpuTexture, mip_level: usize, color: [f32; 4]) -> bool {
-        unsafe { (self.vtable.clear_color_texture_fn)(self.data.get(), texture, mip_level, FfiArray(color)) }
+    pub fn clear_color_texture(&self, label: Option<&str>, texture: &GpuTexture, mip_level: usize, color: [f32; 4]) -> bool {
+        unsafe { (self.vtable.clear_color_texture_fn)(self.data.get(), label_to_ffi(label), texture, mip_level, FfiArray(color)) }
     }
 
-    pub fn clear_depth_texture(&self, texture: &GpuTexture, mip_level: usize, depth: f32) -> bool {
-        unsafe { (self.vtable.clear_depth_texture_fn)(self.data.get(), texture, mip_level, depth) }
+    pub fn clear_depth_texture(&self, label: Option<&str>, texture: &GpuTexture, mip_level: usize, depth: f32) -> bool {
+        unsafe { (self.vtable.clear_depth_texture_fn)(self.data.get(), label_to_ffi(label), texture, mip_level, depth) }
     }
 
     pub fn copy_texture(&self, src: &GpuTexture, dst: &GpuTexture) -> bool {
@@ -2472,6 +2489,7 @@ impl GpuComputeShader {
 
 #[repr(C)]
 pub struct GpuComputePass<'a> {
+    pub label: Option<&'a str>,
     pub shader: &'a GpuComputeShader,
     pub bind_groups: &'a [&'a [(usize, GpuBinding<'a>)]],
     pub workgroups: [usize; 3],
@@ -2747,6 +2765,7 @@ impl GpuCompareFunction {
 
 #[repr(C)]
 pub struct GpuRenderPass<'a> {
+    pub label: Option<&'a str>,
     pub shader: &'a GpuShader,
     pub target: Option<GpuRenderPassTarget<'a>>,
     pub depth: Option<GpuRenderPassDepth<'a>>,
@@ -2791,6 +2810,7 @@ impl GpuRenderPass<'_> {
         let bind_group_entries = flatten_bind_groups(self.bind_groups);
 
         f(FfiRenderPass {
+            label: label_to_ffi(self.label),
             shader: self.shader,
             target: self.target.as_ref(),
             depth: self.depth.as_ref(),
@@ -2992,6 +3012,7 @@ mod tests {
 
     fn pass_without_target(shader: &GpuShader) -> GpuRenderPass<'_> {
         GpuRenderPass {
+            label: None,
             shader,
             target: None,
             depth: None,
@@ -3012,6 +3033,7 @@ mod tests {
         let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
 
         let pass = GpuRenderPass {
+            label: None,
             target: Some(GpuRenderPassTarget {
                 view: &target,
                 mip_level: 0,
@@ -3044,6 +3066,7 @@ mod tests {
             let target = api.create_texture(None, [4, 4], format, 1);
 
             let pass = GpuRenderPass {
+                label: None,
                 target: Some(GpuRenderPassTarget {
                     view: &target,
                     mip_level: 0,
@@ -3107,6 +3130,7 @@ mod tests {
             let shader = api.create_shader(None, FULLSCREEN_WGSL, desc).unwrap();
 
             let pass = GpuRenderPass {
+                label: None,
                 target: Some(GpuRenderPassTarget {
                     view: &target,
                     mip_level: 0,
@@ -3161,10 +3185,13 @@ mod tests {
                 let texture = api.create_texture(None, [4, 4], format, mip_level_count);
 
                 assert!(
-                    api.clear_color_texture(&texture, 0, [0.0, 0.5, 1.0, 1.0]),
+                    api.clear_color_texture(None, &texture, 0, [0.0, 0.5, 1.0, 1.0]),
                     "{format:?} {mip_level_count}"
                 );
-                assert!(!api.clear_depth_texture(&texture, 0, 1.0), "{format:?} {mip_level_count}");
+                assert!(
+                    !api.clear_depth_texture(None, &texture, 0, 1.0),
+                    "{format:?} {mip_level_count}"
+                );
             }
         }
     }
@@ -3177,8 +3204,8 @@ mod tests {
 
         let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Depth32Float, 1);
 
-        assert!(api.clear_depth_texture(&texture, 0, 1.0));
-        assert!(!api.clear_color_texture(&texture, 0, [0.0; 4]));
+        assert!(api.clear_depth_texture(None, &texture, 0, 1.0));
+        assert!(!api.clear_color_texture(None, &texture, 0, [0.0; 4]));
     }
 
     #[test]
@@ -3189,7 +3216,7 @@ mod tests {
 
         let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
 
-        assert!(api.clear_color_texture(&texture, 0, [1.0, 0.0, 1.0, 0.0]));
+        assert!(api.clear_color_texture(None, &texture, 0, [1.0, 0.0, 1.0, 0.0]));
 
         let pixels = read_texture_rgba8(&api, &texture, 0);
 
@@ -3205,9 +3232,9 @@ mod tests {
         let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 3);
 
         assert_eq!(texture.mip_level_count(), 3);
-        assert!(api.clear_color_texture(&texture, 0, [1.0, 0.0, 0.0, 1.0]));
-        assert!(api.clear_color_texture(&texture, 1, [0.0, 1.0, 0.0, 1.0]));
-        assert!(api.clear_color_texture(&texture, 2, [0.0, 0.0, 1.0, 1.0]));
+        assert!(api.clear_color_texture(None, &texture, 0, [1.0, 0.0, 0.0, 1.0]));
+        assert!(api.clear_color_texture(None, &texture, 1, [0.0, 1.0, 0.0, 1.0]));
+        assert!(api.clear_color_texture(None, &texture, 2, [0.0, 0.0, 1.0, 1.0]));
 
         assert_eq!(read_texture_rgba8(&api, &texture, 0), [255, 0, 0, 255].repeat(16));
         assert_eq!(read_texture_rgba8(&api, &texture, 1), [0, 255, 0, 255].repeat(4));
@@ -3225,10 +3252,11 @@ mod tests {
 
         for mip_level in 0..3 {
             for clear_level in 0..3 {
-                assert!(api.clear_color_texture(&texture, clear_level, [0.0; 4]));
+                assert!(api.clear_color_texture(None, &texture, clear_level, [0.0; 4]));
             }
 
             let pass = GpuRenderPass {
+                label: None,
                 target: Some(GpuRenderPassTarget {
                     view: &texture,
                     mip_level,
@@ -3287,6 +3315,7 @@ mod tests {
         let bind_groups: [&[(usize, GpuBinding)]; 1] = [&bindings];
 
         let pass = GpuRenderPass {
+            label: None,
             target: Some(GpuRenderPassTarget {
                 view: target,
                 mip_level: target_mip_level,
@@ -3322,6 +3351,7 @@ mod tests {
         bind_groups: &[&[(usize, GpuBinding)]],
     ) -> bool {
         let pass = GpuRenderPass {
+            label: None,
             target: Some(GpuRenderPassTarget {
                 view: target,
                 mip_level: 0,
@@ -3452,7 +3482,7 @@ mod tests {
         let sampler = api.create_sampler(None, GpuFilterMode::Linear);
         let texture = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 3);
 
-        assert!(api.clear_color_texture(&texture, 0, [1.0, 0.0, 1.0, 0.0]));
+        assert!(api.clear_color_texture(None, &texture, 0, [1.0, 0.0, 1.0, 0.0]));
 
         for mip_level in 1..3 {
             assert!(draw_sampling_mip(
@@ -3483,9 +3513,10 @@ mod tests {
         let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 2);
         let depth = api.create_texture(None, [4, 4], GpuTextureFormat::Depth32Float, 2);
 
-        assert!(api.clear_depth_texture(&depth, 1, 1.0));
+        assert!(api.clear_depth_texture(None, &depth, 1, 1.0));
 
         let pass = GpuRenderPass {
+            label: None,
             target: Some(GpuRenderPassTarget {
                 view: &target,
                 mip_level: 1,
@@ -3518,11 +3549,12 @@ mod tests {
         assert!(!draw_sampling_mip(&api, &shader, &target, 3, &texture, Some(2), &sampler));
         assert!(!draw_sampling_mip(&api, &shader, &target, 2, &texture, Some(3), &sampler));
 
-        assert!(!api.clear_color_texture(&texture, 3, [0.0; 4]));
-        assert!(!api.clear_depth_texture(&depth, 1, 1.0));
+        assert!(!api.clear_color_texture(None, &texture, 3, [0.0; 4]));
+        assert!(!api.clear_depth_texture(None, &depth, 1, 1.0));
 
         let fullscreen = api.create_shader(None, FULLSCREEN_WGSL, GpuShaderDesc::default()).unwrap();
         let pass = GpuRenderPass {
+            label: None,
             depth: Some(GpuRenderPassDepth {
                 view: &depth,
                 mip_level: 1,
@@ -3583,8 +3615,8 @@ mod tests {
         let src = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
         let dst = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
 
-        assert!(api.clear_color_texture(&src, 0, [1.0, 0.0, 1.0, 0.0]));
-        assert!(api.clear_color_texture(&dst, 0, [0.0, 1.0, 0.0, 1.0]));
+        assert!(api.clear_color_texture(None, &src, 0, [1.0, 0.0, 1.0, 0.0]));
+        assert!(api.clear_color_texture(None, &dst, 0, [0.0, 1.0, 0.0, 1.0]));
         assert!(api.copy_texture(&src, &dst));
 
         let pixels = read_texture_rgba8(&api, &dst, 0);
@@ -3671,6 +3703,7 @@ mod tests {
                     let buffer = api.create_uniform_storage_buffer(None, 16);
 
                     let pass = GpuRenderPass {
+                        label: None,
                         target: Some(GpuRenderPassTarget {
                             view: &target,
                             mip_level: 0,
@@ -3746,6 +3779,7 @@ mod tests {
         let bind_groups: [&[(usize, GpuBinding)]; 1] = [&bindings];
 
         let pass = GpuRenderPass {
+            label: None,
             target: Some(GpuRenderPassTarget {
                 view: target,
                 mip_level: 0,
@@ -3905,6 +3939,7 @@ mod tests {
 
         let draw = |vertex_buffers: &[&GpuVertexBuffer], vertices| {
             let pass = GpuRenderPass {
+                label: None,
                 target: Some(GpuRenderPassTarget {
                     view: &target,
                     mip_level: 0,
@@ -3936,6 +3971,7 @@ mod tests {
 
         let vertex_buffers = [&vertices];
         let pass = GpuRenderPass {
+            label: None,
             target: Some(GpuRenderPassTarget {
                 view: &target,
                 mip_level: 0,
@@ -3983,6 +4019,7 @@ mod tests {
         let bindings = [(0, GpuBinding::Buffer(&uniform)), (1, GpuBinding::Buffer(&storage))];
         let bind_groups: [&[(usize, GpuBinding)]; 1] = [&bindings];
         let pass = GpuRenderPass {
+            label: None,
             target: Some(GpuRenderPassTarget {
                 view: &target,
                 mip_level: 0,
@@ -4108,6 +4145,7 @@ mod tests {
 
         for shader in [&shader, &other_shader] {
             let pass = GpuRenderPass {
+                label: None,
                 target: Some(GpuRenderPassTarget {
                     view: &target,
                     mip_level: 0,
@@ -4154,6 +4192,7 @@ mod tests {
         let target = clone.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
 
         let pass = GpuRenderPass {
+            label: None,
             target: Some(GpuRenderPassTarget {
                 view: &target,
                 mip_level: 0,
@@ -4785,6 +4824,7 @@ mod tests {
         let target = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
 
         let pass = GpuRenderPass {
+            label: None,
             target: Some(GpuRenderPassTarget {
                 view: &target,
                 mip_level: 0,
@@ -4899,6 +4939,7 @@ mod tests {
 
     fn fill_pass<'a>(shader: &'a GpuComputeShader, bindings: &'a [&'a [(usize, GpuBinding<'a>)]]) -> GpuComputePass<'a> {
         GpuComputePass {
+            label: None,
             shader,
             bind_groups: bindings,
             workgroups: [1, 1, 1],
@@ -5070,6 +5111,7 @@ mod tests {
         let storage = api.create_texture(None, [4, 4], GpuTextureFormat::Rgba8Unorm, 1);
 
         let pass = GpuRenderPass {
+            label: None,
             target: Some(GpuRenderPassTarget {
                 view: &target,
                 mip_level: 0,
@@ -5137,6 +5179,7 @@ mod tests {
         assert!(api.dispatch(&fill_pass(&compute, bindings)));
 
         let pass = GpuRenderPass {
+            label: None,
             target: Some(GpuRenderPassTarget {
                 view: &target,
                 mip_level: 0,
@@ -5271,6 +5314,7 @@ mod tests {
         assert!(api.dispatch(&fill_pass(&compute, bindings)));
 
         let pass = GpuRenderPass {
+            label: None,
             target: Some(GpuRenderPassTarget {
                 view: &target,
                 mip_level: 0,

@@ -113,7 +113,7 @@ impl RenderFeature for SsaoRenderFeature {
                 .texture_white
                 .get_or_insert_with(|| {
                     let texture = core.create_texture(Some("ssao off"), [1, 1], AMBIENT_OCCLUSION_FORMAT, 1);
-                    core.clear_color_texture(&texture, 0, [1.0; 4]);
+                    core.clear_color_texture(Some("clear ssao off"), &texture, 0, [1.0; 4]);
                     texture
                 })
                 .clone(),
@@ -177,6 +177,7 @@ impl SsaoRenderFeature {
 
         draw_fullscreen(
             core,
+            "ssao",
             &gpu.shader_occlusion,
             texture_occlusion,
             clear_white,
@@ -196,6 +197,7 @@ impl SsaoRenderFeature {
         ] {
             draw_fullscreen(
                 core,
+                "ssao blur",
                 &gpu.shader_blur,
                 target,
                 clear_white,

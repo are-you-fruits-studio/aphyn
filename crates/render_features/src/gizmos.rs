@@ -117,6 +117,7 @@ impl GizmosRenderFeature {
 
                 core.draw(
                     &GpuRenderPass {
+                        label: Some("gizmo lines"),
                         shader: &gpu.shader,
                         target: Some(GpuRenderPassTarget {
                             view: target,

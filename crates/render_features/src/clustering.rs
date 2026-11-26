@@ -80,17 +80,18 @@ impl RenderFeature for ClusteringRenderFeature {
                 (7, GpuBinding::Buffer(bindings.cluster_dropped_pairs_buffer())),
             ];
             let per_cluster = [CLUSTERS_COUNT.div_ceil(CLUSTER_WORKGROUP_SIZE), 1, 1];
-            let dispatch = |shader: &GpuComputeShader, workgroups: [usize; 3]| {
+            let dispatch = |label: &str, shader: &GpuComputeShader, workgroups: [usize; 3]| {
                 ctx.render_api.core().dispatch(&GpuComputePass {
+                    label: Some(label),
                     shader,
                     bind_groups: &[&group],
                     workgroups,
                 });
             };
 
-            dispatch(&shaders.count, per_cluster);
-            dispatch(&shaders.scan, [1, 1, 1]);
-            dispatch(&shaders.fill, per_cluster);
+            dispatch("cluster count", &shaders.count, per_cluster);
+            dispatch("cluster scan", &shaders.scan, [1, 1, 1]);
+            dispatch("cluster fill", &shaders.fill, per_cluster);
 
             if check_dropped_pairs
                 && let Some(dropped) = ctx.render_api.read_cluster_dropped_pairs(bindings)

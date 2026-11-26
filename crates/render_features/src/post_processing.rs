@@ -84,6 +84,7 @@ impl ExposureRenderFeature {
 
         draw_fullscreen(
             core,
+            "exposure",
             &gpu.shader,
             &gpu.texture,
             GpuPassOps::Clear([0.0, 0.0, 0.0, 1.0]),
@@ -273,6 +274,7 @@ impl BloomRenderFeature {
 
         draw_fullscreen(
             core,
+            "bloom gather",
             shader_gather,
             &textures[0],
             clear_black,
@@ -310,6 +312,7 @@ impl BloomRenderFeature {
 
                 draw_fullscreen(
                     core,
+                    "bloom downscale",
                     shader_downscale,
                     downscale_target,
                     clear_black,
@@ -329,6 +332,7 @@ impl BloomRenderFeature {
             {
                 draw_fullscreen(
                     core,
+                    "bloom blur",
                     shader_blur,
                     target,
                     clear_black,
@@ -340,6 +344,7 @@ impl BloomRenderFeature {
 
             draw_fullscreen(
                 core,
+                "bloom apply",
                 shader_apply,
                 &target,
                 GpuPassOps::Load,
@@ -400,6 +405,7 @@ impl ColorGradingRenderFeature {
 
         draw_fullscreen(
             core,
+            "color grading",
             &gpu.shader,
             &gpu.texture,
             GpuPassOps::Clear([0.0, 0.0, 0.0, 1.0]),
