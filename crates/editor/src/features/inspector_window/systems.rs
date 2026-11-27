@@ -1603,8 +1603,11 @@ pub fn update_inspector_window_system(
     // a world rebuild resets the selection without an event, leaving the old entity's components on screen
     let is_showing_stale_entity = inspected_entity.shown_components.is_none()
         && ent.query::<&InspectorWindowContentComponent>().iter().any(|c| {
-            ent.get_component::<ParentComponent>(c.content_container)
-                .is_some_and(|p| p.children().iter().any(|&e| get_inspected_component_id(ent.as_ref(), e).is_some()))
+            ent.get_component::<ParentComponent>(c.content_container).is_some_and(|p| {
+                p.children()
+                    .iter()
+                    .any(|&e| get_inspected_component_id(ent.as_ref(), e).is_some())
+            })
         });
 
     // todo
