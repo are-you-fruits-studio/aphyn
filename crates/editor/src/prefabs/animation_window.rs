@@ -325,9 +325,12 @@ pub(crate) fn spawn_button<C: 'static>(
     text: &str,
     longest_text: &str,
 ) {
-    let text_width = fonts
-        .get(&assets.font)
-        .map_or(0.0, |font| [text, longest_text].map(|t| font.measure(t, BUTTON_FONT_PX, 0.0)).into_iter().fold(0.0, f32::max));
+    let text_width = fonts.get(&assets.font).map_or(0.0, |font| {
+        [text, longest_text]
+            .map(|t| font.measure(t, BUTTON_FONT_PX, 0.0))
+            .into_iter()
+            .fold(0.0, f32::max)
+    });
     let width = text_width + 14.0;
 
     let ent_button = ent.create_entity();

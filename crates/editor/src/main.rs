@@ -191,7 +191,10 @@ fn init_system(mut world: WorldDataMut) {
 
     let material_panel =
         create_material_from_template_key(res.as_ref(), BUILTIN_TEMPLATE_UI_OPAQUE_UNLIT, MaterialData::new()).unwrap();
-    let material_panel = res.get_mut::<AssetStorageResource<Material>>().unwrap().insert(material_panel);
+    let material_panel = res
+        .get_mut::<AssetStorageResource<Material>>()
+        .unwrap()
+        .insert(material_panel);
 
     res.insert(UiInteractionResource::default());
 
