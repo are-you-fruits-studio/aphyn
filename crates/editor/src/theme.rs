@@ -48,11 +48,9 @@ fn linear_to_srgb(v: f32) -> f32 {
 }
 
 pub struct Palette {
-    pub night_1000: Vec4<f32>,
     pub night_950: Vec4<f32>,
     pub night_600: Vec4<f32>,
     pub night_500: Vec4<f32>,
-    pub night_400: Vec4<f32>,
     pub night_300: Vec4<f32>,
 
     pub bg_app: Vec4<f32>,
@@ -64,9 +62,7 @@ pub struct Palette {
     pub surface_overlay: Vec4<f32>,
     pub surface_input: Vec4<f32>,
     pub surface_hover: Vec4<f32>,
-    pub surface_active: Vec4<f32>,
     pub surface_selected: Vec4<f32>,
-    pub surface_selected_strong: Vec4<f32>,
 
     pub border_subtle: Vec4<f32>,
     pub border_default: Vec4<f32>,
@@ -84,9 +80,7 @@ pub struct Palette {
     pub accent_fg: Vec4<f32>,
     pub highlight: Vec4<f32>,
     pub danger: Vec4<f32>,
-    pub danger_soft_on_app: Vec4<f32>,
     pub danger_soft_on_hover: Vec4<f32>,
-    pub accent_soft_on_panel: Vec4<f32>,
     pub warning: Vec4<f32>,
     pub warning_soft_on_panel: Vec4<f32>,
 
@@ -127,11 +121,9 @@ impl Palette {
         let resin_400 = srgb("#D4A458ff");
 
         Self {
-            night_1000,
             night_950,
             night_600,
             night_500,
-            night_400,
             night_300,
 
             bg_app: night_900,
@@ -143,9 +135,7 @@ impl Palette {
             surface_overlay: night_800,
             surface_input: night_950,
             surface_hover: night_750,
-            surface_active: night_700,
             surface_selected: srgb("#2A2658ff"),
-            surface_selected_strong: bilberry_500,
 
             border_subtle: srgb("#24232Fff"),
             border_default: night_700,
@@ -163,9 +153,7 @@ impl Palette {
             accent_fg: bilberry_300,
             highlight: srgb("#9D62BEff"),
             danger: rowan_400,
-            danger_soft_on_app: blend(rowan_400, night_900, 0.16),
             danger_soft_on_hover: blend(rowan_400, night_750, 0.16),
-            accent_soft_on_panel: blend(bilberry_400, night_850, 0.16),
             warning: resin_400,
             warning_soft_on_panel: blend(resin_400, night_850, 0.16),
 
