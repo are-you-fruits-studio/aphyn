@@ -34,6 +34,8 @@ pub struct OpenedEntitiesAssetResource {
 pub struct InspectedEntityResource {
     pub selected_entity: EntityId,
     pub shown_components: Option<Vec<(AnyTypeId, FfiString, InspectorValue)>>,
+    // the selection's entity index carried over a simulated world rebuild until that entity is spawned again
+    pub pending_reselect: Option<u64>,
 }
 
 #[derive(Component, Default, Copy, Clone)]

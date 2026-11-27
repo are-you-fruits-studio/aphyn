@@ -95,6 +95,7 @@ pub fn toggle_play_mode_system(
 
         let opened = std::mem::take(&mut *opened_asset);
         let world = simulated_world.0.as_mut().unwrap();
+        let pending_reselect = inspected_entity.pending_reselect;
 
         open_entities_asset(
             world,
@@ -103,6 +104,9 @@ pub fn toggle_play_mode_system(
             &opened.asset_key,
             &opened.path,
         );
+
+        // reopening the same scene keeps what was selected while playing
+        inspected_entity.pending_reselect = pending_reselect;
 
         focus_res.is_focused = false;
     } else {

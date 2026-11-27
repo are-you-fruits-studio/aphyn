@@ -41,13 +41,26 @@ pub fn select_entity_system(
     entry_q: WorldQuery<(&HierarchyWindowEntryComponent, &ButtonComponent)>,
     empty_area_q: WorldQuery<&ButtonComponent, WithFilter<HierarchyWindowEmptyAreaComponent>>,
     mut entity_selected_evt: EvtMut<EntitySelectedEvent>,
+    simulated_world: Res<SimulatedWorldResource>,
 ) {
     if !file_selected_evt.is_empty() {
         inspected_entity.selected_entity = EntityId::EMPTY;
+        inspected_entity.pending_reselect = None;
+    }
+
+    // the scene's entities are spawned again some frames after a rebuild, in the same order
+    if let Some(index) = inspected_entity.pending_reselect
+        && let Some(world) = simulated_world.0.as_ref()
+        && let Some(entity) = world.data.as_ref().entities().get_entity_by_idx_only(index)
+    {
+        inspected_entity.selected_entity = entity;
+        inspected_entity.pending_reselect = None;
+        entity_selected_evt.push(EntitySelectedEvent);
     }
 
     if empty_area_q.iter().any(|b| b.was_clicked_this_frame) && inspected_entity.selected_entity != EntityId::EMPTY {
         inspected_entity.selected_entity = EntityId::EMPTY;
+        inspected_entity.pending_reselect = None;
         entity_selected_evt.push(EntitySelectedEvent);
         return;
     }
@@ -55,6 +68,7 @@ pub fn select_entity_system(
     return_if_not!(Some((entry_c, _)) = entry_q.iter().find(|(_, b)| b.was_clicked_this_frame));
 
     inspected_entity.selected_entity = entry_c.simulated_entity;
+    inspected_entity.pending_reselect = None;
     *selected_file = SelectedFileResource::default();
     entity_selected_evt.push(EntitySelectedEvent);
 }
@@ -1586,6 +1600,13 @@ pub fn update_inspector_window_system(
     let is_entity_changed = shown_components != inspected_entity.shown_components;
     inspected_entity.shown_components = shown_components;
 
+    // a world rebuild resets the selection without an event, leaving the old entity's components on screen
+    let is_showing_stale_entity = inspected_entity.shown_components.is_none()
+        && ent.query::<&InspectorWindowContentComponent>().iter().any(|c| {
+            ent.get_component::<ParentComponent>(c.content_container)
+                .is_some_and(|p| p.children().iter().any(|&e| get_inspected_component_id(ent.as_ref(), e).is_some()))
+        });
+
     // todo
     return_if!(
         file_selected_evt.is_empty()
@@ -1594,6 +1615,7 @@ pub fn update_inspector_window_system(
             && entity_selected_evt.is_empty()
             && foldout_toggled_evt.is_empty()
             && !is_entity_changed
+            && !is_showing_stale_entity
     );
 
     let ent_selected_input = selected_input_field.selected;

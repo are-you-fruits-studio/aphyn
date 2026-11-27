@@ -152,6 +152,12 @@ pub fn rebuild_simulated_world(
     play_scene_key: &str,
     reload_library: bool,
 ) {
+    let reselect = simulated_world
+        .0
+        .as_ref()
+        .filter(|w| w.data.as_ref().entities().contains_entity(inspected_entity.selected_entity))
+        .map(|_| inspected_entity.selected_entity.version_index().index);
+
     // the old world holds the library's types and function pointers, so it must be dropped before the library is reused
     let library = simulated_world.0.take().map(
         |SimulatedWorld {
@@ -170,7 +176,10 @@ pub fn rebuild_simulated_world(
     );
 
     // shown components may hold values allocated by the library
-    *inspected_entity = InspectedEntityResource::default();
+    *inspected_entity = InspectedEntityResource {
+        pending_reselect: reselect,
+        ..Default::default()
+    };
 
     let library = match library {
         Some(library) if !reload_library => library,
