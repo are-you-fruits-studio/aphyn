@@ -8,6 +8,7 @@ use crate::{
         },
     },
     prefabs::WindowComponent,
+    theme::{self, PAL},
     *,
 };
 
@@ -31,11 +32,13 @@ pub fn init_window_as_inspector(mut world: WorldDataMut, ent_window: EntityId) {
         font.clone(),
     );
     let ent_add_component_variants_container = ent.create_entity();
+    let ent_add_component_placeholder = ent.create_entity();
 
     ent.set_components(
         ent_add_component_input,
         (AddComponentInputComponent {
             variants_container: ent_add_component_variants_container,
+            placeholder: ent_add_component_placeholder,
         },),
     );
 
@@ -65,7 +68,7 @@ pub fn init_window_as_inspector(mut world: WorldDataMut, ent_window: EntityId) {
                 material: material_panel,
             },
             ImageComponent {
-                color: Vec4::from_array(parse_color_rgba_f32("#757575ff").unwrap()),
+                color: PAL.surface_panel,
                 ..Default::default()
             },
         ),
@@ -77,6 +80,34 @@ pub fn init_window_as_inspector(mut world: WorldDataMut, ent_window: EntityId) {
         .unwrap()
         .text;
     let ent_add_component_background = ent.get_component::<ChildComponent>(ent_add_component_text).unwrap().parent();
+
+    ent.set_components(
+        ent_add_component_placeholder,
+        (
+            GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
+            LocalDisableableComponent::default(),
+            LocalRectComponent {
+                parent_padding_min: Vec2::new(UiVal::px(theme::PAD_X), UiVal::px(0.0)),
+                ..Default::default()
+            },
+            BatchedMeshComponent::default(),
+            MaterialComponent {
+                material: material_text.clone(),
+            },
+            TextComponent {
+                color: PAL.text_3,
+                font: font.clone(),
+                font_size: UiVal::px(theme::FONT),
+                is_y_inverted: true,
+                text: "+ Add component...".into(),
+                horizontal_spacing: UiVal::px(0.0),
+                vertical_align: VerticalAlign::Middle,
+                horizontal_align: HorizontalAlign::Left,
+            },
+        ),
+    );
+    set_parent(ent.as_mut(), ent_add_component_placeholder, ent_add_component_background);
 
     for e in [
         ent_add_component_input,
@@ -107,15 +138,15 @@ pub fn init_window_as_inspector(mut world: WorldDataMut, ent_window: EntityId) {
             GlobalRectComponent::default(),
             GlobalDisableableComponent::default(),
             LocalRectComponent {
-                scale: Vec2::new(UiVal::pd(1.0).into(), UiVal::px(20.0).into()),
+                scale: Vec2::new(UiVal::pd(1.0).into(), UiVal::px(theme::PANEL_HEADER_H).into()),
                 ..Default::default()
             },
             BatchedMeshComponent::default(),
             MaterialComponent { material: material_text },
             TextComponent {
-                color: Vec4::from_array(parse_color_rgba_f32("#000000ff").unwrap()),
+                color: PAL.text_1,
                 font,
-                font_size: UiVal::px(18.0),
+                font_size: UiVal::px(theme::FONT),
                 is_y_inverted: true,
                 text: String::new().into(),
                 horizontal_spacing: UiVal::px(0.0),

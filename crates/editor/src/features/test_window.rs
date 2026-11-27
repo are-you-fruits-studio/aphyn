@@ -75,7 +75,10 @@ fn open_windows_dropdown_system(
     };
 
     let position = rect_c.center + Vec2::new(-rect_c.scale.x, rect_c.scale.y) * 0.5;
-    let variants = WINDOW_KINDS.iter().map(|k| FfiString::from(*k)).collect();
+    let variants = WINDOW_KINDS
+        .iter()
+        .map(|k| FfiString::from(crate::prefabs::tab_label(k)))
+        .collect();
     dropdown_res.request_id = generic_dropdown_res.request(variants, position);
 }
 

@@ -18,8 +18,9 @@ use crate::{
                 open_component_context_menu_system, open_entities_asset_system, open_field_value_context_menu_system,
                 open_hierarchy_context_menu_system, open_inspector_enum_dropdown_system, paste_entities_hotkey_system,
                 save_inspected_asset_from_simulated_world_to_file_system, save_simulated_entities_to_asset_system,
-                select_entity_system, toggle_inspector_checkbox_system, update_add_component_input_visibility_system, update_add_component_variants_system,
-                update_hierarchy_entries_selection, update_hierarchy_window_system, update_inspector_window_system,
+                select_entity_system, toggle_inspector_checkbox_system, update_add_component_input_visibility_system,
+                update_add_component_variants_system, update_hierarchy_entries_selection, update_hierarchy_window_system,
+                update_inspector_window_system,
             },
         },
         number_drag::drag_number_input_field_system,
@@ -51,9 +52,9 @@ pub mod utils;
 // todo: hint for int-float differentiation
 // todo: asset drag-and-drop for referencing
 
-pub const FONT_SIZE: UiVal = UiVal::px(16.0);
-pub const FIELD_HEIGHT: UiVal = UiVal::px(18.0);
-pub const INDENT_WIDTH: UiVal = UiVal::px(18.0);
+pub const FONT_SIZE: UiVal = UiVal::px(crate::theme::FONT);
+pub const FIELD_HEIGHT: UiVal = UiVal::px(crate::theme::CONTROL_H);
+pub const INDENT_WIDTH: UiVal = UiVal::px(crate::theme::INDENT);
 pub const FIELD_GAP: UiVal = UiVal::px(2.0);
 
 pub fn register_feature(ctx: FeatureInitCtx) {

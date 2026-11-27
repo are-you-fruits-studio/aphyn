@@ -30,6 +30,7 @@ use crate::{
         world_preload::{SimulatedWorld, SimulatedWorldResource},
     },
     prefabs::WindowComponent,
+    theme::PAL,
     *,
 };
 
@@ -64,9 +65,9 @@ pub fn update_hierarchy_entries_selection(
 ) {
     for (entry_c, image_c) in entry_q.iter_mut() {
         if entry_c.simulated_entity == inspected_entity.selected_entity {
-            image_c.color = Vec4::from_array(const { parse_color_rgba_f32("#7d90e6ff").unwrap() });
+            image_c.color = PAL.surface_selected;
         } else {
-            image_c.color = Vec4::from_array(const { parse_color_rgba_f32("#00000000").unwrap() });
+            image_c.color = PAL.transparent;
         }
     }
 }
@@ -444,10 +445,15 @@ pub fn update_add_component_input_visibility_system(
     let inputs = ent
         .query::<(EntityId, &AddComponentInputComponent, &InputFieldComponent)>()
         .iter()
-        .map(|(e, add_c, input_c)| (e, add_c.variants_container, input_c.text))
+        .map(|(e, add_c, input_c)| (e, add_c.variants_container, add_c.placeholder, input_c.text))
         .collect::<Vec<_>>();
 
-    for (ent_input, ent_variants_container, ent_text) in inputs {
+    for (ent_input, ent_variants_container, ent_placeholder, ent_text) in inputs {
+        let is_empty = ent.get_component::<TextComponent>(ent_text).is_none_or(|t| t.text.is_empty());
+        if let Some(disableable_c) = ent.get_component_mut::<LocalDisableableComponent>(ent_placeholder) {
+            disableable_c.is_disabled = !is_empty || selected_input.selected == ent_input;
+        }
+
         if let Some(disableable_c) = ent.get_component_mut::<LocalDisableableComponent>(ent_input) {
             disableable_c.is_disabled = !is_shown;
         }
@@ -1404,9 +1410,9 @@ fn spawn_hierarchy_window_entries_recursively(
     let name = sim_ent
         .get_component::<NameComponent>(simulated_ent)
         .map(|s| s.0.as_str().into())
-        .unwrap_or_else(|| format!("e{{{}}}", entity_id));
+        .unwrap_or_else(|| format!("Entity {}", entity_id));
 
-    let name = format!("[{}] {}", entity_id, name).into();
+    let name = name.into();
 
     let (ent_name_container, ent_name) = spawn_hierarchy_window_entry(
         ent.as_mut(),
@@ -1479,6 +1485,10 @@ pub fn change_inspected_asset_system(
 // what the inspector calls a component: its serialized name, or its type name when it has no serializer
 fn component_label(serializers: Option<&SerializersResource>, id: AnyTypeId, type_name: &str) -> FfiString {
     serializers.and_then(|s| s.name_of(id)).unwrap_or(type_name).into()
+}
+
+fn display_component_label(label: &str) -> &str {
+    label.strip_prefix("aphyn::").unwrap_or(label)
 }
 
 fn record_inspected_components(simulated_world: &SimulatedWorld, entity: EntityId) -> Vec<(AnyTypeId, FfiString, InspectorValue)> {
@@ -1737,7 +1747,7 @@ fn update_prefab_component_ent(
     let (component_header_ent, componet_id_text_ent) = spawn_text_ent(
         ent.as_mut(),
         comp_ent,
-        component_label.into(),
+        display_component_label(&component_label).into(),
         material_panel.clone(),
         material_text.clone(),
         font.clone(),
@@ -1747,7 +1757,10 @@ fn update_prefab_component_ent(
         (ComponentHeaderComponent { component: comp_ent }, ButtonComponent::default()),
     );
     if let Some(image_c) = ent.get_component_mut::<ImageComponent>(component_header_ent) {
-        image_c.color = Vec4::from_array(rgba_f32_array!("#8f8f8fff"));
+        image_c.color = PAL.surface_raised;
+    }
+    if let Some(text_c) = ent.get_component_mut::<TextComponent>(componet_id_text_ent) {
+        text_c.color = PAL.text_1;
     }
 
     let foldout_arrow = spawn_foldout_arrow(
@@ -1822,7 +1835,7 @@ fn spawn_component_separator(mut ent: EntitiesHolderMut, ent_parent: EntityId, m
                 material: material_panel.clone(),
             },
             ImageComponent {
-                color: Vec4::from_array(rgba_f32_array!("#3a3a3aff")),
+                color: PAL.border_subtle,
                 ..Default::default()
             },
         ),

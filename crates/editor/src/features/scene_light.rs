@@ -14,15 +14,13 @@ use crate::{
         ui_interaction::{ButtonComponent, check_ui_interaction_system},
     },
     prefabs::spawn_scene_light_panel,
+    theme::PAL,
 };
 
 const SETTINGS_DIR: &str = "editor";
 const SETTINGS_FILE_NAME: &str = "scene_view.json";
 
 const DEFAULT_LIGHT_COLOR: Vec3<f32> = Vec3::splat(3.0);
-
-const BUTTON_COLOR: Vec4<f32> = Vec4::new(0.3, 0.3, 0.3, 1.0);
-const BUTTON_COLOR_ACTIVE: Vec4<f32> = Vec4::from_array(const { parse_color_rgba_f32("#7d90e6ff").unwrap() });
 
 pub fn register_feature(ctx: FeatureInitCtx) {
     let FeatureInitCtx {
@@ -290,7 +288,7 @@ fn update_scene_light_panel_system(
     for (ent_buttons, is_active) in buttons {
         for ent_button in ent_buttons {
             if let Some(image_c) = ent.get_component_mut::<ImageComponent>(ent_button) {
-                image_c.color = if is_active { BUTTON_COLOR_ACTIVE } else { BUTTON_COLOR };
+                image_c.color = if is_active { PAL.accent } else { PAL.surface_raised };
             }
         }
     }

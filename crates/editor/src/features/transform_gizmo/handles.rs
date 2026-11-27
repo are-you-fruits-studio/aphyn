@@ -1,17 +1,9 @@
 use aphyn::*;
 
 use super::{GizmoHandle, GizmoSpace, GizmoTool};
-use crate::features::scene_window::SceneCameraResource;
+use crate::{features::scene_window::SceneCameraResource, theme::PAL};
 
 pub const GIZMO_SCREEN_SIZE_PX: f32 = 110.0;
-
-const AXIS_COLORS: [Vec4<f32>; 3] = [
-    Vec4::new(0.85, 0.12, 0.1, 1.0),
-    Vec4::new(0.2, 0.75, 0.1, 1.0),
-    Vec4::new(0.12, 0.3, 0.95, 1.0),
-];
-const CENTER_COLOR: Vec4<f32> = Vec4::new(0.8, 0.8, 0.8, 1.0);
-const HIGHLIGHT_COLOR: Vec4<f32> = Vec4::new(1.0, 0.85, 0.1, 1.0);
 
 const SHAFT_RADIUS: f32 = 0.015;
 const MOVE_SHAFT_END: f32 = 0.78;
@@ -165,7 +157,7 @@ pub fn handle_parts(tool: GizmoTool, frame: &GizmoFrame, active: Option<GizmoHan
     let mut parts = Vec::new();
 
     let mut push = |handle: GizmoHandle, base_color: Vec4<f32>, shape: HandleShape| {
-        let color = if active == Some(handle) { HIGHLIGHT_COLOR } else { base_color };
+        let color = if active == Some(handle) { PAL.resin_300 } else { base_color };
         parts.push(HandlePart { handle, shape, color });
     };
 
@@ -176,7 +168,7 @@ pub fn handle_parts(tool: GizmoTool, frame: &GizmoFrame, active: Option<GizmoHan
                 let handle = GizmoHandle::Axis(i);
                 push(
                     handle,
-                    AXIS_COLORS[i],
+                    [PAL.axis_x, PAL.axis_y, PAL.axis_z][i],
                     HandleShape::Cylinder {
                         start: frame.origin,
                         end: frame.at(i, MOVE_SHAFT_END),
@@ -185,7 +177,7 @@ pub fn handle_parts(tool: GizmoTool, frame: &GizmoFrame, active: Option<GizmoHan
                 );
                 push(
                     handle,
-                    AXIS_COLORS[i],
+                    [PAL.axis_x, PAL.axis_y, PAL.axis_z][i],
                     HandleShape::Cone {
                         base: frame.at(i, MOVE_SHAFT_END),
                         tip: frame.at(i, 1.0),
@@ -198,7 +190,7 @@ pub fn handle_parts(tool: GizmoTool, frame: &GizmoFrame, active: Option<GizmoHan
                 let (u, v) = ((i + 1) % 3, (i + 2) % 3);
                 push(
                     GizmoHandle::Plane(i),
-                    AXIS_COLORS[i],
+                    [PAL.axis_x, PAL.axis_y, PAL.axis_z][i],
                     HandleShape::Quad {
                         corner: frame.origin + (frame.axes[u] + frame.axes[v]) * (PLANE_MIN * s),
                         u: frame.axes[u] * ((PLANE_MAX - PLANE_MIN) * s),
@@ -209,7 +201,7 @@ pub fn handle_parts(tool: GizmoTool, frame: &GizmoFrame, active: Option<GizmoHan
 
             push(
                 GizmoHandle::Center,
-                CENTER_COLOR,
+                PAL.text_2,
                 HandleShape::Cube {
                     center: frame.origin,
                     axes: frame.axes,
@@ -221,7 +213,7 @@ pub fn handle_parts(tool: GizmoTool, frame: &GizmoFrame, active: Option<GizmoHan
             for i in 0..3 {
                 push(
                     GizmoHandle::Axis(i),
-                    AXIS_COLORS[i],
+                    [PAL.axis_x, PAL.axis_y, PAL.axis_z][i],
                     HandleShape::Ring {
                         center: frame.origin,
                         normal: frame.axes[i],
@@ -233,7 +225,7 @@ pub fn handle_parts(tool: GizmoTool, frame: &GizmoFrame, active: Option<GizmoHan
 
             push(
                 GizmoHandle::ViewRing,
-                CENTER_COLOR,
+                PAL.text_2,
                 HandleShape::Ring {
                     center: frame.origin,
                     normal: frame.forward,
@@ -247,7 +239,7 @@ pub fn handle_parts(tool: GizmoTool, frame: &GizmoFrame, active: Option<GizmoHan
                 let handle = GizmoHandle::Axis(i);
                 push(
                     handle,
-                    AXIS_COLORS[i],
+                    [PAL.axis_x, PAL.axis_y, PAL.axis_z][i],
                     HandleShape::Cylinder {
                         start: frame.origin,
                         end: frame.at(i, SCALE_SHAFT_END),
@@ -256,7 +248,7 @@ pub fn handle_parts(tool: GizmoTool, frame: &GizmoFrame, active: Option<GizmoHan
                 );
                 push(
                     handle,
-                    AXIS_COLORS[i],
+                    [PAL.axis_x, PAL.axis_y, PAL.axis_z][i],
                     HandleShape::Cube {
                         center: frame.at(i, SCALE_SHAFT_END + SCALE_CUBE_HALF),
                         axes: frame.axes,
@@ -267,7 +259,7 @@ pub fn handle_parts(tool: GizmoTool, frame: &GizmoFrame, active: Option<GizmoHan
 
             push(
                 GizmoHandle::Center,
-                CENTER_COLOR,
+                PAL.text_2,
                 HandleShape::Cube {
                     center: frame.origin,
                     axes: frame.axes,

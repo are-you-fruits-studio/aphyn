@@ -5,6 +5,7 @@ mod features;
 mod prefabs;
 mod resources;
 mod systems;
+mod theme;
 mod utils;
 
 use crate::{

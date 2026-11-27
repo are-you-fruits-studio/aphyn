@@ -17,12 +17,8 @@ use crate::{
             tick_simulated_world_system,
         },
     },
+    theme::{PAL, blend},
 };
-
-const BUTTON_COLOR: Vec4<f32> = Vec4::new(0.3, 0.3, 0.3, 1.0);
-const BUTTON_COLOR_DISABLED: Vec4<f32> = Vec4::new(0.15, 0.15, 0.15, 1.0);
-const TEXT_COLOR: Vec4<f32> = Vec4::splat(1.0);
-const TEXT_COLOR_DISABLED: Vec4<f32> = Vec4::splat(0.5);
 
 pub fn register_feature(ctx: FeatureInitCtx) {
     let FeatureInitCtx {
@@ -153,7 +149,17 @@ fn update_play_button_system(
 
     for ent_button in buttons {
         if let Some(image_c) = ent.get_component_mut::<ImageComponent>(ent_button) {
-            image_c.color = if is_enabled { BUTTON_COLOR } else { BUTTON_COLOR_DISABLED };
+            image_c.color = if is_playing { PAL.accent } else { PAL.surface_raised };
+        }
+
+        if let Some(ent_bar) = ent.get_component::<ChildComponent>(ent_button).map(|c| c.parent())
+            && let Some(image_c) = ent.get_component_mut::<ImageComponent>(ent_bar)
+        {
+            image_c.color = if is_playing {
+                blend(PAL.accent, PAL.bg_app, 0.16)
+            } else {
+                PAL.bg_app
+            };
         }
 
         let children = ent
@@ -170,7 +176,11 @@ fn update_play_button_system(
                 text_c.text.push_str(text);
             }
 
-            text_c.color = if is_enabled { TEXT_COLOR } else { TEXT_COLOR_DISABLED };
+            text_c.color = match (is_playing, is_enabled) {
+                (true, _) => PAL.text_on_accent,
+                (false, true) => PAL.text_1,
+                (false, false) => PAL.text_disabled,
+            };
         }
     }
 }

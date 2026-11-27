@@ -176,6 +176,22 @@
 //! assert_eq!(parse_color_rgba_f32("#ff0000"), None);
 //! ```
 //!
+//! These parsers only scale the digits to `0..=1`. Colors written in sRGB (design
+//! tools, CSS) must be converted before they reach a renderer that works in linear
+//! space: [`parse_color_srgba_to_linear_f32`] parses and converts the color channels
+//! (alpha is kept as is), and [`srgb_to_linear`] converts a single channel. Neither
+//! is `const`.
+//!
+//! ```
+//! use aphyn_math::{parse_color_srgba_to_linear_f32, srgb_to_linear};
+//!
+//! assert_eq!(srgb_to_linear(0.0), 0.0);
+//! assert!((srgb_to_linear(0.5) - 0.2140).abs() < 1e-4);
+//! let [r, g, b, a] = parse_color_srgba_to_linear_f32("#ffffff80").unwrap();
+//! assert_eq!([r, g, b], [1.0, 1.0, 1.0]);
+//! assert!((a - 128.0 / 255.0).abs() < 1e-6);
+//! ```
+//!
 //! #### Solving small equations
 //!
 //! [`eq_linear`] and [`eq_quadratic`] return result enums that distinguish no
@@ -369,14 +385,7 @@ pub fn inv_lerp<T: Number>(a: T, b: T, x: T) -> T {
     (x - a) / (b - a)
 }
 
-pub fn damp(
-    current: f32,
-    target: f32,
-    velocity: &mut f32,
-    smooth_time: f32,
-    damping: f32,
-    delta_time: f32,
-) -> f32 {
+pub fn damp(current: f32, target: f32, velocity: &mut f32, smooth_time: f32, damping: f32, delta_time: f32) -> f32 {
     let smooth_time = smooth_time.max(1e-4);
     let omega = 2.0 / smooth_time;
 
@@ -416,8 +425,7 @@ pub fn damp(
             let sin = (omega_d * t).sin();
 
             new_x = exp * (c1 * cos + c2 * sin);
-            new_v = exp * (-zeta * omega * (c1 * cos + c2 * sin)
-                + (-c1 * omega_d * sin + c2 * omega_d * cos));
+            new_v = exp * (-zeta * omega * (c1 * cos + c2 * sin) + (-c1 * omega_d * sin + c2 * omega_d * cos));
         } else {
             // ζ <= -1: real exponential instability (no oscillation)
             let tmp = (zeta * zeta - 1.0).sqrt();

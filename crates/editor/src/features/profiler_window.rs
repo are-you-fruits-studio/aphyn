@@ -16,27 +16,20 @@ use crate::{
         world_preload::{SimulatedWorldResource, tick_simulated_world_system},
     },
     prefabs::{PROFILER_LANE_LABEL_WIDTH, PROFILER_MAX_LANES, PROFILER_RULER_HEIGHT, PROFILER_SMALL_FONT_PX},
+    theme::PAL,
 };
 
-pub const HISTOGRAM_BAR_COLOR: Vec4<f32> = Vec4::new(0.45, 0.6, 0.45, 1.0);
-pub const SELECTED_COLOR: Vec4<f32> = Vec4::new(1.0, 0.75, 0.2, 1.0);
-pub const HOVERED_COLOR: Vec4<f32> = Vec4::new(0.92, 0.92, 0.92, 1.0);
-pub const SEGMENT_BORDER_COLOR: Vec4<f32> = Vec4::new(0.04, 0.04, 0.04, 1.0);
-pub const FRAME_LINE_COLOR: Vec4<f32> = Vec4::new(0.5, 0.5, 0.5, 1.0);
 // indexed by `ProfileSpanKind`
-pub const SPAN_COLORS: [Vec4<f32>; ProfileSpanKind::COUNT] = [
-    Vec4::new(0.45, 0.62, 0.9, 1.0),
-    Vec4::new(0.75, 0.5, 0.85, 1.0),
-    Vec4::new(0.9, 0.55, 0.4, 1.0),
-    Vec4::new(0.45, 0.78, 0.45, 1.0),
-    Vec4::new(0.35, 0.75, 0.72, 1.0),
-    Vec4::new(0.8, 0.8, 0.38, 1.0),
-];
-
-const BUTTON_COLOR: Vec4<f32> = Vec4::new(0.3, 0.3, 0.3, 1.0);
-const BUTTON_COLOR_RECORD: Vec4<f32> = Vec4::new(0.8, 0.25, 0.25, 1.0);
-const TEXT_COLOR: Vec4<f32> = Vec4::splat(0.9);
-const LABEL_COLOR: Vec4<f32> = Vec4::new(0.05, 0.05, 0.05, 1.0);
+pub fn span_colors() -> [Vec4<f32>; ProfileSpanKind::COUNT] {
+    [
+        PAL.bloom_400,
+        PAL.juice_300,
+        PAL.resin_300,
+        PAL.leaf_400,
+        PAL.leaf_200,
+        PAL.night_300,
+    ]
+}
 
 const DEFAULT_CAPACITY: usize = 300;
 const MIN_CAPACITY: usize = 10;
@@ -653,9 +646,9 @@ pub fn draw_profiler_window_system(
     style_buttons::<ProfilerRecordButtonComponent>(
         &mut ent,
         if profiler.is_recording {
-            BUTTON_COLOR_RECORD
+            PAL.danger
         } else {
-            BUTTON_COLOR
+            PAL.surface_raised
         },
         Some(if profiler.is_recording { "Recording" } else { "Record" }),
     );
@@ -672,7 +665,7 @@ pub fn draw_profiler_window_system(
     if profiler.is_recording && !simulated_world.is_playing() {
         status += " | records in play mode";
     }
-    set_text(&mut ent, ui.status_text, &status, TEXT_COLOR);
+    set_text(&mut ent, ui.status_text, &status, PAL.text_1);
 
     draw_histogram(&mut ent, &ui, &profiler, max_ns);
 
@@ -693,7 +686,7 @@ pub fn draw_profiler_window_system(
         } else {
             String::new()
         };
-        set_text(&mut ent, *ent_label, &text, TEXT_COLOR);
+        set_text(&mut ent, *ent_label, &text, PAL.text_1);
         place(
             &mut ent,
             *ent_label,
@@ -794,7 +787,7 @@ pub fn draw_profiler_window_system(
     for ((width, top_left, height, span), ent_label) in label_candidates.into_iter().zip(&mut labels) {
         let max_chars = ((width - 6.0) / char_px) as usize;
         let text = truncate(&span_label(span), max_chars);
-        set_text(&mut ent, *ent_label, &text, LABEL_COLOR);
+        set_text(&mut ent, *ent_label, &text, PAL.night_950);
         place(
             &mut ent,
             *ent_label,
@@ -803,7 +796,7 @@ pub fn draw_profiler_window_system(
         );
     }
     for ent_label in labels {
-        set_text(&mut ent, *ent_label, "", TEXT_COLOR);
+        set_text(&mut ent, *ent_label, "", PAL.text_1);
     }
 
     // details
@@ -816,8 +809,8 @@ pub fn draw_profiler_window_system(
         ),
         None => ("Press Record and enter play mode".into(), String::new()),
     };
-    set_text(&mut ent, ui.details_lines[0], &line_0, TEXT_COLOR);
-    set_text(&mut ent, ui.details_lines[1], &line_1, TEXT_COLOR);
+    set_text(&mut ent, ui.details_lines[0], &line_0, PAL.text_1);
+    set_text(&mut ent, ui.details_lines[1], &line_1, PAL.text_1);
 }
 
 struct UiEntities {
@@ -889,7 +882,7 @@ fn draw_histogram(ent: &mut EntitiesHolderMut, ui: &UiEntities, profiler: &Profi
             format_ms(max_ns as f64 / NS_PER_MS, 0.01)
         )
     };
-    set_text(ent, ui.histogram_label, &label, TEXT_COLOR);
+    set_text(ent, ui.histogram_label, &label, PAL.text_1);
 }
 
 fn draw_ruler(ent: &mut EntitiesHolderMut, ui: &UiEntities, view: &LanesView, ruler_rect: &GlobalRectComponent, origin_ns: f64) {
@@ -909,7 +902,7 @@ fn draw_ruler(ent: &mut EntitiesHolderMut, ui: &UiEntities, view: &LanesView, ru
         ticks.push(Vec2::new(to_ruler_x(x), 1.0));
 
         if let Some(ent_label) = labels.next() {
-            set_text(ent, *ent_label, &format!("{} ms", format_ms(ms, step_ms)), TEXT_COLOR);
+            set_text(ent, *ent_label, &format!("{} ms", format_ms(ms, step_ms)), PAL.text_1);
             place(
                 ent,
                 *ent_label,
@@ -920,7 +913,7 @@ fn draw_ruler(ent: &mut EntitiesHolderMut, ui: &UiEntities, view: &LanesView, ru
         ms += step_ms;
     }
     for ent_label in labels {
-        set_text(ent, *ent_label, "", TEXT_COLOR);
+        set_text(ent, *ent_label, "", PAL.text_1);
     }
 
     set_points(ent, ui.ruler_ticks, ticks);

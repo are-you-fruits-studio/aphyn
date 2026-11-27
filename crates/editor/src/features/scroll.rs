@@ -92,7 +92,7 @@ fn update_scroll_handle_size_system(
             }
             None => {
                 if let Some(handle_rect) = local_rect_q.get_mut(scroll_c.handle) {
-                    handle_rect.scale.y = Some(UiVal::ph(1.0)).into();
+                    handle_rect.scale.y = Some(UiVal::px(0.0)).into();
                 }
 
                 set_progress(scroll_c, 0.0, &mut local_rect_q);

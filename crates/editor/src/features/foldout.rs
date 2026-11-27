@@ -12,13 +12,14 @@ use crate::{
         ui_interaction::check_ui_interaction_system,
         windows_layout::APP_NAME,
     },
+    theme::{self, PAL},
     *,
 };
 
 const FILE_NAME: &str = "foldouts.json";
 
-pub const FOLDOUT_WIDTH: f32 = 20.0;
-const FOLDOUT_ARROW_SIZE: f32 = 16.0;
+pub const FOLDOUT_WIDTH: f32 = 16.0;
+const FOLDOUT_ARROW_SIZE: f32 = 14.0;
 
 pub fn register_feature(ctx: FeatureInitCtx) {
     let FeatureInitCtx {
@@ -314,7 +315,7 @@ pub fn spawn_foldout_arrow(
                 material: material_panel.clone(),
             },
             ImageComponent {
-                color: Vec4::from_array(rgba_f32_array!("#00000030")),
+                color: PAL.transparent,
                 ..Default::default()
             },
         ),
@@ -333,9 +334,9 @@ pub fn spawn_foldout_arrow(
                 material: material_text.clone(),
             },
             TextComponent {
-                color: Vec4::from_array(parse_color_rgba_f32("#000000ff").unwrap()),
+                color: PAL.text_3,
                 font: font.clone(),
-                font_size: UiVal::px(16.0),
+                font_size: UiVal::px(theme::FONT),
                 is_y_inverted: true,
                 text: arrow_str(is_expanded).into(),
                 horizontal_spacing: UiVal::px(0.0),

@@ -11,16 +11,17 @@ use crate::{
         ui_interaction::HoverAreaComponent,
     },
     prefabs::{WindowComponent, create_header_button},
+    theme::{self, PAL},
     *,
 };
 
-const TOOLBAR_HEIGHT: f32 = 22.0;
+const TOOLBAR_HEIGHT: f32 = theme::CONTROL_H;
 const TOOLBAR_MARGIN: f32 = 4.0;
-const TOOLBAR_GAP: f32 = 1.0;
-const LIGHT_BUTTON_WIDTH: f32 = 64.0;
+const TOOLBAR_GAP: f32 = 2.0;
+const LIGHT_BUTTON_WIDTH: f32 = 52.0;
 
 const PANEL_PADDING: f32 = 4.0;
-const PANEL_ROW_HEIGHT: f32 = 20.0;
+const PANEL_ROW_HEIGHT: f32 = theme::ROW_H;
 const PANEL_ROW_GAP: f32 = 2.0;
 const PANEL_LABEL_WIDTH: f32 = 72.0;
 const PANEL_FIELD_WIDTH: f32 = 56.0;
@@ -34,11 +35,11 @@ pub fn init_window_as_scene(mut world: WorldDataMut, ent_window: EntityId) {
     let assets_res = res.get::<StandardAssetsResource>().unwrap();
 
     let buttons = [
-        ("None", 64.0, Some(GizmoTool::None)),
-        ("Move", 64.0, Some(GizmoTool::Move)),
-        ("Rotate", 90.0, Some(GizmoTool::Rotate)),
-        ("Scale", 76.0, Some(GizmoTool::Scale)),
-        ("Global", 90.0, None),
+        ("None", 48.0, Some(GizmoTool::None)),
+        ("Move", 48.0, Some(GizmoTool::Move)),
+        ("Rotate", 60.0, Some(GizmoTool::Rotate)),
+        ("Scale", 52.0, Some(GizmoTool::Scale)),
+        ("Global", 60.0, None),
     ];
     let toolbar_width =
         buttons.iter().map(|(_, width, _)| width).sum::<f32>() + LIGHT_BUTTON_WIDTH + TOOLBAR_GAP * buttons.len() as f32;
@@ -133,7 +134,7 @@ pub fn spawn_scene_light_panel(
                 material: assets_res.material_panel.clone(),
             },
             ImageComponent {
-                color: Vec4::new(0.15, 0.15, 0.15, 1.0),
+                color: PAL.surface_overlay,
                 ..Default::default()
             },
             HoverAreaComponent::default(),
@@ -265,7 +266,7 @@ fn spawn_panel_label(mut ent: EntitiesHolderMut, assets_res: &StandardAssetsReso
                 material: assets_res.material_text.clone(),
             },
             TextComponent {
-                color: Vec4::splat(1.0),
+                color: PAL.text_2,
                 font: assets_res.font.clone(),
                 font_size: FONT_SIZE,
                 horizontal_align: HorizontalAlign::Left,

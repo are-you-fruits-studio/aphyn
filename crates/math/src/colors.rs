@@ -117,3 +117,17 @@ pub const fn parse_color_rgba_f32(v: &str) -> Option<[f32; 4]> {
 
     Some(result_as_f32)
 }
+
+pub fn srgb_to_linear(v: f32) -> f32 {
+    if v <= 0.04045 {
+        v / 12.92
+    } else {
+        ((v + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+// alpha stays as is: it is not gamma-encoded
+pub fn parse_color_srgba_to_linear_f32(v: &str) -> Option<[f32; 4]> {
+    let [r, g, b, a] = parse_color_rgba_f32(v)?;
+    Some([srgb_to_linear(r), srgb_to_linear(g), srgb_to_linear(b), a])
+}

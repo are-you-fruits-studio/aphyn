@@ -7,6 +7,7 @@ use crate::{
         ANIMATION_GAP, ANIMATION_MARGIN, ANIMATION_TOOLBAR_HEIGHT, WindowComponent, spawn_area, spawn_button, spawn_label,
         spawn_lines, spawn_row, spawn_text,
     },
+    theme::PAL,
     *,
 };
 
@@ -77,7 +78,7 @@ pub fn init_window_as_profiler(mut world: WorldDataMut, ent_window: EntityId) {
         Vec2::splat(0.0),
         Vec2::splat(0.0),
         None,
-        Vec4::new(0.11, 0.11, 0.11, 1.0),
+        PAL.bg_sunken,
     );
     ent.set_component(
         histogram,
@@ -90,9 +91,9 @@ pub fn init_window_as_profiler(mut world: WorldDataMut, ent_window: EntityId) {
             ..Default::default()
         },
     );
-    let histogram_grid = spawn_lines(ent.as_mut(), assets, histogram, Vec4::new(0.3, 0.3, 0.3, 1.0), 1.0);
-    let histogram_bars = spawn_lines(ent.as_mut(), assets, histogram, HISTOGRAM_BAR_COLOR, 1.0);
-    let histogram_selected = spawn_lines(ent.as_mut(), assets, histogram, SELECTED_COLOR, 1.0);
+    let histogram_grid = spawn_lines(ent.as_mut(), assets, histogram, PAL.border_strong, 1.0);
+    let histogram_bars = spawn_lines(ent.as_mut(), assets, histogram, PAL.bloom_600, 1.0);
+    let histogram_selected = spawn_lines(ent.as_mut(), assets, histogram, PAL.accent_fg, 1.0);
     let histogram_label = spawn_text(ent.as_mut(), assets, histogram, "".into(), small_font);
     ent.set_component(
         histogram_label,
@@ -118,7 +119,7 @@ pub fn init_window_as_profiler(mut world: WorldDataMut, ent_window: EntityId) {
         Vec2::new(0.0, lanes_top),
         Vec2::new(0.0, lanes_bottom),
         Some(PROFILER_LANE_LABEL_WIDTH),
-        Vec4::new(0.15, 0.15, 0.15, 1.0),
+        PAL.surface_panel,
     );
     let mut lane_labels = FfiVec::new();
     for _ in 0..PROFILER_MAX_LANES {
@@ -132,7 +133,7 @@ pub fn init_window_as_profiler(mut world: WorldDataMut, ent_window: EntityId) {
         Vec2::splat(0.0),
         Vec2::splat(0.0),
         None,
-        Vec4::new(0.2, 0.2, 0.2, 1.0),
+        PAL.surface_raised,
     );
     ent.set_component(
         ruler,
@@ -149,7 +150,7 @@ pub fn init_window_as_profiler(mut world: WorldDataMut, ent_window: EntityId) {
     for _ in 0..PROFILER_RULER_LABELS {
         ruler_labels.push(spawn_positioned_text(ent.as_mut(), assets, ruler, small_font));
     }
-    let ruler_ticks = spawn_lines(ent.as_mut(), assets, ruler, Vec4::new(0.55, 0.55, 0.55, 1.0), 1.0);
+    let ruler_ticks = spawn_lines(ent.as_mut(), assets, ruler, PAL.border_strong, 1.0);
 
     let lanes = spawn_area(
         ent.as_mut(),
@@ -158,15 +159,15 @@ pub fn init_window_as_profiler(mut world: WorldDataMut, ent_window: EntityId) {
         Vec2::new(lanes_left, lanes_top),
         Vec2::new(0.0, lanes_bottom),
         None,
-        Vec4::new(0.11, 0.11, 0.11, 1.0),
+        PAL.bg_sunken,
     );
-    let lanes_grid = spawn_lines(ent.as_mut(), assets, lanes, Vec4::new(0.2, 0.2, 0.2, 1.0), 1.0);
-    let segment_borders = spawn_lines(ent.as_mut(), assets, lanes, SEGMENT_BORDER_COLOR, 1.0);
-    let segments = SPAN_COLORS.map(|color| spawn_lines(ent.as_mut(), assets, lanes, color, 1.0));
-    let hovered_segment = spawn_lines(ent.as_mut(), assets, lanes, HOVERED_COLOR, 1.0);
-    let selected_segment = spawn_lines(ent.as_mut(), assets, lanes, SELECTED_COLOR, 1.0);
-    let frame_lines = spawn_lines(ent.as_mut(), assets, lanes, FRAME_LINE_COLOR, 1.0);
-    let selected_frame_lines = spawn_lines(ent.as_mut(), assets, lanes, SELECTED_COLOR, 1.0);
+    let lanes_grid = spawn_lines(ent.as_mut(), assets, lanes, PAL.border_subtle, 1.0);
+    let segment_borders = spawn_lines(ent.as_mut(), assets, lanes, PAL.bg_sunken, 1.0);
+    let segments = span_colors().map(|color| spawn_lines(ent.as_mut(), assets, lanes, color, 1.0));
+    let hovered_segment = spawn_lines(ent.as_mut(), assets, lanes, PAL.text_1, 1.0);
+    let selected_segment = spawn_lines(ent.as_mut(), assets, lanes, PAL.accent_fg, 1.0);
+    let frame_lines = spawn_lines(ent.as_mut(), assets, lanes, PAL.night_500, 1.0);
+    let selected_frame_lines = spawn_lines(ent.as_mut(), assets, lanes, PAL.accent_fg, 1.0);
 
     // siblings share a z otherwise, which leaves their draw order undefined; lower z is in front
     set_z(ent.as_mut(), segment_borders, SEGMENT_BORDER_Z);
@@ -181,7 +182,7 @@ pub fn init_window_as_profiler(mut world: WorldDataMut, ent_window: EntityId) {
     for _ in 0..PROFILER_SEGMENT_LABELS {
         let ent_label = spawn_positioned_text(ent.as_mut(), assets, lanes, small_font);
         if let Some(text_c) = ent.get_component_mut::<TextComponent>(ent_label) {
-            text_c.color = Vec4::new(0.05, 0.05, 0.05, 1.0);
+            text_c.color = PAL.text_2;
         }
         set_z(ent.as_mut(), ent_label, SEGMENT_LABEL_Z);
         segment_labels.push(ent_label);
@@ -194,7 +195,7 @@ pub fn init_window_as_profiler(mut world: WorldDataMut, ent_window: EntityId) {
         Vec2::splat(0.0),
         Vec2::splat(0.0),
         None,
-        Vec4::new(0.15, 0.15, 0.15, 1.0),
+        PAL.surface_panel,
     );
     ent.set_component(
         details,

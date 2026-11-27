@@ -117,11 +117,11 @@ pub enum HierarchyContextAction {
 impl HierarchyContextAction {
     pub fn label(self) -> &'static str {
         match self {
-            Self::CreateEntity => "Create Entity",
-            Self::CopyEntity => "Copy Entity",
-            Self::PasteEntity => "Paste Entity",
-            Self::PasteComponent => "Paste Component",
-            Self::DeleteEntity => "Delete Entity",
+            Self::CreateEntity => "Create entity",
+            Self::CopyEntity => "Copy entity",
+            Self::PasteEntity => "Paste entity",
+            Self::PasteComponent => "Paste component",
+            Self::DeleteEntity => "Delete entity",
         }
     }
 }
@@ -154,6 +154,7 @@ pub struct InspectorComponentComponent {
 #[derive(Component, Default, Copy, Clone)]
 pub struct AddComponentInputComponent {
     pub variants_container: EntityId,
+    pub placeholder: EntityId,
 }
 
 #[derive(Component, Default, Clone)]
