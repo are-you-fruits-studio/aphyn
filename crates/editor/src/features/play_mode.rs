@@ -95,7 +95,7 @@ pub fn toggle_play_mode_system(
 
         let opened = std::mem::take(&mut *opened_asset);
         let world = simulated_world.0.as_mut().unwrap();
-        let pending_reselect = inspected_entity.pending_reselect;
+        let pending_reselect = inspected_entity.pending_reselect.take();
 
         open_entities_asset(
             world,

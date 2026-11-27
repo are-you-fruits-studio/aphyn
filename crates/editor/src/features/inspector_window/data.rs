@@ -34,8 +34,8 @@ pub struct OpenedEntitiesAssetResource {
 pub struct InspectedEntityResource {
     pub selected_entity: EntityId,
     pub shown_components: Option<Vec<(AnyTypeId, FfiString, InspectorValue)>>,
-    // the selection's entity index carried over a simulated world rebuild until that entity is spawned again
-    pub pending_reselect: Option<u64>,
+    // the selection carried over a simulated world rebuild, with the frames left to find it in the new world
+    pub pending_reselect: Option<(EntityPath, u32)>,
 }
 
 #[derive(Component, Default, Copy, Clone)]
@@ -181,4 +181,79 @@ pub struct EntityFieldEditedEvent {
     pub entity: EntityId,
     pub component: AnyTypeId,
     pub path: ReflectPath,
+}
+
+// finds the same entity in a rebuilt world, where ids differ: from a root down, each step is the entity's name
+// and its index among siblings of that name (roots in id order)
+#[derive(Clone, Debug, PartialEq)]
+pub struct EntityPath(Vec<(String, usize)>);
+
+impl EntityPath {
+    pub fn of(ent: EntitiesHolderRef, entity: EntityId) -> Option<Self> {
+        if !ent.contains_entity(entity) {
+            return None;
+        }
+
+        let mut steps = Vec::new();
+        let mut current = entity;
+        loop {
+            let parent = Self::parent(ent, current);
+            let name = Self::name(ent, current);
+            let ordinal = Self::siblings(ent, parent)
+                .into_iter()
+                .filter(|&e| Self::name(ent, e) == name)
+                .position(|e| e == current)?;
+            steps.push((name, ordinal));
+
+            match parent {
+                Some(parent) => current = parent,
+                None => break,
+            }
+        }
+
+        steps.reverse();
+        Some(Self(steps))
+    }
+
+    pub fn resolve(&self, ent: EntitiesHolderRef) -> Option<EntityId> {
+        let mut parent = None;
+        for (name, ordinal) in &self.0 {
+            let entity = Self::siblings(ent, parent)
+                .into_iter()
+                .filter(|&e| &Self::name(ent, e) == name)
+                .nth(*ordinal)?;
+            parent = Some(entity);
+        }
+        parent
+    }
+
+    fn name(ent: EntitiesHolderRef, entity: EntityId) -> String {
+        ent.get_component::<NameComponent>(entity)
+            .map(|n| n.0.as_str().to_string())
+            .unwrap_or_default()
+    }
+
+    fn parent(ent: EntitiesHolderRef, entity: EntityId) -> Option<EntityId> {
+        ent.get_component::<ChildComponent>(entity)
+            .map(|c| c.parent())
+            .filter(|&p| ent.contains_entity(p))
+    }
+
+    fn siblings(ent: EntitiesHolderRef, parent: Option<EntityId>) -> Vec<EntityId> {
+        match parent {
+            Some(parent) => ent
+                .get_component::<ParentComponent>(parent)
+                .map(|p| p.children().to_vec())
+                .unwrap_or_default(),
+            None => {
+                let mut roots = ent
+                    .query::<EntityId>()
+                    .iter()
+                    .filter(|&e| Self::parent(ent, e).is_none())
+                    .collect::<Vec<_>>();
+                roots.sort_by_key(|e| e.version_index().index);
+                roots
+            }
+        }
+    }
 }

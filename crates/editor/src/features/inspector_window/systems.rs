@@ -48,14 +48,17 @@ pub fn select_entity_system(
         inspected_entity.pending_reselect = None;
     }
 
-    // the scene's entities are spawned again some frames after a rebuild, in the same order
-    if let Some(index) = inspected_entity.pending_reselect
+    if let Some((path, frames_left)) = inspected_entity.pending_reselect.take()
         && let Some(world) = simulated_world.0.as_ref()
-        && let Some(entity) = world.data.as_ref().entities().get_entity_by_idx_only(index)
     {
-        inspected_entity.selected_entity = entity;
-        inspected_entity.pending_reselect = None;
-        entity_selected_evt.push(EntitySelectedEvent);
+        match path.resolve(world.data.as_ref().entities()) {
+            Some(entity) => {
+                inspected_entity.selected_entity = entity;
+                entity_selected_evt.push(EntitySelectedEvent);
+            }
+            None if frames_left > 0 => inspected_entity.pending_reselect = Some((path, frames_left - 1)),
+            None => (),
+        }
     }
 
     if empty_area_q.iter().any(|b| b.was_clicked_this_frame) && inspected_entity.selected_entity != EntityId::EMPTY {
