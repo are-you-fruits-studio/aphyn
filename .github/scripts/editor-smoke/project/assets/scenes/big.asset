@@ -1,0 +1,495 @@
+{
+  "asset_type": "scene",
+  "entities": {
+    "1": {
+      "aphyn::GlobalTransform": {
+        "position": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale_rotation": [
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "aphyn::LocalTransform": {
+        "position": {
+          "x": 1.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "rotation": {
+          "x": -0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        }
+      },
+      "aphyn::NameComponent": {
+        "0": "Filler 1"
+      },
+      "aphyn::ParentComponent": {
+        "children": []
+      }
+    },
+    "2": {
+      "aphyn::GlobalTransform": {
+        "position": {
+          "x": 2.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale_rotation": [
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "aphyn::LocalTransform": {
+        "position": {
+          "x": 2.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "rotation": {
+          "x": -0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        }
+      },
+      "aphyn::NameComponent": {
+        "0": "Filler 2"
+      },
+      "aphyn::ParentComponent": {
+        "children": []
+      }
+    },
+    "3": {
+      "aphyn::GlobalTransform": {
+        "position": {
+          "x": 3.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale_rotation": [
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "aphyn::LocalTransform": {
+        "position": {
+          "x": 3.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "rotation": {
+          "x": -0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        }
+      },
+      "aphyn::NameComponent": {
+        "0": "Filler 3"
+      },
+      "aphyn::ParentComponent": {
+        "children": []
+      }
+    },
+    "4": {
+      "aphyn::GlobalTransform": {
+        "position": {
+          "x": 4.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale_rotation": [
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "aphyn::LocalTransform": {
+        "position": {
+          "x": 4.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "rotation": {
+          "x": -0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        }
+      },
+      "aphyn::NameComponent": {
+        "0": "Filler 4"
+      },
+      "aphyn::ParentComponent": {
+        "children": []
+      }
+    },
+    "5": {
+      "aphyn::GlobalTransform": {
+        "position": {
+          "x": 5.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale_rotation": [
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "aphyn::LocalTransform": {
+        "position": {
+          "x": 5.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "rotation": {
+          "x": -0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        }
+      },
+      "aphyn::NameComponent": {
+        "0": "Filler 5"
+      },
+      "aphyn::ParentComponent": {
+        "children": []
+      }
+    },
+    "6": {
+      "aphyn::GlobalTransform": {
+        "position": {
+          "x": 6.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale_rotation": [
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "aphyn::LocalTransform": {
+        "position": {
+          "x": 6.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "rotation": {
+          "x": -0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        }
+      },
+      "aphyn::NameComponent": {
+        "0": "Filler 6"
+      },
+      "aphyn::ParentComponent": {
+        "children": []
+      }
+    },
+    "7": {
+      "aphyn::GlobalTransform": {
+        "position": {
+          "x": 7.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale_rotation": [
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "aphyn::LocalTransform": {
+        "position": {
+          "x": 7.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "rotation": {
+          "x": -0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        }
+      },
+      "aphyn::NameComponent": {
+        "0": "Filler 7"
+      },
+      "aphyn::ParentComponent": {
+        "children": []
+      }
+    },
+    "8": {
+      "aphyn::GlobalTransform": {
+        "position": {
+          "x": 8.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale_rotation": [
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "aphyn::LocalTransform": {
+        "position": {
+          "x": 8.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "rotation": {
+          "x": -0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        }
+      },
+      "aphyn::NameComponent": {
+        "0": "Filler 8"
+      },
+      "aphyn::ParentComponent": {
+        "children": []
+      }
+    },
+    "9": {
+      "aphyn::GlobalTransform": {
+        "position": {
+          "x": 9.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale_rotation": [
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "aphyn::LocalTransform": {
+        "position": {
+          "x": 9.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "rotation": {
+          "x": -0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        }
+      },
+      "aphyn::NameComponent": {
+        "0": "Filler 9"
+      },
+      "aphyn::ParentComponent": {
+        "children": []
+      }
+    },
+    "10": {
+      "aphyn::GlobalTransform": {
+        "position": {
+          "x": 10.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale_rotation": [
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "aphyn::LocalTransform": {
+        "position": {
+          "x": 10.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "rotation": {
+          "x": -0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        }
+      },
+      "aphyn::NameComponent": {
+        "0": "Filler 10"
+      },
+      "aphyn::ParentComponent": {
+        "children": []
+      }
+    }
+  }
+}
