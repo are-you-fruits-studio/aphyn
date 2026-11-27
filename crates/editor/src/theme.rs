@@ -22,11 +22,18 @@ pub fn srgb(hex: &str) -> Vec4<f32> {
     Vec4::from_array(parse_color_srgba_to_linear_f32(hex).unwrap())
 }
 
-// the opaque UI template discards fragments below the alpha threshold, so translucent design tokens are pre-blended
+// the opaque UI template discards fragments below the alpha threshold, so translucent design tokens are pre-blended;
+// in sRGB, as the design tool (a browser) composites them
 pub fn blend(top: Vec4<f32>, bottom: Vec4<f32>, alpha: f32) -> Vec4<f32> {
-    let mut v = bottom + (top - bottom) * alpha;
-    v.w = 1.0;
-    v
+    let channel = |t: f32, b: f32| {
+        let (t, b) = (linear_to_srgb(t), linear_to_srgb(b));
+        srgb_to_linear(b + (t - b) * alpha)
+    };
+    Vec4::new(channel(top.x, bottom.x), channel(top.y, bottom.y), channel(top.z, bottom.z), 1.0)
+}
+
+fn linear_to_srgb(v: f32) -> f32 {
+    if v <= 0.0031308 { v * 12.92 } else { 1.055 * v.powf(1.0 / 2.4) - 0.055 }
 }
 
 pub struct Palette {
@@ -69,6 +76,8 @@ pub struct Palette {
     pub danger_soft_on_app: Vec4<f32>,
     pub danger_soft_on_hover: Vec4<f32>,
     pub accent_soft_on_panel: Vec4<f32>,
+    pub warning: Vec4<f32>,
+    pub warning_soft_on_panel: Vec4<f32>,
 
     pub axis_x: Vec4<f32>,
     pub axis_y: Vec4<f32>,
@@ -104,6 +113,7 @@ impl Palette {
         let bilberry_400 = srgb("#7870C4ff");
         let bilberry_500 = srgb("#5A51AEff");
         let rowan_400 = srgb("#D2675Bff");
+        let resin_400 = srgb("#D4A458ff");
 
         Self {
             night_1000,
@@ -145,6 +155,8 @@ impl Palette {
             danger_soft_on_app: blend(rowan_400, night_900, 0.16),
             danger_soft_on_hover: blend(rowan_400, night_750, 0.16),
             accent_soft_on_panel: blend(bilberry_400, night_850, 0.16),
+            warning: resin_400,
+            warning_soft_on_panel: blend(resin_400, night_850, 0.16),
 
             axis_x: rowan_400,
             axis_y: srgb("#6E9B67ff"),

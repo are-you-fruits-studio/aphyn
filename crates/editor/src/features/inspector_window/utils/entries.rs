@@ -425,6 +425,7 @@ fn spawn_inspector_container(
         ent.as_mut(),
         ent_enum_meta_container,
         enum_variants,
+        entries.is_empty(),
         material_panel.clone(),
         material_text.clone(),
         font.clone(),
@@ -555,15 +556,22 @@ fn spawn_inspector_enum(
     mut ent: EntitiesHolderMut,
     ent_enum_meta_container: EntityId,
     enum_variants: Option<&InspectorEnum>,
+    is_bare: bool,
     material_panel: AssetHandle<Material>,
     material_text: AssetHandle<Material>,
     font: AssetHandle<Font>,
 ) {
+    // a bare enum (no fields) shows only the dropdown, without the "variant" label
+    let field_children = if is_bare { 1 } else { 2 };
+
     // keep the field (and the dropdown request it holds) while only the variant text changes
     if let Some(enum_variants) = enum_variants
         && let Some(&ent_enum_field) = ent
             .get_component::<ParentComponent>(ent_enum_meta_container)
             .and_then(|p| p.children().first())
+        && ent
+            .get_component::<ParentComponent>(ent_enum_field)
+            .is_some_and(|p| p.children().len() == field_children)
         && let Some(enum_c) = ent.get_component_mut::<InspectorEnumComponent>(ent_enum_field)
     {
         enum_c.variants = enum_variants.variants.clone();
@@ -582,14 +590,17 @@ fn spawn_inspector_enum(
 
     let ent_enum_field = spawn_default_layout_ent(ent.as_mut(), ent_enum_meta_container, false);
 
-    let (ent_key_enum, _) = spawn_text_ent(
-        ent.as_mut(),
-        ent_enum_field,
-        FfiString::from("variant"),
-        material_panel.clone(),
-        material_text.clone(),
-        font.clone(),
-    );
+    let ent_key_enum = (!is_bare).then(|| {
+        spawn_text_ent(
+            ent.as_mut(),
+            ent_enum_field,
+            FfiString::from("variant"),
+            material_panel.clone(),
+            material_text.clone(),
+            font.clone(),
+        )
+        .0
+    });
 
     let ent_value_container = spawn_default_layout_ent(ent.as_mut(), ent_enum_field, false);
 
@@ -605,11 +616,13 @@ fn spawn_inspector_enum(
     ent.get_component_mut::<RectChildAlignComponent>(ent_enum_field)
         .unwrap()
         .direction = UiDirection::Horizontal;
-    ent.get_component_mut::<LocalRectComponent>(ent_key_enum).unwrap().scale.x = UiVal::pd(0.5).into();
+    if let Some(ent_key_enum) = ent_key_enum {
+        ent.get_component_mut::<LocalRectComponent>(ent_key_enum).unwrap().scale.x = UiVal::pd(0.5).into();
+    }
     ent.get_component_mut::<LocalRectComponent>(ent_value_container)
         .unwrap()
         .scale
-        .x = UiVal::pd(0.5).into();
+        .x = UiVal::pd(if is_bare { 1.0 } else { 0.5 }).into();
 
     ent.set_component(
         ent_enum_field,

@@ -285,10 +285,28 @@ fn update_scene_light_panel_system(
         ),
     ];
 
-    for (ent_buttons, is_active) in buttons {
+    for (i, (ent_buttons, is_active)) in buttons.into_iter().enumerate() {
+        let is_switch = i > 0;
+
         for ent_button in ent_buttons {
             if let Some(image_c) = ent.get_component_mut::<ImageComponent>(ent_button) {
-                image_c.color = if is_active { PAL.accent } else { PAL.surface_raised };
+                image_c.color = match (is_active, is_switch) {
+                    (true, _) => PAL.accent,
+                    (false, true) => PAL.night_600,
+                    (false, false) => PAL.surface_raised,
+                };
+            }
+
+            continue_if!(!is_switch);
+
+            let ent_knob = ent
+                .get_component::<ParentComponent>(ent_button)
+                .and_then(|p| p.children().first().copied());
+            if let Some(rect_c) = ent_knob.and_then(|e| ent.get_component_mut::<LocalRectComponent>(e)) {
+                let side = if is_active { 1.0 } else { 0.0 };
+                rect_c.anchor.x = side;
+                rect_c.pivot.x = side;
+                rect_c.offset.x = UiVal::px(if is_active { -2.0 } else { 2.0 });
             }
         }
     }

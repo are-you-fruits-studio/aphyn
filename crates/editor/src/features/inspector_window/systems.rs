@@ -1605,9 +1605,6 @@ pub fn update_inspector_window_system(
         .collect::<Vec<_>>();
 
     for window_c in container_q {
-        let asset_type_text = ent.get_component_mut::<TextComponent>(window_c.asset_type_text).unwrap();
-        asset_type_text.text.clear();
-
         if let Some(inspected_components) = &inspected_entity.shown_components {
             update_prefab_components_ent(
                 ent.as_mut(),
@@ -1629,9 +1626,6 @@ pub fn update_inspector_window_system(
             destroy_entity_children(ent.as_mut(), window_c.content_container);
             continue;
         };
-
-        asset_type_text.text.push_str("asset type: ");
-        asset_type_text.text.push_str(asset_type.serialized_str());
 
         if is_entities_asset(asset_type) {
             destroy_entity_children(ent.as_mut(), window_c.content_container);
@@ -1671,6 +1665,59 @@ pub fn update_inspector_window_system(
             assets.material_text.clone(),
             assets.font.clone(),
         );
+    }
+}
+
+pub fn update_inspector_header_system(
+    mut ent: EntitiesHolderMut,
+    simulated_world: Res<SimulatedWorldResource>,
+    inspected_entity: Res<InspectedEntityResource>,
+    inspected_asset: Res<InspectedAssetResource>,
+) {
+    let is_playing = simulated_world.is_playing();
+
+    let (title, badge, is_entity) = match simulated_world.0.as_ref() {
+        Some(world) if is_inspected_entity_shown(world, &inspected_entity) => {
+            let sim_ent = world.data.as_ref().entities();
+            let id = sim_ent.encode_entity_as_id(inspected_entity.selected_entity);
+            let name = sim_ent
+                .get_component::<NameComponent>(inspected_entity.selected_entity)
+                .map(|n| n.0.as_str().to_string())
+                .unwrap_or_else(|| format!("Entity {id}"));
+            (name, format!("entity {id}"), true)
+        }
+        Some(world) => match get_asset_type(world.data.as_ref().resources(), inspected_asset.asset_key.as_str()) {
+            Some(asset_type) => {
+                let file_name = inspected_asset.asset_key.rsplit('/').next().unwrap_or_default().to_string();
+                (file_name, asset_type.serialized_str().to_string(), false)
+            }
+            None => (String::new(), String::new(), false),
+        },
+        None => (String::new(), String::new(), false),
+    };
+
+    let windows = ent
+        .query::<&InspectorWindowContentComponent>()
+        .iter()
+        .copied()
+        .collect::<Vec<_>>();
+
+    for window_c in windows {
+        if let Some(text_c) = ent.get_component_mut::<TextComponent>(window_c.asset_type_text) {
+            set_text_if_changed(text_c, &title);
+        }
+        if let Some(text_c) = ent.get_component_mut::<TextComponent>(window_c.badge_text) {
+            set_text_if_changed(text_c, &badge);
+        }
+
+        let is_banner_shown = is_playing && is_entity;
+        if let Some(disableable_c) = ent.get_component_mut::<LocalDisableableComponent>(window_c.play_banner) {
+            disableable_c.is_disabled = !is_banner_shown;
+        }
+        // disabled rects still take layout space
+        if let Some(rect_c) = ent.get_component_mut::<LocalRectComponent>(window_c.play_banner) {
+            rect_c.scale.y = Some(UiVal::px(if is_banner_shown { theme::CONTROL_H } else { 0.0 })).into();
+        }
     }
 }
 

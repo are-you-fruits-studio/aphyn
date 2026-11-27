@@ -49,6 +49,8 @@ pub struct InspectorWindowComponent {
 #[derive(Component, Default, Copy, Clone)]
 pub struct InspectorWindowContentComponent {
     pub asset_type_text: EntityId,
+    pub badge_text: EntityId,
+    pub play_banner: EntityId,
     pub content_container: EntityId,
 }
 

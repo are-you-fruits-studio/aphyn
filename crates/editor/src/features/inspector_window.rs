@@ -10,7 +10,7 @@ use crate::{
                 InspectedEntityResource, OpenedEntitiesAssetResource,
             },
             systems::{
-                add_component_system, adjust_non_rigid_composite_system, apply_component_context_menu_system,
+                add_component_system, update_inspector_header_system, adjust_non_rigid_composite_system, apply_component_context_menu_system,
                 apply_field_value_context_menu_system, apply_hierarchy_context_menu_system,
                 apply_inspector_dropdown_change_to_simulated_world_system,
                 apply_inspector_field_text_change_to_simulated_world_system, apply_inspector_number_drag_to_simulated_world_system,
@@ -73,6 +73,7 @@ pub fn register_feature(ctx: FeatureInitCtx) {
     update
         .group(SYSTEM_GROUP)
         .insert_child_system(update_inspector_window_system)
+        .insert_child_system(update_inspector_header_system)
         .insert_child_system(apply_inspector_field_text_change_to_simulated_world_system)
         .insert_child_system(apply_inspector_number_drag_to_simulated_world_system)
         .insert_child_system(apply_inspector_dropdown_change_to_simulated_world_system)
