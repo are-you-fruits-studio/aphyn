@@ -1803,7 +1803,7 @@ fn update_prefab_component_ent(
         && let data_ents = container_parent_c.children().to_vec()
         && let Some(text_c) = ent.get_component_mut::<TextComponent>(serialized_component_c.component_id_text)
     {
-        text_c.text = component_label.into();
+        text_c.text = display_component_label(component_label).into();
 
         if let Some(foldout_c) = ent.get_component_mut::<FoldoutButtonComponent>(serialized_component_c.foldout_arrow) {
             foldout_c.key = key;
