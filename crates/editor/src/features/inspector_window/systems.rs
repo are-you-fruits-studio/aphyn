@@ -422,10 +422,11 @@ pub fn update_add_component_variants_system(
         .filter(|r| r.has_default() && (r.as_struct().is_some() || r.as_enum().is_some()))
         .map(|r| (component_label(serializers, r.type_id(), r.type_name()), r.type_id()))
         .collect::<Vec<_>>();
-    keys.sort_by(|a, b| a.0.cmp(&b.0));
+    keys.sort_by(|a, b| display_component_label(&a.0).cmp(display_component_label(&b.0)));
 
     for (label, component_id) in keys {
-        if !subsequence_match_ignore_case(label.as_str(), searched_text.as_str()) {
+        let label = display_component_label(&label);
+        if !subsequence_match_ignore_case(label, searched_text.as_str()) {
             continue;
         }
 
@@ -434,7 +435,7 @@ pub fn update_add_component_variants_system(
         let (entry_ent, _) = spawn_text_ent(
             ent.as_mut(),
             entry_ent,
-            label,
+            label.into(),
             assets.material_panel.clone(),
             assets.material_text.clone(),
             assets.font.clone(),
