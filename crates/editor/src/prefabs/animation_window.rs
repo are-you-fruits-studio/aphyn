@@ -23,12 +23,11 @@ const FIELD_WIDTH: f32 = 72.0;
 const LABEL_WIDTH: f32 = 44.0;
 const SMALL_FONT_SIZE: UiVal = UiVal::px(12.0);
 const BUTTON_FONT_PX: f32 = theme::FONT;
-// glyph width / height of the editor font
-const GLYPH_RATIO: f32 = 0.7;
 
 pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
     let (res, mut ent, _) = world.as_tuple_mut();
     let assets = res.get::<StandardAssetsResource>().unwrap();
+    let fonts = res.get::<AssetStorageResource<Font>>().unwrap();
 
     let ent_scroll_content = ent.get_component::<WindowComponent>(ent_window).unwrap().content_container;
     let ent_scroll_view = ent.get_component::<ChildComponent>(ent_scroll_content).unwrap().parent();
@@ -50,6 +49,7 @@ pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
     spawn_button(
         ent.as_mut(),
         assets,
+        fonts,
         ent_toolbar,
         AnimationPreviewButtonComponent,
         "Preview",
@@ -58,6 +58,7 @@ pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
     spawn_button(
         ent.as_mut(),
         assets,
+        fonts,
         ent_toolbar,
         AnimationRecordButtonComponent,
         "Record",
@@ -66,6 +67,7 @@ pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
     spawn_button(
         ent.as_mut(),
         assets,
+        fonts,
         ent_toolbar,
         AnimationPlayButtonComponent,
         "Play",
@@ -74,6 +76,7 @@ pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
     spawn_button(
         ent.as_mut(),
         assets,
+        fonts,
         ent_toolbar,
         AnimationTabButtonComponent,
         "Curves",
@@ -82,6 +85,7 @@ pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
     spawn_button(
         ent.as_mut(),
         assets,
+        fonts,
         ent_toolbar,
         AnimationFrameButtonComponent,
         "Frame",
@@ -110,6 +114,7 @@ pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
     spawn_button(
         ent.as_mut(),
         assets,
+        fonts,
         ent_key_row,
         AnimationInterpolationButtonComponent,
         "Hermite",
@@ -118,6 +123,7 @@ pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
     spawn_button(
         ent.as_mut(),
         assets,
+        fonts,
         ent_key_row,
         AnimationAutoTangentButtonComponent,
         "Auto",
@@ -126,6 +132,7 @@ pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
     spawn_button(
         ent.as_mut(),
         assets,
+        fonts,
         ent_key_row,
         AnimationDeleteButtonComponent,
         "Delete keys",
@@ -134,6 +141,7 @@ pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
     spawn_button(
         ent.as_mut(),
         assets,
+        fonts,
         ent_key_row,
         AnimationDeleteTrackButtonComponent,
         "Delete track",
@@ -311,12 +319,16 @@ pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
 pub(crate) fn spawn_button<C: 'static>(
     mut ent: EntitiesHolderMut,
     assets: &StandardAssetsResource,
+    fonts: &AssetStorageResource<Font>,
     ent_parent: EntityId,
     component: C,
     text: &str,
     longest_text: &str,
 ) {
-    let width = longest_text.len().max(text.len()) as f32 * BUTTON_FONT_PX * GLYPH_RATIO + 14.0;
+    let text_width = fonts
+        .get(&assets.font)
+        .map_or(0.0, |font| [text, longest_text].map(|t| font.measure(t, BUTTON_FONT_PX, 0.0)).into_iter().fold(0.0, f32::max));
+    let width = text_width + 14.0;
 
     let ent_button = ent.create_entity();
     ent.set_components(

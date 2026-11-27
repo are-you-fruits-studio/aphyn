@@ -29,6 +29,7 @@ const SEGMENT_LABEL_Z: f32 = -0.3;
 pub fn init_window_as_profiler(mut world: WorldDataMut, ent_window: EntityId) {
     let (res, mut ent, _) = world.as_tuple_mut();
     let assets = res.get::<StandardAssetsResource>().unwrap();
+    let fonts = res.get::<AssetStorageResource<Font>>().unwrap();
 
     let ent_scroll_content = ent.get_component::<WindowComponent>(ent_window).unwrap().content_container;
     let ent_scroll_view = ent.get_component::<ChildComponent>(ent_scroll_content).unwrap().parent();
@@ -52,6 +53,7 @@ pub fn init_window_as_profiler(mut world: WorldDataMut, ent_window: EntityId) {
     spawn_button(
         ent.as_mut(),
         assets,
+        fonts,
         ent_toolbar,
         ProfilerRecordButtonComponent,
         "Record",
@@ -60,6 +62,7 @@ pub fn init_window_as_profiler(mut world: WorldDataMut, ent_window: EntityId) {
     spawn_button(
         ent.as_mut(),
         assets,
+        fonts,
         ent_toolbar,
         ProfilerClearButtonComponent,
         "Clear",

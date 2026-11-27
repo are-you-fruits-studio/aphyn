@@ -76,17 +76,15 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
     let material_panel = assets_res.material_panel.clone();
     let material_text = assets_res.material_text.clone();
 
-    let character_ratio = res
+    let label = tab_label(kind);
+    let label_width = res
         .as_ref()
         .get::<AssetStorageResource<Font>>()
         .unwrap()
         .get(&font)
-        .map(|font| font.character_ratio)
-        .unwrap_or(1.0);
+        .map_or(0.0, |font| font.measure(label, TAB_FONT_SIZE, 0.0));
 
-    let label = tab_label(kind);
-    let tab_width =
-        label.chars().count() as f32 * TAB_FONT_SIZE * character_ratio + TAB_PADDING + TAB_CLOSE_PADDING * 2.0 + TAB_CLOSE_SIZE;
+    let tab_width = label_width + TAB_PADDING + TAB_CLOSE_PADDING * 2.0 + TAB_CLOSE_SIZE;
 
     let ent_root = ec.create_entity();
     let ent_scroll_handle_area = ec.create_entity();

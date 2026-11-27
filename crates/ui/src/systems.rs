@@ -12,7 +12,7 @@ use aphyn_window::WindowResource;
 use image::GenericImageView;
 
 use crate::{
-    ChildrenRectMaskComponent, Font, HorizontalAlign, ImageComponent, ImageFillSettings, StandardUiAssetsResource, TextComponent,
+    ChildrenRectMaskComponent, Font, Glyph, HorizontalAlign, ImageComponent, ImageFillSettings, StandardUiAssetsResource, TextComponent,
     UiLineComponent, VerticalAlign,
 };
 
@@ -61,17 +61,26 @@ fn create_ascii_monospace_font(mut world: WorldDataMut, texture_bytes: &[u8]) ->
     let text_chars_count = [16, 8];
     let single_char_uv_size = [1.0 / text_chars_count[0] as f32, 1.0 / text_chars_count[1] as f32];
 
-    let characters_uv = (' '..='~')
+    // a cell is one font pixel tall, so the text's font size alone sizes it
+    let character_ratio =
+        (text_chars_count[1] as f32 / text_chars_count[0] as f32) * (texture_dimensions[0] as f32 / texture_dimensions[1] as f32);
+
+    let glyphs = (' '..='~')
         .map(|c| {
             let char_uv_index = [c as i32 % text_chars_count[0], c as i32 / text_chars_count[0]];
             let char_uv_min = aphyn_math::zip(&char_uv_index, &text_chars_count, |a, b| *a as f32 / *b as f32);
 
-            let char_uvs = [
-                Vec2::from_array(char_uv_min),
-                Vec2::from_array(aphyn_math::zip(&char_uv_min, &single_char_uv_size, |a, b| a + b)),
-            ];
+            let glyph = Glyph {
+                uv: [
+                    Vec2::from_array(char_uv_min),
+                    Vec2::from_array(aphyn_math::zip(&char_uv_min, &single_char_uv_size, |a, b| a + b)),
+                ],
+                offset: Vec2::new(0.0, 1.0),
+                size: Vec2::new(character_ratio, 1.0),
+                advance: character_ratio,
+            };
 
-            (c, char_uvs)
+            (c, glyph)
         })
         .collect::<HashMap<_, _>>();
 
@@ -83,10 +92,11 @@ fn create_ascii_monospace_font(mut world: WorldDataMut, texture_bytes: &[u8]) ->
 
     let font = Font {
         texture: texture.clone(),
-        missing_character_uv: characters_uv[&'?'],
-        characters_uv,
-        character_ratio: (text_chars_count[1] as f32 / text_chars_count[0] as f32)
-            * (texture_dimensions[0] as f32 / texture_dimensions[1] as f32),
+        missing_glyph: glyphs[&'?'],
+        glyphs,
+        pixel_size: 1.0,
+        ascent: 1.0,
+        descent: 0.0,
     };
 
     let font = world
@@ -224,12 +234,12 @@ pub fn update_text_batched_mesh(
         let color = text_c.color.into_array();
         let font = font_assets.get(&text_c.font).unwrap();
 
-        let create_vertex = |uv, position| StandardVertex {
+        let create_vertex = |uv: Vec2<f32>, position: Vec2<f32>, z: f32| StandardVertex {
             color,
             normal: [0.0, 0.0, -1.0],
             tangent: [1.0, 0.0, 0.0, 1.0],
-            uv,
-            position,
+            uv: uv.into_array(),
+            position: [position.x, position.y, z],
         };
 
         let rect = rect_c.copied().unwrap_or(GlobalRectComponent {
@@ -242,60 +252,63 @@ pub fn update_text_batched_mesh(
 
         let font_size = ui_val_to_px_fn(text_c.font_size)[1];
         let horizontal_spacing = ui_val_to_px_fn(text_c.horizontal_spacing)[1];
+        let scale = font.scale(font_size);
 
-        let mut quad_scale = Vec2::new(font_size * font.character_ratio, font_size);
-
-        let chars_count = text_c.text.chars().count() as u64;
-
-        let mut text_scale = quad_scale;
-        text_scale.x *= chars_count as f32;
-        text_scale.x += (u64::max(chars_count, 1) - 1) as f32 * horizontal_spacing;
+        let text_size = Vec2::new(
+            font.measure(text_c.text.as_str(), font_size, horizontal_spacing),
+            font.line_height(font_size),
+        );
 
         let center = Vec2::new(
             match text_c.horizontal_align {
-                HorizontalAlign::Left => rect.center.x - rect.scale.x * 0.5 + text_scale.x * 0.5,
+                HorizontalAlign::Left => rect.center.x - rect.scale.x * 0.5 + text_size.x * 0.5,
                 HorizontalAlign::Middle => rect.center.x,
-                HorizontalAlign::Right => rect.center.x + rect.scale.x * 0.5 - text_scale.x * 0.5,
+                HorizontalAlign::Right => rect.center.x + rect.scale.x * 0.5 - text_size.x * 0.5,
             },
             match text_c.vertical_align {
-                VerticalAlign::Top => rect.center.y - rect.scale.y * 0.5 + text_scale.y * 0.5,
+                VerticalAlign::Top => rect.center.y - rect.scale.y * 0.5 + text_size.y * 0.5,
                 VerticalAlign::Middle => rect.center.y,
-                VerticalAlign::Bottom => rect.center.y + rect.scale.y * 0.5 - text_scale.y * 0.5,
+                VerticalAlign::Bottom => rect.center.y + rect.scale.y * 0.5 - text_size.y * 0.5,
             },
         );
 
-        if text_c.is_y_inverted {
-            quad_scale.y *= -1.0;
-            text_scale.y *= -1.0;
-        }
+        // glyph metrics point up; with an inverted y (window pixels) up is towards smaller y
+        let up = if text_c.is_y_inverted { -1.0 } else { 1.0 };
+        // snapped to whole pixels so glyphs rasterized at the drawn size map 1:1 onto the screen
+        let baseline = (center.y + up * (font.descent * scale - text_size.y * 0.5)).round();
+        let mut pen_x = (center.x - text_size.x * 0.5).round();
 
-        let start_pos = center - text_scale * 0.5;
-
+        let chars_count = text_c.text.chars().count() as u64;
         mesh_c
             .vertices
-            .resize((chars_count * VERTICES_PER_CHAR) as u64, StandardVertex::default());
-        mesh_c.indices.resize((chars_count * INDICES_PER_CHAR) as u64, 0);
+            .resize(chars_count * VERTICES_PER_CHAR, StandardVertex::default());
+        mesh_c.indices.resize(chars_count * INDICES_PER_CHAR, 0);
 
         for (i, character) in text_c.text.chars().enumerate() {
             let i = i as u64;
-            let char_uvs = font.characters_uv.get(&character).unwrap_or(&font.missing_character_uv);
+            let glyph = font.glyph(character);
 
-            let pos = [
-                start_pos + Vec2::new((i + 0) as f32, 0.0) * quad_scale + Vec2::X * horizontal_spacing * i as f32,
-                start_pos + Vec2::new((i + 1) as f32, 1.0) * quad_scale + Vec2::X * horizontal_spacing * i as f32,
+            let left = pen_x.round() + glyph.offset.x * scale;
+            let right = left + glyph.size.x * scale;
+            let top = baseline + up * glyph.offset.y * scale;
+            let bottom = top - up * glyph.size.y * scale;
+
+            let [uv_min, uv_max] = glyph.uv;
+            let vertices = [
+                create_vertex(uv_min, Vec2::new(left, top), rect.z),
+                create_vertex(Vec2::new(uv_max.x, uv_min.y), Vec2::new(right, top), rect.z),
+                create_vertex(Vec2::new(uv_min.x, uv_max.y), Vec2::new(left, bottom), rect.z),
+                create_vertex(uv_max, Vec2::new(right, bottom), rect.z),
             ];
+            for (j, vertex) in vertices.into_iter().enumerate() {
+                mesh_c.vertices[i * VERTICES_PER_CHAR + j as u64] = vertex;
+            }
 
-            mesh_c.vertices[i * VERTICES_PER_CHAR + 0] = create_vertex([char_uvs[0][0], char_uvs[0][1]], [pos[0][0], pos[1][1], rect.z]);
-            mesh_c.vertices[i * VERTICES_PER_CHAR + 1] = create_vertex([char_uvs[1][0], char_uvs[0][1]], [pos[1][0], pos[1][1], rect.z]);
-            mesh_c.vertices[i * VERTICES_PER_CHAR + 2] = create_vertex([char_uvs[0][0], char_uvs[1][1]], [pos[0][0], pos[0][1], rect.z]);
-            mesh_c.vertices[i * VERTICES_PER_CHAR + 3] = create_vertex([char_uvs[1][0], char_uvs[1][1]], [pos[1][0], pos[0][1], rect.z]);
+            for (j, corner) in [0, 3, 1, 0, 2, 3].into_iter().enumerate() {
+                mesh_c.indices[i * INDICES_PER_CHAR + j as u64] = (i * VERTICES_PER_CHAR + corner) as u32;
+            }
 
-            mesh_c.indices[i * INDICES_PER_CHAR + 0] = (i * VERTICES_PER_CHAR + 0) as u32;
-            mesh_c.indices[i * INDICES_PER_CHAR + 1] = (i * VERTICES_PER_CHAR + 3) as u32;
-            mesh_c.indices[i * INDICES_PER_CHAR + 2] = (i * VERTICES_PER_CHAR + 1) as u32;
-            mesh_c.indices[i * INDICES_PER_CHAR + 3] = (i * VERTICES_PER_CHAR + 0) as u32;
-            mesh_c.indices[i * INDICES_PER_CHAR + 4] = (i * VERTICES_PER_CHAR + 2) as u32;
-            mesh_c.indices[i * INDICES_PER_CHAR + 5] = (i * VERTICES_PER_CHAR + 3) as u32;
+            pen_x += glyph.advance * scale + horizontal_spacing;
         }
     }
 }

@@ -19,3 +19,4 @@ aphyn_transform = { path = "../transform" }
 aphyn_serialization = { path = "../serialization" }
 aphyn_reflection = { path = "../reflection" }
 image = "0.25"
+ab_glyph = "0.2"

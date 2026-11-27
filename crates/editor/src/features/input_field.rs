@@ -152,7 +152,12 @@ pub fn select_input_field_system(
         let (text_c, rect_c) = text_q.get(field_c.text)?;
         let chars = text_c.text.chars().collect::<Vec<_>>();
         let idx = match get_text_metrics(text_c, rect_c, &window_res, &font_assets) {
-            Some((left, char_w)) => ((mouse_x - left) / char_w).round().max(0.0) as usize,
+            Some((left, edges)) => {
+                let x = mouse_x - left;
+                (0..edges.len())
+                    .min_by(|&a, &b| (edges[a] - x).abs().total_cmp(&(edges[b] - x).abs()))
+                    .unwrap_or(0)
+            }
             None => chars.len(),
         };
         Some((idx.min(chars.len()), chars))
@@ -400,11 +405,11 @@ pub fn update_input_field_caret_system(
             .then(|| text_q.get(input_field_c.text))
             .flatten()
             .and_then(|(text_c, rect_c)| {
-                let (_, char_w) = get_text_metrics(text_c, rect_c, &window_res, &font_assets)?;
-                Some((text_c.text.chars().count(), char_w))
+                let (_, edges) = get_text_metrics(text_c, rect_c, &window_res, &font_assets)?;
+                Some((text_c.text.chars().count(), edges))
             });
 
-        let Some((text_len, char_w)) = metrics else {
+        let Some((text_len, edges)) = metrics else {
             for e in [input_field_c.caret, input_field_c.selection_highlight] {
                 if let Some(disableable_c) = disableable_q.get_mut(e) {
                     disableable_c.is_disabled = true;
@@ -415,6 +420,7 @@ pub fn update_input_field_caret_system(
 
         res.sync(text_len);
         let selection = res.selection();
+        let edge = |i: usize| edges.get(i.min(text_len)).copied().unwrap_or(0.0);
 
         let is_caret_visible = ((time_res.frame_time - res.last_activity_time) / CARET_BLINK_HALF_PERIOD) as u64 % 2 == 0;
 
@@ -422,15 +428,15 @@ pub fn update_input_field_caret_system(
             disableable_c.is_disabled = !is_caret_visible;
         }
         if let Some(local_rect_c) = local_rect_q.get_mut(input_field_c.caret) {
-            local_rect_c.offset.x = UiVal::px(res.caret as f32 * char_w - CARET_WIDTH_PX * 0.5);
+            local_rect_c.offset.x = UiVal::px(edge(res.caret) - CARET_WIDTH_PX * 0.5);
         }
 
         if let Some(disableable_c) = disableable_q.get_mut(input_field_c.selection_highlight) {
             disableable_c.is_disabled = selection.is_empty();
         }
         if let Some(local_rect_c) = local_rect_q.get_mut(input_field_c.selection_highlight) {
-            local_rect_c.offset.x = UiVal::px(selection.start as f32 * char_w);
-            local_rect_c.scale.x = Some(UiVal::px(selection.len() as f32 * char_w)).into();
+            local_rect_c.offset.x = UiVal::px(edge(selection.start));
+            local_rect_c.scale.x = Some(UiVal::px(edge(selection.end) - edge(selection.start))).into();
         }
     }
 }
@@ -566,25 +572,26 @@ fn is_shift_pressed(input_res: &InputResource) -> bool {
     input_res.keyboard.is_pressed(KeyCode::ShiftLeft) || input_res.keyboard.is_pressed(KeyCode::ShiftRight)
 }
 
-// returns the x of the text's left edge and the width of one char; the font is monospace (see `update_text_batched_mesh`)
+// returns the x of the text's left edge and each char's left edge relative to it, plus the text's end
 fn get_text_metrics(
     text_c: &TextComponent,
     rect_c: &GlobalRectComponent,
     window_res: &WindowResource,
     font_assets: &AssetStorageResource<Font>,
-) -> Option<(f32, f32)> {
+) -> Option<(f32, Vec<f32>)> {
     let font = font_assets.get(&text_c.font)?;
     let window_size = Vec2::from_array(window_res.state().size.map(|v| v as f32));
 
     let font_size = text_c.font_size.into_px(rect_c.scale, window_size)[1];
     let horizontal_spacing = text_c.horizontal_spacing.into_px(rect_c.scale, window_size)[1];
-    let char_w = font_size * font.character_ratio + horizontal_spacing;
+    let scale = font.scale(font_size);
 
-    if char_w <= 0.0 {
-        return None;
+    let mut edges = vec![0.0];
+    for character in text_c.text.chars() {
+        edges.push(edges.last().unwrap() + font.glyph(character).advance * scale + horizontal_spacing);
     }
 
-    Some((rect_c.center.x - rect_c.scale.x * 0.5, char_w))
+    Some((rect_c.center.x - rect_c.scale.x * 0.5, edges))
 }
 
 #[derive(PartialEq, Eq, Clone, Copy)]

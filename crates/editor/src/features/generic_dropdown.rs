@@ -186,15 +186,13 @@ pub fn spawn_generic_dropdown_system(mut world: WorldDataMut) {
         .unwrap()
         .get(&standard_assets_resource.font)
         .unwrap();
-    let max_chars = generic_dropdown_resource
+    let max_width = generic_dropdown_resource
         .last_state
         .variants
         .iter()
-        .map(|v| v.chars().count())
-        .max()
-        .unwrap_or(0);
-    let dropdown_width =
-        (max_chars as f32 * DROPDOWN_FONT_SIZE * font.character_ratio + 2.0 * DROPDOWN_ENTRY_PADDING).max(DROPDOWN_MIN_WIDTH);
+        .map(|v| font.measure(v.as_str(), DROPDOWN_FONT_SIZE, 0.0))
+        .fold(0.0, f32::max);
+    let dropdown_width = (max_width + 2.0 * DROPDOWN_ENTRY_PADDING).max(DROPDOWN_MIN_WIDTH);
 
     let window_size = Vec2::from_array(res.get::<WindowResource>().unwrap().state().size.map(|v| v as f32));
     let dropdown_size = Vec2::new(

@@ -49,7 +49,6 @@ const SEGMENT_LANE_MARGIN_PX: f32 = 2.0;
 const MIN_LABEL_CHARS: usize = 3;
 const MIN_LABEL_ROW_PX: f32 = 11.0;
 // glyph width / height of the editor font
-const GLYPH_RATIO: f32 = 0.7;
 const NS_PER_MS: f64 = 1_000_000.0;
 
 pub fn register_feature(ctx: FeatureInitCtx) {
@@ -616,7 +615,10 @@ pub fn draw_profiler_window_system(
     profiler: Res<ProfilerResource>,
     simulated_world: Res<SimulatedWorldResource>,
     selected_input: Res<SelectedInputFieldResource>,
+    fonts: Res<AssetStorageResource<Font>>,
+    assets: Res<crate::resources::StandardAssetsResource>,
 ) {
+    return_if_not!(Some(font) = fonts.get(&assets.font));
     return_if_not!(
         Some(ui) = ent.query::<&ProfilerWindowUiComponent>().iter().next().map(|ui| UiEntities {
             status_text: ui.status_text,
@@ -795,14 +797,18 @@ pub fn draw_profiler_window_system(
     set_lines(&mut ent, ui.selected_segment, selected_segment, 1.0);
 
     // name labels on the widest segments that fit some characters
-    let char_px = PROFILER_SMALL_FONT_PX * GLYPH_RATIO;
-    label_candidates.retain(|(width, ..)| (width - 6.0) / char_px >= MIN_LABEL_CHARS as f32);
+    let min_label_width = font.measure(&"m".repeat(MIN_LABEL_CHARS), PROFILER_SMALL_FONT_PX, 0.0);
+    label_candidates.retain(|(width, ..)| width - 6.0 >= min_label_width);
     label_candidates.sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
 
     let mut labels = ui.segment_labels.iter();
     for ((width, top_left, height, span), ent_label) in label_candidates.into_iter().zip(&mut labels) {
-        let max_chars = ((width - 6.0) / char_px) as usize;
-        let text = truncate(&span_label(span), max_chars);
+        let label = span_label(span);
+        let max_chars = (0..=label.chars().count())
+            .rev()
+            .find(|&n| font.measure(&truncate(&label, n), PROFILER_SMALL_FONT_PX, 0.0) <= width - 6.0)
+            .unwrap_or(0);
+        let text = truncate(&label, max_chars);
         set_text(&mut ent, *ent_label, &text, PAL.night_950);
         place(
             &mut ent,
