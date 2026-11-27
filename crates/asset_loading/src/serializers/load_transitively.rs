@@ -14,8 +14,8 @@ use aphyn_serialization_ecs::SerializersResource;
 use aphyn_ui::{Font, FontAssetMetadata};
 
 use crate::{
-    AssetHandleCtx, AssetHandleCtxKey, AudioClipLoader, ComputeShaderLoader, FontLoader, EntityIdCtx, EntityIdCtxKey, MaterialLoader,
-    MeshLoader, PrefabLoader, SceneLoader, ShaderLoader, TextureLoader, asset_loader, deserialize_material,
+    AssetHandleCtx, AssetHandleCtxKey, AudioClipLoader, ComputeShaderLoader, EntityIdCtx, EntityIdCtxKey, FontLoader,
+    MaterialLoader, MeshLoader, PrefabLoader, SceneLoader, ShaderLoader, TextureLoader, asset_loader, deserialize_material,
 };
 
 pub fn load_asset_transitively_from_world<R>(
