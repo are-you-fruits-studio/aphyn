@@ -1742,14 +1742,14 @@ fn update_prefab_components_ent(
             destroy_entity_and_children(ent.as_mut(), e);
         }
 
-        let extra = ent
-            .get_component::<ParentComponent>(ent_parent)
-            .unwrap()
-            .children()
-            .get(components.len() as usize..)
-            .map(|extra| extra.to_vec())
-            .unwrap_or_default();
-        for e in extra.into_iter().rev() {
+        // entries are reused by index and new ones append, so everything from the first type mismatch on is respawned
+        let children = ent.get_component::<ParentComponent>(ent_parent).unwrap().children().to_vec();
+        let first_stale = children
+            .iter()
+            .zip(components)
+            .position(|(&e, (component_type, ..))| get_inspected_component_id(ent.as_ref(), e) != Some(*component_type))
+            .unwrap_or(components.len());
+        for &e in children.get(first_stale..).unwrap_or_default().iter().rev() {
             destroy_entity_and_children(ent.as_mut(), e);
         }
 
