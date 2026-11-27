@@ -4,16 +4,16 @@ use std::collections::HashMap;
 use aphyn_asset_storage::{AssetHandle, AssetStorageResource};
 use aphyn_ecs::*;
 use aphyn_math::*;
-use aphyn_render_features::BatchedMeshComponent;
 use aphyn_render::*;
+use aphyn_render_features::BatchedMeshComponent;
 
 use aphyn_transform::*;
 use aphyn_window::WindowResource;
 use image::GenericImageView;
 
 use crate::{
-    ChildrenRectMaskComponent, Font, Glyph, HorizontalAlign, ImageComponent, ImageFillSettings, StandardUiAssetsResource, TextComponent,
-    UiLineComponent, VerticalAlign,
+    ChildrenRectMaskComponent, Font, Glyph, HorizontalAlign, ImageComponent, ImageFillSettings, StandardUiAssetsResource,
+    TextComponent, UiLineComponent, VerticalAlign,
 };
 
 pub fn create_standard_ui_assets_resource(mut world: WorldDataMut) {
@@ -21,7 +21,8 @@ pub fn create_standard_ui_assets_resource(mut world: WorldDataMut) {
 
     let texture_white = render_api.create_texture(FilterMode::Linear, [2, 2], &[255; 16], Default::default());
 
-    let texture_white = world.as_mut()
+    let texture_white = world
+        .as_mut()
         .resources_mut()
         .get_mut::<AssetStorageResource<StandardTexture>>()
         .unwrap()
@@ -34,17 +35,15 @@ pub fn create_standard_ui_assets_resource(mut world: WorldDataMut) {
     let (texture_text_px_8_12, font_px_8_12) =
         create_ascii_monospace_font(world.as_mut(), include_bytes!("./assets/ascii_px_8x12.png"));
 
-    world
-        .resources_mut()
-        .insert(StandardUiAssetsResource {
-            texture_white,
-            texture_text_px_5_7,
-            font_px_5_7,
-            texture_text_px_8_8,
-            font_px_8_8,
-            texture_text_px_8_12,
-            font_px_8_12,
-        });
+    world.resources_mut().insert(StandardUiAssetsResource {
+        texture_white,
+        texture_text_px_5_7,
+        font_px_5_7,
+        texture_text_px_8_8,
+        font_px_8_8,
+        texture_text_px_8_12,
+        font_px_8_12,
+    });
 }
 
 fn create_ascii_monospace_font(mut world: WorldDataMut, texture_bytes: &[u8]) -> (AssetHandle<StandardTexture>, AssetHandle<Font>) {
@@ -84,7 +83,8 @@ fn create_ascii_monospace_font(mut world: WorldDataMut, texture_bytes: &[u8]) ->
         })
         .collect::<HashMap<_, _>>();
 
-    let texture = world.as_mut()
+    let texture = world
+        .as_mut()
         .resources_mut()
         .get_mut::<AssetStorageResource<StandardTexture>>()
         .unwrap()
@@ -274,9 +274,14 @@ pub fn update_text_batched_mesh(
 
         // glyph metrics point up; with an inverted y (window pixels) up is towards smaller y
         let up = if text_c.is_y_inverted { -1.0 } else { 1.0 };
-        // snapped to whole pixels so glyphs rasterized at the drawn size map 1:1 onto the screen
-        let baseline = (center.y + up * (font.descent * scale - text_size.y * 0.5)).round();
-        let mut pen_x = (center.x - text_size.x * 0.5).round();
+        // glyphs rasterized at the drawn size map 1:1 onto window pixels only when snapped to them;
+        // scaled glyphs (bitmap fonts, other units) stay where the advances put them so they don't gap
+        let snap = |v: f32| match text_c.is_y_inverted && (scale - 1.0).abs() < 1e-3 {
+            true => v.round(),
+            false => v,
+        };
+        let baseline = snap(center.y + up * (font.descent * scale - text_size.y * 0.5));
+        let mut pen_x = snap(center.x - text_size.x * 0.5);
 
         let chars_count = text_c.text.chars().count() as u64;
         mesh_c
@@ -288,7 +293,7 @@ pub fn update_text_batched_mesh(
             let i = i as u64;
             let glyph = font.glyph(character);
 
-            let left = pen_x.round() + glyph.offset.x * scale;
+            let left = snap(pen_x) + glyph.offset.x * scale;
             let right = left + glyph.size.x * scale;
             let top = baseline + up * glyph.offset.y * scale;
             let bottom = top - up * glyph.size.y * scale;
@@ -408,7 +413,9 @@ pub fn collect_mask_clip_rects(
 
     for root in roots {
         aphyn_transform::hierarchy_iter_depth_first_parent_to_child(hierarchy_q, Some(root), |e, _, parent_clip| {
-            let own = mask_q.get(e).map(|(_, r)| (r.center - r.scale * 0.5, r.center + r.scale * 0.5));
+            let own = mask_q
+                .get(e)
+                .map(|(_, r)| (r.center - r.scale * 0.5, r.center + r.scale * 0.5));
 
             let clip = match (parent_clip.copied(), own) {
                 (None, None) => return None,
