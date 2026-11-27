@@ -17,12 +17,8 @@ use crate::{
             tick_simulated_world_system,
         },
     },
+    theme::{PAL, blend},
 };
-
-const BUTTON_COLOR: Vec4<f32> = Vec4::new(0.3, 0.3, 0.3, 1.0);
-const BUTTON_COLOR_DISABLED: Vec4<f32> = Vec4::new(0.15, 0.15, 0.15, 1.0);
-const TEXT_COLOR: Vec4<f32> = Vec4::splat(1.0);
-const TEXT_COLOR_DISABLED: Vec4<f32> = Vec4::splat(0.5);
 
 pub fn register_feature(ctx: FeatureInitCtx) {
     let FeatureInitCtx {
@@ -36,7 +32,8 @@ pub fn register_feature(ctx: FeatureInitCtx) {
         .group(SYSTEM_GROUP)
         .insert_child_system(toggle_play_mode_system)
         .insert_child_system(open_game_window_on_play_system)
-        .insert_child_system(update_play_button_system);
+        .insert_child_system(update_play_button_system)
+        .insert_child_system(update_project_title_system);
 
     update
         .order_system(check_ui_interaction_system)
@@ -62,6 +59,9 @@ pub fn register_feature(ctx: FeatureInitCtx) {
 
 #[derive(Component, Default, Debug)]
 pub struct PlayButtonComponent;
+
+#[derive(Component, Default, Debug)]
+pub struct ProjectTitleTextComponent;
 
 #[derive(Resource, Default)]
 pub struct PlayModeResource {
@@ -95,6 +95,7 @@ pub fn toggle_play_mode_system(
 
         let opened = std::mem::take(&mut *opened_asset);
         let world = simulated_world.0.as_mut().unwrap();
+        let pending_reselect = inspected_entity.pending_reselect.take();
 
         open_entities_asset(
             world,
@@ -103,6 +104,9 @@ pub fn toggle_play_mode_system(
             &opened.asset_key,
             &opened.path,
         );
+
+        // reopening the same scene keeps what was selected while playing
+        inspected_entity.pending_reselect = pending_reselect;
 
         focus_res.is_focused = false;
     } else {
@@ -122,6 +126,28 @@ pub fn toggle_play_mode_system(
         world.start_if_needed(thread_pool);
 
         play_mode.should_open_game_window = true;
+    }
+}
+
+fn update_project_title_system(
+    open_project: Res<OpenProjectResource>,
+    opened_asset: Res<OpenedEntitiesAssetResource>,
+    mut text_q: WorldQuery<&mut TextComponent, WithFilter<ProjectTitleTextComponent>>,
+) {
+    let project = std::path::Path::new(&open_project.dir_path)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let title = match opened_asset.asset_key.is_empty() {
+        true => project,
+        false => format!("{project} · {}", opened_asset.asset_key),
+    };
+
+    for text_c in text_q.iter_mut() {
+        if text_c.text.as_str() != title {
+            text_c.text.clear();
+            text_c.text.push_str(&title);
+        }
     }
 }
 
@@ -153,7 +179,21 @@ fn update_play_button_system(
 
     for ent_button in buttons {
         if let Some(image_c) = ent.get_component_mut::<ImageComponent>(ent_button) {
-            image_c.color = if is_enabled { BUTTON_COLOR } else { BUTTON_COLOR_DISABLED };
+            image_c.color = if is_enabled && !is_playing {
+                PAL.accent
+            } else {
+                PAL.surface_raised
+            };
+        }
+
+        if let Some(ent_bar) = ent.get_component::<ChildComponent>(ent_button).map(|c| c.parent())
+            && let Some(image_c) = ent.get_component_mut::<ImageComponent>(ent_bar)
+        {
+            image_c.color = if is_playing {
+                blend(PAL.accent, PAL.bg_app, 0.16)
+            } else {
+                PAL.bg_app
+            };
         }
 
         let children = ent
@@ -170,7 +210,11 @@ fn update_play_button_system(
                 text_c.text.push_str(text);
             }
 
-            text_c.color = if is_enabled { TEXT_COLOR } else { TEXT_COLOR_DISABLED };
+            text_c.color = match (is_playing, is_enabled) {
+                (true, _) => PAL.text_1,
+                (false, true) => PAL.text_on_accent,
+                (false, false) => PAL.text_disabled,
+            };
         }
     }
 }

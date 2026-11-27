@@ -9,8 +9,11 @@ use crate::{
             utils::reflection::{InspectorContainerKind, InspectorEnum, InspectorLeafKind, InspectorValue},
         },
     },
+    theme::{self, PAL},
     *,
 };
+
+const CHECKBOX_SIZE: f32 = 14.0;
 
 pub fn spawn_hierarchy_window_entry(
     mut ec: EntitiesHolderMut,
@@ -52,7 +55,7 @@ pub fn spawn_hierarchy_window_entry(
             GlobalRectComponent::default(),
             GlobalDisableableComponent::default(),
             LocalRectComponent {
-                scale: Vec2::new(Some(UiVal::pd(1.0)).into(), Some(UiVal::px(20.0)).into()),
+                scale: Vec2::new(Some(UiVal::pd(1.0)).into(), Some(UiVal::px(theme::ROW_H)).into()),
                 ..Default::default()
             },
             ParentComponent::default(),
@@ -84,9 +87,9 @@ pub fn spawn_hierarchy_window_entry(
                 material: material_text.clone(),
             },
             TextComponent {
-                color: Vec4::from_array(parse_color_rgba_f32("#000000ff").unwrap()),
+                color: PAL.text_1,
                 font: font.clone(),
-                font_size: UiVal::px(18.0),
+                font_size: UiVal::px(theme::FONT),
                 is_y_inverted: true,
                 text: name,
                 horizontal_spacing: UiVal::px(0.0),
@@ -204,7 +207,7 @@ fn spawn_inspector_leaf(
         if let Some(ent_input_text) = ent.get_component::<InputFieldComponent>(ent_text).map(|c| c.text)
             && let Some(text_c) = ent.get_component_mut::<TextComponent>(ent_input_text)
         {
-            text_c.color = Vec4::from_array(rgba_f32_array!("#9a9a9aff"));
+            text_c.color = PAL.text_3;
         }
     }
 
@@ -273,14 +276,14 @@ fn spawn_inspector_checkbox(
     );
     set_parent(ent.as_mut(), ent_root, ent_parent);
 
-    let panel = |color: &str| {
+    let panel = |color: Vec4<f32>| {
         (
             MaterialComponent {
                 material: material_panel.clone(),
             },
             BatchedMeshComponent::default(),
             ImageComponent {
-                color: Vec4::from_array(parse_color_rgba_f32(color).unwrap()),
+                color,
                 ..Default::default()
             },
         )
@@ -294,13 +297,13 @@ fn spawn_inspector_checkbox(
             LocalRectComponent {
                 anchor: Vec2::new(0.0, 0.5),
                 pivot: Vec2::new(0.0, 0.5),
-                scale: Vec2::new(FIELD_HEIGHT, FIELD_HEIGHT).map(Into::into),
+                scale: Vec2::splat(UiVal::px(CHECKBOX_SIZE)).map(Into::into),
                 ..Default::default()
             },
             ButtonComponent::default(),
         ),
     );
-    ent.set_components(ent_box, panel("#a7a7a7ff"));
+    ent.set_components(ent_box, panel(PAL.border_default));
     set_parent(ent.as_mut(), ent_box, ent_root);
 
     let padded = |padding: f32| LocalRectComponent {
@@ -317,7 +320,7 @@ fn spawn_inspector_checkbox(
             padded(1.0),
         ),
     );
-    ent.set_components(ent_background, panel("#272727ff"));
+    ent.set_components(ent_background, panel(PAL.surface_input));
     set_parent(ent.as_mut(), ent_background, ent_box);
 
     ent.set_components(
@@ -333,7 +336,7 @@ fn spawn_inspector_checkbox(
             padded(3.0),
         ),
     );
-    ent.set_components(ent_mark, panel("#d0d0d0ff"));
+    ent.set_components(ent_mark, panel(PAL.accent_fg));
     set_parent(ent.as_mut(), ent_mark, ent_background);
 
     ent_root
@@ -422,6 +425,7 @@ fn spawn_inspector_container(
         ent.as_mut(),
         ent_enum_meta_container,
         enum_variants,
+        entries.is_empty(),
         material_panel.clone(),
         material_text.clone(),
         font.clone(),
@@ -449,7 +453,7 @@ fn spawn_inspector_container(
                     },
                     ImageComponent {
                         is_y_inverted: true,
-                        color: Vec4::new(0.5, 0.5, 0.5, 1.0),
+                        color: PAL.surface_raised,
                         ..Default::default()
                     },
                 ),
@@ -467,7 +471,7 @@ fn spawn_inspector_container(
                     },
                     TextComponent {
                         font: font.clone(),
-                        color: Vec4::new(1.0, 1.0, 1.0, 1.0),
+                        color: PAL.text_1,
                         font_size: FONT_SIZE,
                         horizontal_align: HorizontalAlign::Middle,
                         vertical_align: VerticalAlign::Middle,
@@ -552,15 +556,22 @@ fn spawn_inspector_enum(
     mut ent: EntitiesHolderMut,
     ent_enum_meta_container: EntityId,
     enum_variants: Option<&InspectorEnum>,
+    is_bare: bool,
     material_panel: AssetHandle<Material>,
     material_text: AssetHandle<Material>,
     font: AssetHandle<Font>,
 ) {
+    // a bare enum (no fields) shows only the dropdown, without the "variant" label
+    let field_children = if is_bare { 1 } else { 2 };
+
     // keep the field (and the dropdown request it holds) while only the variant text changes
     if let Some(enum_variants) = enum_variants
         && let Some(&ent_enum_field) = ent
             .get_component::<ParentComponent>(ent_enum_meta_container)
             .and_then(|p| p.children().first())
+        && ent
+            .get_component::<ParentComponent>(ent_enum_field)
+            .is_some_and(|p| p.children().len() == field_children)
         && let Some(enum_c) = ent.get_component_mut::<InspectorEnumComponent>(ent_enum_field)
     {
         enum_c.variants = enum_variants.variants.clone();
@@ -579,14 +590,17 @@ fn spawn_inspector_enum(
 
     let ent_enum_field = spawn_default_layout_ent(ent.as_mut(), ent_enum_meta_container, false);
 
-    let (ent_key_enum, _) = spawn_text_ent(
-        ent.as_mut(),
-        ent_enum_field,
-        FfiString::from("variant"),
-        material_panel.clone(),
-        material_text.clone(),
-        font.clone(),
-    );
+    let ent_key_enum = (!is_bare).then(|| {
+        spawn_text_ent(
+            ent.as_mut(),
+            ent_enum_field,
+            FfiString::from("variant"),
+            material_panel.clone(),
+            material_text.clone(),
+            font.clone(),
+        )
+        .0
+    });
 
     let ent_value_container = spawn_default_layout_ent(ent.as_mut(), ent_enum_field, false);
 
@@ -602,11 +616,13 @@ fn spawn_inspector_enum(
     ent.get_component_mut::<RectChildAlignComponent>(ent_enum_field)
         .unwrap()
         .direction = UiDirection::Horizontal;
-    ent.get_component_mut::<LocalRectComponent>(ent_key_enum).unwrap().scale.x = UiVal::pd(0.5).into();
+    if let Some(ent_key_enum) = ent_key_enum {
+        ent.get_component_mut::<LocalRectComponent>(ent_key_enum).unwrap().scale.x = UiVal::pd(0.5).into();
+    }
     ent.get_component_mut::<LocalRectComponent>(ent_value_container)
         .unwrap()
         .scale
-        .x = UiVal::pd(0.5).into();
+        .x = UiVal::pd(if is_bare { 1.0 } else { 0.5 }).into();
 
     ent.set_component(
         ent_enum_field,
@@ -823,7 +839,7 @@ pub fn spawn_text_ent(
     ent.add_component(
         ent_text,
         TextComponent {
-            color: Vec4::from_array(parse_color_rgba_f32("#000000ff").unwrap()),
+            color: PAL.text_2,
             font,
             font_size: FONT_SIZE,
             is_y_inverted: true,
@@ -866,7 +882,7 @@ fn spawn_dropdown_button_ent(
                 material: material_panel,
             },
             ImageComponent {
-                color: Vec4::new(1.0, 1.0, 1.0, 1.0),
+                color: PAL.surface_input,
                 is_y_inverted: true,
                 ..Default::default()
             },
@@ -883,7 +899,7 @@ fn spawn_dropdown_button_ent(
             BatchedMeshComponent::default(),
             MaterialComponent { material: material_text },
             TextComponent {
-                color: Vec4::from_array(parse_color_rgba_f32("#000000ff").unwrap()),
+                color: PAL.text_1,
                 font,
                 font_size: FONT_SIZE,
                 is_y_inverted: true,
@@ -952,7 +968,7 @@ pub fn spawn_input_area_ent(
     ent.add_component(
         ent_root,
         ImageComponent {
-            color: Vec4::from_array(rgba_f32_array!("#a7a7a7ff")),
+            color: PAL.border_default,
             ..Default::default()
         },
     )
@@ -992,7 +1008,7 @@ pub fn spawn_input_area_ent(
     ent.add_component(
         ent_selection_border,
         ImageComponent {
-            color: Vec4::from_array(rgba_f32_array!("#5c66ebff")),
+            color: PAL.border_focus,
             ..Default::default()
         },
     )
@@ -1030,7 +1046,7 @@ pub fn spawn_input_area_ent(
     ent.add_component(
         ent_background,
         ImageComponent {
-            color: Vec4::from_array(rgba_f32_array!("#272727ff")),
+            color: PAL.surface_input,
             ..Default::default()
         },
     )
@@ -1039,8 +1055,8 @@ pub fn spawn_input_area_ent(
 
     // the input field systems move these along x and toggle their visibility
     for (ent_mark, z, height, color) in [
-        (ent_selection_highlight, -0.5, 1.0, rgba_f32_array!("#264f78ff")),
-        (ent_caret, -1.5, 0.8, rgba_f32_array!("#ffffffff")),
+        (ent_selection_highlight, -0.5, 1.0, PAL.bilberry_500),
+        (ent_caret, -1.5, 0.8, PAL.text_1),
     ] {
         ent.set_components(
             ent_mark,
@@ -1060,7 +1076,7 @@ pub fn spawn_input_area_ent(
                 },
                 BatchedMeshComponent::default(),
                 ImageComponent {
-                    color: Vec4::from_array(color),
+                    color,
                     ..Default::default()
                 },
             ),
@@ -1079,7 +1095,7 @@ pub fn spawn_input_area_ent(
     ent.add_component(
         ent_text,
         TextComponent {
-            color: Vec4::from_array(parse_color_rgba_f32("#ffffffff").unwrap()),
+            color: PAL.text_1,
             font,
             font_size: FONT_SIZE,
             is_y_inverted: true,
@@ -1149,7 +1165,7 @@ pub fn spawn_hierarchy_entry(
             GlobalRectComponent::default(),
             GlobalDisableableComponent::default(),
             LocalRectComponent {
-                scale: Vec2::new(Some(UiVal::pd(1.0)).into(), Some(UiVal::px(20.0)).into()),
+                scale: Vec2::new(Some(UiVal::pd(1.0)).into(), Some(UiVal::px(theme::ROW_H)).into()),
                 ..Default::default()
             },
             ParentComponent::default(),
@@ -1177,9 +1193,9 @@ pub fn spawn_hierarchy_entry(
                 material: material_text.clone(),
             },
             TextComponent {
-                color: Vec4::from_array(parse_color_rgba_f32("#000000ff").unwrap()),
+                color: PAL.text_1,
                 font: font.clone(),
-                font_size: UiVal::px(18.0),
+                font_size: UiVal::px(theme::FONT),
                 is_y_inverted: true,
                 text: name,
                 horizontal_spacing: UiVal::px(0.0),
@@ -1214,7 +1230,7 @@ pub fn spawn_hierarchy_entry(
             GlobalRectComponent::default(),
             GlobalDisableableComponent::default(),
             LocalRectComponent {
-                parent_padding_min: Vec2::new(UiVal::px(20.0), UiVal::px(0.0)),
+                parent_padding_min: Vec2::new(UiVal::px(theme::INDENT), UiVal::px(0.0)),
                 scale: Vec2::new(Some(UiVal::pd(1.0)).into(), None.into()),
                 ..Default::default()
             },

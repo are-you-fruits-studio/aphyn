@@ -16,27 +16,20 @@ use crate::{
         world_preload::{SimulatedWorldResource, tick_simulated_world_system},
     },
     prefabs::{PROFILER_LANE_LABEL_WIDTH, PROFILER_MAX_LANES, PROFILER_RULER_HEIGHT, PROFILER_SMALL_FONT_PX},
+    theme::PAL,
 };
 
-pub const HISTOGRAM_BAR_COLOR: Vec4<f32> = Vec4::new(0.45, 0.6, 0.45, 1.0);
-pub const SELECTED_COLOR: Vec4<f32> = Vec4::new(1.0, 0.75, 0.2, 1.0);
-pub const HOVERED_COLOR: Vec4<f32> = Vec4::new(0.92, 0.92, 0.92, 1.0);
-pub const SEGMENT_BORDER_COLOR: Vec4<f32> = Vec4::new(0.04, 0.04, 0.04, 1.0);
-pub const FRAME_LINE_COLOR: Vec4<f32> = Vec4::new(0.5, 0.5, 0.5, 1.0);
 // indexed by `ProfileSpanKind`
-pub const SPAN_COLORS: [Vec4<f32>; ProfileSpanKind::COUNT] = [
-    Vec4::new(0.45, 0.62, 0.9, 1.0),
-    Vec4::new(0.75, 0.5, 0.85, 1.0),
-    Vec4::new(0.9, 0.55, 0.4, 1.0),
-    Vec4::new(0.45, 0.78, 0.45, 1.0),
-    Vec4::new(0.35, 0.75, 0.72, 1.0),
-    Vec4::new(0.8, 0.8, 0.38, 1.0),
-];
-
-const BUTTON_COLOR: Vec4<f32> = Vec4::new(0.3, 0.3, 0.3, 1.0);
-const BUTTON_COLOR_RECORD: Vec4<f32> = Vec4::new(0.8, 0.25, 0.25, 1.0);
-const TEXT_COLOR: Vec4<f32> = Vec4::splat(0.9);
-const LABEL_COLOR: Vec4<f32> = Vec4::new(0.05, 0.05, 0.05, 1.0);
+pub fn span_colors() -> [Vec4<f32>; ProfileSpanKind::COUNT] {
+    [
+        PAL.bloom_400,
+        PAL.juice_300,
+        PAL.resin_300,
+        PAL.leaf_400,
+        PAL.leaf_200,
+        PAL.night_300,
+    ]
+}
 
 const DEFAULT_CAPACITY: usize = 300;
 const MIN_CAPACITY: usize = 10;
@@ -47,13 +40,15 @@ const MIN_LANE_HEIGHT: f32 = 10.0;
 // the part of a lane above the jobs row
 const MAIN_ROW_RATIO: f32 = 0.55;
 const HISTOGRAM_LABEL_HEIGHT: f32 = 16.0;
+const HISTOGRAM_CLIP_MS: f64 = 50.0;
+const BUDGET_60_FPS_MS: f64 = 1000.0 / 60.0;
+const BUDGET_30_FPS_MS: f64 = 1000.0 / 30.0;
 const DRAG_THRESHOLD: f32 = 3.0;
 const SEGMENT_BORDER_PX: f32 = 1.0;
 const SEGMENT_LANE_MARGIN_PX: f32 = 2.0;
 const MIN_LABEL_CHARS: usize = 3;
 const MIN_LABEL_ROW_PX: f32 = 11.0;
 // glyph width / height of the editor font
-const GLYPH_RATIO: f32 = 0.7;
 const NS_PER_MS: f64 = 1_000_000.0;
 
 pub fn register_feature(ctx: FeatureInitCtx) {
@@ -134,6 +129,8 @@ pub struct ProfilerWindowUiComponent {
     pub histogram: EntityId,
     pub histogram_grid: EntityId,
     pub histogram_bars: EntityId,
+    pub histogram_bars_warning: EntityId,
+    pub histogram_bars_danger: EntityId,
     pub histogram_selected: EntityId,
     pub histogram_label: EntityId,
     pub lane_labels: FfiVec<EntityId>,
@@ -618,7 +615,10 @@ pub fn draw_profiler_window_system(
     profiler: Res<ProfilerResource>,
     simulated_world: Res<SimulatedWorldResource>,
     selected_input: Res<SelectedInputFieldResource>,
+    fonts: Res<AssetStorageResource<Font>>,
+    assets: Res<crate::resources::StandardAssetsResource>,
 ) {
+    return_if_not!(Some(font) = fonts.get(&assets.font));
     return_if_not!(
         Some(ui) = ent.query::<&ProfilerWindowUiComponent>().iter().next().map(|ui| UiEntities {
             status_text: ui.status_text,
@@ -626,6 +626,8 @@ pub fn draw_profiler_window_system(
             histogram: ui.histogram,
             histogram_grid: ui.histogram_grid,
             histogram_bars: ui.histogram_bars,
+            histogram_bars_warning: ui.histogram_bars_warning,
+            histogram_bars_danger: ui.histogram_bars_danger,
             histogram_selected: ui.histogram_selected,
             histogram_label: ui.histogram_label,
             lane_labels: ui.lane_labels.clone_to_vec(),
@@ -653,9 +655,9 @@ pub fn draw_profiler_window_system(
     style_buttons::<ProfilerRecordButtonComponent>(
         &mut ent,
         if profiler.is_recording {
-            BUTTON_COLOR_RECORD
+            PAL.danger
         } else {
-            BUTTON_COLOR
+            PAL.surface_raised
         },
         Some(if profiler.is_recording { "Recording" } else { "Record" }),
     );
@@ -664,15 +666,15 @@ pub fn draw_profiler_window_system(
     let mut status = format!("{} frames", profiler.frames.len());
     if let Some(frame) = selected {
         status += &format!(
-            " | frame {}: {} ms",
+            " · frame {}: {} ms",
             frame.number,
             format_ms(frame.duration_ns() as f64 / NS_PER_MS, 0.01)
         );
     }
     if profiler.is_recording && !simulated_world.is_playing() {
-        status += " | records in play mode";
+        status += " · records in play mode";
     }
-    set_text(&mut ent, ui.status_text, &status, TEXT_COLOR);
+    set_text(&mut ent, ui.status_text, &status, PAL.text_1);
 
     draw_histogram(&mut ent, &ui, &profiler, max_ns);
 
@@ -693,7 +695,7 @@ pub fn draw_profiler_window_system(
         } else {
             String::new()
         };
-        set_text(&mut ent, *ent_label, &text, TEXT_COLOR);
+        set_text(&mut ent, *ent_label, &text, PAL.text_1);
         place(
             &mut ent,
             *ent_label,
@@ -702,7 +704,16 @@ pub fn draw_profiler_window_system(
         );
     }
 
-    draw_ruler(&mut ent, &ui, &view, &ruler_rect, profiler.time_origin_ns());
+    // the ruler counts from the selected frame, so without one its numbers mean nothing
+    match selected {
+        Some(_) => draw_ruler(&mut ent, &ui, &view, &ruler_rect, profiler.time_origin_ns()),
+        None => {
+            for ent_label in &ui.ruler_labels {
+                set_text(&mut ent, *ent_label, "", PAL.text_3);
+            }
+            set_points(&mut ent, ui.ruler_ticks, Vec::new());
+        }
+    }
 
     let mut grid = Vec::new();
     for lane in 1..lanes_count {
@@ -786,15 +797,19 @@ pub fn draw_profiler_window_system(
     set_lines(&mut ent, ui.selected_segment, selected_segment, 1.0);
 
     // name labels on the widest segments that fit some characters
-    let char_px = PROFILER_SMALL_FONT_PX * GLYPH_RATIO;
-    label_candidates.retain(|(width, ..)| (width - 6.0) / char_px >= MIN_LABEL_CHARS as f32);
+    let min_label_width = font.measure(&"m".repeat(MIN_LABEL_CHARS), PROFILER_SMALL_FONT_PX, 0.0);
+    label_candidates.retain(|(width, ..)| width - 6.0 >= min_label_width);
     label_candidates.sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
 
     let mut labels = ui.segment_labels.iter();
     for ((width, top_left, height, span), ent_label) in label_candidates.into_iter().zip(&mut labels) {
-        let max_chars = ((width - 6.0) / char_px) as usize;
-        let text = truncate(&span_label(span), max_chars);
-        set_text(&mut ent, *ent_label, &text, LABEL_COLOR);
+        let label = span_label(span);
+        let max_chars = (0..=label.chars().count())
+            .rev()
+            .find(|&n| font.measure(&truncate(&label, n), PROFILER_SMALL_FONT_PX, 0.0) <= width - 6.0)
+            .unwrap_or(0);
+        let text = truncate(&label, max_chars);
+        set_text(&mut ent, *ent_label, &text, PAL.night_950);
         place(
             &mut ent,
             *ent_label,
@@ -803,7 +818,7 @@ pub fn draw_profiler_window_system(
         );
     }
     for ent_label in labels {
-        set_text(&mut ent, *ent_label, "", TEXT_COLOR);
+        set_text(&mut ent, *ent_label, "", PAL.text_1);
     }
 
     // details
@@ -814,10 +829,13 @@ pub fn draw_profiler_window_system(
             "Select a frame in the histogram, then click a segment to see its details".into(),
             String::new(),
         ),
-        None => ("Press Record and enter play mode".into(), String::new()),
+        None => (
+            "Press Record and enter play mode".into(),
+            "frames are captured only while the game is running".into(),
+        ),
     };
-    set_text(&mut ent, ui.details_lines[0], &line_0, TEXT_COLOR);
-    set_text(&mut ent, ui.details_lines[1], &line_1, TEXT_COLOR);
+    set_text(&mut ent, ui.details_lines[0], &line_0, PAL.text_1);
+    set_text(&mut ent, ui.details_lines[1], &line_1, PAL.text_1);
 }
 
 struct UiEntities {
@@ -826,6 +844,8 @@ struct UiEntities {
     histogram: EntityId,
     histogram_grid: EntityId,
     histogram_bars: EntityId,
+    histogram_bars_warning: EntityId,
+    histogram_bars_danger: EntityId,
     histogram_selected: EntityId,
     histogram_label: EntityId,
     lane_labels: Vec<EntityId>,
@@ -848,31 +868,38 @@ fn draw_histogram(ent: &mut EntitiesHolderMut, ui: &UiEntities, profiler: &Profi
     return_if_not!(Some(rect) = ent.get_component::<GlobalRectComponent>(ui.histogram).copied());
 
     let view = HistogramView::new(&rect, profiler);
-    let scale_ns = (max_ns as f64).max(NS_PER_MS);
+    // an outlier (the first frame usually) would flatten every other bar, so taller bars are clipped
+    let scale_ns = (max_ns as f64).clamp(NS_PER_MS, HISTOGRAM_CLIP_MS * NS_PER_MS);
     let bottom = view.min.y + view.size.y;
     let bar_space = (view.size.y - HISTOGRAM_LABEL_HEIGHT).max(1.0);
     let y = |ns: f64| bottom - (ns / scale_ns) as f32 * bar_space;
 
     let mut bars = Vec::new();
+    let mut bars_warning = Vec::new();
+    let mut bars_danger = Vec::new();
     let mut selected = Vec::new();
     for (idx, frame) in profiler.frames.iter().enumerate() {
         let x = view.x(idx);
-        let target = if profiler.selected_frame == Some(frame.number) {
-            &mut selected
-        } else {
-            &mut bars
+        let duration_ns = frame.duration_ns() as f64;
+        let target = match () {
+            _ if profiler.selected_frame == Some(frame.number) => &mut selected,
+            _ if duration_ns > BUDGET_30_FPS_MS * NS_PER_MS => &mut bars_danger,
+            _ if duration_ns > BUDGET_60_FPS_MS * NS_PER_MS => &mut bars_warning,
+            _ => &mut bars,
         };
         target.push(view.to_local(Vec2::new(x, bottom)));
-        target.push(view.to_local(Vec2::new(x, y(frame.duration_ns() as f64).min(bottom - 1.0))));
+        target.push(view.to_local(Vec2::new(x, y(duration_ns.min(scale_ns)).min(bottom - 1.0))));
     }
 
     let thickness = (view.slot_width() - 1.0).max(1.0);
     set_lines(ent, ui.histogram_bars, bars, thickness);
+    set_lines(ent, ui.histogram_bars_warning, bars_warning, thickness);
+    set_lines(ent, ui.histogram_bars_danger, bars_danger, thickness);
     set_lines(ent, ui.histogram_selected, selected, thickness.max(2.0));
 
     // 60 and 30 fps lines
     let mut grid = Vec::new();
-    for ms in [1000.0 / 60.0, 1000.0 / 30.0] {
+    for ms in [BUDGET_60_FPS_MS, BUDGET_30_FPS_MS] {
         let ns = ms * NS_PER_MS;
         if ns <= scale_ns {
             grid.push(view.to_local(Vec2::new(view.min.x, y(ns))));
@@ -884,12 +911,13 @@ fn draw_histogram(ent: &mut EntitiesHolderMut, ui: &UiEntities, profiler: &Profi
     let label = if profiler.frames.is_empty() {
         String::new()
     } else {
-        format!(
-            "max {} ms | lines: 16.7 ms, 33.3 ms",
-            format_ms(max_ns as f64 / NS_PER_MS, 0.01)
-        )
+        let max = format_ms(max_ns as f64 / NS_PER_MS, 0.01);
+        match max_ns as f64 > scale_ns {
+            true => format!("max {max} ms (bars clipped at {HISTOGRAM_CLIP_MS} ms) · lines: 16.7 ms, 33.3 ms"),
+            false => format!("max {max} ms · lines: 16.7 ms, 33.3 ms"),
+        }
     };
-    set_text(ent, ui.histogram_label, &label, TEXT_COLOR);
+    set_text(ent, ui.histogram_label, &label, PAL.text_3);
 }
 
 fn draw_ruler(ent: &mut EntitiesHolderMut, ui: &UiEntities, view: &LanesView, ruler_rect: &GlobalRectComponent, origin_ns: f64) {
@@ -909,7 +937,7 @@ fn draw_ruler(ent: &mut EntitiesHolderMut, ui: &UiEntities, view: &LanesView, ru
         ticks.push(Vec2::new(to_ruler_x(x), 1.0));
 
         if let Some(ent_label) = labels.next() {
-            set_text(ent, *ent_label, &format!("{} ms", format_ms(ms, step_ms)), TEXT_COLOR);
+            set_text(ent, *ent_label, &format!("{} ms", format_ms(ms, step_ms)), PAL.text_1);
             place(
                 ent,
                 *ent_label,
@@ -920,7 +948,7 @@ fn draw_ruler(ent: &mut EntitiesHolderMut, ui: &UiEntities, view: &LanesView, ru
         ms += step_ms;
     }
     for ent_label in labels {
-        set_text(ent, *ent_label, "", TEXT_COLOR);
+        set_text(ent, *ent_label, "", PAL.text_1);
     }
 
     set_points(ent, ui.ruler_ticks, ticks);
@@ -995,8 +1023,8 @@ fn schedule_name(tag: u64) -> &'static str {
 
 fn span_title(span: &ProfileSpan) -> String {
     match span.kind.is_job() {
-        false => format!("{} | {}", kind_name(span.kind), span.name.as_str()),
-        true => format!("{} | started by {}", kind_name(span.kind), span.name.as_str()),
+        false => format!("{} · {}", kind_name(span.kind), span.name.as_str()),
+        true => format!("{} · started by {}", kind_name(span.kind), span.name.as_str()),
     }
 }
 
@@ -1011,14 +1039,14 @@ fn span_details(frame: &ProfiledFrame, span: &ProfileSpan) -> String {
     let start_ms = (span.start_ns as f64 - frame.start_ns as f64) / NS_PER_MS;
 
     let mut details = format!(
-        "{} | frame {} | start {} ms | time {} ms",
+        "{} · frame {} · start {} ms · time {} ms",
         lane_name(span.thread, frame.frame_threads),
         frame.number,
         format_ms(start_ms, 0.001),
         format_ms(span.duration_ns() as f64 / NS_PER_MS, 0.001),
     );
     if !context.is_empty() {
-        details += " | ";
+        details += " · ";
         details += &context;
     }
     details

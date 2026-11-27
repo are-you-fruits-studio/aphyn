@@ -11,4 +11,8 @@ pub struct StandardAssetsResource {
     pub material_panel: AssetHandle<Material>,
     pub material_text: AssetHandle<Material>,
     pub font: AssetHandle<Font>,
+    pub material_text_mono: AssetHandle<Material>,
+    pub font_mono: AssetHandle<Font>,
+    pub material_arrows: AssetHandle<Material>,
+    pub font_arrows: AssetHandle<Font>,
 }

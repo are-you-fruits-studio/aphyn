@@ -11,10 +11,11 @@ use aphyn_render::{
 };
 use aphyn_serialization::*;
 use aphyn_serialization_ecs::SerializersResource;
+use aphyn_ui::{Font, FontAssetMetadata};
 
 use crate::{
     AssetHandleCtx, AssetHandleCtxKey, AudioClipLoader, ComputeShaderLoader, DirectAssetLoadCtx, DirectAssetLoadCtxKey, EntityIdCtx,
-    EntityIdCtxKey, MaterialLoader, MeshLoader, PrefabLoader, SceneLoader, ShaderLoader, TextureLoader, asset_loader,
+    EntityIdCtxKey, FontLoader, MaterialLoader, MeshLoader, PrefabLoader, SceneLoader, ShaderLoader, TextureLoader, asset_loader,
     deserialize_material,
 };
 
@@ -44,6 +45,8 @@ pub fn load_asset_single_from_world<R>(
             &mut *res.get_ptr::<AssetStorageResource<ComputeShader>>()?,
             &mut *res.get_ptr::<AssetStorageResource<MaterialTemplate>>()?,
             &mut *res.get_ptr::<AssetStorageResource<AnimationClip>>()?,
+            // optional: worlds without the ui module have no fonts
+            res.get_ptr::<AssetStorageResource<Font>>().map(|fonts| &mut *fonts),
             assets_dir_path,
             asset_key,
             entity_ids,
@@ -68,6 +71,7 @@ pub fn load_asset_single<R>(
     compute_shaders: &mut AssetStorageResource<ComputeShader>,
     templates: &mut AssetStorageResource<MaterialTemplate>,
     animation_clips: &mut AssetStorageResource<AnimationClip>,
+    fonts: Option<&mut AssetStorageResource<Font>>,
     assets_dir_path: impl AsRef<Path>,
     asset_key: &str,
     entity_ids: EntityIdCtx,
@@ -86,6 +90,7 @@ pub fn load_asset_single<R>(
     let compute_shaders = Mutex::new(&mut *compute_shaders);
     let templates = Mutex::new(&mut *templates);
     let animation_clips = Mutex::new(&mut *animation_clips);
+    let fonts = fonts.map(Mutex::new);
 
     let texture_loader = asset_loader(|mut ctx, value, assets_dir_path| {
         // todo: use real path?
@@ -122,7 +127,13 @@ pub fn load_asset_single<R>(
         let meta = ctx.deserialize_default::<AnimationClipAssetMetadata>("", value);
         Some(AnimationClip::from_meta(&mut ctx, &meta))
     });
-    // todo: fonts
+    let font_loader = asset_loader(|mut ctx, value, assets_dir_path| {
+        FontLoader { render_api }.load_from_deserialized(
+            ctx.deserialize_default::<FontAssetMetadata>("", value),
+            &mut textures.lock().unwrap(),
+            assets_dir_path,
+        )
+    });
     let prefab_loader = asset_loader(|ctx, value, _assets_dir_path| PrefabLoader.load_from_serialized(ctx, value));
     let scene_loader = asset_loader(|ctx, value, _assets_dir_path| SceneLoader.load_from_serialized(ctx, value));
 
@@ -223,6 +234,19 @@ pub fn load_asset_single<R>(
         .with::<DirectAssetLoadCtxKey<Prefab>>(&direct_entries.7)
         .with::<DirectAssetLoadCtxKey<Scene>>(&direct_entries.8)
         .with::<DirectAssetLoadCtxKey<AnimationClip>>(&direct_entries.9);
+
+    let font_handle_entry = fonts.as_ref().map(AssetHandleCtx::RegisteredLocked);
+    let font_direct_entry = fonts.as_ref().map(|fonts| DirectAssetLoadCtx {
+        assets: fonts,
+        assets_dir_path,
+        asset_key,
+        loader: &font_loader,
+    });
+    let mut context = context;
+    if let (Some(handle_entry), Some(direct_entry)) = (&font_handle_entry, &font_direct_entry) {
+        context.insert::<AssetHandleCtxKey<Font>>(handle_entry);
+        context.insert::<DirectAssetLoadCtxKey<Font>>(direct_entry);
+    }
 
     f(serializers.to_ctx_state(&context, local_types))
 }

@@ -5,29 +5,29 @@ use crate::{
         ui_interaction::HoverAreaComponent,
     },
     prefabs::WindowComponent,
+    theme::PAL,
     *,
 };
 
-pub const ANIMATION_TOOLBAR_HEIGHT: f32 = 22.0;
+pub const ANIMATION_TOOLBAR_HEIGHT: f32 = theme::CONTROL_H;
 pub const ANIMATION_MARGIN: f32 = 4.0;
 pub const ANIMATION_GAP: f32 = 2.0;
 pub const ANIMATION_TRACK_LIST_WIDTH: f32 = 260.0;
-pub const ANIMATION_RULER_HEIGHT: f32 = 18.0;
-pub const ANIMATION_ROW_HEIGHT: f32 = 18.0;
-pub const ANIMATION_SCROLLBAR_SIZE: f32 = 10.0;
+pub const ANIMATION_RULER_HEIGHT: f32 = theme::ROW_H;
+pub const ANIMATION_ROW_HEIGHT: f32 = theme::CONTROL_H;
+pub const ANIMATION_SCROLLBAR_SIZE: f32 = theme::SCROLLBAR_W;
 pub const ANIMATION_TRACK_ROWS: usize = 48;
 pub const ANIMATION_RULER_LABELS: usize = 16;
 
 const FIELD_WIDTH: f32 = 72.0;
 const LABEL_WIDTH: f32 = 44.0;
 const SMALL_FONT_SIZE: UiVal = UiVal::px(12.0);
-const BUTTON_FONT_PX: f32 = 14.0;
-// glyph width / height of the editor font
-const GLYPH_RATIO: f32 = 0.7;
+const BUTTON_FONT_PX: f32 = theme::FONT;
 
 pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
     let (res, mut ent, _) = world.as_tuple_mut();
     let assets = res.get::<StandardAssetsResource>().unwrap();
+    let fonts = res.get::<AssetStorageResource<Font>>().unwrap();
 
     let ent_scroll_content = ent.get_component::<WindowComponent>(ent_window).unwrap().content_container;
     let ent_scroll_view = ent.get_component::<ChildComponent>(ent_scroll_content).unwrap().parent();
@@ -49,6 +49,7 @@ pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
     spawn_button(
         ent.as_mut(),
         assets,
+        fonts,
         ent_toolbar,
         AnimationPreviewButtonComponent,
         "Preview",
@@ -57,6 +58,7 @@ pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
     spawn_button(
         ent.as_mut(),
         assets,
+        fonts,
         ent_toolbar,
         AnimationRecordButtonComponent,
         "Record",
@@ -65,6 +67,7 @@ pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
     spawn_button(
         ent.as_mut(),
         assets,
+        fonts,
         ent_toolbar,
         AnimationPlayButtonComponent,
         "Play",
@@ -73,6 +76,7 @@ pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
     spawn_button(
         ent.as_mut(),
         assets,
+        fonts,
         ent_toolbar,
         AnimationTabButtonComponent,
         "Curves",
@@ -81,6 +85,7 @@ pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
     spawn_button(
         ent.as_mut(),
         assets,
+        fonts,
         ent_toolbar,
         AnimationFrameButtonComponent,
         "Frame",
@@ -109,6 +114,7 @@ pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
     spawn_button(
         ent.as_mut(),
         assets,
+        fonts,
         ent_key_row,
         AnimationInterpolationButtonComponent,
         "Hermite",
@@ -117,6 +123,7 @@ pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
     spawn_button(
         ent.as_mut(),
         assets,
+        fonts,
         ent_key_row,
         AnimationAutoTangentButtonComponent,
         "Auto",
@@ -125,6 +132,7 @@ pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
     spawn_button(
         ent.as_mut(),
         assets,
+        fonts,
         ent_key_row,
         AnimationDeleteButtonComponent,
         "Delete keys",
@@ -133,6 +141,7 @@ pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
     spawn_button(
         ent.as_mut(),
         assets,
+        fonts,
         ent_key_row,
         AnimationDeleteTrackButtonComponent,
         "Delete track",
@@ -151,7 +160,7 @@ pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
         Vec2::new(0.0, content_top),
         Vec2::new(0.0, bar),
         Some(ANIMATION_TRACK_LIST_WIDTH),
-        Vec4::new(0.15, 0.15, 0.15, 1.0),
+        PAL.surface_panel,
     );
     ent.set_component(
         track_list,
@@ -188,7 +197,7 @@ pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
         Vec2::new(timeline_left, body_top),
         Vec2::new(bar, 0.0),
         None,
-        Vec4::new(0.2, 0.2, 0.2, 1.0),
+        PAL.surface_raised,
     );
     ent.set_component(
         ruler,
@@ -209,10 +218,10 @@ pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
         Vec2::new(timeline_left, content_top),
         Vec2::new(bar, bar),
         None,
-        Vec4::new(0.11, 0.11, 0.11, 1.0),
+        PAL.bg_sunken,
     );
 
-    let scrollbar_color = Vec4::new(0.17, 0.17, 0.17, 1.0);
+    let scrollbar_color = PAL.surface_panel;
     let h_scroll = spawn_area(
         ent.as_mut(),
         assets,
@@ -271,17 +280,17 @@ pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
         ruler_labels.push(ent_label);
     }
 
-    let ruler_ticks = spawn_lines(ent.as_mut(), assets, ruler, Vec4::new(0.55, 0.55, 0.55, 1.0), 1.0);
-    let ruler_cursor = spawn_lines(ent.as_mut(), assets, ruler, CURSOR_COLOR, 2.0);
+    let ruler_ticks = spawn_lines(ent.as_mut(), assets, ruler, PAL.border_strong, 1.0);
+    let ruler_cursor = spawn_lines(ent.as_mut(), assets, ruler, PAL.highlight, 2.0);
 
     let lines = AnimationLines {
-        grid: spawn_lines(ent.as_mut(), assets, content, Vec4::new(0.2, 0.2, 0.2, 1.0), 1.0),
-        curves: spawn_lines(ent.as_mut(), assets, content, Vec4::new(0.45, 0.6, 0.45, 1.0), 1.5),
-        selected_curve: spawn_lines(ent.as_mut(), assets, content, Vec4::new(0.5, 0.95, 0.5, 1.0), 2.0),
-        tangents: spawn_lines(ent.as_mut(), assets, content, Vec4::new(0.85, 0.85, 0.35, 1.0), 1.0),
-        keys: spawn_lines(ent.as_mut(), assets, content, Vec4::new(0.8, 0.8, 0.8, 1.0), KEY_SIZE),
-        selected_keys: spawn_lines(ent.as_mut(), assets, content, Vec4::new(1.0, 0.75, 0.2, 1.0), KEY_SIZE),
-        cursor: spawn_lines(ent.as_mut(), assets, content, CURSOR_COLOR, 3.0),
+        grid: spawn_lines(ent.as_mut(), assets, content, PAL.border_subtle, 1.0),
+        curves: spawn_lines(ent.as_mut(), assets, content, PAL.night_500, 1.5),
+        selected_curve: spawn_lines(ent.as_mut(), assets, content, PAL.axis_y, 2.0),
+        tangents: spawn_lines(ent.as_mut(), assets, content, PAL.resin_300, 1.0),
+        keys: spawn_lines(ent.as_mut(), assets, content, PAL.text_2, KEY_SIZE),
+        selected_keys: spawn_lines(ent.as_mut(), assets, content, PAL.accent_fg, KEY_SIZE),
+        cursor: spawn_lines(ent.as_mut(), assets, content, PAL.highlight, 3.0),
         ruler_ticks,
         ruler_cursor,
     };
@@ -310,12 +319,19 @@ pub fn init_window_as_animation(mut world: WorldDataMut, ent_window: EntityId) {
 pub(crate) fn spawn_button<C: 'static>(
     mut ent: EntitiesHolderMut,
     assets: &StandardAssetsResource,
+    fonts: &AssetStorageResource<Font>,
     ent_parent: EntityId,
     component: C,
     text: &str,
     longest_text: &str,
 ) {
-    let width = longest_text.len().max(text.len()) as f32 * BUTTON_FONT_PX * GLYPH_RATIO + 14.0;
+    let text_width = fonts.get(&assets.font).map_or(0.0, |font| {
+        [text, longest_text]
+            .map(|t| font.measure(t, BUTTON_FONT_PX, 0.0))
+            .into_iter()
+            .fold(0.0, f32::max)
+    });
+    let width = text_width + 14.0;
 
     let ent_button = ent.create_entity();
     ent.set_components(
@@ -334,7 +350,7 @@ pub(crate) fn spawn_button<C: 'static>(
                 material: assets.material_panel.clone(),
             },
             ImageComponent {
-                color: Vec4::new(0.3, 0.3, 0.3, 1.0),
+                color: PAL.surface_raised,
                 ..Default::default()
             },
             component,
@@ -367,7 +383,7 @@ fn spawn_thumb(mut ent: EntitiesHolderMut, assets: &StandardAssetsResource, ent_
                 material: assets.material_panel.clone(),
             },
             ImageComponent {
-                color: Vec4::new(0.4, 0.4, 0.4, 1.0),
+                color: PAL.night_600,
                 ..Default::default()
             },
         ),
@@ -505,7 +521,7 @@ pub(crate) fn spawn_text(
                 material: assets.material_text.clone(),
             },
             TextComponent {
-                color: Vec4::splat(0.9),
+                color: PAL.text_1,
                 font: assets.font.clone(),
                 font_size,
                 horizontal_align: HorizontalAlign::Left,

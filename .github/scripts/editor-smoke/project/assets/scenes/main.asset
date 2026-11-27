@@ -1,0 +1,361 @@
+{
+  "asset_type": "scene",
+  "entities": {
+    "1": {
+      "aphyn::CameraComponent": {
+        "0": {
+          "projection": {
+            "$enum_variant": "Perspective",
+            "fov": 1.0
+          },
+          "near": 0.10000000149011612,
+          "far": 1000.0
+        }
+      },
+      "aphyn::GlobalTransform": {
+        "position": {
+          "x": 0.0,
+          "y": 2.4000000953674316,
+          "z": -4.599999904632568
+        },
+        "scale_rotation": [
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.9999962449073792,
+            0.0027296915650367737
+          ],
+          [
+            0.0,
+            -0.0027296915650367737,
+            0.9999962449073792
+          ]
+        ]
+      },
+      "aphyn::LocalTransform": {
+        "position": {
+          "x": 0.0,
+          "y": 2.4000000953674316,
+          "z": -4.599999904632568
+        },
+        "rotation": {
+          "x": 0.15640000483166874,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        }
+      },
+      "aphyn::NameComponent": {
+        "0": "Main Camera"
+      },
+      "aphyn::ParentComponent": {
+        "children": []
+      }
+    },
+    "2": {
+      "aphyn::GlobalTransform": {
+        "position": {
+          "x": 0.0,
+          "y": 5.0,
+          "z": 0.0
+        },
+        "scale_rotation": [
+          [
+            0.9999896883964539,
+            0.0019198120571672916,
+            -0.004115208983421326
+          ],
+          [
+            -0.00194912264123559,
+            0.9999727010726929,
+            -0.0071303886361420155
+          ],
+          [
+            0.004101407714188099,
+            0.007138336542993784,
+            0.9999660849571228
+          ]
+        ]
+      },
+      "aphyn::LocalTransform": {
+        "position": {
+          "x": 0.0,
+          "y": 5.0,
+          "z": 0.0
+        },
+        "rotation": {
+          "x": -0.4090000203903182,
+          "y": 0.23499999694281426,
+          "z": 0.10999999859737249
+        },
+        "scale": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        }
+      },
+      "aphyn::NameComponent": {
+        "0": "Sun"
+      },
+      "aphyn::ParentComponent": {
+        "children": []
+      },
+      "aphyn::StandardLightComponent": {
+        "$enum_variant": "Directional",
+        "color": {
+          "x": 2.200000047683716,
+          "y": 2.0999999046325684,
+          "z": 1.899999976158142
+        },
+        "shadows": true
+      }
+    },
+    "3": {
+      "aphyn::AnimationComponent": {
+        "clip": "animations/cube_spin.asset",
+        "time": 0.0,
+        "speed": 1.0,
+        "playing": true,
+        "wrap": {
+          "$enum_variant": "Loop"
+        }
+      },
+      "aphyn::GlobalTransform": {
+        "position": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "scale_rotation": [
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "aphyn::LocalTransform": {
+        "position": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "rotation": {
+          "x": -0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        }
+      },
+      "aphyn::MaterialComponent": {
+        "material": "materials/cube_orange.asset"
+      },
+      "aphyn::MeshComponent": {
+        "mesh": "meshes/cube.asset"
+      },
+      "aphyn::NameComponent": {
+        "0": "Box 1Кубик"
+      },
+      "aphyn::ParentComponent": {
+        "children": [
+          4
+        ]
+      }
+    },
+    "4": {
+      "aphyn::ChildComponent": {
+        "parent": 3
+      },
+      "aphyn::GlobalTransform": {
+        "position": {
+          "x": 0.0,
+          "y": 1.75,
+          "z": 0.0
+        },
+        "scale_rotation": [
+          [
+            0.4000000059604645,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.4000000059604645,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.4000000059604645
+          ]
+        ]
+      },
+      "aphyn::LocalTransform": {
+        "position": {
+          "x": 0.0,
+          "y": 0.75,
+          "z": 0.0
+        },
+        "rotation": {
+          "x": -0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale": {
+          "x": 0.4000000059604645,
+          "y": 0.4000000059604645,
+          "z": 0.4000000059604645
+        }
+      },
+      "aphyn::MaterialComponent": {
+        "material": "materials/cube_blue.asset"
+      },
+      "aphyn::MeshComponent": {
+        "mesh": "meshes/cube.asset"
+      },
+      "aphyn::NameComponent": {
+        "0": "Small Cube"
+      },
+      "aphyn::ParentComponent": {
+        "children": []
+      }
+    },
+    "5": {
+      "aphyn::GlobalTransform": {
+        "position": {
+          "x": 0.0,
+          "y": -0.05000000074505806,
+          "z": 0.0
+        },
+        "scale_rotation": [
+          [
+            8.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.10000000149011612,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            8.0
+          ]
+        ]
+      },
+      "aphyn::LocalTransform": {
+        "position": {
+          "x": 0.0,
+          "y": -0.05000000074505806,
+          "z": 0.0
+        },
+        "rotation": {
+          "x": -0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale": {
+          "x": 8.0,
+          "y": 0.10000000149011612,
+          "z": 8.0
+        }
+      },
+      "aphyn::MaterialComponent": {
+        "material": "materials/ground.asset"
+      },
+      "aphyn::MeshComponent": {
+        "mesh": "meshes/cube.asset"
+      },
+      "aphyn::NameComponent": {
+        "0": "Ground"
+      },
+      "aphyn::ParentComponent": {
+        "children": []
+      },
+      "aphyn::StaticComponent": {}
+    },
+    "6": {
+      "aphyn::GlobalTransform": {
+        "position": {
+          "x": -2.5,
+          "y": 2.5,
+          "z": -2.5
+        },
+        "scale_rotation": [
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "aphyn::LocalTransform": {
+        "position": {
+          "x": -2.5,
+          "y": 2.5,
+          "z": -2.5
+        },
+        "rotation": {
+          "x": -0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "scale": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        }
+      },
+      "aphyn::NameComponent": {
+        "0": "Fill Light"
+      },
+      "aphyn::ParentComponent": {
+        "children": []
+      },
+      "aphyn::StandardLightComponent": {
+        "$enum_variant": "Point",
+        "color": {
+          "x": 0.6000000238418579,
+          "y": 0.6499999761581421,
+          "z": 0.800000011920929
+        },
+        "range": 12.0,
+        "shadows": false
+      }
+    }
+  }
+}

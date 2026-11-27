@@ -15,12 +15,12 @@ use crate::{
         ui_interaction::{ButtonClickEvent, DOUBLE_CLICK_INTERVAL, HoverAreaComponent, check_ui_interaction_system},
         world_preload::{SimulatedWorldResource, preload_assets_into_simulated_world_system, tick_simulated_world_system},
     },
+    theme::PAL,
 };
 
 const MOVE_SPEED: f32 = 5.0;
 const LOOK_SENSITIVITY: f32 = 0.004;
 const PITCH_LIMIT: f32 = 89.0_f32.to_radians();
-const CLEAR_COLOR: [f32; 4] = [0.05, 0.05, 0.05, 1.0];
 const FOCUS_DISTANCE_SCALE: f32 = 3.0;
 const FOCUS_MIN_DISTANCE: f32 = 2.0;
 
@@ -376,7 +376,7 @@ pub fn render_simulated_view(
 
     let target = textures.get(texture_handle).unwrap().clone();
 
-    clear_color_target(render_api, Some("clear scene view"), &target, CLEAR_COLOR);
+    clear_color_target(render_api, Some("clear scene view"), &target, PAL.bg_viewport.into_array());
 
     return_if_not!(Some(camera) = camera);
 

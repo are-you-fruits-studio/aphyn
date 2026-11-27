@@ -6,6 +6,11 @@ const sidebars = {
       id: 'getting-started',
       label: 'Getting Started',
     },
+    {
+      type: 'doc',
+      id: 'editor-testing',
+      label: 'Editor Testing',
+    },
   ],
 };
 

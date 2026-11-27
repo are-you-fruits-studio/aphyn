@@ -11,6 +11,7 @@ use crate::{
     },
     prefabs::{WINDOW_HEADER_HEIGHT, WindowComponent, WindowGroupComponent, window_group},
     resources::StandardAssetsResource,
+    theme::PAL,
 };
 
 const DOCK_GAP: f32 = 4.0;
@@ -22,11 +23,8 @@ const CENTER_ZONE_FRACTION: f32 = 0.3;
 const CENTER_ZONE_MAX: f32 = 80.0;
 const ROOT_SPLIT_RATIO: f32 = 0.3;
 const LEAF_SPLIT_RATIO: f32 = 0.5;
-const HIGHLIGHT_THICKNESS: f32 = 3.0;
+const HIGHLIGHT_THICKNESS: f32 = 2.0;
 const HIGHLIGHT_Z: f32 = -8_500.0;
-
-const SPLITTER_COLOR: Vec4<f32> = Vec4::new(0.1, 0.1, 0.1, 1.0);
-const SPLITTER_COLOR_HOVERED: Vec4<f32> = Vec4::new(0.38, 0.71, 0.98, 1.0);
 
 pub fn register_feature(ctx: FeatureInitCtx) {
     let FeatureInitCtx {
@@ -326,7 +324,7 @@ pub fn spawn_splitter(mut world: WorldDataMut) -> EntityId {
                 material: material_panel,
             },
             ImageComponent {
-                color: SPLITTER_COLOR,
+                color: PAL.night_950,
                 ..Default::default()
             },
             HoverAreaComponent::default(),
@@ -386,7 +384,7 @@ fn spawn_highlight(mut world: WorldDataMut) -> EntityId {
                     material: material_panel.clone(),
                 },
                 ImageComponent {
-                    color: SPLITTER_COLOR_HOVERED,
+                    color: PAL.accent_hover,
                     ..Default::default()
                 },
             ),
@@ -799,7 +797,7 @@ pub fn dock_layout_system(mut world: WorldDataMut) {
                         .is_some_and(|c| c.press_global_offset.is_some());
 
                 if let Some(image_c) = ec.get_component_mut::<ImageComponent>(splitter) {
-                    image_c.color = if is_active { SPLITTER_COLOR_HOVERED } else { SPLITTER_COLOR };
+                    image_c.color = if is_active { PAL.accent_hover } else { PAL.night_950 };
                 }
             }
         }

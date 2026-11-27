@@ -6,24 +6,32 @@ use crate::{
         ui_interaction::{ButtonComponent, DragAreaComponent, HoverAreaComponent},
     },
     resources::StandardAssetsResource,
+    theme::{self, PAL},
 };
 
-pub const WINDOW_HEADER_HEIGHT: f32 = 20.0;
-pub const WINDOW_TAB_STRIP_HEIGHT: f32 = 20.0;
+pub const WINDOW_HEADER_HEIGHT: f32 = theme::GRIP_H;
+pub const WINDOW_TAB_STRIP_HEIGHT: f32 = theme::PANEL_HEADER_H;
 
-const TAB_FONT_SIZE: f32 = 16.0;
-const TAB_PADDING: f32 = 6.0;
-const TAB_CLOSE_SIZE: f32 = 14.0;
+const TAB_FONT_SIZE: f32 = theme::FONT;
+const TAB_PADDING: f32 = 10.0;
+const TAB_CLOSE_SIZE: f32 = 16.0;
+const TAB_CLOSE_PADDING: f32 = 4.0;
+const GRIP_W: f32 = 28.0;
+const GRIP_THICKNESS: f32 = 3.0;
 
-pub const TAB_COLOR_ACTIVE: Vec4<f32> = Vec4::new(0.68, 0.68, 0.68, 1.0);
-pub const TAB_COLOR_INACTIVE: Vec4<f32> = Vec4::new(0.45, 0.45, 0.45, 1.0);
+pub fn tab_label(kind: &str) -> &str {
+    kind.strip_suffix(" Window").unwrap_or(kind)
+}
 
 #[derive(Component, Debug, Clone)]
 pub struct WindowComponent {
     pub kind: FfiString,
     pub content_container: EntityId,
     pub tab: EntityId,
+    pub tab_text: EntityId,
+    pub tab_accent: EntityId,
     pub tab_close_button: EntityId,
+    pub tab_close_text: EntityId,
 }
 
 #[derive(Component, Debug, Clone)]
@@ -68,15 +76,15 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
     let material_panel = assets_res.material_panel.clone();
     let material_text = assets_res.material_text.clone();
 
-    let character_ratio = res
+    let label = tab_label(kind);
+    let label_width = res
         .as_ref()
         .get::<AssetStorageResource<Font>>()
         .unwrap()
         .get(&font)
-        .map(|font| font.character_ratio)
-        .unwrap_or(1.0);
+        .map_or(0.0, |font| font.measure(label, TAB_FONT_SIZE, 0.0));
 
-    let tab_width = kind.chars().count() as f32 * TAB_FONT_SIZE * character_ratio + TAB_PADDING * 3.0 + TAB_CLOSE_SIZE;
+    let tab_width = label_width + TAB_PADDING + TAB_CLOSE_PADDING * 2.0 + TAB_CLOSE_SIZE;
 
     let ent_root = ec.create_entity();
     let ent_scroll_handle_area = ec.create_entity();
@@ -85,6 +93,7 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
     let ent_scroll_content = ec.create_entity();
     let ent_tab = ec.create_entity();
     let ent_tab_text = ec.create_entity();
+    let ent_tab_accent = ec.create_entity();
     let ent_tab_close_btn = ec.create_entity();
     let ent_tab_close_btn_text = ec.create_entity();
 
@@ -100,14 +109,17 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
                 material: material_panel.clone(),
             },
             ImageComponent {
-                color: Vec4::from_array(parse_color_rgba_f32("#757575ff").unwrap()),
+                color: PAL.surface_panel,
                 ..Default::default()
             },
             WindowComponent {
                 kind: kind.into(),
                 content_container: ent_scroll_content,
                 tab: ent_tab,
+                tab_text: ent_tab_text,
+                tab_accent: ent_tab_accent,
                 tab_close_button: ent_tab_close_btn,
+                tab_close_text: ent_tab_close_btn_text,
             },
         ),
     );
@@ -120,7 +132,7 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
             LocalRectComponent {
                 anchor: Vec2::new(1.0, 0.5),
                 pivot: Vec2::new(1.0, 0.5),
-                scale: Vec2::new(UiVal::px(20.0).into(), UiVal::pd(1.0).into()),
+                scale: Vec2::new(UiVal::px(theme::SCROLLBAR_W).into(), UiVal::pd(1.0).into()),
                 ..Default::default()
             },
             BatchedMeshComponent::default(),
@@ -128,7 +140,7 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
                 material: material_panel.clone(),
             },
             ImageComponent {
-                color: Vec4::from_array(parse_color_rgba_f32("#686868ff").unwrap()),
+                color: PAL.surface_panel,
                 ..Default::default()
             },
             ButtonComponent::default(),
@@ -145,7 +157,9 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
             GlobalRectComponent::default(),
             GlobalDisableableComponent::default(),
             LocalRectComponent {
-                scale: Vec2::new(UiVal::pd(1.0).into(), UiVal::px(100.0).into()),
+                anchor: Vec2::new(0.5, 0.5),
+                pivot: Vec2::new(0.5, 0.5),
+                scale: Vec2::new(UiVal::px(theme::SCROLLBAR_HANDLE_W).into(), UiVal::px(100.0).into()),
                 ..Default::default()
             },
             BatchedMeshComponent::default(),
@@ -153,7 +167,7 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
                 material: material_panel.clone(),
             },
             ImageComponent {
-                color: Vec4::from_array(parse_color_rgba_f32("#bebebeff").unwrap()),
+                color: PAL.night_600,
                 ..Default::default()
             },
         ),
@@ -165,7 +179,7 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
             GlobalRectComponent::default(),
             GlobalDisableableComponent::default(),
             LocalRectComponent {
-                parent_padding_max: Vec2::new(UiVal::px(20.0), UiVal::px(0.0)),
+                parent_padding_max: Vec2::new(UiVal::px(theme::SCROLLBAR_W), UiVal::px(0.0)),
                 ..Default::default()
             },
             ChildrenRectMaskComponent,
@@ -174,7 +188,7 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
                 material: material_panel.clone(),
             },
             ImageComponent {
-                color: Vec4::from_array(parse_color_rgba_f32("#575757ff").unwrap()),
+                color: PAL.surface_panel,
                 ..Default::default()
             },
         ),
@@ -215,11 +229,12 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
                 material: material_panel.clone(),
             },
             ImageComponent {
-                color: TAB_COLOR_INACTIVE,
+                color: PAL.bg_sunken,
                 ..Default::default()
             },
             ButtonComponent::default(),
             DragAreaComponent::default(),
+            HoverAreaComponent::default(),
         ),
     );
 
@@ -229,7 +244,7 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
             GlobalRectComponent::default(),
             LocalRectComponent {
                 parent_padding_min: Vec2::new(UiVal::px(TAB_PADDING), UiVal::px(0.0)),
-                parent_padding_max: Vec2::new(UiVal::px(TAB_PADDING * 2.0 + TAB_CLOSE_SIZE), UiVal::px(0.0)),
+                parent_padding_max: Vec2::new(UiVal::px(TAB_CLOSE_PADDING * 2.0 + TAB_CLOSE_SIZE), UiVal::px(0.0)),
                 ..Default::default()
             },
             BatchedMeshComponent::default(),
@@ -237,11 +252,11 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
                 material: material_text.clone(),
             },
             TextComponent {
-                color: Vec4::from_array(parse_color_rgba_f32("#000000ff").unwrap()),
+                color: PAL.text_2,
                 font: font.clone(),
                 font_size: UiVal::px(TAB_FONT_SIZE),
                 is_y_inverted: true,
-                text: kind.into(),
+                text: label.into(),
                 horizontal_spacing: UiVal::px(0.0),
                 vertical_align: VerticalAlign::Middle,
                 horizontal_align: HorizontalAlign::Left,
@@ -254,7 +269,7 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
         (
             GlobalRectComponent::default(),
             LocalRectComponent {
-                parent_padding_max: Vec2::new(UiVal::px(TAB_PADDING), UiVal::px(0.0)),
+                parent_padding_max: Vec2::new(UiVal::px(TAB_CLOSE_PADDING), UiVal::px(0.0)),
                 anchor: Vec2::new(1.0, 0.5),
                 pivot: Vec2::new(1.0, 0.5),
                 scale: Vec2::splat(UiVal::px(TAB_CLOSE_SIZE).into()),
@@ -265,10 +280,11 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
                 material: material_panel.clone(),
             },
             ImageComponent {
-                color: Vec4::from_array(parse_color_rgba_f32("#d04040ff").unwrap()),
+                color: PAL.bg_sunken,
                 ..Default::default()
             },
             ButtonComponent::default(),
+            HoverAreaComponent::default(),
         ),
     );
 
@@ -282,9 +298,9 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
                 material: material_text.clone(),
             },
             TextComponent {
-                color: Vec4::from_array(parse_color_rgba_f32("#000000ff").unwrap()),
+                color: PAL.text_3,
                 font,
-                font_size: UiVal::px(TAB_CLOSE_SIZE),
+                font_size: UiVal::px(theme::FONT),
                 is_y_inverted: true,
                 text: String::from("x").into(),
                 horizontal_spacing: UiVal::px(0.0),
@@ -294,11 +310,35 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
         ),
     );
 
+    ec.set_components(
+        ent_tab_accent,
+        (
+            GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
+            LocalDisableableComponent { is_disabled: true },
+            LocalRectComponent {
+                anchor: Vec2::new(0.5, 0.0),
+                pivot: Vec2::new(0.5, 0.0),
+                scale: Vec2::new(UiVal::pd(1.0).into(), UiVal::px(theme::BORDER).into()),
+                ..Default::default()
+            },
+            BatchedMeshComponent::default(),
+            MaterialComponent {
+                material: material_panel.clone(),
+            },
+            ImageComponent {
+                color: PAL.accent_hover,
+                ..Default::default()
+            },
+        ),
+    );
+
     set_parent(ec.as_mut(), ent_scroll_handle_area, ent_root);
     set_parent(ec.as_mut(), ent_scroll_handle, ent_scroll_handle_area);
     set_parent(ec.as_mut(), ent_scroll_view, ent_root);
     set_parent(ec.as_mut(), ent_scroll_content, ent_scroll_view);
     set_parent(ec.as_mut(), ent_tab_text, ent_tab);
+    set_parent(ec.as_mut(), ent_tab_accent, ent_tab);
     set_parent(ec.as_mut(), ent_tab_close_btn, ent_tab);
     set_parent(ec.as_mut(), ent_tab_close_btn_text, ent_tab_close_btn);
 
@@ -323,6 +363,7 @@ pub fn window_group(mut world: WorldDataMut) -> EntityId {
     let ent_header = ec.create_entity();
     let ent_tab_strip = ec.create_entity();
     let ent_content_area = ec.create_entity();
+    let ent_header_grip = ec.create_entity();
 
     ec.as_mut().set_components(
         ent_root,
@@ -339,7 +380,7 @@ pub fn window_group(mut world: WorldDataMut) -> EntityId {
                 material: material_panel.clone(),
             },
             ImageComponent {
-                color: Vec4::from_array(parse_color_rgba_f32("#d0d0d0ff").unwrap()),
+                color: PAL.border_default,
                 ..Default::default()
             },
             HoverAreaComponent::default(),
@@ -381,7 +422,7 @@ pub fn window_group(mut world: WorldDataMut) -> EntityId {
                     material: material_panel.clone(),
                 },
                 ImageComponent {
-                    color: Vec4::from_array(parse_color_rgba_f32("#61b5fa00").unwrap()),
+                    color: PAL.transparent,
                     ..Default::default()
                 },
                 HoverAreaComponent::default(),
@@ -435,7 +476,7 @@ pub fn window_group(mut world: WorldDataMut) -> EntityId {
                 material: material_panel.clone(),
             },
             ImageComponent {
-                color: Vec4::from_array(parse_color_rgba_f32("#adadadff").unwrap()),
+                color: PAL.surface_panel,
                 ..Default::default()
             },
         ),
@@ -459,7 +500,29 @@ pub fn window_group(mut world: WorldDataMut) -> EntityId {
                 material: material_panel.clone(),
             },
             ImageComponent {
-                color: Vec4::from_array(parse_color_rgba_f32("#6b6b6bff").unwrap()),
+                color: PAL.surface_raised,
+                ..Default::default()
+            },
+        ),
+    );
+
+    ec.as_mut().set_components(
+        ent_header_grip,
+        (
+            GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
+            LocalRectComponent {
+                anchor: Vec2::new(0.5, 0.5),
+                pivot: Vec2::new(0.5, 0.5),
+                scale: Vec2::new(UiVal::px(GRIP_W).into(), UiVal::px(GRIP_THICKNESS).into()),
+                ..Default::default()
+            },
+            BatchedMeshComponent::default(),
+            MaterialComponent {
+                material: material_panel.clone(),
+            },
+            ImageComponent {
+                color: PAL.night_600,
                 ..Default::default()
             },
         ),
@@ -480,7 +543,7 @@ pub fn window_group(mut world: WorldDataMut) -> EntityId {
             RectChildAlignComponent {
                 anchor: Vec2::new(0.0, 0.5),
                 direction: UiDirection::Horizontal,
-                min_gap: UiVal::px(1.0),
+                min_gap: UiVal::px(theme::BORDER),
                 spacing: UiSpacing::Chunk,
             },
             ChildrenRectMaskComponent,
@@ -489,7 +552,7 @@ pub fn window_group(mut world: WorldDataMut) -> EntityId {
                 material: material_panel.clone(),
             },
             ImageComponent {
-                color: Vec4::from_array(parse_color_rgba_f32("#929292ff").unwrap()),
+                color: PAL.bg_sunken,
                 ..Default::default()
             },
         ),
@@ -521,6 +584,7 @@ pub fn window_group(mut world: WorldDataMut) -> EntityId {
         set_parent(ec.as_mut(), ent_border, ent_root);
     }
     set_parent(ec.as_mut(), ent_header, ent_bordered_root);
+    set_parent(ec.as_mut(), ent_header_grip, ent_header);
     set_parent(ec.as_mut(), ent_tab_strip, ent_bordered_root);
     set_parent(ec.as_mut(), ent_content_area, ent_bordered_root);
 

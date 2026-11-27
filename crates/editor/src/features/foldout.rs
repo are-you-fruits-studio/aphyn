@@ -12,13 +12,15 @@ use crate::{
         ui_interaction::check_ui_interaction_system,
         windows_layout::APP_NAME,
     },
+    resources::StandardAssetsResource,
+    theme::{self, PAL},
     *,
 };
 
 const FILE_NAME: &str = "foldouts.json";
 
-pub const FOLDOUT_WIDTH: f32 = 20.0;
-const FOLDOUT_ARROW_SIZE: f32 = 16.0;
+pub const FOLDOUT_WIDTH: f32 = 16.0;
+const FOLDOUT_ARROW_SIZE: f32 = 14.0;
 
 pub fn register_feature(ctx: FeatureInitCtx) {
     let FeatureInitCtx {
@@ -266,8 +268,10 @@ fn update_foldout_arrows_system(
     }
 }
 
+pub const FOLDOUT_ARROW_GLYPHS: &str = "?\u{25b8}\u{25be}";
+
 fn arrow_str(is_expanded: bool) -> &'static str {
-    if is_expanded { "v" } else { ">" }
+    if is_expanded { "\u{25be}" } else { "\u{25b8}" }
 }
 
 // the name is padded past the arrow column even when there is no arrow, so siblings line up
@@ -277,9 +281,7 @@ pub fn spawn_foldout_arrow(
     ent_name: EntityId,
     indent: f32,
     foldout: Option<(FoldoutKey, bool)>,
-    material_panel: &AssetHandle<Material>,
-    material_text: &AssetHandle<Material>,
-    font: &AssetHandle<Font>,
+    assets: &StandardAssetsResource,
 ) -> EntityId {
     if let Some(local_rect_c) = ec.get_component_mut::<LocalRectComponent>(ent_name) {
         local_rect_c.parent_padding_min.x = UiVal::px(indent + FOLDOUT_WIDTH);
@@ -311,10 +313,10 @@ pub fn spawn_foldout_arrow(
             },
             BatchedMeshComponent::default(),
             MaterialComponent {
-                material: material_panel.clone(),
+                material: assets.material_panel.clone(),
             },
             ImageComponent {
-                color: Vec4::from_array(rgba_f32_array!("#00000030")),
+                color: PAL.transparent,
                 ..Default::default()
             },
         ),
@@ -330,12 +332,12 @@ pub fn spawn_foldout_arrow(
             LocalRectComponent::default(),
             BatchedMeshComponent::default(),
             MaterialComponent {
-                material: material_text.clone(),
+                material: assets.material_arrows.clone(),
             },
             TextComponent {
-                color: Vec4::from_array(parse_color_rgba_f32("#000000ff").unwrap()),
-                font: font.clone(),
-                font_size: UiVal::px(16.0),
+                color: PAL.text_2,
+                font: assets.font_arrows.clone(),
+                font_size: UiVal::px(theme::FOLDOUT_ARROW_FONT),
                 is_y_inverted: true,
                 text: arrow_str(is_expanded).into(),
                 horizontal_spacing: UiVal::px(0.0),

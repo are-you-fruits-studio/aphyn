@@ -1,6 +1,6 @@
 //! # aphyn_asset_loading
 //!
-//! Loads engine assets — textures, materials, meshes, audio clips, prefabs, and scenes — from
+//! Loads engine assets — textures, materials, meshes, audio clips, fonts, prefabs, and scenes — from
 //! asset files on disk into the world's asset storages, registered under a key so the rest of
 //! the engine can reference them by name, and instantiates or records prefabs and scenes.
 //!
@@ -10,7 +10,7 @@
 //! directory, of a small JSON *asset file* with the `.asset` extension. The file declares an
 //! `asset_type` (`"texture"`, `"material"`, `"material_template"`, `"shader"`, `"compute_shader"`,
 //! `"mesh"`, `"audio_clip"`, `"animation_clip"`, `"prefab"`, `"scene"`, or `"font"`) and the asset's settings, and usually points
-//! at a raw payload (image, `.wgsl`, `.obj`, `.wav`) by a further `assets/`-relative path; an empty
+//! at a raw payload (image, `.wgsl`, `.obj`, `.wav`, `.ttf`/`.otf`) by a further `assets/`-relative path; an empty
 //! payload path loads a placeholder asset (except for shaders). The module is part of the engine's
 //! default modules (`add_default_modules_to`), which also registers the texture, material, template,
 //! shader, mesh, and audio-clip storages it fills.
@@ -161,8 +161,7 @@
 //! [`default_assets_dir`]; the editor points it at the opened project's `assets/`), which
 //! walks it recursively and, for every `.asset` file, reads the JSON, validates `asset_type`
 //! ([`AssetType`]), builds the key from the path, and deserializes that key *as an
-//! `AssetHandle<T>`* of the matching type; other files (`.wgsl` payloads, images, ...) are skipped. Failures are printed and the file is skipped; a
-//! `"font"` asset hits a `todo!()` and panics.
+//! `AssetHandle<T>`* of the matching type; other files (`.wgsl` payloads, images, ...) are skipped. Failures are printed and the file is skipped.
 //!
 //! [`default_assets_dir`] is `<dir>/assets` for the first non-empty runtime env var of
 //! `APHYN_PROJECT_DIR` (user override) and `CARGO_MANIFEST_DIR` (Cargo sets it for `cargo run`,
@@ -210,7 +209,8 @@
 //! [`save_load_with_asset_serializers`] builds the context for saving (`Registered` entries; the
 //! font storage is optional). [`load_asset_single`] loads one asset's content under a given key
 //! (`DirectAssetLoadCtx` entries) while resolving other handles only from what is already
-//! registered (`RegisteredLocked`). Every builder takes the scene storage next to the prefab one,
+//! registered (`RegisteredLocked`). The font storage is optional in every builder (a world without
+//! the UI module has none, and its fonts then stay unresolved). Every builder takes the scene storage next to the prefab one,
 //! so the `*_from_world` variants return `None` when either storage is missing; the loading ones
 //! fetch the resources out of [`aphyn_ecs::ResourcesHolderMut`] through raw pointers.
 //! The loading variants need `AssetStorageResource<Material>` in the world, which this module
@@ -262,6 +262,21 @@
 //! - **Compute shader** — [`ComputeShaderLoader`] reads and composes its `wgsl` the same way (one
 //!   shared function) and creates it through `RenderApiResource::create_compute_shader`, which fails
 //!   without a `cs_main` entry point.
+//! - **Font** — [`FontLoader`] reads the `raw_font` TTF/OTF of a `FontAssetMetadata` (`aphyn_ui`) and
+//!   rasterizes it with `aphyn_ui::load_font` at `size` pixels (and `weight` on a variable font's
+//!   "wght" axis when above 0) into a glyph atlas for ASCII, Latin-1, Cyrillic and common
+//!   punctuation plus `extra_characters`. The atlas goes into the texture storage unregistered, so
+//!   a text material gets it from the loaded `Font::texture` in code (`color_tex` of a material on
+//!   `BUILTIN_TEMPLATE_UI_BLENDED_UNLIT`). An empty or unreadable `raw_font`, or glyphs that need an atlas
+//!   above `aphyn_ui::FONT_ATLAS_MAX_SIZE` on a side, fail the load. Fonts are not saved: there is no
+//!   `DirectAssetSaveSerializer` for them. Reloading a font with [`load_asset_single`] replaces the `Font`
+//!   under its handle with a new atlas texture: materials made from the old `Font::texture` keep sampling
+//!   the old atlas and must be rebuilt, and the old texture stays in the storage.
+//!
+//! ```text
+//! // assets/fonts/onest.asset
+//! { "asset_type": "font", "raw_font": "fonts/Onest.ttf", "size": 12.0, "weight": 400.0, "extra_characters": "" }
+//! ```
 //!
 //! An empty payload path (`raw_texture`, `raw_mesh`, or `raw_audio` set to `""`) loads a
 //! placeholder instead of failing: a 1x1 white texture, a mesh without vertices and indices, or
@@ -295,11 +310,12 @@
 //! writes one component at a path with the same id mapping, adding the component when the
 //! entity doesn't have it yet.
 //!
-//! The crate root keeps `todo` notes on the asset formats still to be supported (font import,
-//! and `.obj`/`.fbx` import details), and the `_*_FILE_EXAMPLE` constants are older format
+//! The crate root keeps `todo` notes on the asset formats still to be supported (`.obj`/`.fbx` and
+//! image import details), and the `_*_FILE_EXAMPLE` constants are older format
 //! sketches that do not match the current metadata fields.
 
 mod audio_clip;
+mod font;
 mod material;
 mod mesh;
 mod prefab;
@@ -314,13 +330,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use aphyn_asset_storage::{AssetHandle, AssetStorageResource};
 use aphyn_animation::AnimationClip;
+use aphyn_asset_storage::{AssetHandle, AssetStorageResource};
 use aphyn_audio::AudioClip;
 use aphyn_prefab::{Prefab, Scene};
 use aphyn_render::{ComputeShader, Material, MaterialTemplate, Shader, StandardMesh, StandardTexture};
 use aphyn_serialization::{SerializedPrimitive, SerializedValue, SerializerCtx};
 pub use audio_clip::*;
+pub use font::*;
 pub use material::*;
 pub use mesh::*;
 pub use prefab::*;
@@ -339,7 +356,6 @@ use aphyn_render_features::RenderFeatureRegistry;
 // todo: asset types:
 // - mesh (import details of the existing: .obj, .fbx)
 // - texture (import details of the existing: .bmp, .png, .jpg)
-// - font
 
 pub const SYSTEM_GROUP_ASSETS: &'static str = "aphyn_assets";
 
@@ -553,8 +569,7 @@ pub fn load_all_assets(mut res: ResourcesHolderMut, assets_dir_path: impl AsRef<
                     AssetType::Material => _ = serializer_ctx.deserialize_default::<AssetHandle<Material>>("", &serialized_value),
                     AssetType::Mesh => _ = serializer_ctx.deserialize_default::<AssetHandle<StandardMesh>>("", &serialized_value),
                     AssetType::AudioClip => _ = serializer_ctx.deserialize_default::<AssetHandle<AudioClip>>("", &serialized_value),
-                    // todo: font
-                    AssetType::Font => todo!(),
+                    AssetType::Font => _ = serializer_ctx.deserialize_default::<AssetHandle<aphyn_ui::Font>>("", &serialized_value),
                     AssetType::Prefab => _ = serializer_ctx.deserialize_default::<AssetHandle<Prefab>>("", &serialized_value),
                     AssetType::Scene => _ = serializer_ctx.deserialize_default::<AssetHandle<Scene>>("", &serialized_value),
                     AssetType::Shader => _ = serializer_ctx.deserialize_default::<AssetHandle<Shader>>("", &serialized_value),
@@ -629,10 +644,10 @@ const _MESH_FILE_EXAMPLE: &str = r#"
 const _FONT_FILE_EXAMPLE: &str = r##"
 {
     "asset_type": "font",
-    "texture": "path/to/texture.asset",
-    "characters_uv": { "a": [[0.5, 0.7], [0.55, 0.75]] },
-    "missing_character_uv": [[0.5, 0.7], [0.55, 0.75]],
-    "character_ratio": 0.756
+    "raw_font": "path/to/font.ttf",
+    "size": 12.0,
+    "weight": 400.0,
+    "extra_characters": ""
 }
 "##;
 

@@ -12,7 +12,7 @@ use crate::{
     PROJECT_ASSETS_SUBPATH, SYSTEM_GROUP,
     app_building::{self, FileStamp},
     features::{
-        inspector_window::data::{InspectedEntityResource, OpenProjectResource},
+        inspector_window::data::{EntityPath, InspectedEntityResource, OpenProjectResource},
         project_reload::ProjectReloadResource,
         transform_gizmo::{TRANSFORM_GIZMO_RENDER_FEATURE, TransformGizmoRenderFeature},
     },
@@ -143,6 +143,9 @@ pub fn preload_assets_into_simulated_world_system(
     ));
 }
 
+// the scene is usually spawned right after a rebuild; a few frames cover systems that spawn it on Start
+const RESELECT_FRAMES: u32 = 30;
+
 pub fn rebuild_simulated_world(
     simulated_world: &mut SimulatedWorldResource,
     inspected_entity: &mut InspectedEntityResource,
@@ -152,6 +155,12 @@ pub fn rebuild_simulated_world(
     play_scene_key: &str,
     reload_library: bool,
 ) {
+    let reselect = simulated_world
+        .0
+        .as_ref()
+        .and_then(|w| EntityPath::of(w.data.as_ref().entities(), inspected_entity.selected_entity))
+        .map(|path| (path, RESELECT_FRAMES));
+
     // the old world holds the library's types and function pointers, so it must be dropped before the library is reused
     let library = simulated_world.0.take().map(
         |SimulatedWorld {
@@ -170,7 +179,10 @@ pub fn rebuild_simulated_world(
     );
 
     // shown components may hold values allocated by the library
-    *inspected_entity = InspectedEntityResource::default();
+    *inspected_entity = InspectedEntityResource {
+        pending_reselect: reselect,
+        ..Default::default()
+    };
 
     let library = match library {
         Some(library) if !reload_library => library,

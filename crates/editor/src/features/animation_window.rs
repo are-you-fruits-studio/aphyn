@@ -31,16 +31,10 @@ use crate::{
         world_preload::{SimulatedWorld, SimulatedWorldResource, SimulationMode, tick_simulated_world_system},
     },
     prefabs::{ANIMATION_ROW_HEIGHT, ANIMATION_TRACK_ROWS},
+    theme::PAL,
 };
 
-pub const CURSOR_COLOR: Vec4<f32> = Vec4::new(0.9, 0.3, 0.3, 1.0);
 pub const KEY_SIZE: f32 = 8.0;
-
-const BUTTON_COLOR: Vec4<f32> = Vec4::new(0.3, 0.3, 0.3, 1.0);
-const BUTTON_COLOR_ACTIVE: Vec4<f32> = Vec4::new(0.49, 0.56, 0.9, 1.0);
-const BUTTON_COLOR_RECORD: Vec4<f32> = Vec4::new(0.8, 0.25, 0.25, 1.0);
-const TEXT_COLOR: Vec4<f32> = Vec4::splat(0.9);
-const TEXT_COLOR_SELECTED: Vec4<f32> = Vec4::new(1.0, 0.75, 0.2, 1.0);
 
 const VIEW_PADDING: f32 = 10.0;
 const PICK_RADIUS: f32 = 6.0;
@@ -510,6 +504,10 @@ pub fn click_animation_window_buttons_system(
             AnimationWindowTab::DopeSheet => AnimationWindowTab::Curves,
             AnimationWindowTab::Curves => AnimationWindowTab::DopeSheet,
         };
+        // the value range only matters for curves, so fit it to what they show now
+        if window.tab == AnimationWindowTab::Curves {
+            window.view_fit = ViewFit::Values;
+        }
     }
 
     if let Some((_, row_c)) = row_q.iter().find(|(b, _)| b.was_clicked_this_frame) {
@@ -1260,7 +1258,7 @@ pub(crate) fn set_text(ent: &mut EntitiesHolderMut, entity: EntityId, text: &str
 pub(crate) fn set_field_text(ent: &mut EntitiesHolderMut, selected_input: &SelectedInputFieldResource, field: EntityId, text: &str) {
     return_if!(selected_input.selected == field);
     return_if_not!(Some(text_entity) = ent.get_component::<InputFieldComponent>(field).map(|f| f.text));
-    set_text(ent, text_entity, text, TEXT_COLOR);
+    set_text(ent, text_entity, text, PAL.text_1);
 }
 
 pub(crate) fn set_points(ent: &mut EntitiesHolderMut, entity: EntityId, points: Vec<Vec2<f32>>) {
@@ -1286,7 +1284,7 @@ pub(crate) fn style_buttons<C: 'static + Component>(ent: &mut EntitiesHolderMut,
             .map(|p| p.children().to_vec())
             .unwrap_or_default();
         for ent_text in children {
-            set_text(ent, ent_text, text, TEXT_COLOR);
+            set_text(ent, ent_text, text, PAL.text_1);
         }
     }
 }
@@ -1334,25 +1332,21 @@ pub fn draw_animation_window_system(
     style_buttons::<AnimationPreviewButtonComponent>(
         &mut ent,
         if window.mode != AnimationWindowMode::Idle {
-            BUTTON_COLOR_ACTIVE
+            PAL.accent
         } else {
-            BUTTON_COLOR
+            PAL.surface_raised
         },
         None,
     );
-    style_buttons::<AnimationRecordButtonComponent>(&mut ent, if is_recording { BUTTON_COLOR_RECORD } else { BUTTON_COLOR }, None);
+    style_buttons::<AnimationRecordButtonComponent>(&mut ent, if is_recording { PAL.danger } else { PAL.surface_raised }, None);
     style_buttons::<AnimationPlayButtonComponent>(
         &mut ent,
-        if window.is_playing {
-            BUTTON_COLOR_ACTIVE
-        } else {
-            BUTTON_COLOR
-        },
+        if window.is_playing { PAL.accent } else { PAL.surface_raised },
         Some(if window.is_playing { "Pause" } else { "Play" }),
     );
     style_buttons::<AnimationTabButtonComponent>(
         &mut ent,
-        BUTTON_COLOR,
+        PAL.surface_raised,
         Some(match window.tab {
             AnimationWindowTab::DopeSheet => "Dope sheet",
             AnimationWindowTab::Curves => "Curves",
@@ -1376,15 +1370,15 @@ pub fn draw_animation_window_system(
         ),
         (Some(w), Some(_)) => {
             let mode = match (is_playing, window.mode) {
-                (true, _) => " | play mode (read-only)",
+                (true, _) => " · play mode (read-only)",
                 (false, AnimationWindowMode::Idle) => "",
-                (false, AnimationWindowMode::Preview) => " | previewing",
-                (false, AnimationWindowMode::Record) => " | recording edits",
+                (false, AnimationWindowMode::Preview) => " · previewing",
+                (false, AnimationWindowMode::Record) => " · recording edits",
             };
-            format!("{root_name} | {}{mode}", clip_key(w, window.root).unwrap_or_default())
+            format!("{root_name} · {}{mode}", clip_key(w, window.root).unwrap_or_default())
         }
     };
-    set_text(&mut ent, status_text, &status, TEXT_COLOR);
+    set_text(&mut ent, status_text, &status, PAL.text_2);
     set_field_text(&mut ent, &selected_input, time_field, &format_number(window.time as f64));
 
     // selected key
@@ -1414,7 +1408,7 @@ pub fn draw_animation_window_system(
     }
     style_buttons::<AnimationInterpolationButtonComponent>(
         &mut ent,
-        BUTTON_COLOR,
+        PAL.surface_raised,
         Some(match primary.map(|(_, k)| k.interpolation) {
             Some(KeyInterpolation::Constant) => "Constant",
             Some(KeyInterpolation::Linear) => "Linear",
@@ -1425,9 +1419,9 @@ pub fn draw_animation_window_system(
     style_buttons::<AnimationAutoTangentButtonComponent>(
         &mut ent,
         if primary.is_some_and(|(_, k)| k.auto_tangent) {
-            BUTTON_COLOR_ACTIVE
+            PAL.accent
         } else {
-            BUTTON_COLOR
+            PAL.surface_raised
         },
         None,
     );
@@ -1456,9 +1450,9 @@ pub fn draw_animation_window_system(
             .map(|t| t.path.label(&track_component_label(world, t.path.component)))
             .unwrap_or_default();
         let color = if window.selected_track == Some(track_idx) {
-            TEXT_COLOR_SELECTED
+            PAL.accent_fg
         } else {
-            TEXT_COLOR
+            PAL.text_1
         };
         set_text(&mut ent, *ent_row, &text, color);
     }
@@ -1476,7 +1470,7 @@ pub fn draw_animation_window_system(
         ticks.push(Vec2::new(to_ruler_x(x), 1.0));
 
         if let Some(ent_label) = ruler_labels.get(label_idx as u64) {
-            set_text(&mut ent, *ent_label, &format_number(time as f64), TEXT_COLOR);
+            set_text(&mut ent, *ent_label, &format_number(time as f64), PAL.text_1);
             if let Some(rect_c) = ent.get_component_mut::<LocalRectComponent>(*ent_label) {
                 rect_c.offset = Vec2::new(UiVal::px(x - ruler_min.x + 3.0), UiVal::px(0.0));
             }
@@ -1485,7 +1479,7 @@ pub fn draw_animation_window_system(
         time += step;
     }
     for ent_label in ruler_labels.iter().skip(label_idx) {
-        set_text(&mut ent, *ent_label, "", TEXT_COLOR);
+        set_text(&mut ent, *ent_label, "", PAL.text_1);
     }
 
     if window.tab == AnimationWindowTab::DopeSheet {

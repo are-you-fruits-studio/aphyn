@@ -208,7 +208,10 @@ pub fn check_ui_interaction_system(
         buttom_c.was_clicked_this_frame = true;
         buttom_c.was_double_clicked_this_frame = is_double_click;
     }
-    if let Some(drag_area_c) = drag_area_q.get_mut(target_ent) {
+    // a press released within the same frame must not leave a drag behind
+    if input.mouse.is_pressed(MouseButton::Left)
+        && let Some(drag_area_c) = drag_area_q.get_mut(target_ent)
+    {
         let press_pos = Vec2::from_array(input.mouse.position.map(|v| v as f32));
         let press_global_offset = press_pos - rect_q.get(target_ent).unwrap().center;
         drag_area_c.press_global_offset = Some(press_global_offset);

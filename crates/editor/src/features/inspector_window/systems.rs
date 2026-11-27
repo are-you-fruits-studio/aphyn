@@ -30,6 +30,7 @@ use crate::{
         world_preload::{SimulatedWorld, SimulatedWorldResource},
     },
     prefabs::WindowComponent,
+    theme::{self, PAL},
     *,
 };
 
@@ -40,13 +41,29 @@ pub fn select_entity_system(
     entry_q: WorldQuery<(&HierarchyWindowEntryComponent, &ButtonComponent)>,
     empty_area_q: WorldQuery<&ButtonComponent, WithFilter<HierarchyWindowEmptyAreaComponent>>,
     mut entity_selected_evt: EvtMut<EntitySelectedEvent>,
+    simulated_world: Res<SimulatedWorldResource>,
 ) {
     if !file_selected_evt.is_empty() {
         inspected_entity.selected_entity = EntityId::EMPTY;
+        inspected_entity.pending_reselect = None;
+    }
+
+    if let Some((path, frames_left)) = inspected_entity.pending_reselect.take()
+        && let Some(world) = simulated_world.0.as_ref()
+    {
+        match path.resolve(world.data.as_ref().entities()) {
+            Some(entity) => {
+                inspected_entity.selected_entity = entity;
+                entity_selected_evt.push(EntitySelectedEvent);
+            }
+            None if frames_left > 0 => inspected_entity.pending_reselect = Some((path, frames_left - 1)),
+            None => (),
+        }
     }
 
     if empty_area_q.iter().any(|b| b.was_clicked_this_frame) && inspected_entity.selected_entity != EntityId::EMPTY {
         inspected_entity.selected_entity = EntityId::EMPTY;
+        inspected_entity.pending_reselect = None;
         entity_selected_evt.push(EntitySelectedEvent);
         return;
     }
@@ -54,6 +71,7 @@ pub fn select_entity_system(
     return_if_not!(Some((entry_c, _)) = entry_q.iter().find(|(_, b)| b.was_clicked_this_frame));
 
     inspected_entity.selected_entity = entry_c.simulated_entity;
+    inspected_entity.pending_reselect = None;
     *selected_file = SelectedFileResource::default();
     entity_selected_evt.push(EntitySelectedEvent);
 }
@@ -64,9 +82,9 @@ pub fn update_hierarchy_entries_selection(
 ) {
     for (entry_c, image_c) in entry_q.iter_mut() {
         if entry_c.simulated_entity == inspected_entity.selected_entity {
-            image_c.color = Vec4::from_array(const { parse_color_rgba_f32("#7d90e6ff").unwrap() });
+            image_c.color = PAL.surface_selected;
         } else {
-            image_c.color = Vec4::from_array(const { parse_color_rgba_f32("#00000000").unwrap() });
+            image_c.color = PAL.transparent;
         }
     }
 }
@@ -404,10 +422,11 @@ pub fn update_add_component_variants_system(
         .filter(|r| r.has_default() && (r.as_struct().is_some() || r.as_enum().is_some()))
         .map(|r| (component_label(serializers, r.type_id(), r.type_name()), r.type_id()))
         .collect::<Vec<_>>();
-    keys.sort_by(|a, b| a.0.cmp(&b.0));
+    keys.sort_by(|a, b| display_component_label(&a.0).cmp(display_component_label(&b.0)));
 
     for (label, component_id) in keys {
-        if !subsequence_match_ignore_case(label.as_str(), searched_text.as_str()) {
+        let label = display_component_label(&label);
+        if !subsequence_match_ignore_case(label, searched_text.as_str()) {
             continue;
         }
 
@@ -416,7 +435,7 @@ pub fn update_add_component_variants_system(
         let (entry_ent, _) = spawn_text_ent(
             ent.as_mut(),
             entry_ent,
-            label,
+            label.into(),
             assets.material_panel.clone(),
             assets.material_text.clone(),
             assets.font.clone(),
@@ -444,10 +463,15 @@ pub fn update_add_component_input_visibility_system(
     let inputs = ent
         .query::<(EntityId, &AddComponentInputComponent, &InputFieldComponent)>()
         .iter()
-        .map(|(e, add_c, input_c)| (e, add_c.variants_container, input_c.text))
+        .map(|(e, add_c, input_c)| (e, add_c.variants_container, add_c.placeholder, input_c.text))
         .collect::<Vec<_>>();
 
-    for (ent_input, ent_variants_container, ent_text) in inputs {
+    for (ent_input, ent_variants_container, ent_placeholder, ent_text) in inputs {
+        let is_empty = ent.get_component::<TextComponent>(ent_text).is_none_or(|t| t.text.is_empty());
+        if let Some(disableable_c) = ent.get_component_mut::<LocalDisableableComponent>(ent_placeholder) {
+            disableable_c.is_disabled = !is_empty || selected_input.selected == ent_input;
+        }
+
         if let Some(disableable_c) = ent.get_component_mut::<LocalDisableableComponent>(ent_input) {
             disableable_c.is_disabled = !is_shown;
         }
@@ -1308,6 +1332,7 @@ pub fn update_hierarchy_window_system(
     assets: Res<StandardAssetsResource>,
     file_selected_evt: Evt<FileSelectedEvent>,
 ) {
+    let is_playing = simulated_world.is_playing();
     return_if_not!(Some(simulated_world) = simulated_world.0.as_ref());
 
     // todo
@@ -1336,9 +1361,24 @@ pub fn update_hierarchy_window_system(
             .content_container;
         continue_if_not!(
             Some(&HierarchyWindowContentComponent {
-                entries_container: content
+                entries_container: content,
+                source_text,
+                badge_text,
             }) = entities.get_component::<HierarchyWindowContentComponent>(ent_scroll_content)
         );
+
+        let (source, badge, badge_color) = match (is_playing, opened_asset.asset_type) {
+            (true, _) => ("running game".to_string(), "play", PAL.accent_fg),
+            (false, Some(ty)) => (opened_asset.asset_key.clone(), ty.serialized_str(), PAL.text_3),
+            (false, None) => ("no scene open".to_string(), "", PAL.text_3),
+        };
+        if let Some(text_c) = entities.get_component_mut::<TextComponent>(source_text) {
+            set_text_if_changed(text_c, &source);
+        }
+        if let Some(text_c) = entities.get_component_mut::<TextComponent>(badge_text) {
+            set_text_if_changed(text_c, badge);
+            text_c.color = badge_color;
+        }
 
         destroy_entity_children(entities.as_mut(), content);
 
@@ -1372,6 +1412,7 @@ pub fn update_hierarchy_window_system(
             spawn_hierarchy_window_entries_recursively(
                 entities.as_mut(),
                 simulated_world.data.as_ref().entities(),
+                &assets,
                 &assets.material_text,
                 &assets.material_panel,
                 &assets.font,
@@ -1385,9 +1426,17 @@ pub fn update_hierarchy_window_system(
     }
 }
 
+fn set_text_if_changed(text_c: &mut TextComponent, text: &str) {
+    if text_c.text.as_str() != text {
+        text_c.text.clear();
+        text_c.text.push_str(text);
+    }
+}
+
 fn spawn_hierarchy_window_entries_recursively(
     mut ent: EntitiesHolderMut,
     sim_ent: EntitiesHolderRef,
+    assets: &StandardAssetsResource,
     material_text: &AssetHandle<Material>,
     material_panel: &AssetHandle<Material>,
     font: &AssetHandle<Font>,
@@ -1404,9 +1453,9 @@ fn spawn_hierarchy_window_entries_recursively(
     let name = sim_ent
         .get_component::<NameComponent>(simulated_ent)
         .map(|s| s.0.as_str().into())
-        .unwrap_or_else(|| format!("e{{{}}}", entity_id));
+        .unwrap_or_else(|| format!("Entity {}", entity_id));
 
-    let name = format!("[{}] {}", entity_id, name).into();
+    let name = name.into();
 
     let (ent_name_container, ent_name) = spawn_hierarchy_window_entry(
         ent.as_mut(),
@@ -1417,6 +1466,34 @@ fn spawn_hierarchy_window_entries_recursively(
         parent,
         simulated_ent,
     );
+
+    let ent_id_text = ent.create_entity();
+    ent.set_components(
+        ent_id_text,
+        (
+            GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
+            LocalRectComponent {
+                parent_padding_max: Vec2::new(UiVal::px(theme::PAD_X), UiVal::px(0.0)),
+                ..Default::default()
+            },
+            BatchedMeshComponent::default(),
+            MaterialComponent {
+                material: assets.material_text_mono.clone(),
+            },
+            TextComponent {
+                color: PAL.text_3,
+                font: assets.font_mono.clone(),
+                font_size: UiVal::px(theme::FONT_MONO),
+                is_y_inverted: true,
+                text: format!("#{entity_id}").into(),
+                horizontal_spacing: UiVal::px(0.0),
+                vertical_align: VerticalAlign::Middle,
+                horizontal_align: HorizontalAlign::Right,
+            },
+        ),
+    );
+    set_parent(ent.as_mut(), ent_id_text, ent_name_container);
 
     let key = FoldoutKey::HierarchyEntity {
         asset_key: asset_key.to_string(),
@@ -1435,9 +1512,7 @@ fn spawn_hierarchy_window_entries_recursively(
         ent_name,
         depth as f32 * FOLDOUT_WIDTH,
         foldout,
-        material_panel,
-        material_text,
-        font,
+        assets,
     );
 
     return_if!(!is_expanded);
@@ -1446,6 +1521,7 @@ fn spawn_hierarchy_window_entries_recursively(
         spawn_hierarchy_window_entries_recursively(
             ent.as_mut(),
             sim_ent,
+            assets,
             material_text,
             material_panel,
             font,
@@ -1479,6 +1555,10 @@ pub fn change_inspected_asset_system(
 // what the inspector calls a component: its serialized name, or its type name when it has no serializer
 fn component_label(serializers: Option<&SerializersResource>, id: AnyTypeId, type_name: &str) -> FfiString {
     serializers.and_then(|s| s.name_of(id)).unwrap_or(type_name).into()
+}
+
+fn display_component_label(label: &str) -> &str {
+    label.strip_prefix("aphyn::").unwrap_or(label)
 }
 
 fn record_inspected_components(simulated_world: &SimulatedWorld, entity: EntityId) -> Vec<(AnyTypeId, FfiString, InspectorValue)> {
@@ -1525,6 +1605,16 @@ pub fn update_inspector_window_system(
     let is_entity_changed = shown_components != inspected_entity.shown_components;
     inspected_entity.shown_components = shown_components;
 
+    // a world rebuild resets the selection without an event, leaving the old entity's components on screen
+    let is_showing_stale_entity = inspected_entity.shown_components.is_none()
+        && ent.query::<&InspectorWindowContentComponent>().iter().any(|c| {
+            ent.get_component::<ParentComponent>(c.content_container).is_some_and(|p| {
+                p.children()
+                    .iter()
+                    .any(|&e| get_inspected_component_id(ent.as_ref(), e).is_some())
+            })
+        });
+
     // todo
     return_if!(
         file_selected_evt.is_empty()
@@ -1533,6 +1623,7 @@ pub fn update_inspector_window_system(
             && entity_selected_evt.is_empty()
             && foldout_toggled_evt.is_empty()
             && !is_entity_changed
+            && !is_showing_stale_entity
     );
 
     let ent_selected_input = selected_input_field.selected;
@@ -1544,9 +1635,6 @@ pub fn update_inspector_window_system(
         .collect::<Vec<_>>();
 
     for window_c in container_q {
-        let asset_type_text = ent.get_component_mut::<TextComponent>(window_c.asset_type_text).unwrap();
-        asset_type_text.text.clear();
-
         if let Some(inspected_components) = &inspected_entity.shown_components {
             update_prefab_components_ent(
                 ent.as_mut(),
@@ -1554,6 +1642,7 @@ pub fn update_inspector_window_system(
                 ent_selected_input,
                 inspected_components,
                 &foldout_res,
+                &assets,
                 assets.material_panel.clone(),
                 assets.material_text.clone(),
                 assets.font.clone(),
@@ -1568,9 +1657,6 @@ pub fn update_inspector_window_system(
             destroy_entity_children(ent.as_mut(), window_c.content_container);
             continue;
         };
-
-        asset_type_text.text.push_str("asset type: ");
-        asset_type_text.text.push_str(asset_type.serialized_str());
 
         if is_entities_asset(asset_type) {
             destroy_entity_children(ent.as_mut(), window_c.content_container);
@@ -1613,12 +1699,66 @@ pub fn update_inspector_window_system(
     }
 }
 
+pub fn update_inspector_header_system(
+    mut ent: EntitiesHolderMut,
+    simulated_world: Res<SimulatedWorldResource>,
+    inspected_entity: Res<InspectedEntityResource>,
+    inspected_asset: Res<InspectedAssetResource>,
+) {
+    let is_playing = simulated_world.is_playing();
+
+    let (title, badge, is_entity) = match simulated_world.0.as_ref() {
+        Some(world) if is_inspected_entity_shown(world, &inspected_entity) => {
+            let sim_ent = world.data.as_ref().entities();
+            let id = sim_ent.encode_entity_as_id(inspected_entity.selected_entity);
+            let name = sim_ent
+                .get_component::<NameComponent>(inspected_entity.selected_entity)
+                .map(|n| n.0.as_str().to_string())
+                .unwrap_or_else(|| format!("Entity {id}"));
+            (name, format!("entity {id}"), true)
+        }
+        Some(world) => match get_asset_type(world.data.as_ref().resources(), inspected_asset.asset_key.as_str()) {
+            Some(asset_type) => {
+                let file_name = inspected_asset.asset_key.rsplit('/').next().unwrap_or_default().to_string();
+                (file_name, asset_type.serialized_str().to_string(), false)
+            }
+            None => (String::new(), String::new(), false),
+        },
+        None => (String::new(), String::new(), false),
+    };
+
+    let windows = ent
+        .query::<&InspectorWindowContentComponent>()
+        .iter()
+        .copied()
+        .collect::<Vec<_>>();
+
+    for window_c in windows {
+        if let Some(text_c) = ent.get_component_mut::<TextComponent>(window_c.asset_type_text) {
+            set_text_if_changed(text_c, &title);
+        }
+        if let Some(text_c) = ent.get_component_mut::<TextComponent>(window_c.badge_text) {
+            set_text_if_changed(text_c, &badge);
+        }
+
+        let is_banner_shown = is_playing && is_entity;
+        if let Some(disableable_c) = ent.get_component_mut::<LocalDisableableComponent>(window_c.play_banner) {
+            disableable_c.is_disabled = !is_banner_shown;
+        }
+        // disabled rects still take layout space
+        if let Some(rect_c) = ent.get_component_mut::<LocalRectComponent>(window_c.play_banner) {
+            rect_c.scale.y = Some(UiVal::px(if is_banner_shown { theme::CONTROL_H } else { 0.0 })).into();
+        }
+    }
+}
+
 fn update_prefab_components_ent(
     mut ent: EntitiesHolderMut,
     ent_parent: EntityId,
     ent_selected_input: EntityId,
     components: &[(AnyTypeId, FfiString, InspectorValue)],
     foldout_res: &FoldoutResource,
+    assets: &StandardAssetsResource,
     material_panel: AssetHandle<Material>,
     material_text: AssetHandle<Material>,
     font: AssetHandle<Font>,
@@ -1634,14 +1774,14 @@ fn update_prefab_components_ent(
             destroy_entity_and_children(ent.as_mut(), e);
         }
 
-        let extra = ent
-            .get_component::<ParentComponent>(ent_parent)
-            .unwrap()
-            .children()
-            .get(components.len() as usize..)
-            .map(|extra| extra.to_vec())
-            .unwrap_or_default();
-        for e in extra.into_iter().rev() {
+        // entries are reused by index and new ones append, so everything from the first type mismatch on is respawned
+        let children = ent.get_component::<ParentComponent>(ent_parent).unwrap().children().to_vec();
+        let first_stale = children
+            .iter()
+            .zip(components)
+            .position(|(&e, (component_type, ..))| get_inspected_component_id(ent.as_ref(), e) != Some(*component_type))
+            .unwrap_or(components.len());
+        for &e in children.get(first_stale..).unwrap_or_default().iter().rev() {
             destroy_entity_and_children(ent.as_mut(), e);
         }
 
@@ -1663,6 +1803,7 @@ fn update_prefab_components_ent(
                 component_label,
                 component_value,
                 foldout_res,
+                assets,
                 material_panel.clone(),
                 material_text.clone(),
                 font.clone(),
@@ -1680,6 +1821,7 @@ fn update_prefab_component_ent(
     component_label: &str,
     component_value: &InspectorValue,
     foldout_res: &FoldoutResource,
+    assets: &StandardAssetsResource,
     material_panel: AssetHandle<Material>,
     material_text: AssetHandle<Material>,
     font: AssetHandle<Font>,
@@ -1695,7 +1837,7 @@ fn update_prefab_component_ent(
         && let data_ents = container_parent_c.children().to_vec()
         && let Some(text_c) = ent.get_component_mut::<TextComponent>(serialized_component_c.component_id_text)
     {
-        text_c.text = component_label.into();
+        text_c.text = display_component_label(component_label).into();
 
         if let Some(foldout_c) = ent.get_component_mut::<FoldoutButtonComponent>(serialized_component_c.foldout_arrow) {
             foldout_c.key = key;
@@ -1737,7 +1879,7 @@ fn update_prefab_component_ent(
     let (component_header_ent, componet_id_text_ent) = spawn_text_ent(
         ent.as_mut(),
         comp_ent,
-        component_label.into(),
+        display_component_label(&component_label).into(),
         material_panel.clone(),
         material_text.clone(),
         font.clone(),
@@ -1747,7 +1889,10 @@ fn update_prefab_component_ent(
         (ComponentHeaderComponent { component: comp_ent }, ButtonComponent::default()),
     );
     if let Some(image_c) = ent.get_component_mut::<ImageComponent>(component_header_ent) {
-        image_c.color = Vec4::from_array(rgba_f32_array!("#8f8f8fff"));
+        image_c.color = PAL.surface_raised;
+    }
+    if let Some(text_c) = ent.get_component_mut::<TextComponent>(componet_id_text_ent) {
+        text_c.color = PAL.text_1;
     }
 
     let foldout_arrow = spawn_foldout_arrow(
@@ -1756,9 +1901,7 @@ fn update_prefab_component_ent(
         componet_id_text_ent,
         0.0,
         Some((key, is_expanded)),
-        &material_panel,
-        &material_text,
-        &font,
+        assets,
     );
 
     let comp_data_container = spawn_default_layout_ent(ent.as_mut(), comp_ent, false);
@@ -1822,7 +1965,7 @@ fn spawn_component_separator(mut ent: EntitiesHolderMut, ent_parent: EntityId, m
                 material: material_panel.clone(),
             },
             ImageComponent {
-                color: Vec4::from_array(rgba_f32_array!("#3a3a3aff")),
+                color: PAL.border_subtle,
                 ..Default::default()
             },
         ),

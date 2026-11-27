@@ -11,10 +11,11 @@ use notify::{EventKind, RecursiveMode, Watcher as _, event::ModifyKind};
 use crate::{
     features::{
         foldout::{FoldoutKey, FoldoutResource, spawn_foldout_arrow},
-        inspector_window::utils::entries::spawn_hierarchy_entry,
+        inspector_window::{data::OpenedEntitiesAssetResource, utils::entries::spawn_hierarchy_entry},
         project_window_selection::get_potential_asset_key,
     },
     prefabs::WindowComponent,
+    theme::{self, PAL},
     *,
 };
 
@@ -28,11 +29,30 @@ pub fn register_feature(ctx: FeatureInitCtx) {
 
     update
         .group(SYSTEM_GROUP)
-        .insert_child_system(update_project_window_content_system);
+        .insert_child_system(update_project_window_content_system)
+        .insert_child_system(update_project_open_labels_system);
+
+    update
+        .order_system(update_project_window_content_system)
+        .before_system(update_project_open_labels_system);
 
     update
         .order_system(update_project_window_content_system)
         .before_system(prepare_ui_raycast_system);
+}
+
+#[derive(Component)]
+struct ProjectOpenLabelComponent {
+    path: std::ffi::OsString,
+}
+
+fn update_project_open_labels_system(
+    opened_asset: Res<OpenedEntitiesAssetResource>,
+    mut label_q: WorldQuery<(&ProjectOpenLabelComponent, &mut LocalDisableableComponent)>,
+) {
+    for (label_c, disableable_c) in label_q.iter_mut() {
+        disableable_c.is_disabled = opened_asset.path.is_empty() || label_c.path != opened_asset.path;
+    }
 }
 
 #[derive(Resource, Default)]
@@ -139,6 +159,7 @@ pub fn update_project_window_content_system(mut world: WorldDataMut) {
         for entry in &entry.children {
             spawn_project_window_entries(
                 ent.as_mut(),
+                &assets,
                 &assets.material_text,
                 &assets.material_panel,
                 &font,
@@ -155,6 +176,7 @@ pub fn update_project_window_content_system(mut world: WorldDataMut) {
 
 fn spawn_project_window_entries(
     mut ec: EntitiesHolderMut,
+    assets: &StandardAssetsResource,
     material_text: &AssetHandle<Material>,
     material_panel: &AssetHandle<Material>,
     font: &AssetHandle<Font>,
@@ -182,28 +204,54 @@ fn spawn_project_window_entries(
         ),
     );
 
+    if entry.children.is_empty() {
+        let ent_open_label = ec.create_entity();
+        ec.set_components(
+            ent_open_label,
+            (
+                GlobalRectComponent::default(),
+                GlobalDisableableComponent { is_disabled: true },
+                LocalDisableableComponent { is_disabled: true },
+                LocalRectComponent {
+                    parent_padding_max: Vec2::new(UiVal::px(theme::PAD_X), UiVal::px(0.0)),
+                    ..Default::default()
+                },
+                BatchedMeshComponent::default(),
+                MaterialComponent {
+                    material: material_text.clone(),
+                },
+                TextComponent {
+                    color: PAL.accent_fg,
+                    font: font.clone(),
+                    font_size: UiVal::px(theme::FONT),
+                    is_y_inverted: true,
+                    text: "open".into(),
+                    horizontal_spacing: UiVal::px(0.0),
+                    vertical_align: VerticalAlign::Middle,
+                    horizontal_align: HorizontalAlign::Right,
+                },
+                ProjectOpenLabelComponent {
+                    path: entry.path.clone(),
+                },
+            ),
+        );
+        set_parent(ec.as_mut(), ent_open_label, spawned.ent_entry);
+    }
+
     let key = FoldoutKey::ProjectEntry {
         path: get_potential_asset_key(&entry.path, open_project),
     };
     let is_expanded = foldout_res.is_expanded(&key);
     let foldout = (!entry.children.is_empty()).then(|| (key, is_expanded));
 
-    spawn_foldout_arrow(
-        ec.as_mut(),
-        spawned.ent_entry,
-        spawned.ent_entry_name,
-        0.0,
-        foldout,
-        material_panel,
-        material_text,
-        font,
-    );
+    spawn_foldout_arrow(ec.as_mut(), spawned.ent_entry, spawned.ent_entry_name, 0.0, foldout, assets);
 
     return_if!(!is_expanded);
 
     for entry in &entry.children {
         spawn_project_window_entries(
             ec.as_mut(),
+            assets,
             material_text,
             material_panel,
             font,

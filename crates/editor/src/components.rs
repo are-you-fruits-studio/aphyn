@@ -25,6 +25,8 @@ pub struct HierarchyWindowComponent {
 #[derive(Component, Default, Copy, Clone)]
 pub struct HierarchyWindowContentComponent {
     pub entries_container: EntityId,
+    pub source_text: EntityId,
+    pub badge_text: EntityId,
 }
 
 #[derive(Component, Default, Debug)]

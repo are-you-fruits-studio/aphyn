@@ -54,7 +54,16 @@ impl InspectorValue {
     }
 
     pub fn is_single_line(&self) -> bool {
-        matches!(self, Self::Leaf { .. } | Self::Container { is_inline: true, .. })
+        match self {
+            Self::Leaf { .. } | Self::Container { is_inline: true, .. } => true,
+            // a variant without fields is just its dropdown
+            Self::Container {
+                enum_variants: Some(_),
+                entries,
+                ..
+            } => entries.is_empty(),
+            _ => false,
+        }
     }
 }
 
@@ -184,7 +193,7 @@ pub fn leaf_text(state: TransSerializerCtxState, value: AnyRef) -> (FfiString, I
     match serialized {
         SerializedValue::Primitive(SerializedPrimitive::Bool(v)) => (v.to_string().into(), InspectorLeafKind::Bool),
         SerializedValue::Primitive(SerializedPrimitive::Int(v)) => (v.to_string().into(), InspectorLeafKind::Int),
-        SerializedValue::Primitive(SerializedPrimitive::Float(v)) => (v.to_string().into(), InspectorLeafKind::Float),
+        SerializedValue::Primitive(SerializedPrimitive::Float(v)) => (format_float(v).into(), InspectorLeafKind::Float),
         SerializedValue::Primitive(SerializedPrimitive::String(v)) => (v, InspectorLeafKind::String),
         _ => (value.type_info().short().name().into(), InspectorLeafKind::ReadOnly),
     }
@@ -399,3 +408,11 @@ pub struct EditorValue(pub AnyBox);
 
 unsafe impl Send for EditorValue {}
 unsafe impl Sync for EditorValue {}
+
+// f32 values arrive widened to f64; printing them as f32 drops the noise digits (0.6999999880 -> 0.7) without losing anything
+fn format_float(v: f64) -> String {
+    match (v as f32) as f64 == v {
+        true => (v as f32).to_string(),
+        false => v.to_string(),
+    }
+}

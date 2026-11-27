@@ -176,6 +176,22 @@
 //! assert_eq!(parse_color_rgba_f32("#ff0000"), None);
 //! ```
 //!
+//! These parsers only scale the digits to `0..=1`. Colors written in sRGB (design
+//! tools, CSS) must be converted before they reach a renderer that works in linear
+//! space: [`parse_color_srgba_to_linear_f32`] parses and converts the color channels
+//! (alpha is kept as is), and [`srgb_to_linear`] converts a single channel. Neither
+//! is `const`.
+//!
+//! ```
+//! use aphyn_math::{parse_color_srgba_to_linear_f32, srgb_to_linear};
+//!
+//! assert_eq!(srgb_to_linear(0.0), 0.0);
+//! assert!((srgb_to_linear(0.5) - 0.2140).abs() < 1e-4);
+//! let [r, g, b, a] = parse_color_srgba_to_linear_f32("#ffffff80").unwrap();
+//! assert_eq!([r, g, b], [1.0, 1.0, 1.0]);
+//! assert!((a - 128.0 / 255.0).abs() < 1e-6);
+//! ```
+//!
 //! #### Solving small equations
 //!
 //! [`eq_linear`] and [`eq_quadratic`] return result enums that distinguish no

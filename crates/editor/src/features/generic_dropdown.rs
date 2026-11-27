@@ -1,4 +1,7 @@
-use crate::*;
+use crate::{
+    theme::{self, PAL},
+    *,
+};
 
 pub fn register_feature(ctx: FeatureInitCtx) {
     let FeatureInitCtx {
@@ -12,7 +15,12 @@ pub fn register_feature(ctx: FeatureInitCtx) {
         .group(SYSTEM_GROUP)
         .insert_child_system(delete_generic_dropdown_system)
         .insert_child_system(spawn_generic_dropdown_system)
-        .insert_child_system(select_generic_dropdown_system);
+        .insert_child_system(select_generic_dropdown_system)
+        .insert_child_system(highlight_generic_dropdown_entries_system);
+
+    update
+        .order_system(check_ui_interaction_system)
+        .before_system(highlight_generic_dropdown_entries_system);
 
     update
         .order_system(check_ui_interaction_system)
@@ -23,10 +31,10 @@ pub fn register_feature(ctx: FeatureInitCtx) {
 
 //
 
-const DROPDOWN_MIN_WIDTH: f32 = 200.0;
-const DROPDOWN_ENTRY_HEIGHT: f32 = 20.0;
-const DROPDOWN_ENTRY_PADDING: f32 = 4.0;
-const DROPDOWN_FONT_SIZE: f32 = 20.0;
+const DROPDOWN_MIN_WIDTH: f32 = 180.0;
+const DROPDOWN_ENTRY_HEIGHT: f32 = theme::CONTROL_H;
+const DROPDOWN_ENTRY_PADDING: f32 = theme::PAD_X;
+const DROPDOWN_FONT_SIZE: f32 = theme::FONT;
 
 #[repr(C)]
 #[derive(Debug, Default, Clone)]
@@ -178,15 +186,13 @@ pub fn spawn_generic_dropdown_system(mut world: WorldDataMut) {
         .unwrap()
         .get(&standard_assets_resource.font)
         .unwrap();
-    let max_chars = generic_dropdown_resource
+    let max_width = generic_dropdown_resource
         .last_state
         .variants
         .iter()
-        .map(|v| v.chars().count())
-        .max()
-        .unwrap_or(0);
-    let dropdown_width =
-        (max_chars as f32 * DROPDOWN_FONT_SIZE * font.character_ratio + 2.0 * DROPDOWN_ENTRY_PADDING).max(DROPDOWN_MIN_WIDTH);
+        .map(|v| font.measure(v.as_str(), DROPDOWN_FONT_SIZE, 0.0))
+        .fold(0.0, f32::max);
+    let dropdown_width = (max_width + 2.0 * DROPDOWN_ENTRY_PADDING).max(DROPDOWN_MIN_WIDTH);
 
     let window_size = Vec2::from_array(res.get::<WindowResource>().unwrap().state().size.map(|v| v as f32));
     let dropdown_size = Vec2::new(
@@ -221,7 +227,7 @@ pub fn spawn_generic_dropdown_system(mut world: WorldDataMut) {
                 material: standard_assets_resource.material_panel.clone(),
             },
             ImageComponent {
-                color: Vec4::from_array(rgba_f32_array!("#272727ff")),
+                color: PAL.surface_overlay,
                 is_y_inverted: true,
                 ..Default::default()
             },
@@ -245,6 +251,15 @@ pub fn spawn_generic_dropdown_system(mut world: WorldDataMut) {
                     ..Default::default()
                 },
                 ButtonComponent::default(),
+                HoverAreaComponent::default(),
+                BatchedMeshComponent::default(),
+                MaterialComponent {
+                    material: standard_assets_resource.material_panel.clone(),
+                },
+                ImageComponent {
+                    color: PAL.surface_overlay,
+                    ..Default::default()
+                },
                 GenericDropdownEntryComponent {
                     dropdown: ent_dropdown,
                     text: ent_dropdown_entry_text,
@@ -267,7 +282,7 @@ pub fn spawn_generic_dropdown_system(mut world: WorldDataMut) {
                     material: standard_assets_resource.material_text.clone(),
                 },
                 TextComponent {
-                    color: Vec4::splat(1.0),
+                    color: PAL.text_1,
                     font_size: UiVal::px(DROPDOWN_FONT_SIZE),
                     horizontal_align: HorizontalAlign::Left,
                     vertical_align: VerticalAlign::Middle,
@@ -281,6 +296,14 @@ pub fn spawn_generic_dropdown_system(mut world: WorldDataMut) {
 
         set_parent(ent.as_mut(), ent_dropdown_entry, ent_dropdown);
         set_parent(ent.as_mut(), ent_dropdown_entry_text, ent_dropdown_entry);
+    }
+}
+
+fn highlight_generic_dropdown_entries_system(
+    mut entry_q: WorldQuery<(&HoverAreaComponent, &mut ImageComponent), WithFilter<GenericDropdownEntryComponent>>,
+) {
+    for (hover_c, image_c) in entry_q.iter_mut() {
+        image_c.color = if hover_c.is_hovered { PAL.accent } else { PAL.surface_overlay };
     }
 }
 

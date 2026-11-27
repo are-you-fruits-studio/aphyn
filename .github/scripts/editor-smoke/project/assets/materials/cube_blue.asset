@@ -1,0 +1,14 @@
+{
+  "asset_type": "material",
+  "template": "aphyn/templates/opaque_lit",
+  "data": {
+    "color": {
+      "x": 0.1,
+      "y": 0.35,
+      "z": 0.9,
+      "w": 1.0
+    },
+    "roughness": 0.3,
+    "metallic": 0.0
+  }
+}
