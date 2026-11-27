@@ -165,8 +165,37 @@ pub struct RasterizedFont {
     pub descent: f32,
 }
 
+// RGBA8, white with the glyph coverage in alpha
+pub struct FontAtlas {
+    pub size: [usize; 2],
+    pub pixels: Vec<u8>,
+    pub glyphs: HashMap<char, Glyph>,
+    pub missing_glyph: Glyph,
+    pub ascent: f32,
+    pub descent: f32,
+}
+
 // glyphs keep their antialiased coverage in the texture's alpha, so text needs an alpha-blended material
 pub fn rasterize_font(render_api: &RenderApiResource, data: &[u8], settings: &FontRasterSettings) -> Result<RasterizedFont, String> {
+    let atlas = rasterize_font_atlas(data, settings)?;
+
+    let texture = render_api.create_texture(
+        FilterMode::Linear,
+        atlas.size.map(|v| v as u32),
+        &atlas.pixels,
+        Default::default(),
+    );
+
+    Ok(RasterizedFont {
+        texture,
+        glyphs: atlas.glyphs,
+        missing_glyph: atlas.missing_glyph,
+        ascent: atlas.ascent,
+        descent: atlas.descent,
+    })
+}
+
+pub fn rasterize_font_atlas(data: &[u8], settings: &FontRasterSettings) -> Result<FontAtlas, String> {
     let mut font = FontRef::try_from_slice(data).map_err(|err| err.to_string())?;
 
     if let Some(weight) = settings.weight {
@@ -228,11 +257,14 @@ pub fn rasterize_font(render_api: &RenderApiResource, data: &[u8], settings: &Fo
         });
     }
 
-    // rows of glyphs, left to right, each row as tall as its tallest glyph
+    // rows of glyphs, left to right, each row as tall as its tallest glyph; wide enough for the widest glyph at large sizes
+    let widest = rasters.iter().map(|r| r.width).max().unwrap_or(0);
+    let atlas_width = ATLAS_WIDTH.max((widest + ATLAS_PADDING * 2).next_power_of_two());
+
     let mut positions = Vec::with_capacity(rasters.len());
     let (mut x, mut y, mut row_height) = (ATLAS_PADDING, ATLAS_PADDING, 0);
     for raster in &rasters {
-        if x + raster.width + ATLAS_PADDING > ATLAS_WIDTH {
+        if x + raster.width + ATLAS_PADDING > atlas_width {
             x = ATLAS_PADDING;
             y += row_height + ATLAS_PADDING;
             row_height = 0;
@@ -243,7 +275,7 @@ pub fn rasterize_font(render_api: &RenderApiResource, data: &[u8], settings: &Fo
     }
     let atlas_height = (y + row_height + ATLAS_PADDING).next_power_of_two();
 
-    let mut pixels = vec![0u8; ATLAS_WIDTH * atlas_height * 4];
+    let mut pixels = vec![0u8; atlas_width * atlas_height * 4];
     for pixel in pixels.chunks_exact_mut(4) {
         pixel[..3].fill(255);
     }
@@ -253,11 +285,11 @@ pub fn rasterize_font(render_api: &RenderApiResource, data: &[u8], settings: &Fo
         for row in 0..raster.height {
             for column in 0..raster.width {
                 let alpha = raster.coverage[row * raster.width + column];
-                pixels[((y + row) * ATLAS_WIDTH + x + column) * 4 + 3] = (alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
+                pixels[((y + row) * atlas_width + x + column) * 4 + 3] = (alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
             }
         }
 
-        let atlas_size = Vec2::new(ATLAS_WIDTH as f32, atlas_height as f32);
+        let atlas_size = Vec2::new(atlas_width as f32, atlas_height as f32);
         let glyph = Glyph {
             uv: [
                 Vec2::new(x as f32, y as f32) / atlas_size,
@@ -272,18 +304,155 @@ pub fn rasterize_font(render_api: &RenderApiResource, data: &[u8], settings: &Fo
 
     let missing_glyph = glyphs.get(&'\u{fffd}').or(glyphs.get(&'?')).copied().unwrap_or_default();
 
-    let texture = render_api.create_texture(
-        FilterMode::Linear,
-        [ATLAS_WIDTH as u32, atlas_height as u32],
-        &pixels,
-        Default::default(),
-    );
-
-    Ok(RasterizedFont {
-        texture,
+    Ok(FontAtlas {
+        size: [atlas_width, atlas_height],
+        pixels,
         glyphs,
         missing_glyph,
         ascent: scaled.ascent(),
         descent: -scaled.descent(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ONEST: &[u8] = include_bytes!("../../editor/assets/fonts/Onest.ttf");
+
+    fn font_from(atlas: FontAtlas, pixel_size: f32) -> Font {
+        Font {
+            texture: AssetHandle::EMPTY,
+            glyphs: atlas.glyphs,
+            missing_glyph: atlas.missing_glyph,
+            pixel_size,
+            ascent: atlas.ascent,
+            descent: atlas.descent,
+        }
+    }
+
+    fn monospace(advance: f32) -> Font {
+        let glyph = Glyph {
+            advance,
+            ..Default::default()
+        };
+        Font {
+            texture: AssetHandle::EMPTY,
+            glyphs: [('a', glyph), ('я', glyph)].into(),
+            missing_glyph: glyph,
+            pixel_size: 1.0,
+            ascent: 1.0,
+            descent: 0.0,
+        }
+    }
+
+    #[test]
+    fn measure_adds_spacing_between_chars_only() {
+        let font = monospace(0.5);
+        assert_eq!(font.measure("", 10.0, 2.0), 0.0);
+        assert_eq!(font.measure("a", 10.0, 2.0), 5.0);
+        assert_eq!(font.measure("aяa", 10.0, 2.0), 19.0);
+    }
+
+    #[test]
+    fn char_index_at_rounds_to_the_nearest_edge_by_chars() {
+        let font = monospace(1.0);
+        assert_eq!(font.char_index_at("яяя", 10.0, 0.0, -5.0), 0);
+        assert_eq!(font.char_index_at("яяя", 10.0, 0.0, 4.0), 0);
+        assert_eq!(font.char_index_at("яяя", 10.0, 0.0, 6.0), 1);
+        assert_eq!(font.char_index_at("яяя", 10.0, 0.0, 1000.0), 3);
+        assert_eq!(font.char_index_at("", 10.0, 0.0, 3.0), 0);
+    }
+
+    #[test]
+    fn atlas_covers_latin_and_cyrillic_with_glyphs_inside_the_texture() {
+        let atlas = rasterize_font_atlas(ONEST, &FontRasterSettings::new(12.0)).unwrap();
+        let [width, height] = atlas.size;
+        assert!(height.is_power_of_two());
+        assert_eq!(atlas.pixels.len(), width * height * 4);
+
+        for c in ['A', 'g', 'Ж', 'ї', 'Ґ', '·', '…'] {
+            let glyph = atlas.glyphs.get(&c).unwrap_or_else(|| panic!("no glyph for {c:?}"));
+            assert!(glyph.advance > 0.0, "{c:?}");
+            assert!(glyph.size.x > 0.0 && glyph.size.y > 0.0, "{c:?}");
+            for uv in glyph.uv {
+                assert!((0.0..=1.0).contains(&uv.x) && (0.0..=1.0).contains(&uv.y), "{c:?}");
+            }
+            let px = (glyph.uv[1] - glyph.uv[0]) * Vec2::new(width as f32, height as f32);
+            assert!(
+                (px - glyph.size).map(f32::abs).into_array().iter().all(|d| *d < 1e-3),
+                "{c:?}"
+            );
+        }
+
+        let space = atlas.glyphs[&' '];
+        assert_eq!(space.size, Vec2::splat(0.0));
+        assert!(space.advance > 0.0);
+    }
+
+    #[test]
+    fn glyphs_sit_on_the_baseline() {
+        let atlas = rasterize_font_atlas(ONEST, &FontRasterSettings::new(12.0)).unwrap();
+        let x = atlas.glyphs[&'x'];
+        let p = atlas.glyphs[&'p'];
+        // a lowercase x rests on the baseline, a p descends below it
+        assert!(x.offset.y > 0.0 && (x.offset.y - x.size.y).abs() <= 1.0);
+        assert!(p.offset.y - p.size.y < -1.0);
+        assert!(atlas.ascent > 0.0 && atlas.descent > 0.0);
+    }
+
+    #[test]
+    fn glyph_rects_dont_overlap() {
+        let atlas = rasterize_font_atlas(ONEST, &FontRasterSettings::new(14.0)).unwrap();
+        let size = Vec2::new(atlas.size[0] as f32, atlas.size[1] as f32);
+        let mut rects = atlas
+            .glyphs
+            .values()
+            .filter(|g| g.size.x > 0.0)
+            .map(|g| (g.uv[0] * size, g.uv[1] * size))
+            .collect::<Vec<_>>();
+        rects.sort_by(|a, b| (a.0.y, a.0.x).partial_cmp(&(b.0.y, b.0.x)).unwrap());
+        rects.dedup();
+
+        for (i, a) in rects.iter().enumerate() {
+            for b in &rects[i + 1..] {
+                let overlaps = a.0.x < b.1.x && b.0.x < a.1.x && a.0.y < b.1.y && b.0.y < a.1.y;
+                assert!(!overlaps, "{a:?} overlaps {b:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn huge_sizes_widen_the_atlas() {
+        let mut settings = FontRasterSettings::new(700.0);
+        settings.characters = vec!['W', 'Ж'];
+        let atlas = rasterize_font_atlas(ONEST, &settings).unwrap();
+        let widest = atlas.glyphs.values().map(|g| g.size.x as usize).max().unwrap();
+        assert!(widest > 512);
+        assert!(atlas.size[0] >= widest + 2);
+    }
+
+    #[test]
+    fn heavier_weight_widens_glyphs_of_a_variable_font() {
+        let mut light = FontRasterSettings::new(32.0);
+        light.weight = Some(300.0);
+        let mut bold = FontRasterSettings::new(32.0);
+        bold.weight = Some(800.0);
+        let light = font_from(rasterize_font_atlas(ONEST, &light).unwrap(), 32.0);
+        let bold = font_from(rasterize_font_atlas(ONEST, &bold).unwrap(), 32.0);
+        assert!(bold.measure("Weight", 32.0, 0.0) > light.measure("Weight", 32.0, 0.0));
+    }
+
+    #[test]
+    fn unknown_characters_use_the_missing_glyph() {
+        let atlas = rasterize_font_atlas(ONEST, &FontRasterSettings::new(12.0)).unwrap();
+        let font = font_from(atlas, 12.0);
+        assert_eq!(font.glyph('\u{4e00}'), &font.missing_glyph);
+        assert!(font.missing_glyph.advance > 0.0);
+    }
+
+    #[test]
+    fn invalid_font_data_is_an_error() {
+        assert!(rasterize_font_atlas(b"not a font", &FontRasterSettings::new(12.0)).is_err());
+    }
 }
