@@ -218,14 +218,12 @@
 //! ECS scheduler and `render_view` attach it to the access they give each system and render feature while profiling.
 //!
 //! ```
-//! use aphyn_ffi::FfiString;
 //! use aphyn_profiling::{ProfileCtx, ProfileRecorder, ProfileSpanKind};
 //! use aphyn_utils::thread_pool::ThreadPool;
 //!
 //! let pool = ThreadPool::new(3, 1);
 //! let recorder = ProfileRecorder::new();
-//! let parent = FfiString::from("my_system");
-//! let access = pool.access().with_profile(Some(ProfileCtx { recorder: &recorder, parent: &parent }));
+//! let access = pool.access().with_profile(Some(ProfileCtx { recorder: &recorder, parent: "my_system".into() }));
 //!
 //! access.execute_work_stealing_ranges(1000, |_| {});
 //! access.scope(|scope| scope.push_job_unhandled(|| {}));

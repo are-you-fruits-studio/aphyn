@@ -40,12 +40,10 @@
 //! the same recorder:
 //!
 //! ```
-//! use aphyn_ffi::FfiString;
 //! use aphyn_profiling::{ProfileCtx, ProfileRecorder, ProfileSpanKind};
 //!
 //! let recorder = ProfileRecorder::new();
-//! let parent = FfiString::from("my_system");
-//! let ctx = ProfileCtx { recorder: &recorder, parent: &parent };
+//! let ctx = ProfileCtx { recorder: &recorder, parent: "my_system".into() };
 //!
 //! let owned = ctx.to_owned();
 //! std::thread::spawn(move || owned.measure(ProfileSpanKind::BackgroundJob, 0, 0, || {})).join().unwrap();
