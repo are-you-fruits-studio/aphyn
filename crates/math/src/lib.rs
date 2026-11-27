@@ -385,7 +385,14 @@ pub fn inv_lerp<T: Number>(a: T, b: T, x: T) -> T {
     (x - a) / (b - a)
 }
 
-pub fn damp(current: f32, target: f32, velocity: &mut f32, smooth_time: f32, damping: f32, delta_time: f32) -> f32 {
+pub fn damp(
+    current: f32,
+    target: f32,
+    velocity: &mut f32,
+    smooth_time: f32,
+    damping: f32,
+    delta_time: f32,
+) -> f32 {
     let smooth_time = smooth_time.max(1e-4);
     let omega = 2.0 / smooth_time;
 
@@ -425,7 +432,8 @@ pub fn damp(current: f32, target: f32, velocity: &mut f32, smooth_time: f32, dam
             let sin = (omega_d * t).sin();
 
             new_x = exp * (c1 * cos + c2 * sin);
-            new_v = exp * (-zeta * omega * (c1 * cos + c2 * sin) + (-c1 * omega_d * sin + c2 * omega_d * cos));
+            new_v = exp * (-zeta * omega * (c1 * cos + c2 * sin)
+                + (-c1 * omega_d * sin + c2 * omega_d * cos));
         } else {
             // ζ <= -1: real exponential instability (no oscillation)
             let tmp = (zeta * zeta - 1.0).sqrt();
