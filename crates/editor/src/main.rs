@@ -168,9 +168,12 @@ fn run_editor_app(project_path: &str) {
 fn init_system(mut world: WorldDataMut) {
     let (mut res, _ec, _evt) = world.as_tuple_mut();
 
-    let mut load_editor_font = |data: &[u8], size: f32, weight: f32| {
+    let mut load_editor_font = |data: &[u8], size: f32, weight: f32, characters: Option<&str>| {
         let mut settings = FontRasterSettings::new(size);
         settings.weight = Some(weight);
+        if let Some(characters) = characters {
+            settings.characters = characters.chars().collect();
+        }
 
         let render_api = unsafe { &*res.get_ptr::<RenderApiResource>().unwrap() };
         let textures = res.get_mut::<AssetStorageResource<StandardTexture>>().unwrap();
@@ -185,9 +188,16 @@ fn init_system(mut world: WorldDataMut) {
         (font, material)
     };
 
-    let (font, material_text) = load_editor_font(include_bytes!("../assets/fonts/Onest.ttf"), theme::FONT, 400.0);
-    let (font_mono, material_text_mono) =
-        load_editor_font(include_bytes!("../assets/fonts/JetBrainsMono.ttf"), theme::FONT_MONO, 400.0);
+    const JETBRAINS_MONO: &[u8] = include_bytes!("../assets/fonts/JetBrainsMono.ttf");
+
+    let (font, material_text) = load_editor_font(include_bytes!("../assets/fonts/Onest.ttf"), theme::FONT, 400.0, None);
+    let (font_mono, material_text_mono) = load_editor_font(JETBRAINS_MONO, theme::FONT_MONO, 400.0, None);
+    let (font_arrows, material_arrows) = load_editor_font(
+        JETBRAINS_MONO,
+        theme::FOLDOUT_ARROW_FONT,
+        400.0,
+        Some(features::foldout::FOLDOUT_ARROW_GLYPHS),
+    );
 
     let material_panel =
         create_material_from_template_key(res.as_ref(), BUILTIN_TEMPLATE_UI_OPAQUE_UNLIT, MaterialData::new()).unwrap();
@@ -204,6 +214,8 @@ fn init_system(mut world: WorldDataMut) {
         font,
         material_text_mono,
         font_mono,
+        material_arrows,
+        font_arrows,
     });
 
     prefabs::editor_window(world.as_mut());

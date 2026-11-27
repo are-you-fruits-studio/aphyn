@@ -159,6 +159,7 @@ pub fn update_project_window_content_system(mut world: WorldDataMut) {
         for entry in &entry.children {
             spawn_project_window_entries(
                 ent.as_mut(),
+                &assets,
                 &assets.material_text,
                 &assets.material_panel,
                 &font,
@@ -175,6 +176,7 @@ pub fn update_project_window_content_system(mut world: WorldDataMut) {
 
 fn spawn_project_window_entries(
     mut ec: EntitiesHolderMut,
+    assets: &StandardAssetsResource,
     material_text: &AssetHandle<Material>,
     material_panel: &AssetHandle<Material>,
     font: &AssetHandle<Font>,
@@ -242,22 +244,14 @@ fn spawn_project_window_entries(
     let is_expanded = foldout_res.is_expanded(&key);
     let foldout = (!entry.children.is_empty()).then(|| (key, is_expanded));
 
-    spawn_foldout_arrow(
-        ec.as_mut(),
-        spawned.ent_entry,
-        spawned.ent_entry_name,
-        0.0,
-        foldout,
-        material_panel,
-        material_text,
-        font,
-    );
+    spawn_foldout_arrow(ec.as_mut(), spawned.ent_entry, spawned.ent_entry_name, 0.0, foldout, assets);
 
     return_if!(!is_expanded);
 
     for entry in &entry.children {
         spawn_project_window_entries(
             ec.as_mut(),
+            assets,
             material_text,
             material_panel,
             font,

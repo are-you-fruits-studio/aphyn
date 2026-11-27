@@ -12,6 +12,7 @@ use crate::{
         ui_interaction::check_ui_interaction_system,
         windows_layout::APP_NAME,
     },
+    resources::StandardAssetsResource,
     theme::{self, PAL},
     *,
 };
@@ -267,8 +268,10 @@ fn update_foldout_arrows_system(
     }
 }
 
+pub const FOLDOUT_ARROW_GLYPHS: &str = "?\u{25b8}\u{25be}";
+
 fn arrow_str(is_expanded: bool) -> &'static str {
-    if is_expanded { "v" } else { ">" }
+    if is_expanded { "\u{25be}" } else { "\u{25b8}" }
 }
 
 // the name is padded past the arrow column even when there is no arrow, so siblings line up
@@ -278,9 +281,7 @@ pub fn spawn_foldout_arrow(
     ent_name: EntityId,
     indent: f32,
     foldout: Option<(FoldoutKey, bool)>,
-    material_panel: &AssetHandle<Material>,
-    material_text: &AssetHandle<Material>,
-    font: &AssetHandle<Font>,
+    assets: &StandardAssetsResource,
 ) -> EntityId {
     if let Some(local_rect_c) = ec.get_component_mut::<LocalRectComponent>(ent_name) {
         local_rect_c.parent_padding_min.x = UiVal::px(indent + FOLDOUT_WIDTH);
@@ -312,7 +313,7 @@ pub fn spawn_foldout_arrow(
             },
             BatchedMeshComponent::default(),
             MaterialComponent {
-                material: material_panel.clone(),
+                material: assets.material_panel.clone(),
             },
             ImageComponent {
                 color: PAL.transparent,
@@ -331,12 +332,12 @@ pub fn spawn_foldout_arrow(
             LocalRectComponent::default(),
             BatchedMeshComponent::default(),
             MaterialComponent {
-                material: material_text.clone(),
+                material: assets.material_arrows.clone(),
             },
             TextComponent {
-                color: PAL.text_3,
-                font: font.clone(),
-                font_size: UiVal::px(theme::FONT),
+                color: PAL.text_2,
+                font: assets.font_arrows.clone(),
+                font_size: UiVal::px(theme::FOLDOUT_ARROW_FONT),
                 is_y_inverted: true,
                 text: arrow_str(is_expanded).into(),
                 horizontal_spacing: UiVal::px(0.0),

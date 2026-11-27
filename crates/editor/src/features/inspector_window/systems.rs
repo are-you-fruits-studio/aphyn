@@ -1508,9 +1508,7 @@ fn spawn_hierarchy_window_entries_recursively(
         ent_name,
         depth as f32 * FOLDOUT_WIDTH,
         foldout,
-        material_panel,
-        material_text,
-        font,
+        assets,
     );
 
     return_if!(!is_expanded);
@@ -1640,6 +1638,7 @@ pub fn update_inspector_window_system(
                 ent_selected_input,
                 inspected_components,
                 &foldout_res,
+                &assets,
                 assets.material_panel.clone(),
                 assets.material_text.clone(),
                 assets.font.clone(),
@@ -1755,6 +1754,7 @@ fn update_prefab_components_ent(
     ent_selected_input: EntityId,
     components: &[(AnyTypeId, FfiString, InspectorValue)],
     foldout_res: &FoldoutResource,
+    assets: &StandardAssetsResource,
     material_panel: AssetHandle<Material>,
     material_text: AssetHandle<Material>,
     font: AssetHandle<Font>,
@@ -1799,6 +1799,7 @@ fn update_prefab_components_ent(
                 component_label,
                 component_value,
                 foldout_res,
+                assets,
                 material_panel.clone(),
                 material_text.clone(),
                 font.clone(),
@@ -1816,6 +1817,7 @@ fn update_prefab_component_ent(
     component_label: &str,
     component_value: &InspectorValue,
     foldout_res: &FoldoutResource,
+    assets: &StandardAssetsResource,
     material_panel: AssetHandle<Material>,
     material_text: AssetHandle<Material>,
     font: AssetHandle<Font>,
@@ -1895,9 +1897,7 @@ fn update_prefab_component_ent(
         componet_id_text_ent,
         0.0,
         Some((key, is_expanded)),
-        &material_panel,
-        &material_text,
-        &font,
+        assets,
     );
 
     let comp_data_container = spawn_default_layout_ent(ent.as_mut(), comp_ent, false);
