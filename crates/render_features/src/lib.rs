@@ -177,10 +177,13 @@
 //! A `Material` (`aphyn_render`) references a `MaterialTemplate` asset and stores a value for every
 //! input the template declares. Templates contain no code: they list inputs (with defaults) and
 //! passes, each pass being a shader asset, an order, a [`MaterialPassTarget`](aphyn_render::MaterialPassTarget)
-//! and the mapping from inputs to shader bindings. The engine ships six templates built on the
+//! and the mapping from inputs to shader bindings. The engine ships seven templates built on the
 //! standard shader, registered under [`BUILTIN_TEMPLATE_OPAQUE_UNLIT`], [`BUILTIN_TEMPLATE_OPAQUE_LIT`],
 //! [`BUILTIN_TEMPLATE_TRANSPARENT_UNLIT`], [`BUILTIN_TEMPLATE_TRANSPARENT_LIT`],
-//! [`BUILTIN_TEMPLATE_UI_OPAQUE_UNLIT`] and [`BUILTIN_TEMPLATE_UI_TRANSPARENT_UNLIT`]. Their inputs are
+//! [`BUILTIN_TEMPLATE_UI_OPAQUE_UNLIT`], [`BUILTIN_TEMPLATE_UI_TRANSPARENT_UNLIT`] and
+//! [`BUILTIN_TEMPLATE_UI_BLENDED_UNLIT`]. The transparent variants add their color to what is below them;
+//! the blended UI one composites over it by alpha ([`alpha_blended_shader_desc`]), which antialiased text
+//! needs, and like the transparent ones doesn't write depth. Their inputs are
 //! `color`, `emission_color` (`Vec4`, linear), `metallic`, `roughness`, `alpha_threshold`, `reflections` (`F32`) and
 //! the textures `color_tex`, `roughness_tex`, `metallic_tex`, `normal_tex`, `emission_tex`. The UI
 //! variants draw geometry given in window pixels:

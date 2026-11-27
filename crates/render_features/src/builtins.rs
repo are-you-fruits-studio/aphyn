@@ -22,6 +22,7 @@ pub const BUILTIN_TEMPLATE_TRANSPARENT_UNLIT: &str = "aphyn/templates/transparen
 pub const BUILTIN_TEMPLATE_TRANSPARENT_LIT: &str = "aphyn/templates/transparent_lit";
 pub const BUILTIN_TEMPLATE_UI_OPAQUE_UNLIT: &str = "aphyn/templates/ui_opaque_unlit";
 pub const BUILTIN_TEMPLATE_UI_TRANSPARENT_UNLIT: &str = "aphyn/templates/ui_transparent_unlit";
+pub const BUILTIN_TEMPLATE_UI_BLENDED_UNLIT: &str = "aphyn/templates/ui_blended_unlit";
 pub const BUILTIN_SHADER_SHADOW_CASTER: &str = "aphyn/shaders/shadow_caster";
 pub const BUILTIN_SHADER_DEPTH_NORMALS: &str = "aphyn/shaders/depth_normals";
 pub const BUILTIN_SHADER_SKYBOX_GRADIENT: &str = "aphyn/shaders/skybox_gradient";
@@ -31,44 +32,58 @@ struct StandardVariant {
     is_lit: bool,
     is_transparent: bool,
     is_ui: bool,
+    is_alpha_blended: bool,
 }
 
-const STANDARD_VARIANTS: [StandardVariant; 6] = [
+const STANDARD_VARIANTS: [StandardVariant; 7] = [
     StandardVariant {
         name: "opaque_unlit",
         is_lit: false,
         is_transparent: false,
         is_ui: false,
+        is_alpha_blended: false,
     },
     StandardVariant {
         name: "opaque_lit",
         is_lit: true,
         is_transparent: false,
         is_ui: false,
+        is_alpha_blended: false,
     },
     StandardVariant {
         name: "transparent_unlit",
         is_lit: false,
         is_transparent: true,
         is_ui: false,
+        is_alpha_blended: false,
     },
     StandardVariant {
         name: "transparent_lit",
         is_lit: true,
         is_transparent: true,
         is_ui: false,
+        is_alpha_blended: false,
     },
     StandardVariant {
         name: "ui_opaque_unlit",
         is_lit: false,
         is_transparent: false,
         is_ui: true,
+        is_alpha_blended: false,
     },
     StandardVariant {
         name: "ui_transparent_unlit",
         is_lit: false,
         is_transparent: true,
         is_ui: true,
+        is_alpha_blended: false,
+    },
+    StandardVariant {
+        name: "ui_blended_unlit",
+        is_lit: false,
+        is_transparent: true,
+        is_ui: true,
+        is_alpha_blended: true,
     },
 ];
 
@@ -97,6 +112,25 @@ pub fn standard_shader_desc(is_transparent: bool) -> GpuShaderDesc {
         write_mask: GpuColorWrites::All,
         depth_write: !is_transparent,
         depth_compare: GpuCompareFunction::GreaterEqual,
+    }
+}
+
+// ordinary "over" compositing, for coverage such as antialiased glyph edges; doesn't write depth like other transparent passes
+pub fn alpha_blended_shader_desc() -> GpuShaderDesc {
+    GpuShaderDesc {
+        blend: GpuBlendState {
+            color: GpuBlendComponent {
+                src_factor: GpuBlendFactor::SrcAlpha,
+                dst_factor: GpuBlendFactor::OneMinusSrcAlpha,
+                operation: GpuBlendOperation::Add,
+            },
+            alpha: GpuBlendComponent {
+                src_factor: GpuBlendFactor::One,
+                dst_factor: GpuBlendFactor::OneMinusSrcAlpha,
+                operation: GpuBlendOperation::Add,
+            },
+        },
+        ..standard_shader_desc(true)
     }
 }
 
@@ -268,7 +302,15 @@ pub fn insert_builtin_render_assets_to(mut res: ResourcesHolderMut) {
             .compose("shader_standard.wgsl", STANDARD_SHADER_WGSL, &defines)
             .unwrap();
         let shader = render_api
-            .create_shader(&shader_key, &code, standard_shader_desc(variant.is_transparent), None)
+            .create_shader(
+                &shader_key,
+                &code,
+                match variant.is_alpha_blended {
+                    true => alpha_blended_shader_desc(),
+                    false => standard_shader_desc(variant.is_transparent),
+                },
+                None,
+            )
             .unwrap();
 
         let Some(shaders) = res.get_mut::<AssetStorageResource<Shader>>() else {
@@ -328,6 +370,7 @@ mod tests {
                 BUILTIN_TEMPLATE_TRANSPARENT_LIT,
                 BUILTIN_TEMPLATE_UI_OPAQUE_UNLIT,
                 BUILTIN_TEMPLATE_UI_TRANSPARENT_UNLIT,
+                BUILTIN_TEMPLATE_UI_BLENDED_UNLIT,
             ]
         );
     }
