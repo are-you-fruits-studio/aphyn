@@ -267,8 +267,11 @@
 //!   "wght" axis when above 0) into a glyph atlas for ASCII, Latin-1, Cyrillic and common
 //!   punctuation plus `extra_characters`. The atlas goes into the texture storage unregistered, so
 //!   a text material gets it from the loaded `Font::texture` in code (`color_tex` of a material on
-//!   `BUILTIN_TEMPLATE_UI_BLENDED_UNLIT`). An empty or unreadable `raw_font` fails the load. Fonts are
-//!   not saved: there is no `DirectAssetSaveSerializer` for them.
+//!   `BUILTIN_TEMPLATE_UI_BLENDED_UNLIT`). An empty or unreadable `raw_font`, or glyphs that need an atlas
+//!   above `aphyn_ui::FONT_ATLAS_MAX_SIZE` on a side, fail the load. Fonts are not saved: there is no
+//!   `DirectAssetSaveSerializer` for them. Reloading a font with [`load_asset_single`] replaces the `Font`
+//!   under its handle with a new atlas texture: materials made from the old `Font::texture` keep sampling
+//!   the old atlas and must be rebuilt, and the old texture stays in the storage.
 //!
 //! ```text
 //! // assets/fonts/onest.asset
@@ -327,8 +330,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use aphyn_asset_storage::{AssetHandle, AssetStorageResource};
 use aphyn_animation::AnimationClip;
+use aphyn_asset_storage::{AssetHandle, AssetStorageResource};
 use aphyn_audio::AudioClip;
 use aphyn_prefab::{Prefab, Scene};
 use aphyn_render::{ComputeShader, Material, MaterialTemplate, Shader, StandardMesh, StandardTexture};

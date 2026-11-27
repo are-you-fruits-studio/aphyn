@@ -130,7 +130,11 @@ impl FontAssetMetadata {
     pub fn raster_settings(&self) -> FontRasterSettings {
         let mut settings = FontRasterSettings::new(self.size);
         settings.weight = (self.weight > 0.0).then_some(self.weight);
-        settings.characters.extend(self.extra_characters.as_str().chars());
+        for character in self.extra_characters.as_str().chars() {
+            if !settings.characters.contains(&character) {
+                settings.characters.push(character);
+            }
+        }
         settings
     }
 }
@@ -154,7 +158,9 @@ pub fn load_font(
     })
 }
 
-const ATLAS_WIDTH: usize = 512;
+const ATLAS_MIN_WIDTH: usize = 512;
+// wgpu's default max_texture_dimension_2d
+pub const FONT_ATLAS_MAX_SIZE: usize = 8192;
 const ATLAS_PADDING: usize = 1;
 
 pub struct RasterizedFont {
@@ -258,8 +264,15 @@ pub fn rasterize_font_atlas(data: &[u8], settings: &FontRasterSettings) -> Resul
     }
 
     // rows of glyphs, left to right, each row as tall as its tallest glyph; wide enough for the widest glyph at large sizes
+    // about square, so large sizes grow both sides instead of only the height
     let widest = rasters.iter().map(|r| r.width).max().unwrap_or(0);
-    let atlas_width = ATLAS_WIDTH.max((widest + ATLAS_PADDING * 2).next_power_of_two());
+    let area = rasters
+        .iter()
+        .map(|r| (r.width + ATLAS_PADDING) * (r.height + ATLAS_PADDING))
+        .sum::<usize>();
+    let atlas_width = ATLAS_MIN_WIDTH
+        .max((widest + ATLAS_PADDING * 2).next_power_of_two())
+        .max(area.isqrt().next_power_of_two());
 
     let mut positions = Vec::with_capacity(rasters.len());
     let (mut x, mut y, mut row_height) = (ATLAS_PADDING, ATLAS_PADDING, 0);
@@ -274,6 +287,12 @@ pub fn rasterize_font_atlas(data: &[u8], settings: &FontRasterSettings) -> Resul
         row_height = row_height.max(raster.height);
     }
     let atlas_height = (y + row_height + ATLAS_PADDING).next_power_of_two();
+
+    if atlas_width > FONT_ATLAS_MAX_SIZE || atlas_height > FONT_ATLAS_MAX_SIZE {
+        return Err(format!(
+            "the glyphs need a {atlas_width}x{atlas_height} atlas, above {FONT_ATLAS_MAX_SIZE}; use a smaller size or fewer characters"
+        ));
+    }
 
     let mut pixels = vec![0u8; atlas_width * atlas_height * 4];
     for pixel in pixels.chunks_exact_mut(4) {
@@ -430,6 +449,35 @@ mod tests {
         let widest = atlas.glyphs.values().map(|g| g.size.x as usize).max().unwrap();
         assert!(widest > 512);
         assert!(atlas.size[0] >= widest + 2);
+    }
+
+    #[test]
+    fn large_sizes_stay_within_the_texture_limit() {
+        for size in [64.0, 150.0, 300.0] {
+            let atlas = rasterize_font_atlas(ONEST, &FontRasterSettings::new(size)).unwrap();
+            assert!(
+                atlas.size.iter().all(|&v| v <= FONT_ATLAS_MAX_SIZE),
+                "{size}: {:?}",
+                atlas.size
+            );
+        }
+    }
+
+    #[test]
+    fn too_large_atlas_is_an_error() {
+        assert!(rasterize_font_atlas(ONEST, &FontRasterSettings::new(1000.0)).is_err());
+    }
+
+    #[test]
+    fn extra_characters_are_not_rasterized_twice() {
+        let meta = FontAssetMetadata {
+            extra_characters: "aaЖ\u{25b8}".into(),
+            ..Default::default()
+        };
+        let characters = meta.raster_settings().characters;
+        assert_eq!(characters.iter().filter(|&&c| c == 'a').count(), 1);
+        assert_eq!(characters.iter().filter(|&&c| c == 'Ж').count(), 1);
+        assert!(characters.contains(&'\u{25b8}'));
     }
 
     #[test]
