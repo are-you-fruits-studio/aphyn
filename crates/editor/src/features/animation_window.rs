@@ -1024,10 +1024,6 @@ pub fn animation_window_mouse_system(
                     window.selected_keys.retain(|k| *k != (track, key));
                     window.selected_keys.insert(0, (track, key));
                 }
-                // in the dope sheet a new track's curve has to fit once the Curves tab opens
-                if window.selected_track != Some(track) {
-                    window.view_fit = ViewFit::Values;
-                }
                 window.selected_track = Some(track);
             } else if window.drag.is_none() {
                 window.selected_keys.clear();
