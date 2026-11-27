@@ -187,7 +187,7 @@ use aphyn_transform::{
     LocalTransform, NameComponent, ParentComponent, RectChildAlignComponent, StaticComponent, UiDirection, UiSpacing, UiUnit, UiVal,
 };
 use aphyn_ui::{
-    ChildrenRectMaskComponent, Font, HorizontalAlign, ImageComponent, ImageFillSettings, TextComponent, UiLineComponent, VerticalAlign,
+    ChildrenRectMaskComponent, Font, FontAssetMetadata, HorizontalAlign, ImageComponent, ImageFillSettings, TextComponent, UiLineComponent, VerticalAlign,
 };
 
 pub mod fps_counter;
@@ -275,6 +275,7 @@ pub fn register_common_transserializers(types: &TypesRegistryCache, serializer: 
     // asset metadata
     register_transserializer::<StandardMeshAssetMetadata>(types, "aphyn::StandardMeshAssetMetadata", serializer);
     register_transserializer::<StandardTextureAssetMetadata>(types, "aphyn::StandardTextureAssetMetadata", serializer);
+    register_transserializer::<FontAssetMetadata>(types, "aphyn::FontAssetMetadata", serializer);
     register_transserializer::<ShaderAssetMetadata>(types, "aphyn::ShaderAssetMetadata", serializer);
     register_transserializer::<ComputeShaderAssetMetadata>(types, "aphyn::ComputeShaderAssetMetadata", serializer);
     register_transserializer::<AudioClipAssetMetadata>(types, "aphyn::AudioClipAssetMetadata", serializer);
@@ -406,6 +407,7 @@ pub fn register_common_reflectors(types: &TypesRegistryCache, reflectors: &mut R
     reflectors
         .register::<StandardMeshAssetMetadata>(types)
         .register::<StandardTextureAssetMetadata>(types)
+        .register::<FontAssetMetadata>(types)
         .register::<ShaderAssetMetadata>(types)
         .register::<ComputeShaderAssetMetadata>(types)
         .register::<AudioClipAssetMetadata>(types)

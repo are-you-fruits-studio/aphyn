@@ -1,9 +1,12 @@
 use std::collections::HashMap;
 
 use ab_glyph::{Font as _, FontRef, PxScale, ScaleFont as _, VariableFont as _};
-use aphyn_asset_storage::AssetHandle;
+use aphyn_asset_storage::{AssetHandle, AssetStorageResource};
+use aphyn_ffi::FfiString;
 use aphyn_math::Vec2;
+use aphyn_reflection::*;
 use aphyn_render::{FilterMode, RenderApiResource, StandardTexture};
+use aphyn_serialization::*;
 
 // metrics are in pixels of the font's `pixel_size`, y up from the baseline
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
@@ -98,6 +101,57 @@ pub fn default_font_characters() -> Vec<char> {
         '\u{2713}'..='\u{2717}',
     ];
     ranges.into_iter().flatten().collect()
+}
+
+// what a "font" asset file holds: the TTF/OTF payload and how to rasterize it
+#[repr(C)]
+#[derive(Serializable, Reflectable, Clone, Debug)]
+pub struct FontAssetMetadata {
+    pub raw_font: FfiString,
+    pub size: f32,
+    // the "wght" axis of a variable font; 0 keeps the font's default
+    pub weight: f32,
+    // added to `default_font_characters`
+    pub extra_characters: FfiString,
+}
+
+impl Default for FontAssetMetadata {
+    fn default() -> Self {
+        Self {
+            raw_font: FfiString::new(),
+            size: 16.0,
+            weight: 0.0,
+            extra_characters: FfiString::new(),
+        }
+    }
+}
+
+impl FontAssetMetadata {
+    pub fn raster_settings(&self) -> FontRasterSettings {
+        let mut settings = FontRasterSettings::new(self.size);
+        settings.weight = (self.weight > 0.0).then_some(self.weight);
+        settings.characters.extend(self.extra_characters.as_str().chars());
+        settings
+    }
+}
+
+// the atlas texture goes into `textures`; a text material samples it as `color_tex`
+pub fn load_font(
+    render_api: &RenderApiResource,
+    textures: &mut AssetStorageResource<StandardTexture>,
+    data: &[u8],
+    settings: &FontRasterSettings,
+) -> Result<Font, String> {
+    let rasterized = rasterize_font(render_api, data, settings)?;
+
+    Ok(Font {
+        texture: textures.insert(rasterized.texture),
+        glyphs: rasterized.glyphs,
+        missing_glyph: rasterized.missing_glyph,
+        pixel_size: settings.pixel_size,
+        ascent: rasterized.ascent,
+        descent: rasterized.descent,
+    })
 }
 
 const ATLAS_WIDTH: usize = 512;
