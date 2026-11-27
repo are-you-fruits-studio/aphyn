@@ -143,7 +143,6 @@ pub fn init_window_as_inspector(mut world: WorldDataMut, ent_window: EntityId) {
             GlobalRectComponent::default(),
             GlobalDisableableComponent::default(),
             LocalRectComponent {
-                offset: Vec2::new(UiVal::px(theme::PAD_X), UiVal::px(0.0)),
                 scale: Vec2::new(UiVal::pd(1.0).into(), UiVal::px(theme::PANEL_HEADER_H).into()),
                 ..Default::default()
             },
@@ -190,7 +189,7 @@ pub fn init_window_as_inspector(mut world: WorldDataMut, ent_window: EntityId) {
             GlobalRectComponent::default(),
             GlobalDisableableComponent::default(),
             LocalRectComponent {
-                parent_padding_max: Vec2::new(UiVal::px(theme::PAD_X * 2.0), UiVal::px(0.0)),
+                parent_padding_max: Vec2::new(UiVal::px(theme::PAD_X), UiVal::px(0.0)),
                 ..Default::default()
             },
         ),
