@@ -30,7 +30,7 @@ use crate::{
         world_preload::{SimulatedWorld, SimulatedWorldResource},
     },
     prefabs::WindowComponent,
-    theme::PAL,
+    theme::{self, PAL},
     *,
 };
 
@@ -1314,6 +1314,7 @@ pub fn update_hierarchy_window_system(
     assets: Res<StandardAssetsResource>,
     file_selected_evt: Evt<FileSelectedEvent>,
 ) {
+    let is_playing = simulated_world.is_playing();
     return_if_not!(Some(simulated_world) = simulated_world.0.as_ref());
 
     // todo
@@ -1342,9 +1343,24 @@ pub fn update_hierarchy_window_system(
             .content_container;
         continue_if_not!(
             Some(&HierarchyWindowContentComponent {
-                entries_container: content
+                entries_container: content,
+                source_text,
+                badge_text,
             }) = entities.get_component::<HierarchyWindowContentComponent>(ent_scroll_content)
         );
+
+        let (source, badge, badge_color) = match (is_playing, opened_asset.asset_type) {
+            (true, _) => ("running game".to_string(), "play", PAL.accent_fg),
+            (false, Some(ty)) => (opened_asset.asset_key.clone(), ty.serialized_str(), PAL.text_3),
+            (false, None) => ("no scene open".to_string(), "", PAL.text_3),
+        };
+        if let Some(text_c) = entities.get_component_mut::<TextComponent>(source_text) {
+            set_text_if_changed(text_c, &source);
+        }
+        if let Some(text_c) = entities.get_component_mut::<TextComponent>(badge_text) {
+            set_text_if_changed(text_c, badge);
+            text_c.color = badge_color;
+        }
 
         destroy_entity_children(entities.as_mut(), content);
 
@@ -1391,6 +1407,13 @@ pub fn update_hierarchy_window_system(
     }
 }
 
+fn set_text_if_changed(text_c: &mut TextComponent, text: &str) {
+    if text_c.text.as_str() != text {
+        text_c.text.clear();
+        text_c.text.push_str(text);
+    }
+}
+
 fn spawn_hierarchy_window_entries_recursively(
     mut ent: EntitiesHolderMut,
     sim_ent: EntitiesHolderRef,
@@ -1423,6 +1446,34 @@ fn spawn_hierarchy_window_entries_recursively(
         parent,
         simulated_ent,
     );
+
+    let ent_id_text = ent.create_entity();
+    ent.set_components(
+        ent_id_text,
+        (
+            GlobalRectComponent::default(),
+            GlobalDisableableComponent::default(),
+            LocalRectComponent {
+                parent_padding_max: Vec2::new(UiVal::px(theme::PAD_X), UiVal::px(0.0)),
+                ..Default::default()
+            },
+            BatchedMeshComponent::default(),
+            MaterialComponent {
+                material: material_text.clone(),
+            },
+            TextComponent {
+                color: PAL.text_3,
+                font: font.clone(),
+                font_size: UiVal::px(theme::FONT),
+                is_y_inverted: true,
+                text: format!("#{entity_id}").into(),
+                horizontal_spacing: UiVal::px(0.0),
+                vertical_align: VerticalAlign::Middle,
+                horizontal_align: HorizontalAlign::Right,
+            },
+        ),
+    );
+    set_parent(ent.as_mut(), ent_id_text, ent_name_container);
 
     let key = FoldoutKey::HierarchyEntity {
         asset_key: asset_key.to_string(),

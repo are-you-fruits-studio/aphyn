@@ -227,18 +227,32 @@ pub fn sync_window_groups_system(mut ec: EntitiesHolderMut) {
 
             tabs.push(window_c.tab);
 
-            let tab_color = if is_active { PAL.surface_panel } else { PAL.bg_sunken };
+            let is_hovered = |ent| ec.get_component::<HoverAreaComponent>(ent).is_some_and(|h| h.is_hovered);
+            let is_close_hovered = is_hovered(window_c.tab_close_button);
+            let is_tab_hovered = is_close_hovered || is_hovered(window_c.tab);
 
-            for ent in [window_c.tab, window_c.tab_close_button] {
-                if let Some(image_c) = ec.get_component_mut::<ImageComponent>(ent) {
-                    image_c.color = tab_color;
-                }
+            let tab_color = match (is_active, is_tab_hovered) {
+                (true, _) => PAL.surface_panel,
+                (false, true) => PAL.surface_hover,
+                (false, false) => PAL.bg_sunken,
+            };
+            let close_color = if is_close_hovered { PAL.danger_soft_on_hover } else { tab_color };
+
+            if let Some(image_c) = ec.get_component_mut::<ImageComponent>(window_c.tab) {
+                image_c.color = tab_color;
+            }
+            if let Some(image_c) = ec.get_component_mut::<ImageComponent>(window_c.tab_close_button) {
+                image_c.color = close_color;
             }
             if let Some(text_c) = ec.get_component_mut::<TextComponent>(window_c.tab_text) {
-                text_c.color = if is_active { PAL.text_1 } else { PAL.text_2 };
+                text_c.color = if is_active || is_tab_hovered { PAL.text_1 } else { PAL.text_2 };
             }
             if let Some(text_c) = ec.get_component_mut::<TextComponent>(window_c.tab_close_text) {
-                text_c.color = if is_active { PAL.text_3 } else { tab_color };
+                text_c.color = match (is_close_hovered, is_tab_hovered) {
+                    (true, _) => PAL.danger,
+                    (false, true) => PAL.text_3,
+                    (false, false) => close_color,
+                };
             }
             if let Some(disableable_c) = ec.get_component_mut::<LocalDisableableComponent>(window_c.tab_accent) {
                 disableable_c.is_disabled = !is_active;

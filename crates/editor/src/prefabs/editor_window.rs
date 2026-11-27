@@ -2,7 +2,7 @@ use aphyn::*;
 
 use crate::{
     features::{
-        play_mode::PlayButtonComponent, test_window::WindowsButtonComponent, ui_interaction::ButtonComponent,
+        play_mode::{PlayButtonComponent, ProjectTitleTextComponent}, test_window::WindowsButtonComponent, ui_interaction::ButtonComponent,
         ui_window::DockComponent,
     },
     resources::StandardAssetsResource,
@@ -81,6 +81,7 @@ pub fn editor_window(mut world: WorldDataMut) -> EntityId {
     let ent_header = ent.create_entity();
     let ent_play_bar = ent.create_entity();
     let ent_dock = ent.create_entity();
+    let ent_title = ent.create_entity();
 
     ent.set_components(ent_root, (GlobalRectComponent::default(), LocalRectComponent::default()));
 
@@ -161,7 +162,38 @@ pub fn editor_window(mut world: WorldDataMut) -> EntityId {
         ),
     );
 
+    ent.set_components(
+        ent_title,
+        (
+            GlobalRectComponent::default(),
+            LocalRectComponent {
+                anchor: Vec2::new(1.0, 0.0),
+                pivot: Vec2::new(1.0, 0.0),
+                offset: Vec2::new(UiVal::px(-12.0), UiVal::px(0.0)),
+                scale: Vec2::new(UiVal::pw(0.5).into(), UiVal::px(HEADER_HEIGHT).into()),
+                z: -1.0,
+                ..Default::default()
+            },
+            BatchedMeshComponent::default(),
+            MaterialComponent {
+                material: assets_res.material_text.clone(),
+            },
+            TextComponent {
+                color: PAL.text_3,
+                font: assets_res.font.clone(),
+                font_size: UiVal::px(theme::FONT),
+                horizontal_align: HorizontalAlign::Right,
+                vertical_align: VerticalAlign::Middle,
+                horizontal_spacing: UiVal::px(0.0),
+                is_y_inverted: true,
+                text: FfiString::new(),
+            },
+            ProjectTitleTextComponent,
+        ),
+    );
+
     set_parent(ent.as_mut(), ent_header, ent_root);
+    set_parent(ent.as_mut(), ent_title, ent_root);
     set_parent(ent.as_mut(), ent_play_bar, ent_root);
     set_parent(ent.as_mut(), ent_dock, ent_root);
 

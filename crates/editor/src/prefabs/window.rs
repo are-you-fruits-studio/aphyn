@@ -236,6 +236,7 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
             },
             ButtonComponent::default(),
             DragAreaComponent::default(),
+            HoverAreaComponent::default(),
         ),
     );
 
@@ -285,6 +286,7 @@ pub fn panel(mut world: WorldDataMut, kind: &str) -> EntityId {
                 ..Default::default()
             },
             ButtonComponent::default(),
+            HoverAreaComponent::default(),
         ),
     );
 

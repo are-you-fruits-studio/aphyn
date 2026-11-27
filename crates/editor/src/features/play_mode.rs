@@ -32,7 +32,8 @@ pub fn register_feature(ctx: FeatureInitCtx) {
         .group(SYSTEM_GROUP)
         .insert_child_system(toggle_play_mode_system)
         .insert_child_system(open_game_window_on_play_system)
-        .insert_child_system(update_play_button_system);
+        .insert_child_system(update_play_button_system)
+        .insert_child_system(update_project_title_system);
 
     update
         .order_system(check_ui_interaction_system)
@@ -58,6 +59,9 @@ pub fn register_feature(ctx: FeatureInitCtx) {
 
 #[derive(Component, Default, Debug)]
 pub struct PlayButtonComponent;
+
+#[derive(Component, Default, Debug)]
+pub struct ProjectTitleTextComponent;
 
 #[derive(Resource, Default)]
 pub struct PlayModeResource {
@@ -121,6 +125,28 @@ pub fn toggle_play_mode_system(
     }
 }
 
+fn update_project_title_system(
+    open_project: Res<OpenProjectResource>,
+    opened_asset: Res<OpenedEntitiesAssetResource>,
+    mut text_q: WorldQuery<&mut TextComponent, WithFilter<ProjectTitleTextComponent>>,
+) {
+    let project = std::path::Path::new(&open_project.dir_path)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let title = match opened_asset.asset_key.is_empty() {
+        true => project,
+        false => format!("{project} - {}", opened_asset.asset_key),
+    };
+
+    for text_c in text_q.iter_mut() {
+        if text_c.text.as_str() != title {
+            text_c.text.clear();
+            text_c.text.push_str(&title);
+        }
+    }
+}
+
 fn can_play(opened_asset: &OpenedEntitiesAssetResource) -> bool {
     opened_asset.asset_type == Some(AssetType::Scene)
 }
@@ -149,7 +175,7 @@ fn update_play_button_system(
 
     for ent_button in buttons {
         if let Some(image_c) = ent.get_component_mut::<ImageComponent>(ent_button) {
-            image_c.color = if is_playing { PAL.accent } else { PAL.surface_raised };
+            image_c.color = if is_enabled && !is_playing { PAL.accent } else { PAL.surface_raised };
         }
 
         if let Some(ent_bar) = ent.get_component::<ChildComponent>(ent_button).map(|c| c.parent())
@@ -177,8 +203,8 @@ fn update_play_button_system(
             }
 
             text_c.color = match (is_playing, is_enabled) {
-                (true, _) => PAL.text_on_accent,
-                (false, true) => PAL.text_1,
+                (true, _) => PAL.text_1,
+                (false, true) => PAL.text_on_accent,
                 (false, false) => PAL.text_disabled,
             };
         }
