@@ -504,6 +504,10 @@ pub fn click_animation_window_buttons_system(
             AnimationWindowTab::DopeSheet => AnimationWindowTab::Curves,
             AnimationWindowTab::Curves => AnimationWindowTab::DopeSheet,
         };
+        // the value range only matters for curves, so fit it to what they show now
+        if window.tab == AnimationWindowTab::Curves {
+            window.view_fit = ViewFit::Values;
+        }
     }
 
     if let Some((_, row_c)) = row_q.iter().find(|(b, _)| b.was_clicked_this_frame) {
@@ -1020,6 +1024,10 @@ pub fn animation_window_mouse_system(
                     window.selected_keys.retain(|k| *k != (track, key));
                     window.selected_keys.insert(0, (track, key));
                 }
+                // in the dope sheet a new track's curve has to fit once the Curves tab opens
+                if window.selected_track != Some(track) {
+                    window.view_fit = ViewFit::Values;
+                }
                 window.selected_track = Some(track);
             } else if window.drag.is_none() {
                 window.selected_keys.clear();
@@ -1366,15 +1374,15 @@ pub fn draw_animation_window_system(
         ),
         (Some(w), Some(_)) => {
             let mode = match (is_playing, window.mode) {
-                (true, _) => " | play mode (read-only)",
+                (true, _) => " - play mode (read-only)",
                 (false, AnimationWindowMode::Idle) => "",
-                (false, AnimationWindowMode::Preview) => " | previewing",
-                (false, AnimationWindowMode::Record) => " | recording edits",
+                (false, AnimationWindowMode::Preview) => " - previewing",
+                (false, AnimationWindowMode::Record) => " - recording edits",
             };
-            format!("{root_name} | {}{mode}", clip_key(w, window.root).unwrap_or_default())
+            format!("{root_name} - {}{mode}", clip_key(w, window.root).unwrap_or_default())
         }
     };
-    set_text(&mut ent, status_text, &status, PAL.text_1);
+    set_text(&mut ent, status_text, &status, PAL.text_2);
     set_field_text(&mut ent, &selected_input, time_field, &format_number(window.time as f64));
 
     // selected key

@@ -93,6 +93,8 @@ pub fn init_window_as_profiler(mut world: WorldDataMut, ent_window: EntityId) {
     );
     let histogram_grid = spawn_lines(ent.as_mut(), assets, histogram, PAL.border_strong, 1.0);
     let histogram_bars = spawn_lines(ent.as_mut(), assets, histogram, PAL.bloom_600, 1.0);
+    let histogram_bars_warning = spawn_lines(ent.as_mut(), assets, histogram, PAL.warning, 1.0);
+    let histogram_bars_danger = spawn_lines(ent.as_mut(), assets, histogram, PAL.danger, 1.0);
     let histogram_selected = spawn_lines(ent.as_mut(), assets, histogram, PAL.accent_fg, 1.0);
     let histogram_label = spawn_text(ent.as_mut(), assets, histogram, "".into(), small_font);
     ent.set_component(
@@ -236,6 +238,8 @@ pub fn init_window_as_profiler(mut world: WorldDataMut, ent_window: EntityId) {
             histogram,
             histogram_grid,
             histogram_bars,
+            histogram_bars_warning,
+            histogram_bars_danger,
             histogram_selected,
             histogram_label,
             lane_labels,
