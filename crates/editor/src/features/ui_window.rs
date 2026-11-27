@@ -236,7 +236,11 @@ pub fn sync_window_groups_system(mut ec: EntitiesHolderMut) {
                 (false, true) => PAL.surface_hover,
                 (false, false) => PAL.bg_sunken,
             };
-            let close_color = if is_close_hovered { PAL.danger_soft_on_hover } else { tab_color };
+            let close_color = if is_close_hovered {
+                PAL.danger_soft_on_hover
+            } else {
+                tab_color
+            };
 
             if let Some(image_c) = ec.get_component_mut::<ImageComponent>(window_c.tab) {
                 image_c.color = tab_color;

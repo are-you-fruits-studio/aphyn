@@ -128,7 +128,10 @@ fn spawn_source_row(mut ent: EntitiesHolderMut, assets: &StandardAssetsResource,
         (ent_source, HorizontalAlign::Left, PAL.text_3),
         (ent_badge, HorizontalAlign::Right, PAL.text_3),
     ] {
-        ent.set_components(e, (GlobalRectComponent::default(), GlobalDisableableComponent::default(), padded));
+        ent.set_components(
+            e,
+            (GlobalRectComponent::default(), GlobalDisableableComponent::default(), padded),
+        );
         ent.set_components(e, text(align, color));
         set_parent(ent.as_mut(), e, ent_row);
     }

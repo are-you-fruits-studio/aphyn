@@ -29,11 +29,20 @@ pub fn blend(top: Vec4<f32>, bottom: Vec4<f32>, alpha: f32) -> Vec4<f32> {
         let (t, b) = (linear_to_srgb(t), linear_to_srgb(b));
         srgb_to_linear(b + (t - b) * alpha)
     };
-    Vec4::new(channel(top.x, bottom.x), channel(top.y, bottom.y), channel(top.z, bottom.z), 1.0)
+    Vec4::new(
+        channel(top.x, bottom.x),
+        channel(top.y, bottom.y),
+        channel(top.z, bottom.z),
+        1.0,
+    )
 }
 
 fn linear_to_srgb(v: f32) -> f32 {
-    if v <= 0.0031308 { v * 12.92 } else { 1.055 * v.powf(1.0 / 2.4) - 0.055 }
+    if v <= 0.0031308 {
+        v * 12.92
+    } else {
+        1.055 * v.powf(1.0 / 2.4) - 0.055
+    }
 }
 
 pub struct Palette {

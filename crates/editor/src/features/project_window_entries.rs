@@ -228,7 +228,9 @@ fn spawn_project_window_entries(
                     vertical_align: VerticalAlign::Middle,
                     horizontal_align: HorizontalAlign::Right,
                 },
-                ProjectOpenLabelComponent { path: entry.path.clone() },
+                ProjectOpenLabelComponent {
+                    path: entry.path.clone(),
+                },
             ),
         );
         set_parent(ec.as_mut(), ent_open_label, spawned.ent_entry);

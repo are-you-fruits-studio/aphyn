@@ -194,7 +194,12 @@ pub fn spawn_scene_light_panel(
         PANEL_ROW_WIDTH - SWITCH_WIDTH - PANEL_ROW_GAP,
         PAL.text_2,
     );
-    spawn_switch(ent.as_mut(), assets_res, ent_override_row, SceneAmbientOverrideButtonComponent);
+    spawn_switch(
+        ent.as_mut(),
+        assets_res,
+        ent_override_row,
+        SceneAmbientOverrideButtonComponent,
+    );
 
     let ent_shadows_row = spawn_panel_row(ent.as_mut(), ent_content);
     spawn_panel_text(
@@ -273,7 +278,12 @@ fn spawn_panel_row(mut ent: EntitiesHolderMut, ent_parent: EntityId) -> EntityId
 }
 
 // the track is the button; the light panel system colors it and moves the knob (its only child)
-fn spawn_switch<C: 'static + Component>(mut ent: EntitiesHolderMut, assets_res: &StandardAssetsResource, ent_parent: EntityId, marker: C) {
+fn spawn_switch<C: 'static + Component>(
+    mut ent: EntitiesHolderMut,
+    assets_res: &StandardAssetsResource,
+    ent_parent: EntityId,
+    marker: C,
+) {
     let ent_track = ent.create_entity();
     let ent_knob = ent.create_entity();
 
@@ -376,13 +386,7 @@ pub fn init_window_as_game(mut world: WorldDataMut, ent_window: EntityId) {
 }
 
 // a muted line in a view's corner: top (anchor_y 0) or bottom (anchor_y 1)
-fn spawn_view_hint(
-    mut ent: EntitiesHolderMut,
-    assets_res: &StandardAssetsResource,
-    ent_image: EntityId,
-    text: &str,
-    anchor_y: f32,
-) {
+fn spawn_view_hint(mut ent: EntitiesHolderMut, assets_res: &StandardAssetsResource, ent_image: EntityId, text: &str, anchor_y: f32) {
     let ent_hint = ent.create_entity();
 
     ent.set_components(

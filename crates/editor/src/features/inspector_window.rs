@@ -10,7 +10,7 @@ use crate::{
                 InspectedEntityResource, OpenedEntitiesAssetResource,
             },
             systems::{
-                add_component_system, update_inspector_header_system, adjust_non_rigid_composite_system, apply_component_context_menu_system,
+                add_component_system, adjust_non_rigid_composite_system, apply_component_context_menu_system,
                 apply_field_value_context_menu_system, apply_hierarchy_context_menu_system,
                 apply_inspector_dropdown_change_to_simulated_world_system,
                 apply_inspector_field_text_change_to_simulated_world_system, apply_inspector_number_drag_to_simulated_world_system,
@@ -20,7 +20,7 @@ use crate::{
                 save_inspected_asset_from_simulated_world_to_file_system, save_simulated_entities_to_asset_system,
                 select_entity_system, toggle_inspector_checkbox_system, update_add_component_input_visibility_system,
                 update_add_component_variants_system, update_hierarchy_entries_selection, update_hierarchy_window_system,
-                update_inspector_window_system,
+                update_inspector_header_system, update_inspector_window_system,
             },
         },
         number_drag::drag_number_input_field_system,

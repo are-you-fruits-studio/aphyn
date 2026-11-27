@@ -2,7 +2,9 @@ use aphyn::*;
 
 use crate::{
     features::{
-        play_mode::{PlayButtonComponent, ProjectTitleTextComponent}, test_window::WindowsButtonComponent, ui_interaction::ButtonComponent,
+        play_mode::{PlayButtonComponent, ProjectTitleTextComponent},
+        test_window::WindowsButtonComponent,
+        ui_interaction::ButtonComponent,
         ui_window::DockComponent,
     },
     resources::StandardAssetsResource,
