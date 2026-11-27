@@ -140,7 +140,7 @@ fn update_project_title_system(
         .unwrap_or_default();
     let title = match opened_asset.asset_key.is_empty() {
         true => project,
-        false => format!("{project} - {}", opened_asset.asset_key),
+        false => format!("{project} · {}", opened_asset.asset_key),
     };
 
     for text_c in text_q.iter_mut() {

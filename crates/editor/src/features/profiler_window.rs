@@ -666,13 +666,13 @@ pub fn draw_profiler_window_system(
     let mut status = format!("{} frames", profiler.frames.len());
     if let Some(frame) = selected {
         status += &format!(
-            " - frame {}: {} ms",
+            " · frame {}: {} ms",
             frame.number,
             format_ms(frame.duration_ns() as f64 / NS_PER_MS, 0.01)
         );
     }
     if profiler.is_recording && !simulated_world.is_playing() {
-        status += " - records in play mode";
+        status += " · records in play mode";
     }
     set_text(&mut ent, ui.status_text, &status, PAL.text_1);
 
@@ -913,8 +913,8 @@ fn draw_histogram(ent: &mut EntitiesHolderMut, ui: &UiEntities, profiler: &Profi
     } else {
         let max = format_ms(max_ns as f64 / NS_PER_MS, 0.01);
         match max_ns as f64 > scale_ns {
-            true => format!("max {max} ms (bars clipped at {HISTOGRAM_CLIP_MS} ms) - lines: 16.7 ms, 33.3 ms"),
-            false => format!("max {max} ms - lines: 16.7 ms, 33.3 ms"),
+            true => format!("max {max} ms (bars clipped at {HISTOGRAM_CLIP_MS} ms) · lines: 16.7 ms, 33.3 ms"),
+            false => format!("max {max} ms · lines: 16.7 ms, 33.3 ms"),
         }
     };
     set_text(ent, ui.histogram_label, &label, PAL.text_3);
@@ -1023,8 +1023,8 @@ fn schedule_name(tag: u64) -> &'static str {
 
 fn span_title(span: &ProfileSpan) -> String {
     match span.kind.is_job() {
-        false => format!("{} - {}", kind_name(span.kind), span.name.as_str()),
-        true => format!("{} - started by {}", kind_name(span.kind), span.name.as_str()),
+        false => format!("{} · {}", kind_name(span.kind), span.name.as_str()),
+        true => format!("{} · started by {}", kind_name(span.kind), span.name.as_str()),
     }
 }
 
@@ -1039,14 +1039,14 @@ fn span_details(frame: &ProfiledFrame, span: &ProfileSpan) -> String {
     let start_ms = (span.start_ns as f64 - frame.start_ns as f64) / NS_PER_MS;
 
     let mut details = format!(
-        "{} - frame {} - start {} ms - time {} ms",
+        "{} · frame {} · start {} ms · time {} ms",
         lane_name(span.thread, frame.frame_threads),
         frame.number,
         format_ms(start_ms, 0.001),
         format_ms(span.duration_ns() as f64 / NS_PER_MS, 0.001),
     );
     if !context.is_empty() {
-        details += " - ";
+        details += " · ";
         details += &context;
     }
     details

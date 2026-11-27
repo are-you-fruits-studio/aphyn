@@ -168,29 +168,39 @@ fn run_editor_app(project_path: &str) {
 fn init_system(mut world: WorldDataMut) {
     let (mut res, _ec, _evt) = world.as_tuple_mut();
 
-    let standard_ui_assets = res.get::<StandardUiAssetsResource>().unwrap();
+    let mut load_editor_font = |data: &[u8], size: f32, weight: f32| {
+        let mut settings = FontRasterSettings::new(size);
+        settings.weight = Some(weight);
 
-    let font = standard_ui_assets.font_px_8_12.clone();
-    let texture_text = standard_ui_assets.texture_text_px_8_8.clone();
+        let render_api = unsafe { &*res.get_ptr::<RenderApiResource>().unwrap() };
+        let textures = res.get_mut::<AssetStorageResource<StandardTexture>>().unwrap();
+        let font = load_font(render_api, textures, data, &settings).unwrap();
+
+        let mut text_data = MaterialData::new();
+        text_data.insert("color_tex", MaterialDataValue::Texture(font.texture.clone()));
+        let material = create_material_from_template_key(res.as_ref(), BUILTIN_TEMPLATE_UI_BLENDED_UNLIT, text_data).unwrap();
+
+        let font = res.get_mut::<AssetStorageResource<Font>>().unwrap().insert(font);
+        let material = res.get_mut::<AssetStorageResource<Material>>().unwrap().insert(material);
+        (font, material)
+    };
+
+    let (font, material_text) = load_editor_font(include_bytes!("../assets/fonts/Onest.ttf"), theme::FONT, 400.0);
+    let (font_mono, material_text_mono) =
+        load_editor_font(include_bytes!("../assets/fonts/JetBrainsMono.ttf"), theme::FONT_MONO, 400.0);
 
     let material_panel =
         create_material_from_template_key(res.as_ref(), BUILTIN_TEMPLATE_UI_OPAQUE_UNLIT, MaterialData::new()).unwrap();
-
-    let mut text_data = MaterialData::new();
-    text_data.insert("color_tex", MaterialDataValue::Texture(texture_text.clone()));
-    let material_text = create_material_from_template_key(res.as_ref(), BUILTIN_TEMPLATE_UI_OPAQUE_UNLIT, text_data).unwrap();
-
-    let materials_res = res.get_mut::<AssetStorageResource<Material>>().unwrap();
-
-    let material_panel = materials_res.insert(material_panel);
-    let material_text = materials_res.insert(material_text);
+    let material_panel = res.get_mut::<AssetStorageResource<Material>>().unwrap().insert(material_panel);
 
     res.insert(UiInteractionResource::default());
 
     res.insert(StandardAssetsResource {
-        material_panel: material_panel.clone(),
-        material_text: material_text.clone(),
+        material_panel,
+        material_text,
         font,
+        material_text_mono,
+        font_mono,
     });
 
     prefabs::editor_window(world.as_mut());

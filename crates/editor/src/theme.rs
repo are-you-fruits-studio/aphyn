@@ -11,6 +11,7 @@ pub const CONTROL_H: f32 = 24.0;
 pub const CONTROL_H_SM: f32 = 20.0;
 pub const INDENT: f32 = 14.0;
 pub const FONT: f32 = 12.0;
+pub const FONT_MONO: f32 = 11.0;
 pub const PAD_X: f32 = 8.0;
 pub const SCROLLBAR_W: f32 = 6.0;
 pub const SCROLLBAR_HANDLE_W: f32 = 4.0;

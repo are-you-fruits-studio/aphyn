@@ -76,7 +76,7 @@ pub fn init_window_as_scene(mut world: WorldDataMut, ent_window: EntityId) {
         ent.as_mut(),
         assets_res,
         ent_image,
-        "RMB look - WASD fly - double-click in Hierarchy to focus",
+        "RMB look · WASD fly · double-click in Hierarchy to focus",
         1.0,
     );
 
@@ -180,7 +180,7 @@ pub fn spawn_scene_light_panel(
         ent.as_mut(),
         assets_res,
         ent_title_row,
-        "SCENE LIGHT - EDITOR ONLY".into(),
+        "SCENE LIGHT · EDITOR ONLY".into(),
         PANEL_ROW_WIDTH,
         PAL.text_3,
     );
@@ -403,12 +403,12 @@ fn spawn_view_hint(mut ent: EntitiesHolderMut, assets_res: &StandardAssetsResour
             },
             BatchedMeshComponent::default(),
             MaterialComponent {
-                material: assets_res.material_text.clone(),
+                material: assets_res.material_text_mono.clone(),
             },
             TextComponent {
                 color: PAL.text_3,
-                font: assets_res.font.clone(),
-                font_size: UiVal::px(theme::FONT),
+                font: assets_res.font_mono.clone(),
+                font_size: UiVal::px(theme::FONT_MONO),
                 horizontal_align: HorizontalAlign::Left,
                 vertical_align: VerticalAlign::Middle,
                 horizontal_spacing: UiVal::px(0.0),

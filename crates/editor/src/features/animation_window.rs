@@ -1374,12 +1374,12 @@ pub fn draw_animation_window_system(
         ),
         (Some(w), Some(_)) => {
             let mode = match (is_playing, window.mode) {
-                (true, _) => " - play mode (read-only)",
+                (true, _) => " · play mode (read-only)",
                 (false, AnimationWindowMode::Idle) => "",
-                (false, AnimationWindowMode::Preview) => " - previewing",
-                (false, AnimationWindowMode::Record) => " - recording edits",
+                (false, AnimationWindowMode::Preview) => " · previewing",
+                (false, AnimationWindowMode::Record) => " · recording edits",
             };
-            format!("{root_name} - {}{mode}", clip_key(w, window.root).unwrap_or_default())
+            format!("{root_name} · {}{mode}", clip_key(w, window.root).unwrap_or_default())
         }
     };
     set_text(&mut ent, status_text, &status, PAL.text_2);

@@ -100,7 +100,7 @@ pub fn init_window_as_inspector(mut world: WorldDataMut, ent_window: EntityId) {
                 font: font.clone(),
                 font_size: UiVal::px(theme::FONT),
                 is_y_inverted: true,
-                text: "+ Add component...".into(),
+                text: "+ Add component…".into(),
                 horizontal_spacing: UiVal::px(0.0),
                 vertical_align: VerticalAlign::Middle,
                 horizontal_align: HorizontalAlign::Left,
@@ -196,6 +196,24 @@ pub fn init_window_as_inspector(mut world: WorldDataMut, ent_window: EntityId) {
         ),
     );
     ent.set_components(ent_header_badge, text(PAL.text_3, HorizontalAlign::Right, ""));
+    ent.set_components(
+        ent_header_badge,
+        (
+            MaterialComponent {
+                material: assets_res.material_text_mono.clone(),
+            },
+            TextComponent {
+                color: PAL.text_3,
+                font: assets_res.font_mono.clone(),
+                font_size: UiVal::px(theme::FONT_MONO),
+                is_y_inverted: true,
+                text: FfiString::new(),
+                horizontal_spacing: UiVal::px(0.0),
+                vertical_align: VerticalAlign::Middle,
+                horizontal_align: HorizontalAlign::Right,
+            },
+        ),
+    );
     set_parent(ent.as_mut(), ent_header_badge, ent_scroll_content_asset_type);
 
     ent.set_components(

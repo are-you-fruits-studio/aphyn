@@ -1408,6 +1408,7 @@ pub fn update_hierarchy_window_system(
             spawn_hierarchy_window_entries_recursively(
                 entities.as_mut(),
                 simulated_world.data.as_ref().entities(),
+                &assets,
                 &assets.material_text,
                 &assets.material_panel,
                 &assets.font,
@@ -1431,6 +1432,7 @@ fn set_text_if_changed(text_c: &mut TextComponent, text: &str) {
 fn spawn_hierarchy_window_entries_recursively(
     mut ent: EntitiesHolderMut,
     sim_ent: EntitiesHolderRef,
+    assets: &StandardAssetsResource,
     material_text: &AssetHandle<Material>,
     material_panel: &AssetHandle<Material>,
     font: &AssetHandle<Font>,
@@ -1473,12 +1475,12 @@ fn spawn_hierarchy_window_entries_recursively(
             },
             BatchedMeshComponent::default(),
             MaterialComponent {
-                material: material_text.clone(),
+                material: assets.material_text_mono.clone(),
             },
             TextComponent {
                 color: PAL.text_3,
-                font: font.clone(),
-                font_size: UiVal::px(theme::FONT),
+                font: assets.font_mono.clone(),
+                font_size: UiVal::px(theme::FONT_MONO),
                 is_y_inverted: true,
                 text: format!("#{entity_id}").into(),
                 horizontal_spacing: UiVal::px(0.0),
@@ -1517,6 +1519,7 @@ fn spawn_hierarchy_window_entries_recursively(
         spawn_hierarchy_window_entries_recursively(
             ent.as_mut(),
             sim_ent,
+            assets,
             material_text,
             material_panel,
             font,

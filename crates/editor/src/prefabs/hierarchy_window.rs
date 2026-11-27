@@ -80,12 +80,12 @@ fn spawn_source_row(mut ent: EntitiesHolderMut, assets: &StandardAssetsResource,
         (
             BatchedMeshComponent::default(),
             MaterialComponent {
-                material: assets.material_text.clone(),
+                material: assets.material_text_mono.clone(),
             },
             TextComponent {
                 color,
-                font: assets.font.clone(),
-                font_size: UiVal::px(theme::FONT),
+                font: assets.font_mono.clone(),
+                font_size: UiVal::px(theme::FONT_MONO),
                 is_y_inverted: true,
                 text: FfiString::new(),
                 horizontal_spacing: UiVal::px(0.0),

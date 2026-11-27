@@ -178,12 +178,12 @@ pub fn editor_window(mut world: WorldDataMut) -> EntityId {
             },
             BatchedMeshComponent::default(),
             MaterialComponent {
-                material: assets_res.material_text.clone(),
+                material: assets_res.material_text_mono.clone(),
             },
             TextComponent {
                 color: PAL.text_3,
-                font: assets_res.font.clone(),
-                font_size: UiVal::px(theme::FONT),
+                font: assets_res.font_mono.clone(),
+                font_size: UiVal::px(theme::FONT_MONO),
                 horizontal_align: HorizontalAlign::Right,
                 vertical_align: VerticalAlign::Middle,
                 horizontal_spacing: UiVal::px(0.0),
